@@ -1,0 +1,19 @@
+{
+  "name": "construction-drawing-ai-platform",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace @cdip/api",
+    "dev:web": "npm run dev --workspace @cdip/web",
+    "build": "npm run build --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
+    "typecheck": "npm run typecheck --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
+    "prisma:migrate": "npm run prisma:migrate --workspace @cdip/api",
+    "prisma:generate": "npm run prisma:generate --workspace @cdip/api"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

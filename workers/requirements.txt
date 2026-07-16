@@ -1,0 +1,18 @@
+# Queue consumer (BullMQ-compatible Python client; consumes jobs produced by apps/api)
+bullmq==2.15.0
+redis==5.2.1
+
+# PDF processing — stream one page at a time, never whole files in memory
+PyMuPDF==1.25.2
+pdfplumber==0.11.5
+
+# OCR (FR-7: applied when a page lacks a text layer)
+paddleocr==2.9.1
+paddlepaddle==2.6.2
+opencv-python-headless==4.10.0.84
+
+# Object storage (DigitalOcean Spaces / local MinIO via S3 API)
+boto3==1.36.2
+
+# Config
+python-dotenv==1.0.1

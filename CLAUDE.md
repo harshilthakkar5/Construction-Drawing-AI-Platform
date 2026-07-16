@@ -4,10 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The repository has no source code yet — this file documents the intended architecture and
-conventions so implementation starts consistently. There is no build system, lint config, or
-test suite in place. Once tooling exists, add here: how to install dependencies, run the app
-locally (`docker compose up`), lint, and run a single test per package (web / api / workers).
+Scaffold and wiring only — no product features yet. Common commands (see README.md for full
+setup, including the two `.env` copies and the Python worker venv):
+
+- `docker compose up -d` — local Postgres, Redis, Qdrant, MinIO (+ bucket init)
+- `npm install` — all workspaces; also builds `packages/shared`
+- `npm run prisma:migrate` / `npm run prisma:generate` — migrations / client (workspace `@cdip/api`)
+- `npm run dev:api` (port 4000, `/health` checks Postgres/Redis/Qdrant) and `npm run dev:web` (port 3000)
+- `npm run typecheck` / `npm run build` — all TS workspaces
+- Workers: `cd workers && python src/worker.py` (BullMQ consumer; deps in `requirements.txt`)
+
+No lint config or test suite yet. When tests land, document how to run a single test per
+package here.
 
 ## What we are building
 
@@ -44,7 +52,7 @@ embeddings → summaries.
 ## Monorepo layout
 
 ```
-/apps/web        Next.js frontend
+/apps/web        React + TypeScript frontend (Vite)
 /apps/api         Express REST API
 /workers          Python processing workers
 /packages/shared  Shared types
