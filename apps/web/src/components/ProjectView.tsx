@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAppStore } from "../store";
+import { ChatPanel } from "./ChatPanel";
 import { CombinedViewer } from "./CombinedViewer";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { PortionsPanel } from "./PortionsPanel";
@@ -34,6 +35,9 @@ export function ProjectView({ projectId }: { projectId: string }) {
             <DocumentsPanel projectId={projectId} />
           </div>
         </aside>
+        <section className="w-96 shrink-0 border-r border-gray-200 bg-gray-50">
+          <ChatPanel projectId={projectId} />
+        </section>
         <section className="min-w-0 flex-1">
           <CombinedViewer projectId={projectId} />
         </section>

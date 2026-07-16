@@ -12,8 +12,10 @@ import tempfile
 import fitz  # PyMuPDF
 from PIL import Image
 
+import chunker
 import config
 import db
+import embeddings
 import ocr
 import portions
 import storage
@@ -82,15 +84,47 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
                     storage.page_image_key(project_id, document_id, page_number),
                     text,
                 )
+
+                # Hybrid chunking: structural blocks -> token windows w/ bbox.
+                page_chunks = chunker.chunk_page(page.get_text("blocks"))
+                if not page_chunks and text:
+                    # OCR-only page: no positioned blocks, so one chunk spans
+                    # the whole page rect (coarse but truthful highlight).
+                    rect = page.rect
+                    page_chunks = [
+                        chunker.Chunk(
+                            text=text,
+                            bbox={"x": 0, "y": 0, "width": rect.width, "height": rect.height},
+                            token_count=chunker.estimate_tokens(text),
+                        )
+                    ]
+                db.replace_page_chunks(document_id, page_number, page_chunks)
                 processed += 1
         finally:
             pdf.close()
 
     db.recompute_combined_numbering(project_id)
     detected = portions.detect_and_store(project_id)
+    db.assign_chunk_portions(project_id)
+
+    # Embed this document's new chunks, then refresh payloads for the rest of
+    # the project (portion/discipline/combined page may have shifted).
+    to_embed = db.chunks_to_embed(document_id)
+    embedded_ids = embeddings.embed_document_chunks(to_embed)
+    if embedded_ids:
+        db.set_embedding_ids(embedded_ids)
+        others = [
+            c
+            for c in db.embedded_chunk_payloads(project_id)
+            if c["chunk_id"] not in set(embedded_ids)
+        ]
+        embeddings.refresh_payloads(others)
+
     db.set_document_status(document_id, "completed")
     return {
         "portions": len(detected),
+        "chunks": len(to_embed),
+        "embedded": len(embedded_ids),
         "pages": page_count,
         "processed": processed,
         "resumedSkip": skipped,

@@ -23,5 +23,8 @@ Pillow==11.1.0
 # Claude (Haiku fallback classification of ambiguous title blocks)
 anthropic==0.116.0
 
+# Voyage embeddings + Qdrant REST (httpx also ships with anthropic)
+httpx==0.28.1
+
 # Config
 python-dotenv==1.0.1

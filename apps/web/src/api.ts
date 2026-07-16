@@ -1,4 +1,5 @@
 import type {
+  ChatResponseDto,
   DocumentDto,
   InitiateUploadResponse,
   ManifestEntryDto,
@@ -56,6 +57,12 @@ export const api = {
     ),
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
+
+  ask: (projectId: string, body: { question: string; sessionId?: string; portionId?: string }) =>
+    request<ChatResponseDto>(`/projects/${projectId}/chat`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   documentFileUrl: (projectId: string, documentId: string) =>

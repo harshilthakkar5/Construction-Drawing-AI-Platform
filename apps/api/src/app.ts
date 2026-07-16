@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 import { env } from "./env.js";
 import { redis } from "./redis.js";
+import { chatRouter } from "./routes/chat.js";
 import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
@@ -43,6 +44,7 @@ export function createApp() {
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/portions", portionsRouter);
+  app.use("/projects/:projectId/chat", chatRouter);
   app.use("/projects/:projectId", pagesRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

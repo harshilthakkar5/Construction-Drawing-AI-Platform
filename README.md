@@ -98,15 +98,23 @@ With infra, API, web, and the Python worker all running:
    appear in the sidebar — classified from title-block sheet numbers, with a
    Claude Haiku fallback for ambiguous pages when `ANTHROPIC_API_KEY` is set.
    Clicking a portion jumps the viewer to its first page.
+6. With `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` set (API + worker), ask
+   questions in the middle chat pane. Answers cite numbered sources; clicking
+   a citation or source chip jumps the viewer to that page. The dropdown
+   restricts retrieval to a single portion.
 
 ## Status
 
-Phases 1–2 complete: project CRUD (FR-1..3), direct-to-storage resumable
+Phases 1–3 complete: project CRUD (FR-1..3), direct-to-storage resumable
 multipart upload (FR-5), virtual combined page manifest (FR-6), per-page
-extraction with OCR fallback (FR-7/8), visible processing status with retry +
-partial-result preservation (FR-9), the lazy combined viewer (FR-17 right pane,
-FR-20), and portion detection with sidebar click-to-jump (FR-15/16) — rule-based
-sheet-prefix classification plus Claude Haiku strict-JSON fallback (Redis-cached)
-for ambiguous pages. Manifest numbering is unit-tested
-(`apps/api/src/manifest.test.ts`), the classifier in `workers/tests/`.
-Summaries, chunking/embeddings, and chat are not built yet.
+extraction with OCR fallback (FR-7/8), processing status with retry +
+partial-result preservation (FR-9), the lazy combined viewer (FR-17, FR-20),
+portion detection with sidebar click-to-jump (FR-15/16), hybrid chunking
+(structural blocks → 400–800-token windows, 100-token overlap, bbox metadata),
+batched Voyage embeddings in Qdrant (project-partitioned payloads), and RAG
+chat (FR-14, FR-18, FR-21..23): grounded answers with chunk-ID citations
+mapped to document/page/bbox, clickable sources that jump the viewer, portion
+filter, Redis retrieval cache, and full exchange persistence. Unit tests:
+manifest (`apps/api/src/manifest.test.ts`), citations
+(`apps/api/src/citations.test.ts`), classifier + chunker (`workers/tests/`).
+Hierarchical summaries and viewer bbox highlighting are not built yet.

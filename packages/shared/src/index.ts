@@ -98,6 +98,25 @@ export interface PortionDto {
   summary: string | null;
 }
 
+/** A numbered, clickable chat source (FR-21): chunk → document/page/bbox. */
+export interface ChatSourceDto {
+  index: number;
+  label: string;
+  chunkId: string;
+  documentId: string;
+  filename: string;
+  pageNumber: number;
+  combinedPageNumber: number;
+  bbox: BBox;
+}
+
+export interface ChatResponseDto {
+  sessionId: string;
+  /** Answer text with [n] citation markers matching sources[].index. */
+  answer: string;
+  sources: ChatSourceDto[];
+}
+
 export interface InitiateUploadResponse {
   documentId: string;
   uploadId: string;

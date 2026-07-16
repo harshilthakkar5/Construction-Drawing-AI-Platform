@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phases 1–2 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
+Phases 1–3 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
 (per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, lazy
-combined react-pdf viewer, and portion detection (rule-based sheet-prefix classifier + Claude
-Haiku strict-JSON fallback with Redis caching, portions rebuilt per project after each document
-completes, sidebar click-to-jump). Not built yet: chunking, embeddings, summaries, chat.
+combined react-pdf viewer, portion detection (rule classifier + Haiku fallback), hybrid
+chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned by project,
+payloads refreshed after portion rebuilds), and RAG chat with chunk-ID citations mapped to
+document/page/bbox, portion filter, Redis retrieval cache, and FR-23 persistence. Not built
+yet: hierarchical summaries (portion summary slot in the sidebar is a placeholder), viewer
+bbox highlighting.
+
+Chat and embedding need `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`; without them the worker skips
+embedding (chunks wait with NULL embeddingId) and the chat endpoint returns 503. For offline
+E2E, both APIs can be pointed at a stub via `ANTHROPIC_BASE_URL`/`VOYAGE_BASE_URL`.
 
 Common commands (see README.md for full setup, including the two `.env` copies and the Python
 worker venv):
@@ -28,7 +35,9 @@ Key invariant: the combined-numbering rule (documents ordered by `createdAt` the
 1..N within each) is implemented twice — `apps/api/src/manifest.ts` (canonical, unit-tested) and
 the recompute SQL in `workers/src/db.py`. If you change one, change both. The same duplication
 exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
-contracts (`packages/shared` ↔ `workers/src/contracts.py`).
+contracts (`packages/shared` ↔ `workers/src/contracts.py`). The citation format is another
+cross-cutting contract: Claude is told to emit `[chunk:<uuid>]` (apps/api/src/claude.ts) and
+`apps/api/src/citations.ts` (unit-tested) parses/renumbers it.
 
 No lint config yet.
 
