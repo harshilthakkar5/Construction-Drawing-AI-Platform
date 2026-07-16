@@ -2,6 +2,7 @@ import type {
   DocumentDto,
   InitiateUploadResponse,
   ManifestEntryDto,
+  PortionDto,
   ProjectDto,
 } from "@cdip/shared";
 
@@ -53,6 +54,8 @@ export const api = {
       `/projects/${projectId}/documents/${documentId}/upload/${encodeURIComponent(uploadId)}/abort`,
       { method: "POST", body: JSON.stringify({}) },
     ),
+
+  listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   documentFileUrl: (projectId: string, documentId: string) =>

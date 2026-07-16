@@ -87,6 +87,17 @@ export interface ManifestEntryDto extends PageManifestEntry {
   hasImage: boolean;
 }
 
+/** FR-15: contiguous run of one discipline in combined numbering. */
+export interface PortionDto {
+  id: string;
+  projectId: string;
+  name: string;
+  discipline: Discipline | "unclassified" | null;
+  startPage: number;
+  endPage: number;
+  summary: string | null;
+}
+
 export interface InitiateUploadResponse {
   documentId: string;
   uploadId: string;

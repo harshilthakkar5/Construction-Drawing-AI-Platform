@@ -15,6 +15,7 @@ from PIL import Image
 import config
 import db
 import ocr
+import portions
 import storage
 
 
@@ -86,8 +87,10 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
             pdf.close()
 
     db.recompute_combined_numbering(project_id)
+    detected = portions.detect_and_store(project_id)
     db.set_document_status(document_id, "completed")
     return {
+        "portions": len(detected),
         "pages": page_count,
         "processed": processed,
         "resumedSkip": skipped,

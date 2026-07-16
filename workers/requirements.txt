@@ -20,5 +20,8 @@ psycopg[binary]==3.2.4
 # Thumbnails
 Pillow==11.1.0
 
+# Claude (Haiku fallback classification of ambiguous title blocks)
+anthropic==0.116.0
+
 # Config
 python-dotenv==1.0.1

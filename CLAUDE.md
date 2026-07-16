@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phase 1 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
-(per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, and the
-lazy combined react-pdf viewer. Not built yet: chunking, embeddings, summaries, portions, chat.
+Phases 1–2 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
+(per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, lazy
+combined react-pdf viewer, and portion detection (rule-based sheet-prefix classifier + Claude
+Haiku strict-JSON fallback with Redis caching, portions rebuilt per project after each document
+completes, sidebar click-to-jump). Not built yet: chunking, embeddings, summaries, chat.
 
 Common commands (see README.md for full setup, including the two `.env` copies and the Python
 worker venv):
@@ -18,7 +20,9 @@ worker venv):
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
 - Workers: `cd workers && python src/worker.py` (BullMQ consumer; deps in `requirements.txt`;
-  PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed)
+  PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
+  does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
+- Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
 
 Key invariant: the combined-numbering rule (documents ordered by `createdAt` then `id`, pages
 1..N within each) is implemented twice — `apps/api/src/manifest.ts` (canonical, unit-tested) and

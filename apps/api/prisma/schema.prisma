@@ -77,13 +77,16 @@ model Page {
 }
 
 model Portion {
-  id        String  @id @default(uuid())
-  projectId String
-  name      String
+  id         String  @id @default(uuid())
+  projectId  String
+  name       String
+  /// Discipline slug (see Discipline in @cdip/shared); one discipline can span
+  /// multiple portion rows when its pages are non-contiguous.
+  discipline String?
   /// Start/end in combined page numbering (FR-15).
-  startPage Int
-  endPage   Int
-  summary   String?
+  startPage  Int
+  endPage    Int
+  summary    String?
 
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   chunks    Chunk[]

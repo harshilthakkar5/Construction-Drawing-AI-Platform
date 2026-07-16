@@ -94,12 +94,19 @@ With infra, API, web, and the Python worker all running:
 4. Browse the combined set on the right: continuous page numbering across all
    PDFs via the virtual page manifest, lazy-loaded react-pdf pages, thumbnail
    rail, and "Go to page" jump.
+5. Once processing finishes, detected portions (Architectural, Structural, …)
+   appear in the sidebar — classified from title-block sheet numbers, with a
+   Claude Haiku fallback for ambiguous pages when `ANTHROPIC_API_KEY` is set.
+   Clicking a portion jumps the viewer to its first page.
 
 ## Status
 
-Phase 1 complete: project CRUD (FR-1..3), direct-to-storage resumable multipart
-upload (FR-5), virtual combined page manifest (FR-6), per-page extraction with
-OCR fallback (FR-7/8), visible processing status with retry + partial-result
-preservation (FR-9), and the lazy combined viewer (FR-17 right pane, FR-20).
-Manifest numbering is unit-tested (`apps/api/src/manifest.test.ts`). Summaries,
-chunking/embeddings, and chat are not built yet.
+Phases 1–2 complete: project CRUD (FR-1..3), direct-to-storage resumable
+multipart upload (FR-5), virtual combined page manifest (FR-6), per-page
+extraction with OCR fallback (FR-7/8), visible processing status with retry +
+partial-result preservation (FR-9), the lazy combined viewer (FR-17 right pane,
+FR-20), and portion detection with sidebar click-to-jump (FR-15/16) — rule-based
+sheet-prefix classification plus Claude Haiku strict-JSON fallback (Redis-cached)
+for ambiguous pages. Manifest numbering is unit-tested
+(`apps/api/src/manifest.test.ts`), the classifier in `workers/tests/`.
+Summaries, chunking/embeddings, and chat are not built yet.

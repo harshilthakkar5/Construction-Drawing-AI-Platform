@@ -44,6 +44,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
       }
       queryClient.invalidateQueries({ queryKey: ["documents", projectId] });
       queryClient.invalidateQueries({ queryKey: ["manifest", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
     }
   }
 

@@ -7,6 +7,7 @@ import { env } from "./env.js";
 import { redis } from "./redis.js";
 import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
+import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 
 export function createApp() {
@@ -41,6 +42,7 @@ export function createApp() {
 
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
+  app.use("/projects/:projectId/portions", portionsRouter);
   app.use("/projects/:projectId", pagesRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

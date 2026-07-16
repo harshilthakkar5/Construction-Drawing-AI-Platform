@@ -84,13 +84,22 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
     });
   }, [groups, nearViewport]);
 
-  // FR-18-style programmatic jump (portions/citations will use this later).
+  // FR-16/FR-18 programmatic jump. Slots above the target change height as
+  // thumbnails and PDF canvases lazy-load, so re-assert the scroll position a
+  // few times until the layout settles.
   useEffect(() => {
     if (jumpToPage == null) return;
-    document
-      .getElementById(`combined-page-${jumpToPage}`)
-      ?.scrollIntoView({ block: "start", behavior: "auto" });
-    requestJump(null);
+    const scroll = () =>
+      document
+        .getElementById(`combined-page-${jumpToPage}`)
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
+    scroll();
+    const timers = [300, 800, 1500].map((ms) => setTimeout(scroll, ms));
+    const done = setTimeout(() => requestJump(null), 1600);
+    return () => {
+      timers.forEach(clearTimeout);
+      clearTimeout(done);
+    };
   }, [jumpToPage, requestJump]);
 
   const total = entries.length;

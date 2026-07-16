@@ -83,6 +83,45 @@ def upsert_page(
         )
 
 
+def pages_for_classification(project_id: str) -> list[tuple[int, str | None]]:
+    """(combinedPageNumber, text) for every page in the project, combined order."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."combinedPageNumber", p.text
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s
+            ORDER BY p."combinedPageNumber"
+            """,
+            (project_id,),
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+
+def replace_portions(project_id: str, portions: list[dict]) -> None:
+    """Atomically rebuild the project's portion rows (combined numbering may
+    have shifted). Chunk links use ON DELETE SET NULL, so this stays safe once
+    chunks exist; summaries are recomputed by the incremental pipeline later."""
+    with connect() as conn:
+        conn.execute('DELETE FROM portions WHERE "projectId" = %s', (project_id,))
+        for p in portions:
+            conn.execute(
+                """
+                INSERT INTO portions (id, "projectId", name, discipline, "startPage", "endPage")
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    project_id,
+                    p["name"],
+                    p["discipline"],
+                    p["startPage"],
+                    p["endPage"],
+                ),
+            )
+
+
 def recompute_combined_numbering(project_id: str) -> None:
     """Renumber every page in the project (run after a document completes)."""
     with connect() as conn:
