@@ -10,6 +10,7 @@
     "dev:web": "npm run dev --workspace @cdip/web",
     "build": "npm run build --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
     "typecheck": "npm run typecheck --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
+    "test": "npm run test --workspace @cdip/api",
     "prisma:migrate": "npm run prisma:migrate --workspace @cdip/api",
     "prisma:generate": "npm run prisma:generate --workspace @cdip/api"
   },

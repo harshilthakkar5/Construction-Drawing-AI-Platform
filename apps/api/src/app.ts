@@ -1,8 +1,13 @@
 import cors from "cors";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+import { ZodError } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 import { env } from "./env.js";
 import { redis } from "./redis.js";
+import { documentsRouter } from "./routes/documents.js";
+import { pagesRouter } from "./routes/pages.js";
+import { projectsRouter } from "./routes/projects.js";
 
 export function createApp() {
   const app = express();
@@ -32,6 +37,21 @@ export function createApp() {
 
     const healthy = Object.values(checks).every((s) => s === "ok");
     res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", checks });
+  });
+
+  app.use("/projects", projectsRouter);
+  app.use("/projects/:projectId/documents", documentsRouter);
+  app.use("/projects/:projectId", pagesRouter);
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof ZodError) {
+      return void res.status(400).json({ error: "validation failed", issues: err.issues });
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      return void res.status(404).json({ error: "not found" });
+    }
+    console.error(err);
+    res.status(500).json({ error: "internal error" });
   });
 
   return app;

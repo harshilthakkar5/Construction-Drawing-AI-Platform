@@ -4,18 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Scaffold and wiring only — no product features yet. Common commands (see README.md for full
-setup, including the two `.env` copies and the Python worker venv):
+Phase 1 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
+(per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, and the
+lazy combined react-pdf viewer. Not built yet: chunking, embeddings, summaries, portions, chat.
+
+Common commands (see README.md for full setup, including the two `.env` copies and the Python
+worker venv):
 
 - `docker compose up -d` — local Postgres, Redis, Qdrant, MinIO (+ bucket init)
 - `npm install` — all workspaces; also builds `packages/shared`
 - `npm run prisma:migrate` / `npm run prisma:generate` — migrations / client (workspace `@cdip/api`)
 - `npm run dev:api` (port 4000, `/health` checks Postgres/Redis/Qdrant) and `npm run dev:web` (port 3000)
-- `npm run typecheck` / `npm run build` — all TS workspaces
-- Workers: `cd workers && python src/worker.py` (BullMQ consumer; deps in `requirements.txt`)
+- `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
+- Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
+- Workers: `cd workers && python src/worker.py` (BullMQ consumer; deps in `requirements.txt`;
+  PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed)
 
-No lint config or test suite yet. When tests land, document how to run a single test per
-package here.
+Key invariant: the combined-numbering rule (documents ordered by `createdAt` then `id`, pages
+1..N within each) is implemented twice — `apps/api/src/manifest.ts` (canonical, unit-tested) and
+the recompute SQL in `workers/src/db.py`. If you change one, change both. The same duplication
+exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
+contracts (`packages/shared` ↔ `workers/src/contracts.py`).
+
+No lint config yet.
 
 ## What we are building
 

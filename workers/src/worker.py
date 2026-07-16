@@ -1,43 +1,57 @@
 """BullMQ consumer entrypoint.
 
-Consumes jobs produced by apps/api on the process-document queue.
-Scaffold only: the processor logs the job and returns — the real pipeline
-(stream pages with PyMuPDF → OCR fallback → extract → chunk → embed) comes later.
-Retry/backoff policy lives on the producer side (apps/api/src/queues.ts), so a
-raised exception here is enough to trigger a retry with exponential backoff.
+Consumes process-document jobs produced by apps/api. Retry policy (attempts,
+exponential backoff) is set by the producer (apps/api/src/queues.ts); raising
+here triggers the retry. FR-9 status flow: a job marks the document
+'processing' on start, 'completed' on success, 'failed' on any failure — a
+retry flips it back to 'processing' when it restarts.
 """
 
 import asyncio
-import os
 import signal
+import traceback
 
 from bullmq import Worker
-from dotenv import load_dotenv
 
+import config
+import db
+import processing
 from contracts import PROCESS_DOCUMENT_QUEUE, ProcessDocumentJob
-
-load_dotenv()
 
 
 async def process_document(job, job_token: str):
     payload = ProcessDocumentJob.from_payload(job.data)
     print(
-        f"[worker] received job {job.id}: project={payload.project_id} "
-        f"document={payload.document_id} key={payload.spaces_key}"
+        f"[worker] job {job.id} attempt {job.attemptsMade + 1}: "
+        f"project={payload.project_id} document={payload.document_id}"
     )
-    # Placeholder: page-streaming pipeline lands here. Partial results must be
-    # persisted per page so a failure at page N preserves pages 1..N-1.
-    return {"ok": True}
+    try:
+        # The pipeline is synchronous (CPU/IO via PyMuPDF, boto3, psycopg);
+        # run it off the event loop so the queue connection stays alive.
+        result = await asyncio.to_thread(
+            processing.process_document,
+            payload.project_id,
+            payload.document_id,
+            payload.spaces_key,
+        )
+        print(f"[worker] job {job.id} done: {result}")
+        return result
+    except Exception:
+        traceback.print_exc()
+        try:
+            db.set_document_status(payload.document_id, "failed")
+        except Exception:
+            traceback.print_exc()
+        raise
 
 
 async def main() -> None:
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
     worker = Worker(
         PROCESS_DOCUMENT_QUEUE,
         process_document,
-        {"connection": redis_url},
+        {"connection": config.REDIS_URL},
     )
-    print(f"[worker] consuming '{PROCESS_DOCUMENT_QUEUE}' via {redis_url}")
+    print(f"[worker] consuming '{PROCESS_DOCUMENT_QUEUE}' via {config.REDIS_URL}")
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

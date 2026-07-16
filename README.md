@@ -61,10 +61,13 @@ Or containerized: `docker build -t cdip-worker workers/`.
 | `npm run dev:web` | Web dev server (Vite) |
 | `npm run typecheck` | Typecheck all TS workspaces |
 | `npm run build` | Build shared, api, and web |
+| `npm test` | Run API unit tests (vitest) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:generate` | Regenerate Prisma client |
 | `docker compose up -d` | Start local infra |
 | `docker compose down` | Stop local infra (add `-v` to wipe data) |
+
+To run a single test file: `npx vitest run src/manifest.test.ts` from `apps/api`.
 
 ## Local service endpoints
 
@@ -78,10 +81,25 @@ Or containerized: `docker build -t cdip-worker workers/`.
 | MinIO API | http://localhost:9000 (bucket `cdip-local`) | minioadmin / minioadmin |
 | MinIO console | http://localhost:9001 | minioadmin / minioadmin |
 
+## Demo flow (Phase 1)
+
+With infra, API, web, and the Python worker all running:
+
+1. Open http://localhost:3000 and create a project.
+2. Open the project and click **Upload PDFs** — files go directly to MinIO/Spaces
+   via presigned multipart upload (resumable; the API never touches file bytes).
+3. Watch the document status move `uploaded → processing → completed` in the left
+   panel while the worker streams pages (text extraction, page PNG, thumbnail,
+   OCR only for pages without a text layer).
+4. Browse the combined set on the right: continuous page numbering across all
+   PDFs via the virtual page manifest, lazy-loaded react-pdf pages, thumbnail
+   rail, and "Go to page" jump.
+
 ## Status
 
-Scaffold and wiring only — no product features yet. The API exposes `/health`
-(checks Postgres, Redis, Qdrant), the web app renders the three-pane layout shell,
-the `process-document` BullMQ queue is wired between the API (producer) and the
-Python worker (consumer), and the initial Prisma migration creates the full schema
-from CLAUDE.md.
+Phase 1 complete: project CRUD (FR-1..3), direct-to-storage resumable multipart
+upload (FR-5), virtual combined page manifest (FR-6), per-page extraction with
+OCR fallback (FR-7/8), visible processing status with retry + partial-result
+preservation (FR-9), and the lazy combined viewer (FR-17 right pane, FR-20).
+Manifest numbering is unit-tested (`apps/api/src/manifest.test.ts`). Summaries,
+chunking/embeddings, and chat are not built yet.

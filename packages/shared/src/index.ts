@@ -49,6 +49,51 @@ export interface PageManifestEntry {
   combinedPageNumber: number;
 }
 
+// --- Spaces/MinIO bucket layout (mirrored in workers/src/storage.py) ---
+
+export const objectKeys = {
+  originalPdf: (projectId: string, documentId: string) =>
+    `projects/${projectId}/pdfs/${documentId}/original.pdf`,
+  pageImage: (projectId: string, documentId: string, page: number) =>
+    `projects/${projectId}/pdfs/${documentId}/pages/${page}.png`,
+  pageThumb: (projectId: string, documentId: string, page: number) =>
+    `projects/${projectId}/pdfs/${documentId}/thumbs/${page}.jpg`,
+  pageText: (projectId: string, documentId: string, page: number) =>
+    `projects/${projectId}/pdfs/${documentId}/text/${page}.txt`,
+} as const;
+
+// --- API DTOs ---
+
+export interface ProjectDto {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface DocumentDto {
+  id: string;
+  projectId: string;
+  filename: string;
+  pages: number;
+  revision: number;
+  status: DocumentStatus;
+  createdAt: string;
+}
+
+/** One combined-viewer page, in manifest order. */
+export interface ManifestEntryDto extends PageManifestEntry {
+  filename: string;
+  hasImage: boolean;
+}
+
+export interface InitiateUploadResponse {
+  documentId: string;
+  uploadId: string;
+  key: string;
+  partSize: number;
+}
+
 // --- BullMQ queues (consumed by the Python workers) ---
 
 export const QUEUES = {

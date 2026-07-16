@@ -49,6 +49,8 @@ model Document {
   pages     Int
   revision  Int            @default(1)
   status    DocumentStatus @default(uploaded)
+  /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
+  createdAt DateTime       @default(now())
 
   project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   pageRows Page[]
