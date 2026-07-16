@@ -24,7 +24,7 @@ embeddings → summaries.
 
 ## Tech stack (fixed — do not substitute)
 
-- Frontend: Next.js (React + TypeScript), TanStack Query, Zustand, Tailwind CSS
+- Frontend: React + TypeScript, TanStack Query, Zustand, Tailwind CSS
 - PDF rendering: PDF.js / react-pdf (programmatic page jump + region highlight)
 - Backend API: Node.js (Express), REST
 - Processing workers: Python (PyMuPDF, pdfplumber, PaddleOCR, OpenCV)
