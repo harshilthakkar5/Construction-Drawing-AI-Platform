@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { QUEUES, type ProcessDocumentJob } from "@cdip/shared";
+import { QUEUES, type ProcessDocumentJob, type SummarizeProjectJob } from "@cdip/shared";
 import { redis } from "./redis.js";
 
 /**
@@ -18,3 +18,9 @@ export const processDocumentQueue = new Queue<ProcessDocumentJob>(
     },
   },
 );
+
+/** Produced by the worker after processing; the API only observes its depth
+ * for queue metrics (Phase 5 telemetry). */
+export const summarizeProjectQueue = new Queue<SummarizeProjectJob>(QUEUES.summarizeProject, {
+  connection: redis,
+});

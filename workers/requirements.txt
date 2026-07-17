@@ -28,3 +28,8 @@ httpx==0.28.1
 
 # Config
 python-dotenv==1.0.1
+
+# Telemetry (Phase 5) — worker degrades to no-op metrics if these are absent
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-prometheus==0.50b0
+prometheus-client==0.21.1

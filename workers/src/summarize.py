@@ -137,12 +137,18 @@ def rollup_prompt(kind: str, label: str, lower: list[dict]) -> str:
 
 # --- Claude calls: direct + Batch API ---
 
+# Prompt caching (Phase 5): the system prompt is byte-identical across every
+# summary call — page, section, portion, project, and every batch entry — so
+# it carries a cache breakpoint. The volatile page/rollup content stays in the
+# user message, after the cached prefix.
+_CACHED_SYSTEM = [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}]
+
 
 def _call_direct(prompt: str) -> str:
     response = _get_client().messages.create(
         model=SUMMARY_MODEL,
         max_tokens=1000,
-        system=_SYSTEM,
+        system=_CACHED_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
     return "".join(b.text for b in response.content if b.type == "text")
@@ -159,7 +165,7 @@ def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
                 "params": {
                     "model": SUMMARY_MODEL,
                     "max_tokens": 1000,
-                    "system": _SYSTEM,
+                    "system": _CACHED_SYSTEM,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             }
@@ -292,4 +298,8 @@ def run(project_id: str) -> dict:
         "project": project_written,
     }
     print(f"[summarize] {project_id}: {result}")
+
+    import cache
+
+    cache.invalidate_summaries(project_id)
     return result

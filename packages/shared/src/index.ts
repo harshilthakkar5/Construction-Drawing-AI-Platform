@@ -78,6 +78,11 @@ export interface DocumentDto {
   pages: number;
   revision: number;
   status: DocumentStatus;
+  /** FR-4: document this row replaces (null for first revisions). */
+  previousVersionId: string | null;
+  /** FR-4: set once a newer revision finished processing; superseded
+   * documents are hidden from the manifest and retrieval. */
+  supersededAt: string | null;
   createdAt: string;
 }
 
@@ -85,6 +90,9 @@ export interface DocumentDto {
 export interface ManifestEntryDto extends PageManifestEntry {
   filename: string;
   hasImage: boolean;
+  /** PDF page size in points (bbox coordinate space) — null until processed. */
+  pageWidth: number | null;
+  pageHeight: number | null;
 }
 
 /** FR-15: contiguous run of one discipline in combined numbering. */
@@ -108,6 +116,41 @@ export interface ChatSourceDto {
   pageNumber: number;
   combinedPageNumber: number;
   bbox: BBox;
+  /** PDF page size in points for FR-19 highlight scaling (null = no highlight). */
+  pageWidth?: number | null;
+  pageHeight?: number | null;
+}
+
+/** FR-19: chunk → viewer location, served by /projects/:id/chunks/:chunkId/location. */
+export interface ChunkLocationDto {
+  chunkId: string;
+  documentId: string;
+  filename: string;
+  pageNumber: number;
+  combinedPageNumber: number;
+  bbox: BBox;
+  pageWidth: number | null;
+  pageHeight: number | null;
+}
+
+// --- Auth (Phase 5 RBAC) ---
+
+export type ProjectRole = "owner" | "member";
+
+export interface UserDto {
+  id: string;
+  email: string;
+  name: string;
+}
+
+export interface AuthResponseDto {
+  token: string;
+  user: UserDto;
+}
+
+export interface ProjectMemberDto extends UserDto {
+  role: ProjectRole;
+  addedAt: string;
 }
 
 export interface ChatResponseDto {

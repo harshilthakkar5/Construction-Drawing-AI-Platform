@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phases 1–4 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
+Phases 1–5 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
 (per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, lazy
 combined react-pdf viewer, portion detection (rule classifier + Haiku fallback), hybrid
 chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned by project,
@@ -13,8 +13,26 @@ document/page/bbox, portion filter, Redis retrieval cache, FR-23 persistence, an
 summaries (page → section → portion → project as a summarize-project BullMQ job; page level is
 incremental and can use the Anthropic Message Batches API via SUMMARY_USE_BATCH=true; every
 item cites chunk IDs with the jump page derived server-side from the first cited chunk;
-section/portion rows cascade-delete on portion rebuild). Not built yet: viewer bbox
-highlighting (FR-19).
+section/portion rows cascade-delete on portion rebuild).
+
+Phase 5 additions: FR-19 bbox highlighting (pages store pdfWidth/pdfHeight; chat sources carry
+bbox+dims; summary items resolve via GET /projects/:id/chunks/:chunkId/location; overlay in
+CombinedViewer scales bbox percentages); auth + RBAC (scrypt passwords in users, Redis
+sessions, Project.ownerId + project_members owner/member; requireAuth on everything below
+/health + /auth, requireProjectMember on /projects/:projectId; media GETs accept ?token=;
+legacy ownerless projects open to any authenticated user); upload validation (%PDF magic,
+filename sanitization, 2 GiB cap) + malware-scan hook (MALWARE_SCAN_URL, fails closed);
+document revisions FR-4 (POST documents with replacesDocumentId → previousVersionId chain; on
+completion the worker supersedes the old doc — excluded from manifest/numbering/summaries via
+supersededAt filters, Qdrant points deleted — and reuses embeddings for unchanged chunks via
+chunks.textHash + Qdrant vector fetch; reuse must run BEFORE old-point deletion); prompt
+caching (cache_control on chat system prompt + retrieved-chunk block in apps/api/src/claude.ts
+and on the summarizer system prompt in workers/src/summarize.py); Redis summaries cache
+(cache:summaries:{projectId}, API reads / worker invalidates — key format duplicated in
+apps/api/src/routes/summaries.ts ↔ workers/src/cache.py); OpenTelemetry metrics (API
+Prometheus endpoint :9464 — HTTP/Qdrant/chat latency, queue depths; worker :9465 — job
+durations; monitoring/ has Prometheus + provisioned Grafana dashboard, both in docker
+compose); README covers DO App Platform/DOKS deployment.
 
 Chat and embedding need `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`; without them the worker skips
 embedding (chunks wait with NULL embeddingId) and the chat endpoint returns 503. For offline

@@ -2,17 +2,19 @@
 
 Manages construction projects, ingests very large sets of construction drawing PDFs
 (100 MB – 1 GB+, 1000+ pages), and provides AI-powered hierarchical summaries plus a
-project-scoped RAG chat assistant with click-to-verify citations. See
+project-scoped RAG chat assistant with click-to-verify citations — every AI statement
+traces to the exact PDF document, page, and bounding box. See
 [CLAUDE.md](./CLAUDE.md) for the full architecture.
 
 ## Repository layout
 
 ```
-apps/web          React + TypeScript frontend (Vite, Tailwind, TanStack Query, Zustand)
-apps/api          Express + TypeScript REST API (Prisma, Zod, BullMQ producer)
-workers           Python processing workers (PyMuPDF, pdfplumber, PaddleOCR, OpenCV; BullMQ consumer)
-packages/shared   Shared TypeScript types (queue names, job payloads, domain types)
-docker-compose.yml  Local Postgres, Redis, Qdrant, MinIO (stand-in for DigitalOcean Spaces)
+apps/web            React + TypeScript frontend (Vite, Tailwind, TanStack Query, Zustand)
+apps/api            Express + TypeScript REST API (Prisma, Zod, BullMQ producer)
+workers             Python processing workers (PyMuPDF, pdfplumber, PaddleOCR, OpenCV; BullMQ consumer)
+packages/shared     Shared TypeScript types (queue names, job payloads, domain types)
+monitoring          Prometheus config + provisioned Grafana dashboard
+docker-compose.yml  Local Postgres, Redis, Qdrant, MinIO (Spaces stand-in), Prometheus, Grafana
 ```
 
 ## Prerequisites
@@ -21,14 +23,14 @@ docker-compose.yml  Local Postgres, Redis, Qdrant, MinIO (stand-in for DigitalOc
 - Docker + Docker Compose
 - Python 3.11+ (workers only)
 
-## Getting started
+## Local development
 
 ```bash
 # 1. Environment
 cp .env.example .env
 cp .env.example apps/api/.env   # Prisma reads DATABASE_URL from apps/api/.env
 
-# 2. Infrastructure (Postgres, Redis, Qdrant, MinIO + bucket init)
+# 2. Infrastructure (Postgres, Redis, Qdrant, MinIO + bucket init, Prometheus, Grafana)
 docker compose up -d
 
 # 3. Node dependencies (also builds packages/shared)
@@ -38,7 +40,7 @@ npm install
 npm run prisma:migrate
 
 # 5. Run the apps (separate terminals)
-npm run dev:api    # http://localhost:4000 (health check: /health)
+npm run dev:api    # http://localhost:4000 (health: /health, metrics: :9464/metrics)
 npm run dev:web    # http://localhost:3000
 ```
 
@@ -48,7 +50,7 @@ npm run dev:web    # http://localhost:3000
 cd workers
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python src/worker.py       # consumes the process-document queue from Redis
+python src/worker.py       # consumes process-document + summarize-project queues
 ```
 
 Or containerized: `docker build -t cdip-worker workers/`.
@@ -66,60 +68,162 @@ Or containerized: `docker build -t cdip-worker workers/`.
 | `npm run prisma:generate` | Regenerate Prisma client |
 | `docker compose up -d` | Start local infra |
 | `docker compose down` | Stop local infra (add `-v` to wipe data) |
+| `cd workers && python -m pytest tests/ -q` | Python worker unit tests |
 
-To run a single test file: `npx vitest run src/manifest.test.ts` from `apps/api`.
+Single TS test file: `npx vitest run src/manifest.test.ts` from `apps/api`.
 
 ## Local service endpoints
 
 | Service | URL | Credentials |
 | --- | --- | --- |
-| API | http://localhost:4000 | — |
+| API | http://localhost:4000 | bearer token from `/auth` |
+| API metrics | http://localhost:9464/metrics | — |
+| Worker metrics | http://localhost:9465/metrics | — |
 | Web | http://localhost:3000 | — |
 | Postgres | localhost:5432 (`cdip`) | postgres / postgres |
 | Redis | localhost:6379 | — |
 | Qdrant | http://localhost:6333 | — |
 | MinIO API | http://localhost:9000 (bucket `cdip-local`) | minioadmin / minioadmin |
 | MinIO console | http://localhost:9001 | minioadmin / minioadmin |
+| Prometheus | http://localhost:9090 | — |
+| Grafana | http://localhost:3001 (dashboard "Construction Drawing AI Platform") | admin / admin |
 
-## Demo flow (Phase 1)
+## Authentication & RBAC
+
+All `/projects` routes require a bearer token; media GETs (`.../file`, `.../thumb`,
+`.../image`) also accept `?token=` because `<img>`/PDF loads can't send headers —
+either way, the API only ever redirects to short-lived presigned storage URLs.
+
+- `POST /auth/register {email, name, password}` → `{token, user}` (passwords scrypt-hashed;
+  sessions live in Redis with a sliding 7-day TTL)
+- `POST /auth/login` / `POST /auth/logout` / `GET /auth/me`
+- Creating a project makes you its **owner**; owners manage the project and members,
+  **members** can view, upload, and chat.
+- Member management (owner-only writes):
+  `GET/POST /projects/:id/members` (`{email, role}`), `DELETE /projects/:id/members/:userId`.
+- Projects created before Phase 5 have no owner and stay accessible to any
+  authenticated user.
+
+Uploads are validated after completion (must start with the `%PDF-` magic bytes,
+`.pdf` filename, 2 GiB cap, sanitized name) and pass through a malware-scan hook:
+set `MALWARE_SCAN_URL` to a scanner endpoint (`POST {key, url}` →
+`{"status": "clean"|"infected"}`, e.g. a small ClamAV REST sidecar); scanner failures
+block the file. Unset, scanning is skipped.
+
+## Document revisions (FR-4)
+
+Click **New revision** on a completed document (or POST `/documents` with
+`replacesDocumentId`) to upload a replacement drawing set. When the new revision
+finishes processing, the old one is marked superseded: it leaves the combined viewer,
+the page numbering, retrieval (its Qdrant points are deleted), and the summary
+rollups, but its rows are kept for history. Chunks whose text is unchanged **reuse
+the previous revision's embeddings** (no Voyage call).
+
+## Demo flow
 
 With infra, API, web, and the Python worker all running:
 
-1. Open http://localhost:3000 and create a project.
-2. Open the project and click **Upload PDFs** — files go directly to MinIO/Spaces
-   via presigned multipart upload (resumable; the API never touches file bytes).
-3. Watch the document status move `uploaded → processing → completed` in the left
-   panel while the worker streams pages (text extraction, page PNG, thumbnail,
-   OCR only for pages without a text layer).
-4. Browse the combined set on the right: continuous page numbering across all
-   PDFs via the virtual page manifest, lazy-loaded react-pdf pages, thumbnail
-   rail, and "Go to page" jump.
-5. Once processing finishes, detected portions (Architectural, Structural, …)
-   appear in the sidebar — classified from title-block sheet numbers, with a
-   Claude Haiku fallback for ambiguous pages when `ANTHROPIC_API_KEY` is set.
-   Clicking a portion jumps the viewer to its first page.
-6. With `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` set (API + worker), ask
-   questions in the middle chat pane. Answers cite numbered sources; clicking
-   a citation or source chip jumps the viewer to that page. The dropdown
-   restricts retrieval to a single portion.
-7. After processing, the worker builds bottom-up summaries (page → section →
-   portion → project). The sidebar shows the project summary by default and a
-   portion's summary when selected; every summary item jumps the viewer to its
-   source page. Set `SUMMARY_USE_BATCH=true` on the worker to run bulk page
-   summaries through the Anthropic Message Batches API.
+1. Open http://localhost:3000, register an account, and create a project.
+2. Click **Upload PDFs** — files go directly to MinIO/Spaces via presigned multipart
+   upload (resumable; the API never touches file bytes).
+3. Watch the document status move `uploaded → processing → completed` while the worker
+   streams pages (text/PNG/thumb extraction, OCR fallback).
+4. Browse the combined set: continuous numbering across PDFs via the virtual page
+   manifest, lazy-loaded pages, thumbnail rail, "Go to page".
+5. Detected portions (Architectural, Structural, …) appear in the sidebar; clicking one
+   jumps the viewer and filters the summary panel.
+6. With `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY` set (API + worker), chat in the middle
+   pane. Clicking a citation, source chip, or summary item jumps the viewer to the page
+   **and highlights the cited bounding box** (FR-19).
+7. Bottom-up summaries (page → section → portion → project) build after processing;
+   `SUMMARY_USE_BATCH=true` routes bulk page summaries through the Anthropic Message
+   Batches API.
+8. Grafana (http://localhost:3001) shows API latency, queue depth, worker job
+   durations, Qdrant search latency, and the retrieval-cache hit ratio.
+
+## Caching
+
+- **Prompt caching**: the chat system prompt + retrieved-chunk block and the
+  summarizer's shared system prompt carry `cache_control` breakpoints.
+- **Redis**: chat retrievals (`retrieval:*`, 1h TTL) and per-project summary lists
+  (`cache:summaries:*`, invalidated by the worker after each summarize run).
+- **Embeddings**: unchanged chunks across document revisions reuse stored Qdrant
+  vectors.
+
+## Monitoring
+
+The API exposes OpenTelemetry metrics via a Prometheus endpoint on `:9464`
+(HTTP latency by route, Qdrant search latency, chat latency, retrieval-cache
+hits, BullMQ queue depths); the worker exposes job durations/counts on `:9465`.
+`docker compose up` starts Prometheus (scraping both through
+`host.docker.internal`) and Grafana with a provisioned dashboard
+(`monitoring/grafana/dashboards/cdip.json`). In production, point
+`monitoring/prometheus.yml` targets at the deployed api/worker services.
+
+## Deploying to DigitalOcean
+
+The stack is designed for **App Platform** (simplest) or **DOKS** (Kubernetes, for
+independent worker autoscaling). Either way you need these managed services:
+
+| Dependency | DigitalOcean product |
+| --- | --- |
+| PostgreSQL | Managed Database (Postgres 16) |
+| Redis | Managed Database (Redis/Valkey) |
+| Qdrant | DOKS pod / Droplet running `qdrant/qdrant` (or Qdrant Cloud) |
+| Object storage | Spaces bucket (e.g. region `blr1`) with CDN enabled for thumbnails |
+
+### Spaces configuration
+
+Create a bucket and an access key, then set (on both api and worker):
+
+```
+SPACES_ENDPOINT=https://blr1.digitaloceanspaces.com   # your region
+SPACES_BUCKET=<bucket name>
+SPACES_KEY=<access key>
+SPACES_SECRET=<secret>
+```
+
+The code uses the AWS S3 SDK/boto3 with an endpoint override, so no code changes are
+needed between MinIO and Spaces. Add a CORS rule on the bucket allowing `PUT` from
+your web origin (the browser uploads parts directly with presigned URLs) and `GET`
+for the viewer.
+
+### App Platform
+
+Create one app with three components from this repo:
+
+1. **api** (service) — build: `npm install && npm run build`; run:
+   `npm run prisma:generate --workspace @cdip/api && node apps/api/dist/index.js`;
+   HTTP port 4000. Run migrations as a pre-deploy job:
+   `npx prisma migrate deploy --schema apps/api/prisma/schema.prisma`.
+2. **worker** (worker) — Dockerfile `workers/Dockerfile`. Scale instance count on
+   queue depth (the `bullmq_queue_jobs` metric); API and workers scale independently.
+3. **web** (static site) — build: `npm install && npm run build`; output
+   `apps/web/dist`; set `VITE_API_URL` to the api component's public URL.
+
+Environment (api + worker): `DATABASE_URL`, `REDIS_URL`, `QDRANT_URL`, the `SPACES_*`
+vars above, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, and optionally
+`MALWARE_SCAN_URL`, `SUMMARY_USE_BATCH`, `CHAT_MODEL`, `SUMMARY_MODEL`. Use App
+Platform encrypted env vars for all secrets; TLS is terminated by the platform and
+managed databases encrypt at rest.
+
+### DOKS
+
+Deploy the api and worker as Deployments (images built from `apps/api` and
+`workers/`), Qdrant as a StatefulSet with a volume, and the web build behind the
+static-site CDN of your choice. Give the worker a HorizontalPodAutoscaler driven by
+the queue-depth metric (Prometheus adapter on `bullmq_queue_jobs{state="waiting"}`).
+Run `prisma migrate deploy` as a Job per release. Scrape `api:9464` and
+`worker:9465` with your Prometheus and import
+`monitoring/grafana/dashboards/cdip.json`.
 
 ## Status
 
-Phases 1–3 complete: project CRUD (FR-1..3), direct-to-storage resumable
-multipart upload (FR-5), virtual combined page manifest (FR-6), per-page
-extraction with OCR fallback (FR-7/8), processing status with retry +
-partial-result preservation (FR-9), the lazy combined viewer (FR-17, FR-20),
-portion detection with sidebar click-to-jump (FR-15/16), hybrid chunking
-(structural blocks → 400–800-token windows, 100-token overlap, bbox metadata),
-batched Voyage embeddings in Qdrant (project-partitioned payloads), and RAG
-chat (FR-14, FR-18, FR-21..23): grounded answers with chunk-ID citations
-mapped to document/page/bbox, clickable sources that jump the viewer, portion
-filter, Redis retrieval cache, and full exchange persistence. Unit tests:
-manifest (`apps/api/src/manifest.test.ts`), citations
-(`apps/api/src/citations.test.ts`), classifier + chunker (`workers/tests/`).
-Hierarchical summaries and viewer bbox highlighting are not built yet.
+Phases 1–5 complete. Phase 5 adds: FR-19 click-to-highlight (bbox overlay in the
+combined viewer, wired from chat citations and summary items), auth + project RBAC
+(owner/member), presigned-URL-only media with upload validation and a malware-scan
+hook, input sanitization, document revisions with supersede semantics and embedding
+reuse, Anthropic prompt caching, Redis caching of summaries and repeat retrievals,
+OpenTelemetry metrics with a Prometheus/Grafana stack, and this deployment guide.
+Unit tests: manifest, citations, sanitization, RBAC/passwords (`apps/api/src/*.test.ts`),
+classifier, chunker, summarizer, embedding reuse (`workers/tests/`).

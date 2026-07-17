@@ -100,14 +100,85 @@ def refresh_payloads(chunks: list[dict]) -> None:
             ).raise_for_status()
 
 
-def embed_document_chunks(chunks: list[dict]) -> list[str]:
-    """Embed + upsert; returns the chunk IDs now present in Qdrant."""
-    if not chunks:
-        return []
-    if not voyage_available():
-        print(f"[embeddings] VOYAGE_API_KEY not set — skipping {len(chunks)} chunks")
+def fetch_vectors(point_ids: list[str]) -> dict[str, list[float]]:
+    """Retrieve stored vectors by point ID (revision embedding reuse)."""
+    if not point_ids:
+        return {}
+    out: dict[str, list[float]] = {}
+    with httpx.Client(timeout=120) as client:
+        for start in range(0, len(point_ids), 256):
+            response = client.post(
+                f"{QDRANT_URL}/collections/{COLLECTION}/points",
+                json={
+                    "ids": point_ids[start : start + 256],
+                    "with_vector": True,
+                    "with_payload": False,
+                },
+            )
+            response.raise_for_status()
+            for point in response.json().get("result", []):
+                if point.get("vector") is not None:
+                    out[str(point["id"])] = point["vector"]
+    return out
+
+
+def delete_document_points(document_id: str) -> None:
+    """Remove a superseded revision's points so retrieval never returns it."""
+    with httpx.Client(timeout=120) as client:
+        response = client.post(
+            f"{QDRANT_URL}/collections/{COLLECTION}/points/delete?wait=true",
+            json={"filter": {"must": [{"key": "document_id", "match": {"value": document_id}}]}},
+        )
+        if response.status_code != 404:  # 404 = collection never created
+            response.raise_for_status()
+
+
+def reuse_chunk_vectors(pairs: list[tuple[dict, str]]) -> list[str]:
+    """Copy vectors from a previous revision's points to new chunk IDs
+    (unchanged text ⇒ identical embedding — no Voyage call). pairs:
+    (new chunk dict, old embedded chunk id). Returns new chunk IDs upserted."""
+    if not pairs:
         return []
     ensure_collection()
-    vectors = embed_texts([c["text"] for c in chunks], input_type="document")
-    upsert_chunks(chunks, vectors)
-    return [c["chunk_id"] for c in chunks]
+    vectors_by_old_id = fetch_vectors([old_id for _, old_id in pairs])
+    reusable = [(chunk, vectors_by_old_id[old_id]) for chunk, old_id in pairs if old_id in vectors_by_old_id]
+    if not reusable:
+        return []
+    upsert_chunks([c for c, _ in reusable], [v for _, v in reusable])
+    return [c["chunk_id"] for c, _ in reusable]
+
+
+def embed_document_chunks(chunks: list[dict], previous_document_id: str | None = None) -> list[str]:
+    """Embed + upsert; returns the chunk IDs now present in Qdrant.
+
+    Revision reuse (FR-4 / non-functional rule "reuse embeddings for unchanged
+    revisions"): when the document replaces a previous revision, chunks whose
+    textHash matches an embedded chunk of that revision copy its vector out of
+    Qdrant instead of calling Voyage.
+    """
+    if not chunks:
+        return []
+
+    done: list[str] = []
+    to_embed = chunks
+    if previous_document_id is not None:
+        import db  # late import to keep this module testable without psycopg
+
+        hashes = [c["text_hash"] for c in chunks if c.get("text_hash")]
+        matches = db.matching_embedded_chunks(previous_document_id, hashes)
+        pairs = [(c, matches[c["text_hash"]]) for c in chunks if c.get("text_hash") in matches]
+        reused = set(reuse_chunk_vectors(pairs))
+        if reused:
+            print(f"[embeddings] reused {len(reused)} vectors from previous revision")
+        done.extend(reused)
+        to_embed = [c for c in chunks if c["chunk_id"] not in reused]
+
+    if not to_embed:
+        return done
+    if not voyage_available():
+        print(f"[embeddings] VOYAGE_API_KEY not set — skipping {len(to_embed)} chunks")
+        return done
+    ensure_collection()
+    vectors = embed_texts([c["text"] for c in to_embed], input_type="document")
+    upsert_chunks(to_embed, vectors)
+    return done + [c["chunk_id"] for c in to_embed]

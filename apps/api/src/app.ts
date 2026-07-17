@@ -2,10 +2,14 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
+import { requireAuth, requireProjectMember } from "./auth.js";
 import { prisma } from "./db.js";
 import { env } from "./env.js";
 import { redis } from "./redis.js";
+import { httpMetricsMiddleware } from "./telemetry.js";
+import { authRouter } from "./routes/auth.js";
 import { chatRouter } from "./routes/chat.js";
+import { chunksRouter } from "./routes/chunks.js";
 import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
@@ -16,7 +20,10 @@ export function createApp() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json());
+  // Sanitized inputs only ever carry JSON metadata — file bytes go straight to
+  // object storage — so a tight body limit is safe.
+  app.use(express.json({ limit: "1mb" }));
+  app.use(httpMetricsMiddleware);
 
   app.get("/health", async (_req, res) => {
     const checks: Record<string, "ok" | "error"> = {
@@ -42,11 +49,18 @@ export function createApp() {
     res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", checks });
   });
 
+  app.use("/auth", authRouter);
+
+  // Everything below requires a session (project-level RBAC on top of it).
+  app.use(requireAuth);
+  app.use("/projects/:projectId", requireProjectMember);
+
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/portions", portionsRouter);
   app.use("/projects/:projectId/chat", chatRouter);
   app.use("/projects/:projectId/summaries", summariesRouter);
+  app.use("/projects/:projectId/chunks", chunksRouter);
   app.use("/projects/:projectId", pagesRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

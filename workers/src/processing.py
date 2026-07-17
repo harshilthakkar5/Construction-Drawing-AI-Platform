@@ -12,6 +12,7 @@ import tempfile
 import fitz  # PyMuPDF
 from PIL import Image
 
+import cache
 import chunker
 import config
 import db
@@ -83,6 +84,8 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
                     offset + page_number,
                     storage.page_image_key(project_id, document_id, page_number),
                     text,
+                    pdf_width=page.rect.width,
+                    pdf_height=page.rect.height,
                 )
 
                 # Hybrid chunking: structural blocks -> token windows w/ bbox.
@@ -103,14 +106,30 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         finally:
             pdf.close()
 
+    # FR-4 revision handling: every page of the new revision is committed, so
+    # the old revision can be retired BEFORE numbering/portions are rebuilt —
+    # it leaves the combined set, retrieval (Qdrant points deleted), and the
+    # page-summary pool, while its rows stay for version history. Idempotent
+    # for job retries.
+    revision = db.document_revision_info(document_id)
+    previous_id = revision["previous_version_id"]
+    if previous_id is not None:
+        db.supersede_document(previous_id)
+        db.delete_document_page_summaries(project_id, previous_id)
+        # NOTE: the old revision's Qdrant points are deleted AFTER embedding,
+        # below — vector reuse copies from them first.
+
     db.recompute_combined_numbering(project_id)
     detected = portions.detect_and_store(project_id)
     db.assign_chunk_portions(project_id)
 
-    # Embed this document's new chunks, then refresh payloads for the rest of
-    # the project (portion/discipline/combined page may have shifted).
+    # Embed this document's new chunks (reusing the previous revision's
+    # vectors for unchanged text), then refresh payloads for the rest of the
+    # project (portion/discipline/combined page may have shifted).
     to_embed = db.chunks_to_embed(document_id)
-    embedded_ids = embeddings.embed_document_chunks(to_embed)
+    embedded_ids = embeddings.embed_document_chunks(to_embed, previous_document_id=previous_id)
+    if previous_id is not None:
+        embeddings.delete_document_points(previous_id)
     if embedded_ids:
         db.set_embedding_ids(embedded_ids)
         others = [
@@ -121,6 +140,7 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         embeddings.refresh_payloads(others)
 
     db.set_document_status(document_id, "completed")
+    cache.invalidate_summaries(project_id)
     return {
         "portions": len(detected),
         "chunks": len(to_embed),
@@ -129,4 +149,5 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         "processed": processed,
         "resumedSkip": skipped,
         "ocrPages": ocr_count,
+        "supersededPrevious": previous_id is not None,
     }

@@ -26,6 +26,7 @@ export async function uploadPdf(
   projectId: string,
   file: File,
   onProgress: (fraction: number) => void,
+  replacesDocumentId?: string,
 ): Promise<string> {
   const storageKey = fingerprint(projectId, file);
   let pending: PendingUpload | null = null;
@@ -44,7 +45,11 @@ export async function uploadPdf(
   }
 
   if (!pending) {
-    const init = await api.initiateUpload(projectId, { filename: file.name, size: file.size });
+    const init = await api.initiateUpload(projectId, {
+      filename: file.name,
+      size: file.size,
+      replacesDocumentId,
+    });
     pending = { documentId: init.documentId, uploadId: init.uploadId, partSize: init.partSize };
     localStorage.setItem(storageKey, JSON.stringify(pending));
   }

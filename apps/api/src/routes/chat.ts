@@ -6,6 +6,7 @@ import { answerFromChunks, anthropicAvailable, type HistoryTurn } from "../claud
 import { prisma } from "../db.js";
 import { searchChunks } from "../qdrant.js";
 import { redis } from "../redis.js";
+import { chatDuration, retrievalCacheCounter } from "../telemetry.js";
 import { embedQuery, voyageAvailable } from "../voyage.js";
 
 /**
@@ -37,6 +38,7 @@ function retrievalCacheKey(projectId: string, portionId: string | undefined, que
 async function retrieveChunkIds(projectId: string, portionId: string | undefined, question: string) {
   const key = retrievalCacheKey(projectId, portionId, question);
   const cached = await redis.get(key).catch(() => null);
+  retrievalCacheCounter.add(1, { result: cached ? "hit" : "miss" });
   if (cached) return JSON.parse(cached) as string[];
 
   const vector = await embedQuery(question);
@@ -46,6 +48,7 @@ async function retrieveChunkIds(projectId: string, portionId: string | undefined
 }
 
 chatRouter.post("/", async (req, res) => {
+  const requestStart = performance.now();
   const { projectId } = projectParam.parse(req.params);
   const { question, sessionId, portionId } = askSchema.parse(req.body);
 
@@ -115,6 +118,9 @@ chatRouter.post("/", async (req, res) => {
         pageNumber: c.page.pageNumber,
         combinedPageNumber: c.page.combinedPageNumber,
         bbox: c.bbox as unknown as ChunkSourceRecord["bbox"],
+        // FR-19: the viewer scales the bbox with the PDF page size.
+        pageWidth: c.page.pdfWidth,
+        pageHeight: c.page.pdfHeight,
       },
     ]),
   );
@@ -139,6 +145,7 @@ chatRouter.post("/", async (req, res) => {
     }),
   ]);
 
+  chatDuration.record(performance.now() - requestStart, { cached: false });
   res.json({ sessionId: session.id, answer: text, sources });
 });
 

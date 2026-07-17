@@ -27,12 +27,52 @@ enum MessageRole {
   assistant
 }
 
+/// Project-level RBAC (FR-1 owner + Phase 5): owner manages the project and
+/// its members; members can view, upload, and chat.
+enum ProjectRole {
+  owner
+  member
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  /// scrypt hash, format "salt:hash" (hex). Sessions live in Redis.
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  memberships   ProjectMember[]
+  ownedProjects Project[]
+
+  @@map("users")
+}
+
+model ProjectMember {
+  projectId String
+  userId    String
+  role      ProjectRole @default(member)
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
 model Project {
   id          String   @id @default(uuid())
   name        String
   description String?
+  /// Nullable for projects created before auth existed; those are visible to
+  /// any authenticated user (documented in README).
+  ownerId     String?
   createdAt   DateTime @default(now())
 
+  owner        User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  members      ProjectMember[]
   documents    Document[]
   portions     Portion[]
   summaries    Summary[]
@@ -49,11 +89,19 @@ model Document {
   pages     Int
   revision  Int            @default(1)
   status    DocumentStatus @default(uploaded)
+  /// FR-4 revision chain: the document this one replaces (same drawing set).
+  previousVersionId String?   @unique
+  /// Set when a newer revision finishes processing. Superseded documents are
+  /// excluded from the manifest, combined numbering, and retrieval; rows are
+  /// kept for audit/history.
+  supersededAt      DateTime?
   /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
   createdAt DateTime       @default(now())
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  pageRows Page[]
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  previousVersion Document? @relation("DocumentRevisions", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersion     Document? @relation("DocumentRevisions")
+  pageRows        Page[]
 
   @@index([projectId])
   @@map("documents")
@@ -67,6 +115,10 @@ model Page {
   combinedPageNumber Int
   imageUrl           String?
   text               String?
+  /// PDF page size in points — the coordinate space of chunk bboxes. The
+  /// viewer scales bbox highlights (FR-19) with these.
+  pdfWidth           Float?
+  pdfHeight          Float?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   chunks   Chunk[]
@@ -104,6 +156,9 @@ model Chunk {
   /// {x, y, width, height} in PDF page coordinates — citation-critical.
   bbox        Json
   tokenCount  Int
+  /// sha256 of text — lets a new revision reuse the previous revision's
+  /// embedding when the chunk text is unchanged (no Voyage call).
+  textHash    String?
   /// Qdrant point ID; PostgreSQL is the source of truth for references.
   embeddingId String? @unique
 
@@ -112,6 +167,7 @@ model Chunk {
 
   @@index([pageId])
   @@index([portionId])
+  @@index([textHash])
   @@map("chunks")
 }
 

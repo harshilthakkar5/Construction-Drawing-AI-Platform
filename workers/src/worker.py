@@ -20,6 +20,7 @@ import config
 import db
 import processing
 import summarize
+import telemetry
 from contracts import (
     PROCESS_DOCUMENT_QUEUE,
     SUMMARIZE_PROJECT_QUEUE,
@@ -39,12 +40,13 @@ async def process_document(job, job_token: str):
     try:
         # The pipeline is synchronous (CPU/IO via PyMuPDF, boto3, psycopg);
         # run it off the event loop so the queue connection stays alive.
-        result = await asyncio.to_thread(
-            processing.process_document,
-            payload.project_id,
-            payload.document_id,
-            payload.spaces_key,
-        )
+        with telemetry.observe_job(PROCESS_DOCUMENT_QUEUE):
+            result = await asyncio.to_thread(
+                processing.process_document,
+                payload.project_id,
+                payload.document_id,
+                payload.spaces_key,
+            )
         print(f"[worker] job {job.id} done: {result}")
         if summarize_queue is not None:
             await summarize_queue.add(
@@ -64,7 +66,8 @@ async def summarize_project(job, job_token: str):
     payload = SummarizeProjectJob.from_payload(job.data)
     print(f"[worker] summarize job {job.id}: project={payload.project_id}")
     try:
-        return await asyncio.to_thread(summarize.run, payload.project_id)
+        with telemetry.observe_job(SUMMARIZE_PROJECT_QUEUE):
+            return await asyncio.to_thread(summarize.run, payload.project_id)
     except Exception:
         traceback.print_exc()
         raise
@@ -72,6 +75,7 @@ async def summarize_project(job, job_token: str):
 
 async def main() -> None:
     global summarize_queue
+    telemetry.start()
     summarize_queue = Queue(SUMMARIZE_PROJECT_QUEUE, {"connection": config.REDIS_URL})
 
     workers = [

@@ -11,11 +11,15 @@ const statusStyles: Record<DocumentStatus, string> = {
   failed: "bg-red-100 text-red-800",
 };
 
-/** FR-9: per-document status, polled while anything is still in flight. */
+/** FR-9: per-document status, polled while anything is still in flight.
+ * FR-4: "New revision" replaces a document; superseded revisions are listed
+ * greyed-out for history but leave the combined set. */
 export function DocumentsPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<Record<string, number | "error">>({});
+  // When set, the next chosen file uploads as a new revision of this document.
+  const [replaceTarget, setReplaceTarget] = useState<string | undefined>(undefined);
 
   const documents = useQuery({
     queryKey: ["documents", projectId],
@@ -26,13 +30,16 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         : false,
   });
 
-  async function onFiles(files: FileList | null) {
+  async function onFiles(files: FileList | null, replacesDocumentId?: string) {
     if (!files) return;
     for (const file of Array.from(files)) {
       setUploads((u) => ({ ...u, [file.name]: 0 }));
       try {
-        await uploadPdf(projectId, file, (fraction) =>
-          setUploads((u) => ({ ...u, [file.name]: fraction })),
+        await uploadPdf(
+          projectId,
+          file,
+          (fraction) => setUploads((u) => ({ ...u, [file.name]: fraction })),
+          replacesDocumentId,
         );
         setUploads((u) => {
           const { [file.name]: _done, ...rest } = u;
@@ -53,7 +60,10 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
       <div className="border-b border-gray-200 p-3">
         <button
           className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
-          onClick={() => fileInput.current?.click()}
+          onClick={() => {
+            setReplaceTarget(undefined);
+            fileInput.current?.click();
+          }}
         >
           Upload PDFs
         </button>
@@ -64,8 +74,9 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
           multiple
           hidden
           onChange={(e) => {
-            void onFiles(e.target.files);
+            void onFiles(e.target.files, replaceTarget);
             e.target.value = "";
+            setReplaceTarget(undefined);
           }}
         />
         {Object.entries(uploads).map(([name, progress]) => (
@@ -87,15 +98,40 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
 
       <ul className="flex-1 divide-y divide-gray-100 overflow-y-auto">
         {documents.data?.map((doc) => (
-          <li key={doc.id} className="p-3 text-sm">
+          <li key={doc.id} className={`p-3 text-sm ${doc.supersededAt ? "opacity-50" : ""}`}>
             <div className="truncate font-medium" title={doc.filename}>
               {doc.filename}
             </div>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className={`rounded px-1.5 py-0.5 text-xs ${statusStyles[doc.status]}`}>
                 {doc.status}
               </span>
-              {doc.pages > 0 && <span className="text-xs text-gray-500">{doc.pages} pages</span>}
+              {doc.revision > 1 && (
+                <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-800">
+                  rev {doc.revision}
+                </span>
+              )}
+              {doc.supersededAt ? (
+                <span className="text-xs text-gray-500">superseded</span>
+              ) : (
+                <>
+                  {doc.pages > 0 && (
+                    <span className="text-xs text-gray-500">{doc.pages} pages</span>
+                  )}
+                  {doc.status === "completed" && (
+                    <button
+                      className="ml-auto text-xs text-blue-600 hover:underline"
+                      title="Upload a newer revision of this drawing set (FR-4)"
+                      onClick={() => {
+                        setReplaceTarget(doc.id);
+                        fileInput.current?.click();
+                      }}
+                    >
+                      New revision
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </li>
         ))}
