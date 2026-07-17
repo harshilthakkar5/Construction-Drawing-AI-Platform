@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   ListPartsCommand,
   S3Client,
@@ -84,4 +85,9 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
 
 export function presignGetObject(key: string, expiresIn = 3600) {
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });
+}
+
+/** Used to purge objects that fail upload validation / malware scanning. */
+export async function deleteObject(key: string) {
+  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }

@@ -1,15 +1,32 @@
 import { useQuery } from "@tanstack/react-query";
+import type { SummaryItem } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore } from "../store";
 
 /**
- * FR-10..12 + FR-18: shows the project summary by default and the selected
+ * FR-10..12 + FR-18/19: shows the project summary by default and the selected
  * portion's summary when one is picked (FR-16). Every summary item cites
- * chunk IDs; clicking it jumps the viewer to the item's source page.
+ * chunk IDs; clicking it jumps the viewer to the item's source page AND
+ * highlights the first cited chunk's bounding box (resolved via the
+ * chunk-location endpoint — the same chain as chat citations).
  */
 export function SummaryPanel({ projectId }: { projectId: string }) {
   const selectedPortionId = useAppStore((s) => s.selectedPortionId);
   const requestJump = useAppStore((s) => s.requestJump);
+
+  async function jumpToItem(item: SummaryItem) {
+    const chunkId = item.chunkIds[0];
+    if (chunkId) {
+      try {
+        const location = await api.chunkLocation(projectId, chunkId);
+        requestJump(location.combinedPageNumber, location.bbox);
+        return;
+      } catch {
+        // fall through to the plain jump — stale chunk after a rebuild
+      }
+    }
+    requestJump(item.page);
+  }
 
   const summaries = useQuery({
     queryKey: ["summaries", projectId],
@@ -42,8 +59,8 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
               <li key={i}>
                 <button
                   className="w-full rounded px-1.5 py-1 text-left text-xs text-gray-600 hover:bg-blue-50 hover:text-blue-800"
-                  onClick={() => requestJump(item.page)}
-                  title={`Jump to combined page ${item.page}`}
+                  onClick={() => void jumpToItem(item)}
+                  title={`Jump to combined page ${item.page} and highlight the source`}
                 >
                   {item.text}
                   <span className="ml-1 text-blue-500">p.{item.page}</span>

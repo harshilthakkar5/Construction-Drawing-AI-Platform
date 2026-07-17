@@ -9,6 +9,10 @@ import { presignGetObject } from "../s3.js";
  * Combined-view endpoints. buildPageManifest/findManifestEntry are the
  * canonical numbering; stored pages.combinedPageNumber (worker-written with
  * the same ordering rule) is the denormalized copy used for citations later.
+ *
+ * Phase 5: superseded document revisions (FR-4) are excluded — the manifest
+ * always shows the latest revision of each drawing set. Manifest entries also
+ * carry the PDF page size so the viewer can scale bbox highlights (FR-19).
  */
 export const pagesRouter = Router({ mergeParams: true });
 
@@ -17,7 +21,7 @@ const pageParams = projectParam.extend({ combined: z.coerce.number().int().min(1
 
 async function manifestDocs(projectId: string): Promise<ManifestDocument[]> {
   return prisma.document.findMany({
-    where: { projectId },
+    where: { projectId, supersededAt: null },
     select: { id: true, filename: true, pages: true, createdAt: true },
   });
 }
@@ -30,16 +34,21 @@ pagesRouter.get("/manifest", async (req, res) => {
   const entries = buildPageManifest(docs);
 
   const processed = await prisma.page.findMany({
-    where: { document: { projectId }, imageUrl: { not: null } },
-    select: { documentId: true, pageNumber: true },
+    where: { document: { projectId, supersededAt: null }, imageUrl: { not: null } },
+    select: { documentId: true, pageNumber: true, pdfWidth: true, pdfHeight: true },
   });
-  const processedSet = new Set(processed.map((p) => `${p.documentId}:${p.pageNumber}`));
+  const processedByKey = new Map(processed.map((p) => [`${p.documentId}:${p.pageNumber}`, p]));
 
   res.json(
-    entries.map((e) => ({
-      ...e,
-      hasImage: processedSet.has(`${e.documentId}:${e.pageNumber}`),
-    })),
+    entries.map((e) => {
+      const page = processedByKey.get(`${e.documentId}:${e.pageNumber}`);
+      return {
+        ...e,
+        hasImage: page !== undefined,
+        pageWidth: page?.pdfWidth ?? null,
+        pageHeight: page?.pdfHeight ?? null,
+      };
+    }),
   );
 });
 

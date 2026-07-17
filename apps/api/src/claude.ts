@@ -55,14 +55,30 @@ export async function answerFromChunks(
     ...history.map((turn) => ({ role: turn.role, content: turn.text })),
     {
       role: "user" as const,
-      content: `Here are the retrieved chunks from the project's drawings:\n\n${serializeChunks(chunks)}\n\nQuestion: ${question}`,
+      // Prompt caching (Phase 5): the retrieved-chunk block is by far the
+      // largest part of the prompt and repeats verbatim when the same/similar
+      // question is asked again (retrieval itself is Redis-cached, so repeats
+      // serialize identically). The volatile question stays AFTER the
+      // breakpoint so it never invalidates the cached prefix.
+      content: [
+        {
+          type: "text" as const,
+          text: `Here are the retrieved chunks from the project's drawings:\n\n${serializeChunks(chunks)}`,
+          cache_control: { type: "ephemeral" as const },
+        },
+        { type: "text" as const, text: `Question: ${question}` },
+      ],
     },
   ];
 
   const response = await getClient().messages.create({
     model: CHAT_MODEL,
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    // Frozen system prompt with a cache breakpoint: shared across every chat
+    // request for the lifetime of the process (no per-request interpolation).
+    system: [
+      { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+    ],
     messages,
   });
   return response.content

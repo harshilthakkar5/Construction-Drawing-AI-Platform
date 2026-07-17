@@ -1,4 +1,5 @@
 import { env } from "./env.js";
+import { qdrantSearchDuration } from "./telemetry.js";
 
 const COLLECTION = process.env.QDRANT_COLLECTION ?? "chunks";
 
@@ -15,18 +16,23 @@ export async function searchChunks(
   const must: object[] = [{ key: "project_id", match: { value: projectId } }];
   if (options.portionId) must.push({ key: "portion", match: { value: options.portionId } });
 
-  const res = await fetch(`${env.QDRANT_URL}/collections/${COLLECTION}/points/search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      vector,
-      limit: options.limit ?? 18,
-      filter: { must },
-      with_payload: false,
-    }),
-  });
-  if (res.status === 404) return []; // collection not created yet (nothing embedded)
-  if (!res.ok) throw new Error(`Qdrant search failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { result: { id: string }[] };
-  return data.result.map((p) => String(p.id));
+  const start = performance.now();
+  try {
+    const res = await fetch(`${env.QDRANT_URL}/collections/${COLLECTION}/points/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vector,
+        limit: options.limit ?? 18,
+        filter: { must },
+        with_payload: false,
+      }),
+    });
+    if (res.status === 404) return []; // collection not created yet (nothing embedded)
+    if (!res.ok) throw new Error(`Qdrant search failed: ${res.status} ${await res.text()}`);
+    const data = (await res.json()) as { result: { id: string }[] };
+    return data.result.map((p) => String(p.id));
+  } finally {
+    qdrantSearchDuration.record(performance.now() - start, { collection: COLLECTION });
+  }
 }

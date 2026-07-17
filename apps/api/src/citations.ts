@@ -23,6 +23,10 @@ export interface ChunkSourceRecord {
   pageNumber: number;
   combinedPageNumber: number;
   bbox: BBox;
+  /** PDF page size in points (bbox coordinate space, FR-19); null for pages
+   * processed before Phase 5 — the UI then jumps without highlighting. */
+  pageWidth?: number | null;
+  pageHeight?: number | null;
 }
 
 export interface NumberedSource extends ChunkSourceRecord {

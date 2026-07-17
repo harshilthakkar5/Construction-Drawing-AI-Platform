@@ -13,6 +13,7 @@ from contextlib import contextmanager
 import psycopg
 
 import config
+from hashing import text_hash
 
 
 @contextmanager
@@ -35,7 +36,8 @@ def set_document_pages(document_id: str, pages: int) -> None:
 
 
 def combined_offset(project_id: str, document_id: str) -> int:
-    """Pages in documents ordered before this one (manifest ordering rule)."""
+    """Pages in documents ordered before this one (manifest ordering rule).
+    Superseded revisions (FR-4) are excluded — they left the combined set."""
     with connect() as conn:
         row = conn.execute(
             """
@@ -44,12 +46,74 @@ def combined_offset(project_id: str, document_id: str) -> int:
             WHERE me.id = %s
               AND d."projectId" = %s
               AND d.id <> me.id
+              AND d."supersededAt" IS NULL
               AND (d."createdAt" < me."createdAt"
                    OR (d."createdAt" = me."createdAt" AND d.id < me.id))
             """,
             (document_id, project_id),
         ).fetchone()
         return int(row[0]) if row else 0
+
+
+# --- Document revisions (FR-4) ---
+
+
+def document_revision_info(document_id: str) -> dict:
+    """previousVersionId + revision for the revision-handling steps."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT "previousVersionId", revision FROM documents WHERE id = %s',
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(f"document {document_id} not found")
+        return {"previous_version_id": row[0], "revision": row[1]}
+
+
+def supersede_document(document_id: str) -> None:
+    """Mark an old revision replaced: it disappears from the manifest,
+    combined numbering, and (via Qdrant point deletion) retrieval, but the
+    rows stay for audit/version history. Idempotent."""
+    with connect() as conn:
+        conn.execute(
+            'UPDATE documents SET "supersededAt" = NOW() WHERE id = %s AND "supersededAt" IS NULL',
+            (document_id,),
+        )
+
+
+def delete_document_page_summaries(project_id: str, document_id: str) -> None:
+    """Drop a superseded revision's page summaries so rollups only see the
+    latest revision (higher levels are recomputed every run anyway)."""
+    with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM summaries
+            WHERE "projectId" = %s AND level = 'page'
+              AND summary->>'documentId' = %s
+            """,
+            (project_id, document_id),
+        )
+
+
+def matching_embedded_chunks(old_document_id: str, hashes: list[str]) -> dict[str, str]:
+    """textHash -> embedded chunk id in the previous revision. Lets the new
+    revision reuse Qdrant vectors for unchanged chunk text (no Voyage call)."""
+    if not hashes:
+        return {}
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (c."textHash") c."textHash", c.id
+            FROM chunks c
+            JOIN pages p ON c."pageId" = p.id
+            WHERE p."documentId" = %s
+              AND c."embeddingId" IS NOT NULL
+              AND c."textHash" = ANY(%s)
+            ORDER BY c."textHash", c.id
+            """,
+            (old_document_id, hashes),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
 
 
 def processed_page_numbers(document_id: str) -> set[int]:
@@ -68,19 +132,35 @@ def upsert_page(
     combined_page_number: int,
     image_key: str,
     text: str,
+    pdf_width: float | None = None,
+    pdf_height: float | None = None,
 ) -> None:
-    """Committed per page so a failure at page N preserves pages 1..N-1."""
+    """Committed per page so a failure at page N preserves pages 1..N-1.
+    pdf_width/pdf_height are the PDF page size in points — the coordinate
+    space of chunk bboxes, used by the viewer for FR-19 highlights."""
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "imageUrl", text)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "imageUrl",
+                               text, "pdfWidth", "pdfHeight")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ("documentId", "pageNumber")
             DO UPDATE SET "combinedPageNumber" = EXCLUDED."combinedPageNumber",
                           "imageUrl" = EXCLUDED."imageUrl",
-                          text = EXCLUDED.text
+                          text = EXCLUDED.text,
+                          "pdfWidth" = EXCLUDED."pdfWidth",
+                          "pdfHeight" = EXCLUDED."pdfHeight"
             """,
-            (str(uuid.uuid4()), document_id, page_number, combined_page_number, image_key, text),
+            (
+                str(uuid.uuid4()),
+                document_id,
+                page_number,
+                combined_page_number,
+                image_key,
+                text,
+                pdf_width,
+                pdf_height,
+            ),
         )
 
 
@@ -99,10 +179,17 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
         for chunk in chunks:
             conn.execute(
                 """
-                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount")
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash")
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (str(uuid.uuid4()), page_id, chunk.text, json.dumps(chunk.bbox), chunk.token_count),
+                (
+                    str(uuid.uuid4()),
+                    page_id,
+                    chunk.text,
+                    json.dumps(chunk.bbox),
+                    chunk.token_count,
+                    text_hash(chunk.text),
+                ),
             )
 
 
@@ -131,7 +218,7 @@ def chunks_to_embed(document_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT c.id, c.text, p."pageNumber", p."combinedPageNumber",
-                   c."portionId", po.discipline, d."projectId", d.id
+                   c."portionId", po.discipline, d."projectId", d.id, c."textHash"
             FROM chunks c
             JOIN pages p ON c."pageId" = p.id
             JOIN documents d ON p."documentId" = d.id
@@ -151,6 +238,7 @@ def chunks_to_embed(document_id: str) -> list[dict]:
                 "discipline": r[5],
                 "project_id": r[6],
                 "document_id": r[7],
+                "text_hash": r[8],
             }
             for r in rows
         ]
@@ -178,6 +266,7 @@ def embedded_chunk_payloads(project_id: str) -> list[dict]:
             JOIN documents d ON p."documentId" = d.id
             LEFT JOIN portions po ON c."portionId" = po.id
             WHERE d."projectId" = %s AND c."embeddingId" IS NOT NULL
+              AND d."supersededAt" IS NULL
             """,
             (project_id,),
         ).fetchall()
@@ -208,7 +297,7 @@ def pages_with_chunks(project_id: str) -> list[dict]:
             FROM pages p
             JOIN documents d ON p."documentId" = d.id
             LEFT JOIN chunks c ON c."pageId" = p.id
-            WHERE d."projectId" = %s
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
             ORDER BY p."combinedPageNumber", c.id
             """,
             (project_id,),
@@ -241,7 +330,7 @@ def chunk_page_map(project_id: str) -> dict[str, int]:
             FROM chunks c
             JOIN pages p ON c."pageId" = p.id
             JOIN documents d ON p."documentId" = d.id
-            WHERE d."projectId" = %s
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
             """,
             (project_id,),
         ).fetchall()
@@ -336,7 +425,7 @@ def pages_for_classification(project_id: str) -> list[tuple[int, str | None]]:
             SELECT p."combinedPageNumber", p.text
             FROM pages p
             JOIN documents d ON p."documentId" = d.id
-            WHERE d."projectId" = %s
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
             ORDER BY p."combinedPageNumber"
             """,
             (project_id,),
@@ -381,12 +470,13 @@ def recompute_combined_numbering(project_id: str) -> None:
                            FROM documents d2
                            WHERE d2."projectId" = d."projectId"
                              AND d2.id <> d.id
+                             AND d2."supersededAt" IS NULL
                              AND (d2."createdAt" < d."createdAt"
                                   OR (d2."createdAt" = d."createdAt" AND d2.id < d.id))
                        ) AS combined
                 FROM pages p
                 JOIN documents d ON p."documentId" = d.id
-                WHERE d."projectId" = %s
+                WHERE d."projectId" = %s AND d."supersededAt" IS NULL
             ) sub
             WHERE pages.id = sub.id
             """,

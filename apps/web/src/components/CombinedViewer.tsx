@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "../api";
-import { useAppStore } from "../store";
+import { useAppStore, type Highlight } from "../store";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -21,6 +21,7 @@ const PAGE_WIDTH = 850;
  */
 export function CombinedViewer({ projectId }: { projectId: string }) {
   const jumpToPage = useAppStore((s) => s.jumpToPage);
+  const highlight = useAppStore((s) => s.highlight);
   const requestJump = useAppStore((s) => s.requestJump);
   const scrollRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -172,18 +173,23 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
                 className="mx-auto mb-4 bg-white shadow"
                 style={{ width: PAGE_WIDTH, minHeight: PAGE_WIDTH * 0.6 }}
               >
-                {openedDocs.has(group.documentId) &&
-                nearViewport.has(entry.combinedPageNumber) ? (
-                  <Page
-                    pageNumber={entry.pageNumber}
-                    width={PAGE_WIDTH}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    loading={<SlotPlaceholder entry={entry} projectId={projectId} />}
-                  />
-                ) : (
-                  <SlotPlaceholder entry={entry} projectId={projectId} />
-                )}
+                <div className="relative">
+                  {openedDocs.has(group.documentId) &&
+                  nearViewport.has(entry.combinedPageNumber) ? (
+                    <Page
+                      pageNumber={entry.pageNumber}
+                      width={PAGE_WIDTH}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      loading={<SlotPlaceholder entry={entry} projectId={projectId} />}
+                    />
+                  ) : (
+                    <SlotPlaceholder entry={entry} projectId={projectId} />
+                  )}
+                  {highlight?.combinedPageNumber === entry.combinedPageNumber && (
+                    <HighlightOverlay highlight={highlight} entry={entry} />
+                  )}
+                </div>
                 <div className="border-t border-gray-100 px-2 py-1 text-xs text-gray-400">
                   {entry.filename} · page {entry.pageNumber} · combined {entry.combinedPageNumber}
                 </div>
@@ -208,6 +214,37 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * FR-19: the bounding-box highlight. Chunk bboxes are stored in PDF points
+ * with a top-left origin (PyMuPDF's coordinate space, matching the rendered
+ * page image), so scaling to percentages of the page size positions the box
+ * correctly at any render width. Pages processed before Phase 5 have no
+ * stored size — the jump still works, the highlight is just skipped.
+ */
+function HighlightOverlay({
+  highlight,
+  entry,
+}: {
+  highlight: Highlight;
+  entry: ManifestEntryDto;
+}) {
+  if (!entry.pageWidth || !entry.pageHeight) return null;
+  const clamp = (v: number) => Math.min(100, Math.max(0, v));
+  const { bbox } = highlight;
+  return (
+    <div
+      className="pointer-events-none absolute animate-pulse rounded-sm border-2 border-amber-500 bg-amber-300/30"
+      style={{
+        left: `${clamp((bbox.x / entry.pageWidth) * 100)}%`,
+        top: `${clamp((bbox.y / entry.pageHeight) * 100)}%`,
+        width: `${clamp((bbox.width / entry.pageWidth) * 100)}%`,
+        height: `${clamp((bbox.height / entry.pageHeight) * 100)}%`,
+      }}
+      title="Cited region"
+    />
   );
 }
 

@@ -97,8 +97,8 @@ export function ChatPanel({ projectId }: { projectId: string }) {
                     <button
                       key={s.index}
                       className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-blue-700 hover:bg-blue-50"
-                      onClick={() => requestJump(s.combinedPageNumber)}
-                      title={`Jump to combined page ${s.combinedPageNumber}`}
+                      onClick={() => requestJump(s.combinedPageNumber, s.bbox)}
+                      title={`Jump to combined page ${s.combinedPageNumber} and highlight the cited region`}
                     >
                       [{s.index}] {s.label}
                     </button>
@@ -149,7 +149,7 @@ function AnswerText({ text, sources }: { text: string; sources: ChatSourceDto[] 
           <button
             key={i}
             className="mx-0.5 rounded bg-blue-100 px-1 text-xs font-medium text-blue-700 hover:bg-blue-200"
-            onClick={() => requestJump(source.combinedPageNumber)}
+            onClick={() => requestJump(source.combinedPageNumber, source.bbox)}
             title={source.label}
           >
             {source.index}
