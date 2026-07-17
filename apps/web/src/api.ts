@@ -5,6 +5,7 @@ import type {
   ManifestEntryDto,
   PortionDto,
   ProjectDto,
+  SummaryDto,
 } from "@cdip/shared";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -57,6 +58,8 @@ export const api = {
     ),
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
+
+  listSummaries: (projectId: string) => request<SummaryDto[]>(`/projects/${projectId}/summaries`),
 
   ask: (projectId: string, body: { question: string; sessionId?: string; portionId?: string }) =>
     request<ChatResponseDto>(`/projects/${projectId}/chat`, {

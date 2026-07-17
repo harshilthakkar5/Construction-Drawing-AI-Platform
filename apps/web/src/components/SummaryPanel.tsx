@@ -1,0 +1,58 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api";
+import { useAppStore } from "../store";
+
+/**
+ * FR-10..12 + FR-18: shows the project summary by default and the selected
+ * portion's summary when one is picked (FR-16). Every summary item cites
+ * chunk IDs; clicking it jumps the viewer to the item's source page.
+ */
+export function SummaryPanel({ projectId }: { projectId: string }) {
+  const selectedPortionId = useAppStore((s) => s.selectedPortionId);
+  const requestJump = useAppStore((s) => s.requestJump);
+
+  const summaries = useQuery({
+    queryKey: ["summaries", projectId],
+    queryFn: () => api.listSummaries(projectId),
+    // The summarize job runs after processing; poll until a project summary exists.
+    refetchInterval: (query) =>
+      query.state.data?.some((s) => s.level === "project") ? false : 5000,
+  });
+
+  const summary = selectedPortionId
+    ? summaries.data?.find((s) => s.level === "portion" && s.portionId === selectedPortionId)
+    : summaries.data?.find((s) => s.level === "project");
+  const heading = selectedPortionId ? "Portion summary" : "Project summary";
+
+  return (
+    <div className="border-b border-gray-200 p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{heading}</h3>
+      {!summary && (
+        <p className="mt-2 text-xs text-gray-400">
+          {summaries.isLoading
+            ? "Loading…"
+            : "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker)."}
+        </p>
+      )}
+      {summary && (
+        <>
+          <p className="mt-2 text-sm text-gray-700">{summary.summary.overview}</p>
+          <ul className="mt-2 space-y-1">
+            {summary.summary.items.map((item, i) => (
+              <li key={i}>
+                <button
+                  className="w-full rounded px-1.5 py-1 text-left text-xs text-gray-600 hover:bg-blue-50 hover:text-blue-800"
+                  onClick={() => requestJump(item.page)}
+                  title={`Jump to combined page ${item.page}`}
+                >
+                  {item.text}
+                  <span className="ml-1 text-blue-500">p.{item.page}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}

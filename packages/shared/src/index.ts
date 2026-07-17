@@ -128,10 +128,46 @@ export interface InitiateUploadResponse {
 
 export const QUEUES = {
   processDocument: "process-document",
+  summarizeProject: "summarize-project",
 } as const;
 
 export interface ProcessDocumentJob {
   projectId: string;
   documentId: string;
   spacesKey: string;
+}
+
+export interface SummarizeProjectJob {
+  projectId: string;
+}
+
+// --- Summaries (FR-10..13) ---
+
+/** One statement of a summary; chunkIds are its FR-13 sources and page is the
+ * combined page to jump to (derived from the first cited chunk). */
+export interface SummaryItem {
+  text: string;
+  chunkIds: string[];
+  page: number;
+}
+
+export interface SummaryContent {
+  overview: string;
+  items: SummaryItem[];
+  /** page level only */
+  documentId?: string;
+  pageNumber?: number;
+  combinedPage?: number;
+  /** section level only */
+  startPage?: number;
+  endPage?: number;
+}
+
+export interface SummaryDto {
+  id: string;
+  projectId: string;
+  portionId: string | null;
+  level: SummaryLevel;
+  summary: SummaryContent;
+  sources: string[];
 }

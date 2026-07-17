@@ -42,6 +42,10 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                 portion.id === selectedPortionId ? "bg-blue-100 font-medium" : ""
               }`}
               onClick={() => {
+                if (portion.id === selectedPortionId) {
+                  selectPortion(null); // toggle back to the project summary
+                  return;
+                }
                 selectPortion(portion.id);
                 requestJump(portion.startPage);
               }}
@@ -61,15 +65,8 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
       </ul>
 
       {selected && (
-        <div className="border-t border-gray-100 p-3">
-          <div className="text-sm font-medium">{selected.name}</div>
-          <div className="text-xs text-gray-500">
-            Combined pages {selected.startPage}–{selected.endPage}
-          </div>
-          {/* Per-portion summary slot — populated in Phase 4 */}
-          <p className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-400">
-            {selected.summary ?? "Portion summary will appear here once summarization lands."}
-          </p>
+        <div className="border-t border-gray-100 px-3 pb-2 text-xs text-gray-500">
+          {selected.name}: combined pages {selected.startPage}–{selected.endPage}
         </div>
       )}
     </div>

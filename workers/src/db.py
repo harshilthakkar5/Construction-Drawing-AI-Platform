@@ -195,6 +195,139 @@ def embedded_chunk_payloads(project_id: str) -> list[dict]:
         ]
 
 
+# --- Summaries (FR-10..13) ---
+
+
+def pages_with_chunks(project_id: str) -> list[dict]:
+    """Every page of the project with its chunks, combined order."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."documentId", p."pageNumber", p."combinedPageNumber",
+                   c.id, c.text, c."portionId"
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            LEFT JOIN chunks c ON c."pageId" = p.id
+            WHERE d."projectId" = %s
+            ORDER BY p."combinedPageNumber", c.id
+            """,
+            (project_id,),
+        ).fetchall()
+    pages: dict[tuple, dict] = {}
+    for doc_id, page_no, combined, chunk_id, chunk_text, portion_id in rows:
+        key = (doc_id, page_no)
+        page = pages.setdefault(
+            key,
+            {
+                "document_id": doc_id,
+                "page_number": page_no,
+                "combined_page": combined,
+                "portion_id": None,
+                "chunks": [],
+            },
+        )
+        if chunk_id is not None:
+            page["chunks"].append({"id": chunk_id, "text": chunk_text})
+            page["portion_id"] = portion_id or page["portion_id"]
+    return sorted(pages.values(), key=lambda p: p["combined_page"])
+
+
+def chunk_page_map(project_id: str) -> dict[str, int]:
+    """chunk id -> combined page (for deriving jump targets from citations)."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, p."combinedPageNumber"
+            FROM chunks c
+            JOIN pages p ON c."pageId" = p.id
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s
+            """,
+            (project_id,),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+
+def existing_page_summary_keys(project_id: str) -> set[tuple[str, int]]:
+    """(documentId, pageNumber) pairs that already have a page summary —
+    the incremental reuse check for the expensive bulk level."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT summary->>'documentId', (summary->>'pageNumber')::int
+            FROM summaries
+            WHERE "projectId" = %s AND level = 'page'
+            """,
+            (project_id,),
+        ).fetchall()
+        return {(r[0], r[1]) for r in rows}
+
+
+def page_summaries(project_id: str) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT summary FROM summaries
+            WHERE "projectId" = %s AND level = 'page'
+            ORDER BY (summary->>'combinedPage')::int
+            """,
+            (project_id,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
+def insert_summary(
+    project_id: str,
+    portion_id: str | None,
+    level: str,
+    summary: dict,
+    sources: list[str],
+) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO summaries (id, "projectId", "portionId", level, summary, sources)
+            VALUES (%s, %s, %s, %s::"SummaryLevel", %s, %s)
+            """,
+            (
+                str(uuid.uuid4()),
+                project_id,
+                portion_id,
+                level,
+                json.dumps(summary),
+                json.dumps(sources),
+            ),
+        )
+
+
+def delete_summaries(project_id: str, levels: list[str]) -> None:
+    with connect() as conn:
+        conn.execute(
+            'DELETE FROM summaries WHERE "projectId" = %s AND level = ANY(%s::"SummaryLevel"[])',
+            (project_id, levels),
+        )
+
+
+def project_portions(project_id: str) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, discipline, "startPage", "endPage"
+            FROM portions WHERE "projectId" = %s ORDER BY "startPage"
+            """,
+            (project_id,),
+        ).fetchall()
+        return [
+            {"id": r[0], "name": r[1], "discipline": r[2], "start_page": r[3], "end_page": r[4]}
+            for r in rows
+        ]
+
+
+def set_portion_summary_text(portion_id: str, text: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE portions SET summary = %s WHERE id = %s", (text, portion_id))
+
+
 def pages_for_classification(project_id: str) -> list[tuple[int, str | None]]:
     """(combinedPageNumber, text) for every page in the project, combined order."""
     with connect() as conn:

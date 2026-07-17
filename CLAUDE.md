@@ -4,14 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phases 1–3 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
+Phases 1–4 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
 (per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, lazy
 combined react-pdf viewer, portion detection (rule classifier + Haiku fallback), hybrid
 chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned by project,
-payloads refreshed after portion rebuilds), and RAG chat with chunk-ID citations mapped to
-document/page/bbox, portion filter, Redis retrieval cache, and FR-23 persistence. Not built
-yet: hierarchical summaries (portion summary slot in the sidebar is a placeholder), viewer
-bbox highlighting.
+payloads refreshed after portion rebuilds), RAG chat with chunk-ID citations mapped to
+document/page/bbox, portion filter, Redis retrieval cache, FR-23 persistence, and hierarchical
+summaries (page → section → portion → project as a summarize-project BullMQ job; page level is
+incremental and can use the Anthropic Message Batches API via SUMMARY_USE_BATCH=true; every
+item cites chunk IDs with the jump page derived server-side from the first cited chunk;
+section/portion rows cascade-delete on portion rebuild). Not built yet: viewer bbox
+highlighting (FR-19).
 
 Chat and embedding need `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`; without them the worker skips
 embedding (chunks wait with NULL embeddingId) and the chat endpoint returns 503. For offline

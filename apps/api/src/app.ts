@@ -10,6 +10,7 @@ import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
+import { summariesRouter } from "./routes/summaries.js";
 
 export function createApp() {
   const app = express();
@@ -45,6 +46,7 @@ export function createApp() {
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/portions", portionsRouter);
   app.use("/projects/:projectId/chat", chatRouter);
+  app.use("/projects/:projectId/summaries", summariesRouter);
   app.use("/projects/:projectId", pagesRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

@@ -102,6 +102,11 @@ With infra, API, web, and the Python worker all running:
    questions in the middle chat pane. Answers cite numbered sources; clicking
    a citation or source chip jumps the viewer to that page. The dropdown
    restricts retrieval to a single portion.
+7. After processing, the worker builds bottom-up summaries (page → section →
+   portion → project). The sidebar shows the project summary by default and a
+   portion's summary when selected; every summary item jumps the viewer to its
+   source page. Set `SUMMARY_USE_BATCH=true` on the worker to run bulk page
+   summaries through the Anthropic Message Batches API.
 
 ## Status
 

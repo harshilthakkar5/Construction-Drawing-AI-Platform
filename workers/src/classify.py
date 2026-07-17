@@ -103,7 +103,7 @@ def _get_client():
     try:
         import anthropic
 
-        _client = anthropic.Anthropic()
+        _client = anthropic.Anthropic(base_url=os.environ.get("ANTHROPIC_BASE_URL") or None)
     except Exception as exc:
         print(f"[classify] anthropic SDK unavailable, Haiku fallback disabled: {exc}")
         _client_unavailable = True

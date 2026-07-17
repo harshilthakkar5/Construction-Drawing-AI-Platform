@@ -5,6 +5,7 @@ import { ChatPanel } from "./ChatPanel";
 import { CombinedViewer } from "./CombinedViewer";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { PortionsPanel } from "./PortionsPanel";
+import { SummaryPanel } from "./SummaryPanel";
 
 /**
  * FR-17 layout. Phase 1 fills the left pane with documents/upload/status and
@@ -29,7 +30,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
         )}
       </div>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r border-gray-200">
+        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-gray-200">
+          <SummaryPanel projectId={projectId} />
           <PortionsPanel projectId={projectId} />
           <div className="min-h-0 flex-1">
             <DocumentsPanel projectId={projectId} />
