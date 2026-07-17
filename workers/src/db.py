@@ -138,6 +138,7 @@ def upsert_page(
     """Committed per page so a failure at page N preserves pages 1..N-1.
     pdf_width/pdf_height are the PDF page size in points — the coordinate
     space of chunk bboxes, used by the viewer for FR-19 highlights."""
+    text = text.replace("\x00", "")  # PostgreSQL rejects NUL bytes in text
     with connect() as conn:
         conn.execute(
             """

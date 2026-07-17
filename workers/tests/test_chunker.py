@@ -96,3 +96,18 @@ class TestChunkPage:
         assert len(chunks) == 1
         assert "FOUNDATION" in chunks[0].text
         assert "ignored image block" not in chunks[0].text
+
+
+def test_chunk_page_strips_nul_bytes():
+    """PostgreSQL rejects NUL (0x00) in text columns; PDF extraction can emit
+    them, so they must never reach chunk text."""
+    raw = [(0, 0, 100, 20, "GENERAL\x00 NOTES \x00", 0, 0)]
+    chunks = chunk_page(raw)
+    assert len(chunks) == 1
+    assert "\x00" not in chunks[0].text
+    assert chunks[0].text == "GENERAL NOTES"
+
+
+def test_chunk_page_drops_blocks_that_are_only_nul():
+    raw = [(0, 0, 100, 20, "\x00\x00", 0, 0)]
+    assert chunk_page(raw) == []
