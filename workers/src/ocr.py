@@ -6,6 +6,9 @@ warning is logged instead of failing the whole document.
 """
 
 import config
+import logutil
+
+log = logutil.get("ocr")
 
 _engine = None
 _unavailable = False
@@ -23,7 +26,7 @@ def _get_engine():
 
         _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
     except Exception as exc:  # ImportError or model download failure
-        print(f"[ocr] PaddleOCR unavailable, OCR disabled: {exc}")
+        log.warning("PaddleOCR unavailable, OCR disabled: %s", exc)
         _unavailable = True
     return _engine
 

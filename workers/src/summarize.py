@@ -23,6 +23,10 @@ import json
 import os
 import time
 
+import logutil
+
+log = logutil.get("summarize")
+
 SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "claude-sonnet-5")
 USE_BATCH = os.environ.get("SUMMARY_USE_BATCH", "false").lower() == "true"
 BATCH_MIN_PAGES = int(os.environ.get("SUMMARY_BATCH_MIN_PAGES", "4"))
@@ -203,7 +207,7 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
 
     prompts = {f"page-{i}": page_prompt(p) for i, p in enumerate(todo)}
     if USE_BATCH and len(todo) >= BATCH_MIN_PAGES:
-        print(f"[summarize] page level via Batch API ({len(todo)} pages)")
+        log.info("page level via the Anthropic Batches API (%d pages)", len(todo))
         raw_by_id = _call_batch(prompts)
     else:
         raw_by_id = {cid: _call_direct(prompt) for cid, prompt in prompts.items()}
@@ -216,7 +220,7 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
         allowed = {c["id"] for c in page["chunks"]}
         summary = parse_summary_json(raw, allowed)
         if summary is None:
-            print(f"[summarize] invalid page summary JSON for combined {page['combined_page']}")
+            log.warning("invalid page-summary JSON for combined page %s — skipped", page["combined_page"])
             continue
         summary = attach_pages(summary, chunk_pages)
         summary.update(
@@ -242,7 +246,7 @@ def run(project_id: str) -> dict:
     import db
 
     if not available():
-        print("[summarize] ANTHROPIC_API_KEY not set — skipping summaries")
+        log.warning("ANTHROPIC_API_KEY not set — skipping summaries")
         return {"skipped": True}
 
     pages = db.pages_with_chunks(project_id)
@@ -297,7 +301,7 @@ def run(project_id: str) -> dict:
         "portions": len(portion_summaries),
         "project": project_written,
     }
-    print(f"[summarize] {project_id}: {result}")
+    log.info("project %s summaries: %s", project_id[:8], result)
 
     import cache
 

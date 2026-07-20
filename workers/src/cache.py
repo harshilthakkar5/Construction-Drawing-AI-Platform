@@ -11,6 +11,9 @@ from __future__ import annotations
 import redis as redis_lib
 
 import config
+import logutil
+
+log = logutil.get("cache")
 
 _client: redis_lib.Redis | None = None
 
@@ -29,5 +32,6 @@ def summaries_cache_key(project_id: str) -> str:
 def invalidate_summaries(project_id: str) -> None:
     try:
         _get_client().delete(summaries_cache_key(project_id))
+        log.info("invalidated summaries cache for project %s", project_id[:8])
     except Exception as exc:  # cache invalidation must never fail the job
-        print(f"[cache] failed to invalidate summaries cache: {exc}")
+        log.warning("failed to invalidate summaries cache for %s: %s", project_id, exc)

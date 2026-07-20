@@ -17,6 +17,9 @@ import os
 import httpx
 
 import config
+import logutil
+
+log = logutil.get("embeddings")
 
 VOYAGE_BASE_URL = os.environ.get("VOYAGE_BASE_URL", "https://api.voyageai.com")
 VOYAGE_MODEL = os.environ.get("VOYAGE_MODEL", "voyage-3")
@@ -169,14 +172,14 @@ def embed_document_chunks(chunks: list[dict], previous_document_id: str | None =
         pairs = [(c, matches[c["text_hash"]]) for c in chunks if c.get("text_hash") in matches]
         reused = set(reuse_chunk_vectors(pairs))
         if reused:
-            print(f"[embeddings] reused {len(reused)} vectors from previous revision")
+            log.info("reused %d vectors from the previous revision (no Voyage call)", len(reused))
         done.extend(reused)
         to_embed = [c for c in chunks if c["chunk_id"] not in reused]
 
     if not to_embed:
         return done
     if not voyage_available():
-        print(f"[embeddings] VOYAGE_API_KEY not set — skipping {len(to_embed)} chunks")
+        log.warning("VOYAGE_API_KEY not set — skipping %d chunks (they stay unindexed until a retry)", len(to_embed))
         return done
     ensure_collection()
     vectors = embed_texts([c["text"] for c in to_embed], input_type="document")
