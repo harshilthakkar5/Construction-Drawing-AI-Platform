@@ -104,6 +104,9 @@ export const api = {
       `/projects/${projectId}/documents/${documentId}/reprocess`,
       { method: "POST", body: JSON.stringify({}) },
     ),
+  /** Delete a document everywhere (DB, storage, vectors). */
+  deleteDocument: (projectId: string, documentId: string) =>
+    request<void>(`/projects/${projectId}/documents/${documentId}`, { method: "DELETE" }),
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
 

@@ -37,15 +37,22 @@ export async function searchChunks(
   }
 }
 
-/** Delete every point belonging to a project (project deletion cleanup). */
-export async function deleteProjectPoints(projectId: string): Promise<void> {
+async function deleteByFilter(filter: object): Promise<void> {
   const res = await fetch(`${env.QDRANT_URL}/collections/${COLLECTION}/points/delete?wait=true`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      filter: { must: [{ key: "project_id", match: { value: projectId } }] },
-    }),
+    body: JSON.stringify({ filter }),
   });
   if (res.status === 404) return; // collection never created — nothing to delete
   if (!res.ok) throw new Error(`Qdrant delete failed: ${res.status} ${await res.text()}`);
+}
+
+/** Delete every point belonging to a project (project deletion cleanup). */
+export function deleteProjectPoints(projectId: string): Promise<void> {
+  return deleteByFilter({ must: [{ key: "project_id", match: { value: projectId } }] });
+}
+
+/** Delete every point belonging to one document (document deletion cleanup). */
+export function deleteDocumentPoints(documentId: string): Promise<void> {
+  return deleteByFilter({ must: [{ key: "document_id", match: { value: documentId } }] });
 }

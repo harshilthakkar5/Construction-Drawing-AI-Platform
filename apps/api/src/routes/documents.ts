@@ -5,13 +5,16 @@ import { prisma } from "../db.js";
 import { processDocumentQueue } from "../queues.js";
 import { isValidPdfFilename, sanitizeFilename } from "../sanitize.js";
 import { objectLooksLikePdf, scanUploadedObject } from "../scan.js";
+import { deleteDocumentPoints } from "../qdrant.js";
 import {
   PART_SIZE,
   abortMultipartUpload,
   completeMultipartUpload,
   createMultipartUpload,
   deleteObject,
+  deletePrefix,
   listUploadedParts,
+  objectExists,
   presignGetObject,
   presignUploadPart,
 } from "../s3.js";
@@ -176,6 +179,14 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
   if (document.status === "completed") {
     return void res.status(409).json({ error: "document already completed" });
   }
+  // A missing original means the upload never completed or validation deleted
+  // it — retrying would 404 forever. The only fix is deleting + re-uploading.
+  if (!(await objectExists(document.spacesKey))) {
+    return void res.status(409).json({
+      error:
+        "original PDF is missing from storage (upload never completed or was rejected) — delete this document and upload the file again",
+    });
+  }
   await prisma.document.update({ where: { id: documentId }, data: { status: "uploaded" } });
   await processDocumentQueue.add("process", {
     projectId,
@@ -184,6 +195,29 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
   });
   console.log(`[reprocess] document ${documentId} re-queued for project ${projectId}`);
   res.json({ documentId, status: "uploaded" });
+});
+
+/** Delete one document everywhere: DB rows (cascade to pages/chunks), its
+ * storage prefix (original + page images/thumbs/text), and Qdrant points.
+ * The recovery path for broken uploads, and general per-document cleanup. */
+documentsRouter.delete("/:documentId", async (req, res) => {
+  const { projectId, documentId } = docParams.parse(req.params);
+  await prisma.document.findUniqueOrThrow({ where: { id: documentId, projectId } });
+  await prisma.document.delete({ where: { id: documentId } });
+  const tag = `[cleanup doc ${documentId.slice(0, 8)}]`;
+  try {
+    const removed = await deletePrefix(`projects/${projectId}/pdfs/${documentId}/`);
+    console.log(`${tag} storage: deleted ${removed} objects`);
+  } catch (err) {
+    console.error(`${tag} storage cleanup FAILED`, err);
+  }
+  try {
+    await deleteDocumentPoints(documentId);
+    console.log(`${tag} qdrant: deleted points`);
+  } catch (err) {
+    console.error(`${tag} qdrant cleanup FAILED`, err);
+  }
+  res.status(204).end();
 });
 
 documentsRouter.post("/:documentId/upload/:uploadId/abort", async (req, res) => {
