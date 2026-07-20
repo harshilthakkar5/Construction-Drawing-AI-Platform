@@ -5,9 +5,11 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   ListPartsCommand,
   S3Client,
+  S3ServiceException,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -92,6 +94,20 @@ export function presignGetObject(key: string, expiresIn = 3600) {
 /** Used to purge objects that fail upload validation / malware scanning. */
 export async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+}
+
+/** True when the object exists (reprocess guard: no point queueing a job for
+ * a file that was never fully uploaded or was deleted by validation). */
+export async function objectExists(key: string): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch (err) {
+    if (err instanceof S3ServiceException && (err.$metadata.httpStatusCode === 404 || err.name === "NotFound")) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 /** Delete every object under a prefix (project deletion cleanup). Pages

@@ -140,10 +140,29 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                           .then(() =>
                             queryClient.invalidateQueries({ queryKey: ["documents", projectId] }),
                           )
-                          .catch((err) => console.error(err));
+                          .catch((err) => alert((err as Error).message));
                       }}
                     >
                       Retry
+                    </button>
+                  )}
+                  {doc.status === "failed" && (
+                    <button
+                      className="text-xs text-red-600 hover:underline"
+                      title="Delete this document everywhere (database, storage, search index)"
+                      onClick={() => {
+                        if (!confirm(`Delete "${doc.filename}"? This removes it everywhere.`)) return;
+                        void api
+                          .deleteDocument(projectId, doc.id)
+                          .then(() => {
+                            queryClient.invalidateQueries({ queryKey: ["documents", projectId] });
+                            queryClient.invalidateQueries({ queryKey: ["manifest", projectId] });
+                            queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
+                          })
+                          .catch((err) => alert((err as Error).message));
+                      }}
+                    >
+                      Delete
                     </button>
                   )}
                 </>
