@@ -36,3 +36,16 @@ export async function searchChunks(
     qdrantSearchDuration.record(performance.now() - start, { collection: COLLECTION });
   }
 }
+
+/** Delete every point belonging to a project (project deletion cleanup). */
+export async function deleteProjectPoints(projectId: string): Promise<void> {
+  const res = await fetch(`${env.QDRANT_URL}/collections/${COLLECTION}/points/delete?wait=true`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filter: { must: [{ key: "project_id", match: { value: projectId } }] },
+    }),
+  });
+  if (res.status === 404) return; // collection never created — nothing to delete
+  if (!res.ok) throw new Error(`Qdrant delete failed: ${res.status} ${await res.text()}`);
+}

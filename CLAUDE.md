@@ -32,7 +32,10 @@ and on the summarizer system prompt in workers/src/summarize.py); Redis summarie
 apps/api/src/routes/summaries.ts ↔ workers/src/cache.py); OpenTelemetry metrics (API
 Prometheus endpoint :9464 — HTTP/Qdrant/chat latency, queue depths; worker :9465 — job
 durations; monitoring/ has Prometheus + provisioned Grafana dashboard, both in docker
-compose); README covers DO App Platform/DOKS deployment.
+compose); README covers DO App Platform/DOKS deployment. Worker logs every pipeline stage
+(1/6 download … 6/6 finalize, LOG_LEVEL env, workers/src/logutil.py); DELETE /projects/:id
+purges all stores — Postgres cascade + Spaces prefix + Qdrant points + Redis caches
+(apps/api/src/cleanup.ts, each stage logged, failures non-blocking).
 
 Chat and embedding need `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`; without them the worker skips
 embedding (chunks wait with NULL embeddingId) and the chat endpoint returns 503. For offline

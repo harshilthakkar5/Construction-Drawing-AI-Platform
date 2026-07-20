@@ -3,7 +3,9 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   ListPartsCommand,
   S3Client,
   UploadPartCommand,
@@ -90,4 +92,26 @@ export function presignGetObject(key: string, expiresIn = 3600) {
 /** Used to purge objects that fail upload validation / malware scanning. */
 export async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+}
+
+/** Delete every object under a prefix (project deletion cleanup). Pages
+ * through the listing and batch-deletes 1000 keys at a time. Returns the
+ * number of objects removed. */
+export async function deletePrefix(prefix: string): Promise<number> {
+  let deleted = 0;
+  let continuationToken: string | undefined;
+  do {
+    const listing = await s3.send(
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: continuationToken }),
+    );
+    const keys = (listing.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
+    if (keys.length > 0) {
+      await s3.send(
+        new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: keys, Quiet: true } }),
+      );
+      deleted += keys.length;
+    }
+    continuationToken = listing.IsTruncated ? listing.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return deleted;
 }

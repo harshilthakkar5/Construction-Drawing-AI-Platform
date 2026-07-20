@@ -12,6 +12,10 @@ import os
 import time
 from contextlib import contextmanager
 
+import logutil
+
+log = logutil.get("telemetry")
+
 _job_duration = None
 _jobs_total = None
 _enabled = False
@@ -26,7 +30,7 @@ def start() -> None:
         from opentelemetry.sdk.metrics import MeterProvider
         from prometheus_client import start_http_server
     except ImportError:
-        print("[telemetry] opentelemetry not installed — metrics disabled")
+        log.warning("opentelemetry not installed — metrics disabled")
         return
 
     port = int(os.environ.get("WORKER_METRICS_PORT", "9465"))
@@ -42,7 +46,7 @@ def start() -> None:
         "worker_jobs_total", description="BullMQ jobs consumed by queue/outcome"
     )
     _enabled = True
-    print(f"[telemetry] Prometheus metrics on http://localhost:{port}/metrics")
+    log.info("Prometheus metrics on http://localhost:%d/metrics", port)
 
 
 @contextmanager

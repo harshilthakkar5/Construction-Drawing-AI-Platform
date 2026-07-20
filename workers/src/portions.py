@@ -10,6 +10,9 @@ import redis as redis_lib
 import classify
 import config
 import db
+import logutil
+
+log = logutil.get("portions")
 
 _redis = None
 
@@ -21,7 +24,7 @@ def _get_redis():
             _redis = redis_lib.Redis.from_url(config.REDIS_URL)
             _redis.ping()
         except Exception as exc:
-            print(f"[portions] Redis cache unavailable: {exc}")
+            log.warning("Redis classification cache unavailable: %s", exc)
             _redis = False
     return _redis or None
 
@@ -30,11 +33,9 @@ def detect_and_store(project_id: str) -> list[dict]:
     pages = db.pages_for_classification(project_id)
     portions = classify.build_portions(pages, redis_conn=_get_redis())
     db.replace_portions(project_id, portions)
-    print(
-        f"[portions] project {project_id}: "
-        + (
-            ", ".join(f"{p['name']} {p['startPage']}-{p['endPage']}" for p in portions)
-            or "no pages"
-        )
+    log.info(
+        "project %s: %s",
+        project_id[:8],
+        ", ".join(f"{p['name']} {p['startPage']}-{p['endPage']}" for p in portions) or "no pages",
     )
     return portions

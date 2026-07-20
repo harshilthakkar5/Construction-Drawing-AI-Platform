@@ -110,6 +110,39 @@ set `MALWARE_SCAN_URL` to a scanner endpoint (`POST {key, url}` →
 `{"status": "clean"|"infected"}`, e.g. a small ClamAV REST sidecar); scanner failures
 block the file. Unset, scanning is skipped.
 
+## Pipeline logs
+
+The worker logs every processing stage with timestamps and levels
+(`LOG_LEVEL=DEBUG` adds per-page detail):
+
+```
+10:12:01 INFO [pipeline] [doc 13c35c8d] stage 1/6 download: projects/…/original.pdf
+10:12:03 INFO [pipeline] [doc 13c35c8d] stage 2/6 extract: 240 pages (0 already done — resuming)
+10:12:41 INFO [pipeline] [doc 13c35c8d] stage 2/6 extract: 25/240 pages (3 OCR)
+10:14:55 INFO [pipeline] [doc 13c35c8d] stage 4/6 portions done: 5 portions
+10:15:20 INFO [pipeline] [doc 13c35c8d] stage 5/6 embed done: 512/512 chunks in Qdrant
+10:15:20 INFO [pipeline] [doc 13c35c8d] stage 6/6 finalize: completed in 199.2s — {...}
+```
+
+Failures log the exact stage (and page number during extraction) with a full
+traceback before BullMQ retries, e.g.
+`stage 2/6 extract FAILED at page 137/240 (pages 1..136 are saved; a retry resumes here)`.
+
+## Deleting a project
+
+`DELETE /projects/:id` (owner-only) removes the project **everywhere**:
+
+1. PostgreSQL — the project row cascades to documents, pages, chunks,
+   portions, summaries, and chat history.
+2. Object storage — every object under `projects/{id}/` (original PDFs, page
+   images, thumbnails, extracted text).
+3. Qdrant — all embedding points for the project.
+4. Redis — retrieval caches and the summaries cache.
+
+Storage/Qdrant/Redis cleanup stages run after the DB delete and are logged
+individually (`[cleanup <id>] …`); a failed stage is logged as an error
+without blocking the others.
+
 ## Document revisions (FR-4)
 
 Click **New revision** on a completed document (or POST `/documents` with

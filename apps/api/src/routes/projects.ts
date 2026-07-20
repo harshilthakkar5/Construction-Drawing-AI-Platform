@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { assertProjectOwner, currentUser } from "../auth.js";
+import { purgeProjectData } from "../cleanup.js";
 import { prisma } from "../db.js";
 
 export const projectsRouter = Router();
@@ -72,8 +73,11 @@ projectsRouter.delete("/:projectId", async (req, res) => {
   if (!(await assertProjectOwner(req, projectId))) {
     return void res.status(403).json({ error: "owner role required" });
   }
-  // Cascades to documents/pages rows. Object-storage cleanup is a later phase.
+  console.log(`[cleanup ${projectId.slice(0, 8)}] project deletion requested by ${currentUser(req).email}`);
+  // Postgres first (cascades to documents/pages/chunks/portions/summaries/
+  // chat rows), then purge object storage, Qdrant points, and Redis caches.
   await prisma.project.delete({ where: { id: projectId } });
+  await purgeProjectData(projectId);
   res.status(204).end();
 });
 
