@@ -161,6 +161,31 @@ documentsRouter.post("/:documentId/upload/:uploadId/complete", async (req, res) 
   res.json({ documentId, status: document.status });
 });
 
+/** Re-enqueue processing for a stuck or failed document. Safe to repeat: the
+ * pipeline resumes — pages that already finished are skipped, so a document
+ * that died at page N continues from page N. Use when a job exhausted its
+ * retries or the worker died mid-run (status frozen at "processing"). */
+documentsRouter.post("/:documentId/reprocess", async (req, res) => {
+  const { projectId, documentId } = docParams.parse(req.params);
+  const document = await prisma.document.findUniqueOrThrow({
+    where: { id: documentId, projectId },
+  });
+  if (document.supersededAt) {
+    return void res.status(409).json({ error: "document is superseded — reprocess the latest revision" });
+  }
+  if (document.status === "completed") {
+    return void res.status(409).json({ error: "document already completed" });
+  }
+  await prisma.document.update({ where: { id: documentId }, data: { status: "uploaded" } });
+  await processDocumentQueue.add("process", {
+    projectId,
+    documentId,
+    spacesKey: document.spacesKey,
+  });
+  console.log(`[reprocess] document ${documentId} re-queued for project ${projectId}`);
+  res.json({ documentId, status: "uploaded" });
+});
+
 documentsRouter.post("/:documentId/upload/:uploadId/abort", async (req, res) => {
   const { projectId, documentId, uploadId } = uploadParams.parse(req.params);
   const key = objectKeys.originalPdf(projectId, documentId);

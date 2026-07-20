@@ -130,6 +130,22 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       New revision
                     </button>
                   )}
+                  {(doc.status === "failed" || doc.status === "processing") && (
+                    <button
+                      className="ml-auto text-xs text-blue-600 hover:underline"
+                      title="Re-run processing — already-finished pages are skipped, so it resumes where it stopped"
+                      onClick={() => {
+                        void api
+                          .reprocessDocument(projectId, doc.id)
+                          .then(() =>
+                            queryClient.invalidateQueries({ queryKey: ["documents", projectId] }),
+                          )
+                          .catch((err) => console.error(err));
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
                 </>
               )}
             </div>

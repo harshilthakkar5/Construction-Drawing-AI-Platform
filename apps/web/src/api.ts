@@ -98,6 +98,13 @@ export const api = {
       { method: "POST", body: JSON.stringify({}) },
     ),
 
+  /** Re-run processing for a stuck/failed document (resumes where it stopped). */
+  reprocessDocument: (projectId: string, documentId: string) =>
+    request<{ documentId: string; status: string }>(
+      `/projects/${projectId}/documents/${documentId}/reprocess`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
 
   listSummaries: (projectId: string) => request<SummaryDto[]>(`/projects/${projectId}/summaries`),
