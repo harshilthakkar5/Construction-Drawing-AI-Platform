@@ -56,13 +56,15 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
                     continue
 
                 page = pdf.load_page(index)
-                text = page.get_text("text").strip()
+                # strip_nul: PostgreSQL rejects NUL (0x00) bytes, which PDF
+                # extraction can produce with unusual font encodings.
+                text = chunker.strip_nul(page.get_text("text")).strip()
 
                 zoom = fitz.Matrix(config.PAGE_RENDER_ZOOM, config.PAGE_RENDER_ZOOM)
                 png = page.get_pixmap(matrix=zoom).tobytes("png")
 
                 if not text:  # FR-7: OCR only when the page has no text layer
-                    text = ocr.ocr_png_bytes(png)
+                    text = chunker.strip_nul(ocr.ocr_png_bytes(png))
                     ocr_count += 1
 
                 storage.put_bytes(

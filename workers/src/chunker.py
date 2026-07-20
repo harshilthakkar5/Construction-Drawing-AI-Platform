@@ -24,6 +24,13 @@ OVERLAP_TOKENS = 100
 TOKENS_PER_WORD = 1.3
 
 
+def strip_nul(text: str) -> str:
+    """PDF text extraction (and OCR) can emit NUL (0x00) characters, which
+    PostgreSQL text columns reject outright. Strip them at the extraction
+    source so DB rows, stored .txt files, hashes, and prompts are all clean."""
+    return text.replace("\x00", "")
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, round(len(text.split()) * TOKENS_PER_WORD)) if text.strip() else 0
 
@@ -143,8 +150,8 @@ def chunk_page(raw_blocks: list[tuple]) -> list[Chunk]:
     i.e. (x0, y0, x1, y1, text, block_no, block_type). Image blocks (type 1)
     are skipped — image regions become chunk content in a later phase."""
     blocks = [
-        Block(x0=b[0], y0=b[1], x1=b[2], y1=b[3], text=b[4])
+        Block(x0=b[0], y0=b[1], x1=b[2], y1=b[3], text=strip_nul(str(b[4])))
         for b in raw_blocks
-        if len(b) >= 7 and b[6] == 0 and str(b[4]).strip()
+        if len(b) >= 7 and b[6] == 0 and strip_nul(str(b[4])).strip()
     ]
     return chunk_blocks(blocks)
