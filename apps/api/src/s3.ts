@@ -21,11 +21,14 @@ import { env } from "./env.js";
  */
 export const s3 = new S3Client({
   endpoint: env.SPACES_ENDPOINT,
-  region: "us-east-1",
+  region: env.SPACES_REGION,
   credentials: {
     accessKeyId: env.SPACES_KEY,
     secretAccessKey: env.SPACES_SECRET,
   },
+  // Path-style URLs (endpoint.com/bucket/key) work for both MinIO (required)
+  // and DO Spaces; SPACES_ENDPOINT must therefore be the REGION endpoint
+  // (e.g. https://blr1.digitaloceanspaces.com), never the bucket subdomain.
   forcePathStyle: true,
 });
 

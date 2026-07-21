@@ -210,11 +210,16 @@ independent worker autoscaling). Either way you need these managed services:
 Create a bucket and an access key, then set (on both api and worker):
 
 ```
-SPACES_ENDPOINT=https://blr1.digitaloceanspaces.com   # your region
+SPACES_ENDPOINT=https://blr1.digitaloceanspaces.com   # REGION endpoint — no bucket name in it
 SPACES_BUCKET=<bucket name>
+SPACES_REGION=blr1
 SPACES_KEY=<access key>
 SPACES_SECRET=<secret>
 ```
+
+⚠️ `SPACES_ENDPOINT` must be the region endpoint, **not** the bucket URL
+(`https://<bucket>.blr1.digitaloceanspaces.com` breaks path-style addressing —
+requests would target `<bucket>.…/<bucket>/…` and 404).
 
 The code uses the AWS S3 SDK/boto3 with an endpoint override, so no code changes are
 needed between MinIO and Spaces. Add a CORS rule on the bucket allowing `PUT` from

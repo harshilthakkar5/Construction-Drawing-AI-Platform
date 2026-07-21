@@ -13,7 +13,7 @@ _s3 = boto3.client(
     endpoint_url=config.SPACES_ENDPOINT,
     aws_access_key_id=config.SPACES_KEY,
     aws_secret_access_key=config.SPACES_SECRET,
-    region_name="us-east-1",
+    region_name=config.SPACES_REGION,
     config=Config(s3={"addressing_style": "path"}),
 )
 
