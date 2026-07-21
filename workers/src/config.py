@@ -17,6 +17,10 @@ SPACES_SECRET = os.environ.get("SPACES_SECRET", "minioadmin")
 SPACES_ENDPOINT = os.environ.get("SPACES_ENDPOINT", "http://localhost:9000")
 SPACES_BUCKET = os.environ.get("SPACES_BUCKET", "cdip-local")
 SPACES_REGION = os.environ.get("SPACES_REGION", "us-east-1")
+# Optional canned ACL for objects the worker writes (page images/thumbs/text).
+# Leave unset to keep them private (served via presigned URLs); set to
+# "public-read" only to deliberately expose them (matches the API's SPACES_ACL).
+SPACES_ACL = os.environ.get("SPACES_ACL") or None
 
 # Rendering: 2x zoom ≈ 144 dpi page PNGs; thumbnails resized to this width.
 PAGE_RENDER_ZOOM = float(os.environ.get("PAGE_RENDER_ZOOM", "2"))

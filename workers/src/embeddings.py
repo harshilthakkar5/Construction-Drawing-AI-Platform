@@ -13,6 +13,7 @@ embeddingId and are picked up by a later retry once a key exists).
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 
@@ -26,26 +27,60 @@ VOYAGE_MODEL = os.environ.get("VOYAGE_MODEL", "voyage-3")
 EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 COLLECTION = os.environ.get("QDRANT_COLLECTION", "chunks")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-BATCH_SIZE = 128
+BATCH_SIZE = int(os.environ.get("VOYAGE_BATCH_SIZE", "128"))
+# Free Voyage tier is heavily rate-limited (~3 requests/min). A small delay
+# between batches keeps a large document under the limit instead of getting
+# 429'd and failing the whole job. Raise VOYAGE_BATCH_DELAY on the free tier
+# (e.g. 20) or set 0 on a paid tier.
+BATCH_DELAY_SECONDS = float(os.environ.get("VOYAGE_BATCH_DELAY", "0"))
+MAX_RETRIES = int(os.environ.get("VOYAGE_MAX_RETRIES", "6"))
 
 
 def voyage_available() -> bool:
     return bool(os.environ.get("VOYAGE_API_KEY"))
 
 
+def _post_with_retry(client: httpx.Client, api_key: str, batch: list[str], input_type: str):
+    """One Voyage call with retry/backoff on 429 (rate limit) and 5xx. Honors
+    the Retry-After header when present; otherwise exponential backoff."""
+    for attempt in range(MAX_RETRIES + 1):
+        response = client.post(
+            f"{VOYAGE_BASE_URL}/v1/embeddings",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={"input": batch, "model": VOYAGE_MODEL, "input_type": input_type},
+        )
+        if response.status_code == 429 or response.status_code >= 500:
+            if attempt == MAX_RETRIES:
+                response.raise_for_status()
+            retry_after = response.headers.get("retry-after")
+            wait = float(retry_after) if retry_after else min(60.0, 2.0 * (2**attempt))
+            log.warning(
+                "Voyage %s (attempt %d/%d) — backing off %.1fs",
+                response.status_code,
+                attempt + 1,
+                MAX_RETRIES,
+                wait,
+            )
+            time.sleep(wait)
+            continue
+        response.raise_for_status()
+        return response
+    raise RuntimeError("unreachable")
+
+
 def embed_texts(texts: list[str], input_type: str = "document") -> list[list[float]]:
-    """Batched Voyage embedding call. input_type: 'document' | 'query'."""
+    """Batched Voyage embedding call with rate-limit backoff.
+    input_type: 'document' | 'query'."""
     api_key = os.environ["VOYAGE_API_KEY"]
     vectors: list[list[float]] = []
+    batch_count = (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE
     with httpx.Client(timeout=120) as client:
-        for start in range(0, len(texts), BATCH_SIZE):
+        for i, start in enumerate(range(0, len(texts), BATCH_SIZE)):
             batch = texts[start : start + BATCH_SIZE]
-            response = client.post(
-                f"{VOYAGE_BASE_URL}/v1/embeddings",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={"input": batch, "model": VOYAGE_MODEL, "input_type": input_type},
-            )
-            response.raise_for_status()
+            if i > 0 and BATCH_DELAY_SECONDS > 0:
+                time.sleep(BATCH_DELAY_SECONDS)  # throttle to stay under the tier limit
+            log.debug("embedding batch %d/%d (%d texts)", i + 1, batch_count, len(batch))
+            response = _post_with_retry(client, api_key, batch, input_type)
             data = response.json()["data"]
             vectors.extend(item["embedding"] for item in sorted(data, key=lambda d: d["index"]))
     return vectors

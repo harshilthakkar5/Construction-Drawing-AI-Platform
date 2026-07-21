@@ -1,23 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore, type Highlight } from "../store";
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
 
 const PAGE_WIDTH = 850;
 
 /**
  * FR-6/FR-17/FR-20: renders the VIRTUAL combined set. The manifest maps each
  * combined page number to (document, page); source PDFs are never merged.
- * Pages lazy-load via a shared IntersectionObserver; a source document's PDF
- * is only fetched once one of its pages approaches the viewport. Thumbnails
- * come from the worker-generated JPGs.
+ *
+ * The main display is the worker-rendered full-resolution page PNG (served via
+ * a presigned URL). Plain <img> loads work cross-origin without CORS and don't
+ * depend on fetching the whole source PDF, so this stays sharp and reliable on
+ * DigitalOcean Spaces. Pages lazy-load via a shared IntersectionObserver; the
+ * low-res thumbnail shows as a placeholder until the full image arrives.
  */
 export function CombinedViewer({ projectId }: { projectId: string }) {
   const jumpToPage = useAppStore((s) => s.jumpToPage);
@@ -26,7 +23,6 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [nearViewport, setNearViewport] = useState<Set<number>>(new Set());
-  const [openedDocs, setOpenedDocs] = useState<Set<string>>(new Set());
   const [jumpInput, setJumpInput] = useState("");
 
   const manifest = useQuery({
@@ -36,17 +32,6 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
       !query.state.data?.length || query.state.data.some((e) => !e.hasImage) ? 3000 : false,
   });
   const entries = useMemo(() => manifest.data ?? [], [manifest.data]);
-
-  // Contiguous runs of the same document, in combined order.
-  const groups = useMemo(() => {
-    const out: { documentId: string; filename: string; entries: ManifestEntryDto[] }[] = [];
-    for (const entry of entries) {
-      const last = out[out.length - 1];
-      if (last && last.documentId === entry.documentId) last.entries.push(entry);
-      else out.push({ documentId: entry.documentId, filename: entry.filename, entries: [entry] });
-    }
-    return out;
-  }, [entries]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -61,7 +46,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           return next;
         });
       },
-      { root: scrollRef.current, rootMargin: "1200px 0px" },
+      { root: scrollRef.current, rootMargin: "1500px 0px" },
     );
     observerRef.current = observer;
     return () => observer.disconnect();
@@ -71,23 +56,9 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
     if (el) observerRef.current?.observe(el);
   }, []);
 
-  // Once any page of a document nears the viewport, keep its PDF open.
-  useEffect(() => {
-    const needed = new Set<string>();
-    for (const g of groups) {
-      if (g.entries.some((e) => nearViewport.has(e.combinedPageNumber))) needed.add(g.documentId);
-    }
-    setOpenedDocs((prev) => {
-      const merged = new Set(prev);
-      let changed = false;
-      for (const id of needed) if (!merged.has(id)) (merged.add(id), (changed = true));
-      return changed ? merged : prev;
-    });
-  }, [groups, nearViewport]);
-
   // FR-16/FR-18 programmatic jump. Slots above the target change height as
-  // thumbnails and PDF canvases lazy-load, so re-assert the scroll position a
-  // few times until the layout settles.
+  // images lazy-load, so re-assert the scroll position a few times until the
+  // layout settles.
   useEffect(() => {
     if (jumpToPage == null) return;
     const scroll = () =>
@@ -163,54 +134,30 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
               No pages yet — upload a PDF and wait for processing.
             </p>
           )}
-          {groups.map((group) => {
-            const slots = group.entries.map((entry) => (
-              <div
-                key={entry.combinedPageNumber}
-                id={`combined-page-${entry.combinedPageNumber}`}
-                data-combined={entry.combinedPageNumber}
-                ref={observe}
-                className="mx-auto mb-4 bg-white shadow"
-                style={{ width: PAGE_WIDTH, minHeight: PAGE_WIDTH * 0.6 }}
-              >
-                <div className="relative">
-                  {openedDocs.has(group.documentId) &&
-                  nearViewport.has(entry.combinedPageNumber) ? (
-                    <Page
-                      pageNumber={entry.pageNumber}
-                      width={PAGE_WIDTH}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      loading={<SlotPlaceholder entry={entry} projectId={projectId} />}
-                    />
-                  ) : (
-                    <SlotPlaceholder entry={entry} projectId={projectId} />
-                  )}
-                  {highlight?.combinedPageNumber === entry.combinedPageNumber && (
-                    <HighlightOverlay highlight={highlight} entry={entry} />
-                  )}
-                </div>
-                <div className="border-t border-gray-100 px-2 py-1 text-xs text-gray-400">
-                  {entry.filename} · page {entry.pageNumber} · combined {entry.combinedPageNumber}
-                </div>
+          {entries.map((entry) => (
+            <div
+              key={entry.combinedPageNumber}
+              id={`combined-page-${entry.combinedPageNumber}`}
+              data-combined={entry.combinedPageNumber}
+              ref={observe}
+              className="mx-auto mb-4 bg-white shadow"
+              style={{ width: PAGE_WIDTH, minHeight: PAGE_WIDTH * 0.6 }}
+            >
+              <div className="relative">
+                <PageImage
+                  entry={entry}
+                  projectId={projectId}
+                  near={nearViewport.has(entry.combinedPageNumber)}
+                />
+                {highlight?.combinedPageNumber === entry.combinedPageNumber && (
+                  <HighlightOverlay highlight={highlight} entry={entry} />
+                )}
               </div>
-            ));
-
-            return openedDocs.has(group.documentId) ? (
-              <Document
-                key={`${group.documentId}-${group.entries[0]?.combinedPageNumber}`}
-                file={api.documentFileUrl(projectId, group.documentId)}
-                loading={<div className="py-8 text-center text-sm text-gray-400">Loading PDF…</div>}
-                error={
-                  <div className="py-8 text-center text-sm text-red-500">Failed to load PDF</div>
-                }
-              >
-                {slots}
-              </Document>
-            ) : (
-              <div key={`${group.documentId}-${group.entries[0]?.combinedPageNumber}`}>{slots}</div>
-            );
-          })}
+              <div className="border-t border-gray-100 px-2 py-1 text-xs text-gray-400">
+                {entry.filename} · page {entry.pageNumber} · combined {entry.combinedPageNumber}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -224,13 +171,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
  * correctly at any render width. Pages processed before Phase 5 have no
  * stored size — the jump still works, the highlight is just skipped.
  */
-function HighlightOverlay({
-  highlight,
-  entry,
-}: {
-  highlight: Highlight;
-  entry: ManifestEntryDto;
-}) {
+function HighlightOverlay({ highlight, entry }: { highlight: Highlight; entry: ManifestEntryDto }) {
   if (!entry.pageWidth || !entry.pageHeight) return null;
   const clamp = (v: number) => Math.min(100, Math.max(0, v));
   const { bbox } = highlight;
@@ -248,23 +189,50 @@ function HighlightOverlay({
   );
 }
 
-function SlotPlaceholder({
+/**
+ * The full-resolution page render. Once the page is near the viewport, load
+ * the full PNG; until it decodes, show the (blurry-but-cheap) thumbnail as a
+ * placeholder so the layout doesn't jump. Not-yet-processed pages show a
+ * status line.
+ */
+function PageImage({
   entry,
   projectId,
+  near,
 }: {
   entry: ManifestEntryDto;
   projectId: string;
+  near: boolean;
 }) {
-  return entry.hasImage ? (
-    <img
-      src={api.pageThumbUrl(projectId, entry.combinedPageNumber)}
-      alt={`Page ${entry.combinedPageNumber} placeholder`}
-      className="w-full opacity-60"
-      loading="lazy"
-    />
-  ) : (
-    <div className="flex h-64 items-center justify-center text-sm text-gray-400">
-      page {entry.combinedPageNumber} — processing…
-    </div>
+  const [loaded, setLoaded] = useState(false);
+
+  if (!entry.hasImage) {
+    return (
+      <div className="flex h-64 items-center justify-center text-sm text-gray-400">
+        page {entry.combinedPageNumber} — processing…
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {!loaded && (
+        <img
+          src={api.pageThumbUrl(projectId, entry.combinedPageNumber)}
+          alt=""
+          aria-hidden
+          className="w-full"
+          style={{ filter: "blur(1px)" }}
+        />
+      )}
+      {near && (
+        <img
+          src={api.pageImageUrl(projectId, entry.combinedPageNumber)}
+          alt={`Page ${entry.combinedPageNumber}`}
+          onLoad={() => setLoaded(true)}
+          className={`w-full ${loaded ? "" : "absolute inset-0 opacity-0"}`}
+        />
+      )}
+    </>
   );
 }
