@@ -30,9 +30,15 @@ export function ProjectView({ projectId }: { projectId: string }) {
         )}
       </div>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-gray-200">
-          <SummaryPanel projectId={projectId} />
-          <PortionsPanel projectId={projectId} />
+        {/* Each section scrolls on its own so a long summary never buries the
+            portions list or the upload / document controls below it. */}
+        <aside className="flex w-72 shrink-0 flex-col border-r border-gray-200">
+          <div className="max-h-[40%] shrink-0 overflow-y-auto">
+            <SummaryPanel projectId={projectId} />
+          </div>
+          <div className="shrink-0 overflow-y-auto">
+            <PortionsPanel projectId={projectId} />
+          </div>
           <div className="min-h-0 flex-1">
             <DocumentsPanel projectId={projectId} />
           </div>

@@ -45,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
-/** Media elements (<img>, react-pdf) can't send headers; these GET endpoints
+/** Media <img> elements can't send Authorization headers; these GET endpoints
  * accept the session token as a query parameter and redirect to a presigned
  * URL (presigned-URL-only media access). */
 const withToken = (url: string) => {
@@ -127,4 +127,7 @@ export const api = {
     withToken(`${API_URL}/projects/${projectId}/documents/${documentId}/file`),
   pageThumbUrl: (projectId: string, combined: number) =>
     withToken(`${API_URL}/projects/${projectId}/pages/${combined}/thumb`),
+  /** Full-resolution rendered page PNG (the viewer's main display). */
+  pageImageUrl: (projectId: string, combined: number) =>
+    withToken(`${API_URL}/projects/${projectId}/pages/${combined}/image`),
 };

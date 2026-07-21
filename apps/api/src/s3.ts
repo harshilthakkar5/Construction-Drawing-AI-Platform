@@ -3,7 +3,6 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
-  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -123,24 +122,39 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
-/** Delete every object under a prefix (project deletion cleanup). Pages
- * through the listing and batch-deletes 1000 keys at a time. Returns the
- * number of objects removed. */
+/** Delete every object under a prefix (project/document deletion cleanup).
+ *
+ * Deletes objects individually rather than via the batch DeleteObjects API:
+ * DigitalOcean Spaces is inconsistent with S3's multi-object delete (it can
+ * return a NoSuchKey 404 for the batch request), whereas single-object
+ * DeleteObject works identically on Spaces and MinIO. Already-gone keys are
+ * tolerated so a partially-cleaned prefix (e.g. a re-run) still succeeds.
+ * Deletes run with bounded concurrency. */
 export async function deletePrefix(prefix: string): Promise<number> {
+  const CONCURRENCY = 16;
   let deleted = 0;
   let continuationToken: string | undefined;
   do {
     const listing = await s3.send(
       new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: continuationToken }),
     );
-    const keys = (listing.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
-    if (keys.length > 0) {
-      await s3.send(
-        new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: keys, Quiet: true } }),
-      );
-      deleted += keys.length;
+    const keys = (listing.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
+    for (let i = 0; i < keys.length; i += CONCURRENCY) {
+      const slice = keys.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(slice.map((Key) => deleteObject(Key)));
+      for (const r of results) {
+        if (r.status === "fulfilled") deleted += 1;
+        else if (!isNotFound(r.reason)) throw r.reason; // real error — surface it
+      }
     }
     continuationToken = listing.IsTruncated ? listing.NextContinuationToken : undefined;
   } while (continuationToken);
   return deleted;
+}
+
+function isNotFound(err: unknown): boolean {
+  return (
+    err instanceof S3ServiceException &&
+    (err.$metadata.httpStatusCode === 404 || err.name === "NoSuchKey" || err.name === "NotFound")
+  );
 }

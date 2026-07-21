@@ -53,7 +53,15 @@ def _get_client():
     if _client is None:
         import anthropic
 
-        _client = anthropic.Anthropic(base_url=os.environ.get("ANTHROPIC_BASE_URL") or None)
+        # A large project makes one Claude call per page; the SDK retries 429s
+        # with backoff automatically — give it more headroom than the default 2
+        # so a rate-limited burst doesn't fail the summarize job. Set
+        # SUMMARY_USE_BATCH=true to route bulk page summaries through the Batch
+        # API instead (far higher throughput, cheaper).
+        _client = anthropic.Anthropic(
+            base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
+            max_retries=int(os.environ.get("ANTHROPIC_MAX_RETRIES", "6")),
+        )
     return _client
 
 
