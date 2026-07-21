@@ -40,4 +40,7 @@ def download_to_file(key: str, path: str) -> None:
 
 
 def put_bytes(key: str, data: bytes, content_type: str) -> None:
-    _s3.put_object(Bucket=config.SPACES_BUCKET, Key=key, Body=data, ContentType=content_type)
+    extra = {"ACL": config.SPACES_ACL} if config.SPACES_ACL else {}
+    _s3.put_object(
+        Bucket=config.SPACES_BUCKET, Key=key, Body=data, ContentType=content_type, **extra
+    )

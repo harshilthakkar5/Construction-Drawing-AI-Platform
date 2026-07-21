@@ -34,12 +34,22 @@ export const s3 = new S3Client({
 
 const BUCKET = env.SPACES_BUCKET;
 
+/** Optional canned ACL (off by default — objects stay private and are served
+ * via presigned URLs). Applied at multipart initiation; the ACL set there
+ * carries to the completed object. */
+const ACL = env.SPACES_ACL;
+
 /** 8 MiB parts (S3 minimum is 5 MiB for all but the last part). */
 export const PART_SIZE = 8 * 1024 * 1024;
 
 export async function createMultipartUpload(key: string, contentType: string) {
   const res = await s3.send(
-    new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }),
+    new CreateMultipartUploadCommand({
+      Bucket: BUCKET,
+      Key: key,
+      ContentType: contentType,
+      ...(ACL ? { ACL } : {}),
+    }),
   );
   if (!res.UploadId) throw new Error("S3 returned no UploadId");
   return res.UploadId;

@@ -15,6 +15,12 @@ const envSchema = z.object({
   SPACES_BUCKET: z.string().min(1),
   /** Region slug used for request signing (e.g. blr1); any value works for MinIO. */
   SPACES_REGION: z.string().min(1).default("us-east-1"),
+  /** Canned ACL applied to uploaded objects. Leave unset (default) to keep
+   * objects PRIVATE — the app serves all media via presigned URLs, so private
+   * is correct and secure. Set to "public-read" ONLY if you deliberately want
+   * every uploaded PDF/image/text world-readable (e.g. to serve straight off
+   * the DO Spaces CDN). This bypasses the app's auth/RBAC for media. */
+  SPACES_ACL: z.enum(["private", "public-read"]).optional(),
   // Not needed to boot the scaffold; required once AI features land.
   ANTHROPIC_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
