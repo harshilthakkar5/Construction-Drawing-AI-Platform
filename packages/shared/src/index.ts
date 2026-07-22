@@ -8,17 +8,25 @@ export type DocumentStatus = "uploaded" | "processing" | "completed" | "failed";
 
 export type SummaryLevel = "page" | "section" | "portion" | "project";
 
-/** Portion (discipline) buckets detected from sheet-number prefixes + title blocks. */
+/** Portion (discipline) buckets detected from sheet-number prefixes + title
+ * blocks. Slugs mirror workers/src/classify.py PREFIX_TO_DISCIPLINE. */
 export type Discipline =
+  | "general"
   | "architectural"
   | "structural"
+  | "civil"
+  | "landscape"
+  | "interiors"
+  | "mechanical"
+  | "hvac"
   | "plumbing"
   | "electrical"
-  | "hvac"
   | "fire_protection"
-  | "civil"
-  | "site_landscape"
-  | "details_legends_schedules";
+  | "fire_alarm"
+  | "telecommunications"
+  | "information_technology"
+  | "audio_visual"
+  | "other";
 
 /** Bounding box in PDF page coordinates. */
 export interface BBox {
