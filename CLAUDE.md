@@ -161,10 +161,14 @@ projects/{projectId}/
 
 ## Portion (discipline) detection
 
-Classify pages from sheet-number prefixes plus Claude classification of title blocks:
-A → Architectural | S → Structural | P → Plumbing | E → Electrical | M/H → HVAC |
-FP → Fire Protection | C → Civil | SP/L → Site/Landscape | D/detail sheets → Details, Legends,
-Schedules.
+Classify pages from sheet-number prefixes plus Claude classification of title blocks. Prefix →
+discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
+`PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
+G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
+M → Mechanical | H → HVAC | P → Plumbing | E → Electrical | F/FP → Fire Protection |
+FA → Fire Alarm | T → Telecommunications | IT → Information Technology | AV → Audio Visual |
+X → Other/Special. Contiguous runs of one discipline become portion rows (FR-15); portion and
+section summaries are therefore per-discipline.
 
 ## Chunking strategy (hybrid)
 

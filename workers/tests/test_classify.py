@@ -15,25 +15,37 @@ from classify import (  # noqa: E402
 class TestClassifyByRules:
     def test_prefix_table(self):
         cases = {
+            "G02-02": "general",
             "A-101": "architectural",
             "S201": "structural",
+            "C-100": "civil",
+            "L2.01": "landscape",
+            "I-110": "interiors",
+            "M301": "mechanical",
+            "H102": "hvac",
             "P-3": "plumbing",
             "E1.1": "electrical",
-            "M-401": "hvac",
-            "H102": "hvac",
+            "F-201": "fire_protection",
             "FP-2": "fire_protection",
-            "C-100": "civil",
-            "SP-1": "site_landscape",
-            "L2.01": "site_landscape",
-            "D-501": "details_legends_schedules",
+            "FA-1": "fire_alarm",
+            "T-100": "telecommunications",
+            "IT-101": "information_technology",
+            "AV-2": "audio_visual",
+            "X-9": "other",
         }
         for token, expected in cases.items():
             assert classify_by_rules(f"TITLE BLOCK SHEET {token}") == expected, token
 
     def test_longer_prefixes_beat_single_letters(self):
-        # FP/SP must not be read as F+number or S+number
+        # Two-letter prefixes must not be read as single-letter + number.
         assert classify_by_rules("SHEET FP-101") == "fire_protection"
-        assert classify_by_rules("SHEET SP-101") == "site_landscape"
+        assert classify_by_rules("SHEET FA-101") == "fire_alarm"
+        assert classify_by_rules("SHEET IT-101") == "information_technology"
+        assert classify_by_rules("SHEET AV-101") == "audio_visual"
+        # ...and the single-letter forms still map correctly.
+        assert classify_by_rules("SHEET F-101") == "fire_protection"
+        assert classify_by_rules("SHEET I-101") == "interiors"
+        assert classify_by_rules("SHEET A-101") == "architectural"
 
     def test_last_token_wins_title_block_at_end(self):
         # Notes referencing other sheets appear before the title block
