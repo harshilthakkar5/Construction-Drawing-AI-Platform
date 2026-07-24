@@ -161,14 +161,20 @@ projects/{projectId}/
 
 ## Portion (discipline) detection
 
-Classify pages from sheet-number prefixes plus Claude classification of title blocks. Prefix →
+Classify pages by the SHEET NUMBER, not content: filename sheet number first
+(each PDF is usually named by its sheet, e.g. `A17-11 ….pdf`), then the title-block sheet number
+in the page text (formal sheet numbers like A17-11 beat weak content callouts like `TYPE E2`/`C1`
+via `_is_strong`), and only then a Claude Haiku content guess as last resort. Prefix →
 discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
 `PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
 M → Mechanical | H → HVAC | P → Plumbing | E → Electrical | F/FP → Fire Protection |
 FA → Fire Alarm | T → Telecommunications | IT → Information Technology | AV → Audio Visual |
-X → Other/Special. Contiguous runs of one discipline become portion rows (FR-15); portion and
-section summaries are therefore per-discipline.
+X → Other/Special. Each page's discipline is stored on pages.discipline; there is ONE portion
+per discipline (FR-15) covering all its pages even when non-contiguous (startPage/endPage span
+them, start is the jump target). Chunks and page summaries group by pages.discipline (not page
+range) — assign_chunk_portions joins pages.discipline = portions.discipline; summarize.run
+groups covered pages by discipline. Portion and section summaries are therefore per-discipline.
 
 ## Chunking strategy (hybrid)
 

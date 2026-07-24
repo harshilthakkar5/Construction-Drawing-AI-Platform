@@ -1,12 +1,20 @@
-"""Portion (discipline) detection — CLAUDE.md prefix table + Claude Haiku fallback.
+"""Portion (discipline) detection — the sheet-number prefix is authoritative.
 
-Pass 1 (rules): find sheet-number tokens (A-101, S201, FP-3, E1.1 …) in the
-page's extracted text and map the prefix. Pass 2 (Haiku): pages the rules
-can't classify send their title-block snippet to Claude Haiku for strict-JSON
-classification (cached in Redis by text hash). Pass 3 (fill): pages still
-unresolved inherit the previous page's discipline (drawing sets run in
-contiguous blocks), then leading pages inherit backward from the next
-classified one.
+The discipline is decided by the sheet number on the page, NOT by content
+interpretation. Order of signals per page:
+
+  Pass 0 (filename): each PDF is typically named by its sheet number
+    ('A17-11 EQUIPMENT PLANS.pdf' → A → Architectural) — the most reliable
+    signal, so it wins.
+  Pass 1 (title block): the sheet number printed in the drawing's title block
+    (extracted page text). Formal sheet numbers (A17-11, S201, E1.1) are
+    preferred over weak content tokens (equipment labels like 'TYPE E2',
+    'C1') so a page full of callouts still classifies by its real sheet.
+  Pass 2 (Claude Haiku): ONLY when no sheet number is found at all — a
+    last-resort content guess, cached in Redis by text hash.
+  Pass 3 (fill): pages still unresolved inherit the previous page's discipline
+    (drawing sets run in contiguous blocks), then leading pages inherit
+    backward from the next classified one.
 """
 
 from __future__ import annotations
@@ -62,25 +70,54 @@ DISCIPLINE_NAMES: dict[str, str] = {
 # A sheet token: prefix + number, optionally dotted/dashed/spaced (A-101, S201,
 # E1.1, FP-3, G02-02, IT-1.02). Anchored to word boundaries; uppercase only, as
 # title blocks print sheet numbers in caps — lowercase matches would be prose
-# false hits. Two-letter prefixes are listed first so they win.
+# false hits. Two-letter prefixes are listed first so they win. The number is
+# captured in two groups so we can tell a formal sheet number from a weak
+# content token (see _is_strong).
 SHEET_TOKEN = re.compile(
-    r"\b(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?\d{1,4}(?:[.-]\d{1,3})?\b"
+    r"\b(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?(\d{1,4})((?:[.-]\d{1,3})?)\b"
+)
+
+# The sheet number that leads a filename: 'A17-11 EQUIPMENT PLANS.pdf',
+# 'A00-01 - GENERAL NOTES.pdf'. Leading separators/spaces/underscores allowed.
+FILENAME_SHEET = re.compile(
+    r"^[\s_\-]*(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?\d{1,4}(?:[.-]\d{1,3})?\b"
 )
 
 
-def classify_by_rules(text: str | None) -> str | None:
-    """Return a discipline slug, or None when no sheet token is found.
+def _is_strong(match: re.Match) -> bool:
+    """A formal sheet number (A17-11, S201, E1.1) versus a weak content token
+    (equipment/detail callouts like 'TYPE E2', 'C1'). Strong tokens have a
+    second number group or at least two digits — the callouts are a single
+    letter + single digit."""
+    return bool(match.group(3)) or len(match.group(2)) >= 2
 
-    The LAST match wins: PyMuPDF emits text roughly top-to-bottom, so the
-    title block (bottom-right corner, where the real sheet number lives)
-    tends to be near the end of the extracted text.
+
+def classify_by_filename(filename: str | None) -> str | None:
+    """Discipline from the sheet number that leads the filename — the most
+    reliable signal, since each uploaded PDF is usually named by its sheet."""
+    if not filename:
+        return None
+    match = FILENAME_SHEET.match(filename.upper())
+    return PREFIX_TO_DISCIPLINE[match.group(1)] if match else None
+
+
+def classify_by_rules(text: str | None) -> str | None:
+    """Return a discipline slug from the title-block sheet number, or None.
+
+    Prefer a formal sheet number (strong token) over weak content callouts, so
+    a page covered in labels like 'TYPE E2' / 'C1' still classifies by its real
+    sheet (e.g. A17-11 → Architectural). Among the preferred set the LAST match
+    wins: PyMuPDF emits text roughly top-to-bottom, so the title block (bottom
+    of the page) lands near the end of the extracted text.
     """
     if not text:
         return None
-    matches = SHEET_TOKEN.findall(text)
+    matches = list(SHEET_TOKEN.finditer(text))
     if not matches:
         return None
-    return PREFIX_TO_DISCIPLINE[matches[-1]]
+    strong = [m for m in matches if _is_strong(m)]
+    chosen = strong[-1] if strong else matches[-1]
+    return PREFIX_TO_DISCIPLINE[chosen.group(1)]
 
 
 def title_block_snippet(text: str, limit: int = 800) -> str:
@@ -203,36 +240,59 @@ def fill_unresolved(disciplines: list[str | None]) -> list[str]:
     return [d or "unclassified" for d in filled]
 
 
-def classify_pages(pages: list[tuple[int, str | None]], redis_conn=None) -> list[str]:
+def classify_pages(
+    pages: list[tuple[int, str | None]],
+    redis_conn=None,
+    filenames: list[str | None] | None = None,
+) -> list[str]:
     """pages: (combinedPageNumber, text) sorted by combined number.
-    Returns one discipline slug per page (same order)."""
-    resolved: list[str | None] = [classify_by_rules(text) for _, text in pages]
+    filenames: optional per-page document filename (parallel to pages).
+    Returns one discipline slug per page (same order). Sheet number wins:
+    filename first, then the title-block sheet number; Claude Haiku only when
+    no sheet number is found anywhere."""
+    resolved: list[str | None] = []
+    for i, (_, text) in enumerate(pages):
+        fname = filenames[i] if filenames else None
+        resolved.append(classify_by_filename(fname) or classify_by_rules(text))
     for i, (_, text) in enumerate(pages):
         if resolved[i] is None and text:
             resolved[i] = classify_by_haiku(text, redis_conn)
     return fill_unresolved(resolved)
 
 
-def build_portions(
-    pages: list[tuple[int, str | None]], redis_conn=None
-) -> list[dict]:
-    """Contiguous runs of one discipline → portion rows (FR-15). A discipline
-    with non-contiguous runs yields one portion per run, numbered for clarity
-    ("Structural", "Structural (2)", …)."""
+def group_portions(pages: list[tuple[int, str | None]], disciplines: list[str]) -> list[dict]:
+    """One portion per discipline (FR-15), covering ALL of that discipline's
+    pages even when they are non-contiguous — so an interleaved sheet set
+    (Architectural → Fire Protection → Architectural …) yields a single
+    "Architectural" portion, not "Architectural (2)", "(3)", …. Ordered by
+    first appearance; startPage/endPage span the discipline's pages (start is
+    its first page — the FR-16 jump target). Chunks and page summaries are
+    grouped by each page's stored discipline, not by this range."""
+    order: list[str] = []
+    spans: dict[str, dict] = {}
+    for (combined, _), discipline in zip(pages, disciplines):
+        span = spans.get(discipline)
+        if span is None:
+            spans[discipline] = {"startPage": combined, "endPage": combined}
+            order.append(discipline)
+        else:
+            span["startPage"] = min(span["startPage"], combined)
+            span["endPage"] = max(span["endPage"], combined)
+    return [
+        {
+            "discipline": discipline,
+            "name": DISCIPLINE_NAMES[discipline],
+            "startPage": spans[discipline]["startPage"],
+            "endPage": spans[discipline]["endPage"],
+        }
+        for discipline in order
+    ]
+
+
+def build_portions(pages: list[tuple[int, str | None]], redis_conn=None) -> list[dict]:
+    """Classify + group in one call (used by tests). The worker classifies
+    once and calls group_portions directly so it can also store each page's
+    discipline — see workers/src/portions.py."""
     if not pages:
         return []
-    disciplines = classify_pages(pages, redis_conn)
-
-    runs: list[dict] = []
-    for (combined, _), discipline in zip(pages, disciplines):
-        if runs and runs[-1]["discipline"] == discipline and runs[-1]["endPage"] == combined - 1:
-            runs[-1]["endPage"] = combined
-        else:
-            runs.append({"discipline": discipline, "startPage": combined, "endPage": combined})
-
-    seen: dict[str, int] = {}
-    for run in runs:
-        seen[run["discipline"]] = seen.get(run["discipline"], 0) + 1
-        base = DISCIPLINE_NAMES[run["discipline"]]
-        run["name"] = base if seen[run["discipline"]] == 1 else f"{base} ({seen[run['discipline']]})"
-    return runs
+    return group_portions(pages, classify_pages(pages, redis_conn))

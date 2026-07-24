@@ -5,11 +5,45 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from classify import (  # noqa: E402
     build_portions,
+    classify_by_filename,
     classify_by_rules,
+    classify_pages,
     fill_unresolved,
     parse_haiku_response,
     title_block_snippet,
 )
+
+
+class TestClassifyByFilename:
+    def test_leading_sheet_number(self):
+        assert classify_by_filename("A00-01 - GENERAL NOTES, SYMBOLS.pdf") == "architectural"
+        assert classify_by_filename("A17-11 EQUIPMENT PLANS.pdf") == "architectural"
+        assert classify_by_filename("S-201 FOUNDATION.pdf") == "structural"
+        assert classify_by_filename("M301.pdf") == "mechanical"
+        assert classify_by_filename("FA-1 FIRE ALARM.pdf") == "fire_alarm"
+
+    def test_lowercase_filename(self):
+        assert classify_by_filename("e1.1 lighting.pdf") == "electrical"
+
+    def test_no_leading_sheet_number(self):
+        assert classify_by_filename("EQUIPMENT PLANS - STUDENT BENCH TYPES.pdf") is None
+        assert classify_by_filename("cover sheet.pdf") is None
+        assert classify_by_filename(None) is None
+
+
+class TestStrongTokenPreference:
+    def test_real_sheet_number_beats_content_callouts(self):
+        # A page full of equipment labels (TYPE E2, C1 …) but its real sheet
+        # number is A17-11 → Architectural, not Electrical/Civil.
+        text = (
+            "TYPE E2 PLAN\nTYPE C1 FRONT\nTYPE D2 BACK\n"
+            "EQUIPMENT PLANS - STUDENT BENCH TYPES\nA17-11"
+        )
+        assert classify_by_rules(text) == "architectural"
+
+    def test_weak_only_still_classifies(self):
+        # No strong token — fall back to the last weak token.
+        assert classify_by_rules("SEE TYPE C1 AND E2") == "electrical"
 
 
 class TestClassifyByRules:
@@ -122,17 +156,18 @@ class TestBuildPortions:
             ("Electrical", 5, 5),
         ]
 
-    def test_non_contiguous_discipline_gets_numbered_portions(self):
+    def test_non_contiguous_discipline_collapses_to_one_portion(self):
+        # Interleaved sheets → ONE portion per discipline (no "(2)" suffixes),
+        # ordered by first appearance; the span covers all the discipline's pages.
         pages = [
             (1, "SHEET A-101"),
             (2, "SHEET S-201"),
             (3, "SHEET A-201"),
         ]
         result = build_portions(pages)
-        assert [(p["name"], p["discipline"]) for p in result] == [
-            ("Architectural", "architectural"),
-            ("Structural", "structural"),
-            ("Architectural (2)", "architectural"),
+        assert [(p["name"], p["discipline"], p["startPage"], p["endPage"]) for p in result] == [
+            ("Architectural", "architectural", 1, 3),
+            ("Structural", "structural", 2, 2),
         ]
 
     def test_unclassified_page_inherits_previous_run(self):
