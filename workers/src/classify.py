@@ -213,26 +213,39 @@ def classify_pages(pages: list[tuple[int, str | None]], redis_conn=None) -> list
     return fill_unresolved(resolved)
 
 
-def build_portions(
-    pages: list[tuple[int, str | None]], redis_conn=None
-) -> list[dict]:
-    """Contiguous runs of one discipline → portion rows (FR-15). A discipline
-    with non-contiguous runs yields one portion per run, numbered for clarity
-    ("Structural", "Structural (2)", …)."""
+def group_portions(pages: list[tuple[int, str | None]], disciplines: list[str]) -> list[dict]:
+    """One portion per discipline (FR-15), covering ALL of that discipline's
+    pages even when they are non-contiguous — so an interleaved sheet set
+    (Architectural → Fire Protection → Architectural …) yields a single
+    "Architectural" portion, not "Architectural (2)", "(3)", …. Ordered by
+    first appearance; startPage/endPage span the discipline's pages (start is
+    its first page — the FR-16 jump target). Chunks and page summaries are
+    grouped by each page's stored discipline, not by this range."""
+    order: list[str] = []
+    spans: dict[str, dict] = {}
+    for (combined, _), discipline in zip(pages, disciplines):
+        span = spans.get(discipline)
+        if span is None:
+            spans[discipline] = {"startPage": combined, "endPage": combined}
+            order.append(discipline)
+        else:
+            span["startPage"] = min(span["startPage"], combined)
+            span["endPage"] = max(span["endPage"], combined)
+    return [
+        {
+            "discipline": discipline,
+            "name": DISCIPLINE_NAMES[discipline],
+            "startPage": spans[discipline]["startPage"],
+            "endPage": spans[discipline]["endPage"],
+        }
+        for discipline in order
+    ]
+
+
+def build_portions(pages: list[tuple[int, str | None]], redis_conn=None) -> list[dict]:
+    """Classify + group in one call (used by tests). The worker classifies
+    once and calls group_portions directly so it can also store each page's
+    discipline — see workers/src/portions.py."""
     if not pages:
         return []
-    disciplines = classify_pages(pages, redis_conn)
-
-    runs: list[dict] = []
-    for (combined, _), discipline in zip(pages, disciplines):
-        if runs and runs[-1]["discipline"] == discipline and runs[-1]["endPage"] == combined - 1:
-            runs[-1]["endPage"] = combined
-        else:
-            runs.append({"discipline": discipline, "startPage": combined, "endPage": combined})
-
-    seen: dict[str, int] = {}
-    for run in runs:
-        seen[run["discipline"]] = seen.get(run["discipline"], 0) + 1
-        base = DISCIPLINE_NAMES[run["discipline"]]
-        run["name"] = base if seen[run["discipline"]] == 1 else f"{base} ({seen[run['discipline']]})"
-    return runs
+    return group_portions(pages, classify_pages(pages, redis_conn))

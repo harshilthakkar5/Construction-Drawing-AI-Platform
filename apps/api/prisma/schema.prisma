@@ -115,6 +115,10 @@ model Page {
   combinedPageNumber Int
   imageUrl           String?
   text               String?
+  /// Discipline slug for this page (from the sheet-number prefix / title
+  /// block). Chunks and summaries are grouped by this so one discipline maps
+  /// to one portion even when its pages are non-contiguous.
+  discipline         String?
   /// PDF page size in points — the coordinate space of chunk bboxes. The
   /// viewer scales bbox highlights (FR-19) with these.
   pdfWidth           Float?

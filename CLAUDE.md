@@ -167,8 +167,11 @@ discipline (two-letter prefixes win over single letters; mirrored in workers/src
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
 M → Mechanical | H → HVAC | P → Plumbing | E → Electrical | F/FP → Fire Protection |
 FA → Fire Alarm | T → Telecommunications | IT → Information Technology | AV → Audio Visual |
-X → Other/Special. Contiguous runs of one discipline become portion rows (FR-15); portion and
-section summaries are therefore per-discipline.
+X → Other/Special. Each page's discipline is stored on pages.discipline; there is ONE portion
+per discipline (FR-15) covering all its pages even when non-contiguous (startPage/endPage span
+them, start is the jump target). Chunks and page summaries group by pages.discipline (not page
+range) — assign_chunk_portions joins pages.discipline = portions.discipline; summarize.run
+groups covered pages by discipline. Portion and section summaries are therefore per-discipline.
 
 ## Chunking strategy (hybrid)
 

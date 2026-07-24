@@ -266,14 +266,17 @@ def run(project_id: str) -> dict:
     db.delete_summaries(project_id, ["section", "portion", "project"])
     page_rows = db.page_summaries(project_id)
     by_combined = {p["combinedPage"]: p for p in page_rows}
+    # Group each portion's pages by discipline (not by page range), so a
+    # discipline with non-contiguous pages still summarizes as one portion.
+    discipline_by_combined = db.page_disciplines(project_id)
 
     portion_summaries: list[dict] = []
     sections_written = 0
     for portion in db.project_portions(project_id):
         covered = [
-            by_combined[n]
-            for n in range(portion["start_page"], portion["end_page"] + 1)
-            if n in by_combined
+            by_combined[c]
+            for c in sorted(by_combined)
+            if discipline_by_combined.get(c) == portion["discipline"]
         ]
         if not covered:
             continue

@@ -194,9 +194,44 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
             )
 
 
+def set_page_disciplines(project_id: str, mapping: list[tuple[int, str]]) -> None:
+    """Persist each page's discipline (by combined page number). Written by the
+    detection pass before chunks are assigned to portions."""
+    with connect() as conn:
+        for combined, discipline in mapping:
+            conn.execute(
+                """
+                UPDATE pages SET discipline = %s
+                FROM documents
+                WHERE pages."documentId" = documents.id
+                  AND documents."projectId" = %s
+                  AND documents."supersededAt" IS NULL
+                  AND pages."combinedPageNumber" = %s
+                """,
+                (discipline, project_id, combined),
+            )
+
+
+def page_disciplines(project_id: str) -> dict[int, str | None]:
+    """combined page number -> discipline (for grouping summaries)."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."combinedPageNumber", p.discipline
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+            """,
+            (project_id,),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+
 def assign_chunk_portions(project_id: str) -> None:
-    """Point every chunk at the portion covering its page's combined number.
-    Run after portions are rebuilt (combined numbering may have shifted)."""
+    """Point every chunk at its discipline's portion. Chunks are grouped by
+    the page's stored discipline (one portion per discipline), so a discipline
+    whose pages are non-contiguous still collapses to a single portion. Run
+    after portions are rebuilt and page disciplines are stored."""
     with connect() as conn:
         conn.execute(
             """
@@ -207,7 +242,8 @@ def assign_chunk_portions(project_id: str) -> None:
               AND pages."documentId" = documents.id
               AND documents."projectId" = %s
               AND portions."projectId" = %s
-              AND pages."combinedPageNumber" BETWEEN portions."startPage" AND portions."endPage"
+              AND pages.discipline IS NOT NULL
+              AND pages.discipline = portions.discipline
             """,
             (project_id, project_id),
         )

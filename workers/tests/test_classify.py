@@ -122,17 +122,18 @@ class TestBuildPortions:
             ("Electrical", 5, 5),
         ]
 
-    def test_non_contiguous_discipline_gets_numbered_portions(self):
+    def test_non_contiguous_discipline_collapses_to_one_portion(self):
+        # Interleaved sheets → ONE portion per discipline (no "(2)" suffixes),
+        # ordered by first appearance; the span covers all the discipline's pages.
         pages = [
             (1, "SHEET A-101"),
             (2, "SHEET S-201"),
             (3, "SHEET A-201"),
         ]
         result = build_portions(pages)
-        assert [(p["name"], p["discipline"]) for p in result] == [
-            ("Architectural", "architectural"),
-            ("Structural", "structural"),
-            ("Architectural (2)", "architectural"),
+        assert [(p["name"], p["discipline"], p["startPage"], p["endPage"]) for p in result] == [
+            ("Architectural", "architectural", 1, 3),
+            ("Structural", "structural", 2, 2),
         ]
 
     def test_unclassified_page_inherits_previous_run(self):
