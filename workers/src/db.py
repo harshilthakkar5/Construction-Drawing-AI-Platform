@@ -454,12 +454,14 @@ def set_portion_summary_text(portion_id: str, text: str) -> None:
         conn.execute("UPDATE portions SET summary = %s WHERE id = %s", (text, portion_id))
 
 
-def pages_for_classification(project_id: str) -> list[tuple[int, str | None]]:
-    """(combinedPageNumber, text) for every page in the project, combined order."""
+def pages_for_classification(project_id: str) -> list[tuple[int, str | None, str]]:
+    """(combinedPageNumber, text, filename) for every page in the project,
+    combined order. The document filename usually carries the sheet number,
+    the most reliable discipline signal."""
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT p."combinedPageNumber", p.text
+            SELECT p."combinedPageNumber", p.text, d.filename
             FROM pages p
             JOIN documents d ON p."documentId" = d.id
             WHERE d."projectId" = %s AND d."supersededAt" IS NULL
@@ -467,7 +469,7 @@ def pages_for_classification(project_id: str) -> list[tuple[int, str | None]]:
             """,
             (project_id,),
         ).fetchall()
-        return [(r[0], r[1]) for r in rows]
+        return [(r[0], r[1], r[2]) for r in rows]
 
 
 def replace_portions(project_id: str, portions: list[dict]) -> None:

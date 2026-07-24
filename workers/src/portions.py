@@ -30,11 +30,13 @@ def _get_redis():
 
 
 def detect_and_store(project_id: str) -> list[dict]:
-    pages = db.pages_for_classification(project_id)
-    # Classify each page ONCE, persist the per-page discipline (so chunks and
-    # summaries group by discipline, not page range), then build one portion
-    # per discipline.
-    disciplines = classify.classify_pages(pages, redis_conn=_get_redis())
+    rows = db.pages_for_classification(project_id)
+    pages = [(combined, text) for combined, text, _ in rows]
+    filenames = [filename for _, _, filename in rows]
+    # Classify each page ONCE (sheet number wins: filename, then title block),
+    # persist the per-page discipline (so chunks and summaries group by
+    # discipline, not page range), then build one portion per discipline.
+    disciplines = classify.classify_pages(pages, redis_conn=_get_redis(), filenames=filenames)
     db.set_page_disciplines(
         project_id, [(combined, disc) for (combined, _), disc in zip(pages, disciplines)]
     )
