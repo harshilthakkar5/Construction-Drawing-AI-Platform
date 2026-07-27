@@ -205,6 +205,25 @@ documentsRouter.delete("/:documentId", async (req, res) => {
   await prisma.document.findUniqueOrThrow({ where: { id: documentId, projectId } });
   await prisma.document.delete({ where: { id: documentId } });
   const tag = `[cleanup doc ${documentId.slice(0, 8)}]`;
+  // Remove pending jobs first — they would retry against the deleted row.
+  try {
+    const jobs = [
+      ...(await processDocumentQueue.getWaiting(0, 999)),
+      ...(await processDocumentQueue.getDelayed(0, 999)),
+      ...(await processDocumentQueue.getFailed(0, 999)),
+    ];
+    let removed = 0;
+    for (const job of jobs) {
+      if ((job.data as { documentId?: string }).documentId !== documentId) continue;
+      await job.remove().then(
+        () => removed++,
+        () => {},
+      );
+    }
+    console.log(`${tag} queues: removed ${removed} pending jobs`);
+  } catch (err) {
+    console.error(`${tag} queue cleanup FAILED`, err);
+  }
   try {
     const removed = await deletePrefix(`projects/${projectId}/pdfs/${documentId}/`);
     console.log(`${tag} storage: deleted ${removed} objects`);

@@ -111,6 +111,18 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     started = time.monotonic()
     doc_tag = document_id[:8]
     log.info("[doc %s] processing started (project %s)", doc_tag, project_id[:8])
+
+    # The document (or its whole project) may have been deleted while this job
+    # sat in the queue. There is nothing to process and never will be, so drop
+    # the job instead of raising — raising would burn all 5 retries writing
+    # foreign-key violations into the log.
+    if not db.document_exists(document_id):
+        log.warning(
+            "[doc %s] document no longer exists (deleted while queued) — discarding job",
+            doc_tag,
+        )
+        return {"skipped": "document deleted"}
+
     db.set_document_status(document_id, "processing")
 
     with tempfile.TemporaryDirectory() as tmp:

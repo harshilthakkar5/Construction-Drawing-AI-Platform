@@ -128,6 +128,27 @@ Failures log the exact stage (and page number during extraction) with a full
 traceback before BullMQ retries, e.g.
 `stage 2/6 extract FAILED at page 137/240 (pages 1..136 are saved; a retry resumes here)`.
 
+## Queue operations (stuck / failed jobs)
+
+Authenticated instance-wide endpoints for inspecting and unsticking BullMQ
+without touching Redis by hand:
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /queues` | Job counts per queue (waiting/active/failed/delayed/completed) |
+| `GET /queues/:name/failed?limit=50` | Recent failed jobs **with their error** — see why, without scraping logs |
+| `POST /queues/:name/retry-failed` | Re-queue every failed job (after fixing the cause) |
+| `POST /queues/purge-orphaned` | Remove jobs whose document/project no longer exists |
+| `DELETE /queues/:name/failed` | Give up on all failed jobs |
+
+`:name` is `process-document` or `summarize-project`.
+
+**Jobs looping on `ForeignKeyViolation ... is not present in table "documents"`**
+mean the document/project was deleted while its job was still queued. Deleting
+a project or document now removes its pending jobs automatically, and the
+worker discards jobs for deleted rows instead of retrying — for a backlog from
+before that fix, run `POST /queues/purge-orphaned`.
+
 ## Deleting a project
 
 `DELETE /projects/:id` (owner-only) removes the project **everywhere**:

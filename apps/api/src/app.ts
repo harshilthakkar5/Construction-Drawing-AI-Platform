@@ -14,6 +14,7 @@ import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
+import { queuesRouter } from "./routes/queues.js";
 import { summariesRouter } from "./routes/summaries.js";
 
 export function createApp() {
@@ -55,6 +56,8 @@ export function createApp() {
   app.use(requireAuth);
   app.use("/projects/:projectId", requireProjectMember);
 
+  // Instance-wide queue operations (inspect / retry / purge stuck jobs).
+  app.use("/queues", queuesRouter);
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/portions", portionsRouter);
