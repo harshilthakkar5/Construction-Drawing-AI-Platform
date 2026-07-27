@@ -161,10 +161,15 @@ projects/{projectId}/
 
 ## Portion (discipline) detection
 
-Classify pages by the SHEET NUMBER, not content: filename sheet number first
-(each PDF is usually named by its sheet, e.g. `A17-11 ….pdf`), then the title-block sheet number
-in the page text (formal sheet numbers like A17-11 beat weak content callouts like `TYPE E2`/`C1`
-via `_is_strong`), and only then a Claude Haiku content guess as last resort. Prefix →
+Classify pages by the SHEET NUMBER, not content. Claude Haiku READS the sheet number from the
+title-block text (`extract_sheet_by_ai`, default `SHEET_EXTRACTION=ai`) — real title blocks also
+print license numbers (`NC License No. F-1105`), job/permit numbers and detail callouts that
+pattern matching mistakes for sheet numbers. The model only reports the number; the deterministic
+`PREFIX_TO_DISCIPLINE` table maps it, so the mapping never depends on model judgement. Results
+are Redis-cached by content hash and the instructions are prompt-cached. Pattern matching
+(`classify_by_filename` → `classify_by_rules`, tiered by own-line / clean-line / strong / weak) is
+the fallback for pages the model can't resolve and for offline runs (no `ANTHROPIC_API_KEY`, or
+`SHEET_EXTRACTION=rules`); a Haiku content guess is the last resort. Prefix →
 discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
 `PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
