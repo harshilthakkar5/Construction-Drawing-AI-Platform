@@ -22,6 +22,24 @@ def connect():
         yield conn
 
 
+def project_exists(project_id: str) -> bool:
+    """False when the project was deleted while a job was queued."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM projects WHERE id = %s", (project_id,)
+        ).fetchone() is not None
+
+
+def document_exists(document_id: str) -> bool:
+    """False when the document (or its project) was deleted while the job was
+    queued — the worker discards such jobs instead of retrying into
+    foreign-key violations."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM documents WHERE id = %s", (document_id,)
+        ).fetchone() is not None
+
+
 def set_document_status(document_id: str, status: str) -> None:
     with connect() as conn:
         conn.execute(

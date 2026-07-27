@@ -253,6 +253,11 @@ def _rollup(kind: str, label: str, lower: list[dict], chunk_pages: dict[str, int
 def run(project_id: str) -> dict:
     import db
 
+    # The project may have been deleted while this job sat in the queue.
+    if not db.project_exists(project_id):
+        log.warning("project %s no longer exists — discarding summarize job", project_id[:8])
+        return {"skipped": "project deleted"}
+
     if not available():
         log.warning("ANTHROPIC_API_KEY not set — skipping summaries")
         return {"skipped": True}

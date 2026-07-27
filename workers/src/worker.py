@@ -68,7 +68,9 @@ async def process_document(job, job_token: str):
             payload.document_id,
         )
         try:
-            db.set_document_status(payload.document_id, "failed")
+            # Skip if the document was deleted — status writes would fail too.
+            if db.document_exists(payload.document_id):
+                db.set_document_status(payload.document_id, "failed")
         except Exception:
             log.exception("could not mark document %s as failed", payload.document_id)
         raise

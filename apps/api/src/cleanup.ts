@@ -1,5 +1,6 @@
 import { deletePrefix } from "./s3.js";
 import { deleteProjectPoints } from "./qdrant.js";
+import { processDocumentQueue, summarizeProjectQueue } from "./queues.js";
 import { redis } from "./redis.js";
 
 /**
@@ -18,6 +19,29 @@ import { redis } from "./redis.js";
  */
 export async function purgeProjectData(projectId: string): Promise<void> {
   const tag = `[cleanup ${projectId.slice(0, 8)}]`;
+
+  // Drop queued/failed jobs for this project first: without this they keep
+  // retrying against rows that no longer exist (foreign-key violations).
+  try {
+    let removed = 0;
+    for (const queue of [processDocumentQueue, summarizeProjectQueue]) {
+      const jobs = [
+        ...(await queue.getWaiting(0, 999)),
+        ...(await queue.getDelayed(0, 999)),
+        ...(await queue.getFailed(0, 999)),
+      ];
+      for (const job of jobs) {
+        if ((job.data as { projectId?: string }).projectId !== projectId) continue;
+        await job.remove().then(
+          () => removed++,
+          () => {},
+        );
+      }
+    }
+    console.log(`${tag} queues: removed ${removed} pending jobs`);
+  } catch (err) {
+    console.error(`${tag} queue cleanup FAILED`, err);
+  }
 
   try {
     const removed = await deletePrefix(`projects/${projectId}/`);
