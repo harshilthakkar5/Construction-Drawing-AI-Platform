@@ -92,6 +92,24 @@ def _is_strong(match: re.Match) -> bool:
     return bool(match.group(3)) or len(match.group(2)) >= 2
 
 
+# Words that mark a number as NOT a sheet number, even though it looks like
+# one: "NC License No. F-1105" (engineer's license), phone/fax numbers, job and
+# permit numbers, room numbers. These live in the same title block as the real
+# sheet number, so they must be excluded explicitly.
+DISQUALIFYING_CONTEXT = re.compile(
+    r"LICEN[SC]E|JOB\s*(NO|NUMBER)|\bTEL\b|\bFAX\b|PHONE|SUITE|\bSTE\b|\bROOM\b|\bRM\b|"
+    r"PERMIT|CONTRACT|INVOICE|\bP\.?O\.?\s*BOX|PROJECT\s*(NO|NUMBER)|\bZIP\b|\bFL\b",
+    re.IGNORECASE,
+)
+
+
+def _line_containing(text: str, match: re.Match) -> str:
+    """The full text line a match sits on (PyMuPDF emits one item per line)."""
+    start = text.rfind("\n", 0, match.start()) + 1
+    end = text.find("\n", match.end())
+    return text[start : end if end != -1 else len(text)].strip()
+
+
 def classify_by_filename(filename: str | None) -> str | None:
     """Discipline from the sheet number that leads the filename — the most
     reliable signal, since each uploaded PDF is usually named by its sheet."""
@@ -104,19 +122,29 @@ def classify_by_filename(filename: str | None) -> str | None:
 def classify_by_rules(text: str | None) -> str | None:
     """Return a discipline slug from the title-block sheet number, or None.
 
-    Prefer a formal sheet number (strong token) over weak content callouts, so
-    a page covered in labels like 'TYPE E2' / 'C1' still classifies by its real
-    sheet (e.g. A17-11 → Architectural). Among the preferred set the LAST match
-    wins: PyMuPDF emits text roughly top-to-bottom, so the title block (bottom
-    of the page) lands near the end of the extracted text.
+    Candidates are ranked, best tier wins (last match within the tier, since
+    the title block lands near the end of PyMuPDF's top-to-bottom text):
+
+      1. Strong token ALONE on its own line — how title blocks print the sheet
+         number ("S-003.0"). This beats look-alikes embedded in a sentence,
+         e.g. "NC License No. F-1105" (an engineer's license, not a sheet).
+      2. Strong token on a line with no disqualifying context word.
+      3. Any strong token (formal sheet number shape).
+      4. Any token at all (weak content callouts like 'TYPE E2' / 'C1').
     """
     if not text:
         return None
     matches = list(SHEET_TOKEN.finditer(text))
     if not matches:
         return None
+
     strong = [m for m in matches if _is_strong(m)]
-    chosen = strong[-1] if strong else matches[-1]
+    own_line = [m for m in strong if _line_containing(text, m) == m.group(0)]
+    clean_line = [
+        m for m in strong if not DISQUALIFYING_CONTEXT.search(_line_containing(text, m))
+    ]
+
+    chosen = (own_line or clean_line or strong or matches)[-1]
     return PREFIX_TO_DISCIPLINE[chosen.group(1)]
 
 

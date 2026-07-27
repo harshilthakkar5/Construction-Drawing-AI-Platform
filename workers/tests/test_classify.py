@@ -45,6 +45,30 @@ class TestStrongTokenPreference:
         # No strong token — fall back to the last weak token.
         assert classify_by_rules("SEE TYPE C1 AND E2") == "electrical"
 
+    def test_sheet_number_on_own_line_beats_license_number(self):
+        # Real title block: the sheet number S-003.0 sits alone on its line,
+        # while "NC License No. F-1105" is the engineer's license — it must not
+        # be read as a Fire Protection sheet.
+        text = (
+            "EARLY STRUCTURAL & UNDERGROUND UTILITY PACKAGE\n"
+            "S-003.0\n"
+            "GENERAL NOTES\n"
+            "Carolina Golf Club\n"
+            "NC License No. F-1105\n"
+            "formerly KingGuinn Associates\n"
+        )
+        assert classify_by_rules(text) == "structural"
+
+    def test_other_title_block_numbers_are_disqualified(self):
+        for noise in [
+            "Job Number: E-2201",
+            "TEL 704 597 1340  FAX P-1365",
+            "PERMIT NO. M-4410",
+            "SUITE E-200",
+        ]:
+            text = f"DRAWING\nS-101\nNOTES\n{noise}\n"
+            assert classify_by_rules(text) == "structural", noise
+
 
 class TestClassifyByRules:
     def test_prefix_table(self):

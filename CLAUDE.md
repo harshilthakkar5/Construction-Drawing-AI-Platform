@@ -163,8 +163,11 @@ projects/{projectId}/
 
 Classify pages by the SHEET NUMBER, not content: filename sheet number first
 (each PDF is usually named by its sheet, e.g. `A17-11 ….pdf`), then the title-block sheet number
-in the page text (formal sheet numbers like A17-11 beat weak content callouts like `TYPE E2`/`C1`
-via `_is_strong`), and only then a Claude Haiku content guess as last resort. Prefix →
+in the page text (candidates are tiered: a strong token alone on its own line — how title blocks
+print the sheet number — beats one on a line with disqualifying context like
+`NC License No. F-1105`, which beats any strong token, which beats weak content callouts like
+`TYPE E2`/`C1`; see `_is_strong` / `DISQUALIFYING_CONTEXT`), and only then a Claude Haiku
+content guess as last resort. Prefix →
 discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
 `PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
