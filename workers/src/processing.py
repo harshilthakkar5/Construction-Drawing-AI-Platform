@@ -227,28 +227,42 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     # vectors for unchanged text), then refresh payloads for the rest of the
     # project (portion/discipline/combined page may have shifted).
     to_embed = db.chunks_to_embed(document_id)
-    log.info("[doc %s] stage 5/6 embed: %d chunks to index", doc_tag, len(to_embed))
-    try:
-        embedded_ids = embeddings.embed_document_chunks(to_embed, previous_document_id=previous_id)
-        if previous_id is not None:
-            embeddings.delete_document_points(previous_id)
-        if embedded_ids:
-            db.set_embedding_ids(embedded_ids)
-            others = [
-                c
-                for c in db.embedded_chunk_payloads(project_id)
-                if c["chunk_id"] not in set(embedded_ids)
-            ]
-            embeddings.refresh_payloads(others)
-    except Exception:
-        log.exception("[doc %s] stage 5/6 embed FAILED", doc_tag)
-        raise
-    log.info(
-        "[doc %s] stage 5/6 embed done: %d/%d chunks in Qdrant",
-        doc_tag,
-        len(embedded_ids),
-        len(to_embed),
-    )
+    embedded_ids: list[str] = []
+    if not config.EMBEDDINGS_ENABLED:
+        # EMBEDDINGS_ENABLED=false: skip Voyage/Qdrant entirely. Chunks keep a
+        # NULL embeddingId and are picked up by a later run once re-enabled, so
+        # summaries can be tested without spending the embedding rate limit.
+        log.warning(
+            "[doc %s] stage 5/6 embed SKIPPED (EMBEDDINGS_ENABLED=false) — "
+            "%d chunks left unindexed; chat retrieval will find nothing until re-enabled",
+            doc_tag,
+            len(to_embed),
+        )
+    else:
+        log.info("[doc %s] stage 5/6 embed: %d chunks to index", doc_tag, len(to_embed))
+        try:
+            embedded_ids = embeddings.embed_document_chunks(
+                to_embed, previous_document_id=previous_id
+            )
+            if previous_id is not None:
+                embeddings.delete_document_points(previous_id)
+            if embedded_ids:
+                db.set_embedding_ids(embedded_ids)
+                others = [
+                    c
+                    for c in db.embedded_chunk_payloads(project_id)
+                    if c["chunk_id"] not in set(embedded_ids)
+                ]
+                embeddings.refresh_payloads(others)
+        except Exception:
+            log.exception("[doc %s] stage 5/6 embed FAILED", doc_tag)
+            raise
+        log.info(
+            "[doc %s] stage 5/6 embed done: %d/%d chunks in Qdrant",
+            doc_tag,
+            len(embedded_ids),
+            len(to_embed),
+        )
 
     db.set_document_status(document_id, "completed")
     cache.invalidate_summaries(project_id)
@@ -261,6 +275,7 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         "resumedSkip": skipped,
         "ocrPages": ocr_count,
         "supersededPrevious": previous_id is not None,
+        "embeddingsEnabled": config.EMBEDDINGS_ENABLED,
     }
     log.info(
         "[doc %s] stage 6/6 finalize: completed in %.1fs — %s",

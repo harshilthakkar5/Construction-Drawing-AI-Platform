@@ -22,6 +22,17 @@ SPACES_REGION = os.environ.get("SPACES_REGION", "us-east-1")
 # "public-read" only to deliberately expose them (matches the API's SPACES_ACL).
 SPACES_ACL = os.environ.get("SPACES_ACL") or None
 
+
+def _flag(name: str, default: str = "true") -> bool:
+    return os.environ.get(name, default).strip().lower() not in ("false", "0", "no", "off")
+
+
+# Pipeline stage switches — test the chat (embedding→retrieval) and summary
+# flows independently, e.g. turn embeddings off while the free Voyage tier is
+# rate-limited and still exercise summaries.
+EMBEDDINGS_ENABLED = _flag("EMBEDDINGS_ENABLED")
+SUMMARIES_ENABLED = _flag("SUMMARIES_ENABLED")
+
 # Rendering: 2x zoom ≈ 144 dpi page PNGs; thumbnails resized to this width.
 PAGE_RENDER_ZOOM = float(os.environ.get("PAGE_RENDER_ZOOM", "2"))
 THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))

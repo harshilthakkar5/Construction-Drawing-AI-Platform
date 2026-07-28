@@ -197,6 +197,33 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
   res.json({ documentId, status: "uploaded" });
 });
 
+/**
+ * Re-queue processing for every completed document in the project. Use after
+ * flipping a worker switch — e.g. documents processed with
+ * EMBEDDINGS_ENABLED=false have chunks but no vectors; re-running indexes them
+ * (already-processed pages are skipped, so this is cheap).
+ */
+documentsRouter.post("/reindex", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const documents = await prisma.document.findMany({
+    where: { projectId, supersededAt: null, status: { in: ["completed", "failed"] } },
+    select: { id: true, spacesKey: true },
+  });
+  let queued = 0;
+  for (const document of documents) {
+    if (!(await objectExists(document.spacesKey))) continue; // original is gone
+    await prisma.document.update({ where: { id: document.id }, data: { status: "uploaded" } });
+    await processDocumentQueue.add("process", {
+      projectId,
+      documentId: document.id,
+      spacesKey: document.spacesKey,
+    });
+    queued++;
+  }
+  console.log(`[reindex] re-queued ${queued}/${documents.length} documents for project ${projectId}`);
+  res.json({ queued, total: documents.length });
+});
+
 /** Delete one document everywhere: DB rows (cascade to pages/chunks), its
  * storage prefix (original + page images/thumbs/text), and Qdrant points.
  * The recovery path for broken uploads, and general per-document cleanup. */

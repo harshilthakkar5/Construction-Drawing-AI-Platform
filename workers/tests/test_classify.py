@@ -10,7 +10,6 @@ from classify import (  # noqa: E402
     classify_by_rules,
     classify_pages,
     fill_unresolved,
-    parse_haiku_response,
     parse_sheet_response,
     title_block_snippet,
 )
@@ -81,7 +80,6 @@ class TestClassifyPagesUsesAI:
         pages = [(1, "DRAWING\nS-101\nNOTES")]
         monkeypatch.setenv("SHEET_EXTRACTION", "ai")
         monkeypatch.setattr(classify, "extract_sheet_by_ai", lambda text, fname, redis: None)
-        monkeypatch.setattr(classify, "classify_by_haiku", lambda text, redis: None)
         assert classify_pages(pages) == ["structural"]
 
     def test_rules_mode_skips_ai(self, monkeypatch):
@@ -92,7 +90,6 @@ class TestClassifyPagesUsesAI:
             "extract_sheet_by_ai",
             lambda text, fname, redis: called.append(1) or ("X-1", "other"),
         )
-        monkeypatch.setattr(classify, "classify_by_haiku", lambda text, redis: None)
         assert classify_pages([(1, "SHEET S-101")]) == ["structural"]
         assert called == []
 
@@ -208,27 +205,6 @@ class TestTitleBlockSnippet:
         snippet = title_block_snippet(text, limit=100)
         assert snippet.endswith("TITLE")
         assert len(snippet) <= 100
-
-
-class TestParseHaikuResponse:
-    def test_valid(self):
-        assert (
-            parse_haiku_response('{"discipline": "structural", "confidence": 0.9}')
-            == "structural"
-        )
-
-    def test_low_confidence_rejected(self):
-        assert parse_haiku_response('{"discipline": "structural", "confidence": 0.3}') is None
-
-    def test_invalid_discipline_rejected(self):
-        assert parse_haiku_response('{"discipline": "nuclear", "confidence": 0.9}') is None
-        assert parse_haiku_response('{"discipline": "unclassified", "confidence": 0.9}') is None
-
-    def test_garbage_rejected(self):
-        assert parse_haiku_response("The discipline is structural.") is None
-        assert parse_haiku_response("") is None
-        assert parse_haiku_response('["structural"]') is None
-        assert parse_haiku_response('{"discipline": "structural"}') is None
 
 
 class TestFillUnresolved:
