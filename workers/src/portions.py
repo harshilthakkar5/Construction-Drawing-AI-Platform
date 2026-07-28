@@ -30,20 +30,45 @@ def _get_redis():
 
 
 def detect_and_store(project_id: str) -> list[dict]:
+    """Rebuild the project's portions. Detection runs for the WHOLE project
+    (combined numbering shifts when a document arrives), but pages that already
+    have a stored discipline are reused — so a new upload only pays for AI
+    sheet-number reads on its own pages."""
     rows = db.pages_for_classification(project_id)
-    pages = [(combined, text) for combined, text, _ in rows]
-    filenames = [filename for _, _, filename in rows]
-    # Classify each page ONCE (sheet number wins: filename, then title block),
-    # persist the per-page discipline (so chunks and summaries group by
-    # discipline, not page range), then build one portion per discipline.
-    disciplines = classify.classify_pages(pages, redis_conn=_get_redis(), filenames=filenames)
-    db.set_page_disciplines(
-        project_id, [(combined, disc) for (combined, _), disc in zip(pages, disciplines)]
+    pages = [(combined, text) for combined, text, _, _ in rows]
+
+    resolved: list[str | None] = [stored for _, _, _, stored in rows]
+    pending = [i for i, discipline in enumerate(resolved) if not discipline]
+    if pending:
+        fresh = classify.resolve_disciplines(
+            [pages[i] for i in pending],
+            redis_conn=_get_redis(),
+            filenames=[rows[i][2] for i in pending],
+        )
+        for slot, discipline in zip(pending, fresh):
+            resolved[slot] = discipline
+    log.info(
+        "project %s: classified %d new pages, reused %d already classified",
+        project_id[:8],
+        len(pending),
+        len(rows) - len(pending),
     )
+
+    # Pages with no readable sheet number inherit from their neighbours.
+    disciplines = classify.fill_unresolved(resolved)
+
+    # Persist only what changed, then build one portion per discipline.
+    changed = [
+        (combined, discipline)
+        for (combined, _, _, stored), discipline in zip(rows, disciplines)
+        if stored != discipline
+    ]
+    if changed:
+        db.set_page_disciplines(project_id, changed)
     portions = classify.group_portions(pages, disciplines)
     db.replace_portions(project_id, portions)
     log.info(
-        "project %s: %s",
+        "project %s portions: %s",
         project_id[:8],
         ", ".join(f"{p['name']} {p['startPage']}-{p['endPage']}" for p in portions) or "no pages",
     )

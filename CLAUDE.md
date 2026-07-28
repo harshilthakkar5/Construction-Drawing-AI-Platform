@@ -169,7 +169,12 @@ pattern matching mistakes for sheet numbers. The model only reports the number; 
 are Redis-cached by content hash and the instructions are prompt-cached. Pattern matching
 (`classify_by_filename` → `classify_by_rules`, tiered by own-line / clean-line / strong / weak) is
 the fallback for pages the model can't resolve and for offline runs (no `ANTHROPIC_API_KEY`, or
-`SHEET_EXTRACTION=rules`); a Haiku content guess is the last resort. Prefix →
+`SHEET_EXTRACTION=rules`). There is NO content-based classification — an unreadable page inherits
+its neighbour's discipline instead. Detection reuses `pages.discipline` for pages already
+classified, so a new upload only pays for its own pages. Stage switches `EMBEDDINGS_ENABLED` /
+`SUMMARIES_ENABLED` (workers/src/config.py) let the chat and summary flows be tested
+independently; `POST /projects/:id/documents/reindex` re-queues completed documents to fill in
+vectors afterwards. Prefix →
 discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
 `PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |

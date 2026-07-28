@@ -128,6 +128,24 @@ Failures log the exact stage (and page number during extraction) with a full
 traceback before BullMQ retries, e.g.
 `stage 2/6 extract FAILED at page 137/240 (pages 1..136 are saved; a retry resumes here)`.
 
+## Testing the chat and summary flows separately
+
+The two AI flows can be switched off independently on the worker — useful when
+a free Voyage tier keeps hitting its rate limit:
+
+| Variable | Effect |
+| --- | --- |
+| `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks, portions and **summaries still run**; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
+| `SUMMARIES_ENABLED=false` | Skips the summarize job. Processing, embedding and **chat still run**. |
+| `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. |
+| `SHEET_EXTRACTION=rules` | Skips the per-page Haiku sheet-number read (pattern matching only, no API calls). |
+
+Typical loop: upload with `EMBEDDINGS_ENABLED=false` to test summaries without
+burning the embedding quota, then set it back to `true` and run
+`POST /projects/:projectId/documents/reindex` — every completed document is
+re-queued, already-processed pages are skipped, and only the missing vectors
+are created.
+
 ## Queue operations (stuck / failed jobs)
 
 Authenticated instance-wide endpoints for inspecting and unsticking BullMQ
