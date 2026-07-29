@@ -230,21 +230,6 @@ def set_page_disciplines(project_id: str, mapping: list[tuple[int, str]]) -> Non
             )
 
 
-def page_disciplines(project_id: str) -> dict[int, str | None]:
-    """combined page number -> discipline (for grouping summaries)."""
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT p."combinedPageNumber", p.discipline
-            FROM pages p
-            JOIN documents d ON p."documentId" = d.id
-            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
-            """,
-            (project_id,),
-        ).fetchall()
-        return {r[0]: r[1] for r in rows}
-
-
 def assign_chunk_portions(project_id: str) -> None:
     """Point every chunk at its discipline's portion. Chunks are grouped by
     the page's stored discipline (one portion per discipline), so a discipline
@@ -392,19 +377,20 @@ def chunk_page_map(project_id: str) -> dict[str, int]:
         return {r[0]: r[1] for r in rows}
 
 
-def existing_page_summary_keys(project_id: str) -> set[tuple[str, int]]:
-    """(documentId, pageNumber) pairs that already have a page summary —
-    the incremental reuse check for the expensive bulk level."""
+def existing_page_summaries(project_id: str) -> dict[tuple[str, int], list[str]]:
+    """(documentId, pageNumber) -> cited chunk ids, for the incremental reuse
+    check. Reprocessing a page recreates its chunks with new IDs, so a summary
+    whose sources no longer exist must be regenerated rather than reused."""
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT summary->>'documentId', (summary->>'pageNumber')::int
+            SELECT summary->>'documentId', (summary->>'pageNumber')::int, sources
             FROM summaries
             WHERE "projectId" = %s AND level = 'page'
             """,
             (project_id,),
         ).fetchall()
-        return {(r[0], r[1]) for r in rows}
+        return {(r[0], r[1]): (r[2] or []) for r in rows}
 
 
 def page_summaries(project_id: str) -> list[dict]:
@@ -418,6 +404,39 @@ def page_summaries(project_id: str) -> list[dict]:
             (project_id,),
         ).fetchall()
         return [r[0] for r in rows]
+
+
+def delete_page_summary(project_id: str, document_id: str, page_number: int) -> None:
+    """Drop one page's summary before rewriting it (summaries are insert-only,
+    so a stale row must go first or the page would have two)."""
+    with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM summaries
+            WHERE "projectId" = %s AND level = 'page'
+              AND summary->>'documentId' = %s
+              AND (summary->>'pageNumber')::int = %s
+            """,
+            (project_id, document_id, page_number),
+        )
+
+
+def page_index(project_id: str) -> dict[tuple[str, int], dict]:
+    """(documentId, pageNumber) -> {combined, discipline} from the LIVE pages
+    table. Page summaries store the combined page number they were written
+    with, which goes stale as later uploads shift the numbering — rollups
+    resolve the current values through this index instead."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."documentId", p."pageNumber", p."combinedPageNumber", p.discipline
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+            """,
+            (project_id,),
+        ).fetchall()
+        return {(r[0], r[1]): {"combined": r[2], "discipline": r[3]} for r in rows}
 
 
 def insert_summary(

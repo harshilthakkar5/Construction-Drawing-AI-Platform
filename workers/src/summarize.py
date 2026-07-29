@@ -201,15 +201,27 @@ def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
 
 
 def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id: str) -> int:
-    """Page level (the bulk tier). Skips pages that already have a summary."""
+    """Page level (the bulk tier). Skips pages that already have a USABLE
+    summary — one whose cited chunks still exist. Reprocessing a page recreates
+    its chunks with new IDs, so a summary citing dead chunk IDs would be
+    dropped by attach_pages and silently empty out the rollups above it."""
     import db
 
-    done = db.existing_page_summary_keys(project_id)
-    todo = [
-        p
-        for p in pages
-        if p["chunks"] and (p["document_id"], p["page_number"]) not in done
-    ]
+    existing = db.existing_page_summaries(project_id)
+
+    def needs_summary(page: dict) -> bool:
+        if not page["chunks"]:
+            return False
+        sources = existing.get((page["document_id"], page["page_number"]))
+        if sources is None:
+            return True  # never summarized
+        # Stale when none of its cited chunks survive in the current chunk set.
+        return not any(chunk_id in chunk_pages for chunk_id in sources)
+
+    todo = [p for p in pages if needs_summary(p)]
+    stale = sum(1 for p in todo if (p["document_id"], p["page_number"]) in existing)
+    if stale:
+        log.info("re-summarizing %d pages whose cited chunks were replaced", stale)
     if not todo:
         return 0
 
@@ -236,6 +248,9 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
             pageNumber=page["page_number"],
             combinedPage=page["combined_page"],
         )
+        # Summaries are insert-only: clear a stale row before rewriting it.
+        if (page["document_id"], page["page_number"]) in existing:
+            db.delete_page_summary(project_id, page["document_id"], page["page_number"])
         db.insert_summary(project_id, None, "page", summary, collect_sources(summary))
         written += 1
     return written
@@ -275,21 +290,31 @@ def run(project_id: str) -> dict:
 
     # Higher levels are always affected (numbering/portions shift): recompute.
     db.delete_summaries(project_id, ["section", "portion", "project"])
-    page_rows = db.page_summaries(project_id)
-    by_combined = {p["combinedPage"]: p for p in page_rows}
-    # Group each portion's pages by discipline (not by page range), so a
-    # discipline with non-contiguous pages still summarizes as one portion.
-    discipline_by_combined = db.page_disciplines(project_id)
+
+    # Resolve each page summary against the LIVE pages table by
+    # (documentId, pageNumber). The combinedPage stored on a summary goes stale
+    # as later uploads renumber the set — keying on it dropped pages (and
+    # collapsed several onto one number), which emptied the rollups.
+    index = db.page_index(project_id)
+    enriched: list[tuple[str | None, dict]] = []
+    for summary_row in db.page_summaries(project_id):
+        info = index.get((summary_row.get("documentId"), summary_row.get("pageNumber")))
+        if info is None:
+            continue  # page no longer exists (deleted or superseded revision)
+        enriched.append((info["discipline"], {**summary_row, "combinedPage": info["combined"]}))
+    enriched.sort(key=lambda pair: pair[1]["combinedPage"])
+    log.info("rolling up %d page summaries", len(enriched))
 
     portion_summaries: list[dict] = []
     sections_written = 0
     for portion in db.project_portions(project_id):
-        covered = [
-            by_combined[c]
-            for c in sorted(by_combined)
-            if discipline_by_combined.get(c) == portion["discipline"]
-        ]
+        # Group by discipline (not page range) so a discipline whose pages are
+        # non-contiguous still summarizes as one portion.
+        covered = [s for discipline, s in enriched if discipline == portion["discipline"]]
         if not covered:
+            log.warning(
+                "portion %s has no page summaries yet — skipping its rollup", portion["name"]
+            )
             continue
         section_summaries = []
         for group in group_sections(covered):
