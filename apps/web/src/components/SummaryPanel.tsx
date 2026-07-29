@@ -28,18 +28,33 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     requestJump(item.page);
   }
 
+  // Poll only while a document is still processing (summaries are written by
+  // the job that runs after processing). Once everything is completed we stop
+  // rather than re-requesting /summaries forever.
+  const documents = useQuery({
+    queryKey: ["documents", projectId],
+    queryFn: () => api.listDocuments(projectId),
+  });
+  const processing = documents.data?.some(
+    (d) => d.status === "uploaded" || d.status === "processing",
+  );
+
   const summaries = useQuery({
     queryKey: ["summaries", projectId],
     queryFn: () => api.listSummaries(projectId),
-    // The summarize job runs after processing; poll until a project summary exists.
-    refetchInterval: (query) =>
-      query.state.data?.some((s) => s.level === "project") ? false : 5000,
+    refetchInterval: (query) => {
+      if (query.state.data?.some((s) => s.level === "project")) return false; // done
+      return processing ? 5000 : 30_000; // slow poll: the job may still be running
+    },
   });
 
   const summary = selectedPortionId
     ? summaries.data?.find((s) => s.level === "portion" && s.portionId === selectedPortionId)
     : summaries.data?.find((s) => s.level === "project");
   const heading = selectedPortionId ? "Portion summary" : "Project summary";
+  // Page summaries exist but the rollup for this level doesn't yet — makes the
+  // "still working" case distinguishable from "nothing at all".
+  const pagesSummarized = summaries.data?.some((s) => s.level === "page") ?? false;
 
   return (
     <div className="border-b border-gray-200 p-3">
@@ -48,7 +63,9 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
         <p className="mt-2 text-xs text-gray-400">
           {summaries.isLoading
             ? "Loading…"
-            : "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker)."}
+            : pagesSummarized
+              ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
+              : "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker)."}
         </p>
       )}
       {summary && (
