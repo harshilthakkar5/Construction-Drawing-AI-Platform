@@ -280,8 +280,10 @@ def run(project_id: str) -> dict:
         return {"skipped": "summaries disabled"}
 
     if not available():
-        log.warning("ANTHROPIC_API_KEY not set — skipping summaries")
-        return {"skipped": True}
+        log.warning(
+            "ANTHROPIC_API_KEY not set on the worker — no summaries will be generated"
+        )
+        return {"skipped": "no ANTHROPIC_API_KEY"}
 
     pages = db.pages_with_chunks(project_id)
     chunk_pages = db.chunk_page_map(project_id)
