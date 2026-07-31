@@ -240,6 +240,18 @@ With infra, API, web, and the Python worker all running:
 8. Grafana (http://localhost:3001) shows API latency, queue depth, worker job
    durations, Qdrant search latency, and the retrieval-cache hit ratio.
 
+### Viewer & layout controls
+
+| Control | What it does |
+| --- | --- |
+| `−` / `%` / `+` in the viewer toolbar | Zoom out / reset to 100% / zoom in (40 %–400 %) |
+| **Fit** | Scales the page to the current viewer width |
+| Ctrl/⌘ + scroll wheel | Zooms over the page area |
+| Drag lines between panes | Resize the sidebar and the chat pane; the viewer takes the rest. Double-click a line to collapse that pane to its minimum |
+| **Hide chat** / **Show chat** (project header) | Removes the chat pane so the viewer spans the window |
+
+Zoom, both pane widths, and the chat-hidden state persist in `localStorage` per browser.
+
 ## Caching
 
 - **Prompt caching**: the chat system prompt + retrieved-chunk block and the
