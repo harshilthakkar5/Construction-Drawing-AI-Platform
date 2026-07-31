@@ -14,6 +14,14 @@ export function sanitizeFilename(raw: string): string {
   return cleaned.slice(0, 255);
 }
 
+/**
+ * Free-text fields that get rendered back into the UI (profile names, support
+ * tickets). Keeps newlines and tabs — a support message is multi-line — but
+ * drops the other control characters and trims.
+ */
+export function sanitizeText(raw: string): string {
+  return raw.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
+}
 /** True when the sanitized name still looks like a usable PDF filename. */
 export function isValidPdfFilename(sanitized: string): boolean {
   return sanitized.length > 0 && /\.pdf$/i.test(sanitized);

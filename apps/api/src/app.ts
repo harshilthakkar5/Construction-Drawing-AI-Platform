@@ -10,12 +10,14 @@ import { httpMetricsMiddleware } from "./telemetry.js";
 import { authRouter } from "./routes/auth.js";
 import { chatRouter } from "./routes/chat.js";
 import { chunksRouter } from "./routes/chunks.js";
+import { dashboardRouter } from "./routes/dashboard.js";
 import { documentsRouter } from "./routes/documents.js";
 import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { summariesRouter } from "./routes/summaries.js";
+import { supportRouter } from "./routes/support.js";
 
 export function createApp() {
   const app = express();
@@ -56,6 +58,9 @@ export function createApp() {
   app.use(requireAuth);
   app.use("/projects/:projectId", requireProjectMember);
 
+  // Account-level surfaces (not project-scoped).
+  app.use("/dashboard", dashboardRouter);
+  app.use("/support", supportRouter);
   // Instance-wide queue operations (inspect / retry / purge stuck jobs).
   app.use("/queues", queuesRouter);
   app.use("/projects", projectsRouter);

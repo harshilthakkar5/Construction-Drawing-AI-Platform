@@ -1,1 +1,102 @@
 @import "tailwindcss";
+
+/**
+ * ArcAligned AI theme. Tailwind v4 reads @theme tokens and generates the
+ * matching utilities (bg-brand, text-ink-muted, …), so components never carry
+ * raw hex.
+ *
+ * Chart colors live in src/charts/palette.ts, not here — they are validated as
+ * a set against the card surface and must stay in one place.
+ */
+@theme {
+  /* Brand navy — buttons, active nav, focus rings. */
+  --color-brand-50: #eeeef6;
+  --color-brand-100: #d6d6ea;
+  --color-brand-300: #8b8ac2;
+  --color-brand-500: #3f3d84;
+  --color-brand-600: #322f6e;
+  --color-brand-700: #26235c;
+  --color-brand-900: #171540;
+
+  /* Surfaces and ink. */
+  --color-surface: #ffffff;
+  --color-page: #f7f7f9;
+  --color-ink: #101014;
+  --color-ink-soft: #4b4b56;
+  --color-ink-muted: #83838f;
+  --color-hairline: #e6e6ec;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Blueprint line-draw used on the auth screens. Every animated path carries
+   pathLength="1", so one dash length works for strokes of any real length and
+   they all draw at the same rate. */
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sweep {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translateY(-14px);
+    opacity: 0.6;
+  }
+}
+
+.bp-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 2.4s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  animation-delay: var(--delay, 0s);
+}
+.bp-fade {
+  opacity: 0;
+  animation: fade-in 1s ease forwards;
+  animation-delay: var(--delay, 0s);
+}
+.bp-sweep {
+  animation: sweep 6s ease-in-out infinite;
+}
+
+/* Respect reduced-motion: show the finished drawing, skip the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .bp-draw,
+  .bp-fade,
+  .bp-sweep {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}

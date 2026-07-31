@@ -1,6 +1,6 @@
-# Construction Drawing AI Platform
+# ArcAligned AI
 
-Manages construction projects, ingests very large sets of construction drawing PDFs
+**ArcAligned AI** (repository name: Construction Drawing AI Platform) manages construction projects, ingests very large sets of construction drawing PDFs
 (100 MB – 1 GB+, 1000+ pages), and provides AI-powered hierarchical summaries plus a
 project-scoped RAG chat assistant with click-to-verify citations — every AI statement
 traces to the exact PDF document, page, and bounding box. See
@@ -94,9 +94,10 @@ All `/projects` routes require a bearer token; media GETs (`.../file`, `.../thum
 `.../image`) also accept `?token=` because `<img>`/PDF loads can't send headers —
 either way, the API only ever redirects to short-lived presigned storage URLs.
 
-- `POST /auth/register {email, name, password}` → `{token, user}` (passwords scrypt-hashed;
-  sessions live in Redis with a sliding 7-day TTL)
+- `POST /auth/register {email, password, firstName, lastName?, company?}` → `{token, user}`
+  (passwords scrypt-hashed; sessions live in Redis with a sliding 7-day TTL)
 - `POST /auth/login` / `POST /auth/logout` / `GET /auth/me`
+- `PATCH /auth/me` (profile) and `POST /auth/password` (change password) back the Account page
 - Creating a project makes you its **owner**; owners manage the project and members,
   **members** can view, upload, and chat.
 - Member management (owner-only writes):
@@ -239,6 +240,21 @@ With infra, API, web, and the Python worker all running:
    Batches API.
 8. Grafana (http://localhost:3001) shows API latency, queue depth, worker job
    durations, Qdrant search latency, and the retrieval-cache hit ratio.
+
+### Account pages
+
+| Page | What it shows |
+| --- | --- |
+| **Dashboard** | Headline totals (projects, drawings, tokens, chat messages), a 14-day token-usage trend, document-status and discipline distributions, spend by stage, and a per-project usage table. All from one `GET /dashboard` call. |
+| **Projects** | Card grid with first-page thumbnails, search, status filter, sort, and per-card open/rename/delete. |
+| **Support** | Ticket form (`POST /support`); submitted tickets are stored in `support_tickets` and listed back. |
+| **Account** | Profile (first/last/company/email) via `PATCH /auth/me` and password change via `POST /auth/password`. Reached from the user card at the bottom of the sidebar. |
+
+Token accounting powers the dashboard's spend figures: every model call — chat, summaries
+(including the Batch path), Haiku sheet-number reads, and Voyage embeddings — writes a row to
+`usage_events` with its input/output/cache token counts. The dollar figure is an estimate from
+the published per-million rates in `apps/api/src/usage.ts`; deleting a project keeps its usage
+history (the FK is `SET NULL`).
 
 ### Viewer & layout controls
 

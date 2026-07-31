@@ -230,6 +230,16 @@ def parse_sheet_response(raw: str) -> tuple[str, str] | None:
     return sheet_number, PREFIX_TO_DISCIPLINE[prefix]
 
 
+# Project the current detection pass belongs to, so Haiku sheet reads can be
+# attributed on the dashboard. Set by portions.detect_and_store.
+_current_project: str | None = None
+
+
+def set_usage_project(project_id: str | None) -> None:
+    global _current_project
+    _current_project = project_id
+
+
 def extract_sheet_by_ai(
     text: str, filename: str | None = None, redis_conn=None
 ) -> tuple[str, str] | None:
@@ -277,6 +287,9 @@ def extract_sheet_by_ai(
             ],
             messages=[{"role": "user", "content": user_content}],
         )
+        import usage
+
+        usage.record_message(_current_project, "classification", HAIKU_MODEL, response.usage)
         result = parse_sheet_response(response.content[0].text)
     except Exception as exc:
         log.warning("sheet-number extraction failed: %s", exc)

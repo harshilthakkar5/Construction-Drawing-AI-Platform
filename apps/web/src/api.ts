@@ -2,6 +2,7 @@ import type {
   AuthResponseDto,
   ChatResponseDto,
   ChunkLocationDto,
+  DashboardDto,
   DocumentDto,
   InitiateUploadResponse,
   ManifestEntryDto,
@@ -9,6 +10,7 @@ import type {
   ProjectDto,
   SummaryDto,
   SummaryStatusDto,
+  SupportTicketDto,
   UserDto,
 } from "@cdip/shared";
 
@@ -55,12 +57,36 @@ const withToken = (url: string) => {
 };
 
 export const api = {
-  register: (body: { email: string; name: string; password: string }) =>
-    request<AuthResponseDto>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  register: (body: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName?: string;
+    company?: string;
+  }) => request<AuthResponseDto>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     request<AuthResponseDto>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   logout: () => request<void>("/auth/logout", { method: "POST", body: JSON.stringify({}) }),
   me: () => request<UserDto>("/auth/me"),
+  /** Account page: update the signed-in user's own profile. */
+  updateProfile: (body: {
+    firstName?: string;
+    lastName?: string;
+    company?: string | null;
+    email?: string;
+  }) => request<UserDto>("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
+  changePassword: (body: { currentPassword: string; newPassword: string }) =>
+    request<void>("/auth/password", { method: "POST", body: JSON.stringify(body) }),
+
+  /** Everything the dashboard shows, in one call. */
+  dashboard: () => request<DashboardDto>("/dashboard"),
+
+  submitSupport: (body: { name: string; email: string; subject: string; message: string }) =>
+    request<{ id: string; createdAt: string }>("/support", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listSupportTickets: () => request<SupportTicketDto[]>("/support"),
 
   listProjects: () => request<ProjectDto[]>("/projects"),
   createProject: (body: { name: string; description?: string }) =>

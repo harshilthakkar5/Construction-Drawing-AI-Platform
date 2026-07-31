@@ -68,11 +68,14 @@ def _post_with_retry(client: httpx.Client, api_key: str, batch: list[str], input
     raise RuntimeError("unreachable")
 
 
-def embed_texts(texts: list[str], input_type: str = "document") -> list[list[float]]:
+def embed_texts(
+    texts: list[str], input_type: str = "document", project_id: str | None = None
+) -> list[list[float]]:
     """Batched Voyage embedding call with rate-limit backoff.
-    input_type: 'document' | 'query'."""
+    input_type: 'document' | 'query'. project_id attributes the token spend."""
     api_key = os.environ["VOYAGE_API_KEY"]
     vectors: list[list[float]] = []
+    tokens = 0
     batch_count = (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE
     with httpx.Client(timeout=120) as client:
         for i, start in enumerate(range(0, len(texts), BATCH_SIZE)):
@@ -81,8 +84,14 @@ def embed_texts(texts: list[str], input_type: str = "document") -> list[list[flo
                 time.sleep(BATCH_DELAY_SECONDS)  # throttle to stay under the tier limit
             log.debug("embedding batch %d/%d (%d texts)", i + 1, batch_count, len(batch))
             response = _post_with_retry(client, api_key, batch, input_type)
-            data = response.json()["data"]
+            body = response.json()
+            data = body["data"]
+            tokens += (body.get("usage") or {}).get("total_tokens", 0)
             vectors.extend(item["embedding"] for item in sorted(data, key=lambda d: d["index"]))
+    if tokens:
+        import usage
+
+        usage.record(project_id, "embedding", VOYAGE_MODEL, input_tokens=tokens)
     return vectors
 
 
@@ -217,6 +226,10 @@ def embed_document_chunks(chunks: list[dict], previous_document_id: str | None =
         log.warning("VOYAGE_API_KEY not set — skipping %d chunks (they stay unindexed until a retry)", len(to_embed))
         return done
     ensure_collection()
-    vectors = embed_texts([c["text"] for c in to_embed], input_type="document")
+    vectors = embed_texts(
+        [c["text"] for c in to_embed],
+        input_type="document",
+        project_id=to_embed[0].get("project_id"),
+    )
     upsert_chunks(to_embed, vectors)
     return done + [c["chunk_id"] for c in to_embed]

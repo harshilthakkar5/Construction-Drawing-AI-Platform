@@ -148,7 +148,12 @@ export type ProjectRole = "owner" | "member";
 export interface UserDto {
   id: string;
   email: string;
+  /** Display name — derived from firstName + lastName on register/update. */
   name: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  company?: string | null;
+  createdAt?: string | null;
 }
 
 export interface AuthResponseDto {
@@ -221,6 +226,57 @@ export interface SummaryDto {
   level: SummaryLevel;
   summary: SummaryContent;
   sources: string[];
+}
+
+export interface TokenTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
+/** Stage that produced the tokens — matches the UsageKind enum. */
+export type UsageKind = "chat" | "summary" | "classification" | "embedding";
+
+export interface DashboardProjectRow {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  documents: number;
+  pages: number;
+  status: "empty" | "processing" | "completed" | "failed";
+  tokens: TokenTotals;
+}
+
+export interface DashboardDto {
+  totals: {
+    projects: number;
+    documents: number;
+    pages: number;
+    chunks: number;
+    summaries: number;
+    chatMessages: number;
+  };
+  tokens: TokenTotals;
+  tokensByKind: Partial<Record<UsageKind, TokenTotals>>;
+  tokensByModel: Record<string, TokenTotals>;
+  documentStatus: Record<string, number>;
+  disciplines: { discipline: string; pages: number }[];
+  projects: DashboardProjectRow[];
+  activity: { date: string; totalTokens: number; costUsd: number }[];
+  recentProjects: DashboardProjectRow[];
+}
+
+export interface SupportTicketDto {
+  id: string;
+  subject: string;
+  message: string;
+  name: string;
+  email: string;
+  createdAt: string;
 }
 
 /** Diagnosis for "processing finished but there is no summary". */

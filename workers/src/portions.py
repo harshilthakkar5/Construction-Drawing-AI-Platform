@@ -34,6 +34,7 @@ def detect_and_store(project_id: str) -> list[dict]:
     (combined numbering shifts when a document arrives), but pages that already
     have a stored discipline are reused — so a new upload only pays for AI
     sheet-number reads on its own pages."""
+    classify.set_usage_project(project_id)  # attributes Haiku sheet reads
     rows = db.pages_for_classification(project_id)
     pages = [(combined, text) for combined, text, _, _ in rows]
 

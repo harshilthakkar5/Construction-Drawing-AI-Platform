@@ -1,30 +1,18 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { API_URL, api, authToken } from "./api";
+import { api, authToken } from "./api";
+import { AppShell } from "./components/AppShell";
 import { AuthScreen } from "./components/AuthScreen";
-import { ProjectList } from "./components/ProjectList";
 import { ProjectView } from "./components/ProjectView";
+import { AccountPage } from "./pages/AccountPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { SupportPage } from "./pages/SupportPage";
 import { useAppStore } from "./store";
 
-interface HealthResponse {
-  status: "ok" | "degraded";
-  checks: Record<string, "ok" | "error">;
-}
-
-function useHealth() {
-  return useQuery({
-    queryKey: ["health"],
-    queryFn: async (): Promise<HealthResponse> => {
-      const res = await fetch(`${API_URL}/health`);
-      return res.json();
-    },
-    refetchInterval: 15_000,
-  });
-}
-
 export function App() {
-  const health = useHealth();
   const queryClient = useQueryClient();
+  const view = useAppStore((s) => s.view);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const user = useAppStore((s) => s.user);
   const setUser = useAppStore((s) => s.setUser);
@@ -49,37 +37,29 @@ export function App() {
     queryClient.clear();
   }
 
+  if (checkingSession) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-ink-muted">
+        Restoring session…
+      </div>
+    );
+  }
+  if (!user) return <AuthScreen onSignedIn={setUser} />;
+
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
-        <h1 className="text-lg font-semibold">Construction Drawing AI Platform</h1>
-        <div className="flex items-center gap-4 text-sm text-gray-500">
-          <span>
-            API: {health.isLoading ? "checking…" : (health.data?.status ?? "unreachable")}
-          </span>
-          {user && (
-            <>
-              <span className="text-gray-700">{user.name}</span>
-              <button className="text-blue-600 hover:underline" onClick={() => void signOut()}>
-                Sign out
-              </button>
-            </>
-          )}
-        </div>
-      </header>
-      <main className="min-h-0 flex-1">
-        {checkingSession ? (
-          <div className="flex h-full items-center justify-center text-sm text-gray-500">
-            Restoring session…
-          </div>
-        ) : !user ? (
-          <AuthScreen onSignedIn={setUser} />
-        ) : selectedProjectId ? (
-          <ProjectView projectId={selectedProjectId} />
-        ) : (
-          <ProjectList />
-        )}
-      </main>
-    </div>
+    <AppShell user={user} onSignOut={() => void signOut()}>
+      {/* An open project takes over the Projects area (FR-17 three-pane view). */}
+      {selectedProjectId ? (
+        <ProjectView projectId={selectedProjectId} />
+      ) : view === "projects" ? (
+        <ProjectsPage />
+      ) : view === "support" ? (
+        <SupportPage />
+      ) : view === "account" ? (
+        <AccountPage />
+      ) : (
+        <DashboardPage />
+      )}
+    </AppShell>
   );
 }
