@@ -5,6 +5,10 @@ import { api } from "../api";
 import { useAppStore, type Highlight } from "../store";
 
 const PAGE_WIDTH = 850;
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+const ZOOM_KEY = "cdip-viewer-zoom";
 
 /**
  * FR-6/FR-17/FR-20: renders the VIRTUAL combined set. The manifest maps each
@@ -24,6 +28,29 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [nearViewport, setNearViewport] = useState<Set<number>>(new Set());
   const [jumpInput, setJumpInput] = useState("");
+  const [zoom, setZoom] = useState(() => {
+    const saved = Number(localStorage.getItem(ZOOM_KEY));
+    return saved >= ZOOM_MIN && saved <= ZOOM_MAX ? saved : 1;
+  });
+
+  const applyZoom = useCallback((next: number) => {
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next * 100) / 100));
+    setZoom(clamped);
+    localStorage.setItem(ZOOM_KEY, String(clamped));
+  }, []);
+
+  // Ctrl/⌘ + wheel zooms instead of scrolling, the usual PDF-viewer gesture.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      applyZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [zoom, applyZoom]);
 
   const manifest = useQuery({
     queryKey: ["manifest", projectId],
@@ -81,8 +108,45 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
       <div className="flex items-center gap-3 border-b border-gray-200 px-3 py-2 text-sm">
         <span className="font-medium">Combined set</span>
         <span className="text-gray-500">{total} pages</span>
+
+        <div className="ml-auto flex items-center gap-1" title="Ctrl/⌘ + scroll also zooms">
+          <button
+            className="h-7 w-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            onClick={() => applyZoom(zoom - ZOOM_STEP)}
+            disabled={zoom <= ZOOM_MIN}
+            aria-label="Zoom out"
+          >
+            −
+          </button>
+          <button
+            className="w-14 rounded px-1 text-xs text-gray-600 hover:bg-gray-50"
+            onClick={() => applyZoom(1)}
+            title="Reset to 100%"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            className="h-7 w-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            onClick={() => applyZoom(zoom + ZOOM_STEP)}
+            disabled={zoom >= ZOOM_MAX}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <button
+            className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+            onClick={() => {
+              const available = (scrollRef.current?.clientWidth ?? PAGE_WIDTH) - 32; // p-4
+              applyZoom(available / PAGE_WIDTH);
+            }}
+            title="Fit the page to the viewer width"
+          >
+            Fit
+          </button>
+        </div>
+
         <form
-          className="ml-auto flex items-center gap-1"
+          className="flex items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(jumpInput);
@@ -127,7 +191,8 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
         </div>
 
         {/* Main pages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto bg-gray-100 p-4">
+        {/* overflow-auto (not -y): a zoomed page is wider than the pane. */}
+        <div ref={scrollRef} className="flex-1 overflow-auto bg-gray-100 p-4">
           {manifest.isLoading && <p className="text-sm text-gray-500">Loading manifest…</p>}
           {!manifest.isLoading && total === 0 && (
             <p className="text-sm text-gray-500">
@@ -141,7 +206,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
               data-combined={entry.combinedPageNumber}
               ref={observe}
               className="mx-auto mb-4 bg-white shadow"
-              style={{ width: PAGE_WIDTH, minHeight: PAGE_WIDTH * 0.6 }}
+              style={{ width: PAGE_WIDTH * zoom, minHeight: PAGE_WIDTH * zoom * 0.6 }}
             >
               <div className="relative">
                 <PageImage
