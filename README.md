@@ -146,6 +146,33 @@ burning the embedding quota, then set it back to `true` and run
 re-queued, already-processed pages are skipped, and only the missing vectors
 are created.
 
+## No summary? Diagnose it
+
+| Endpoint | What it tells you |
+| --- | --- |
+| `GET /projects/:projectId/summaries/status` | Counts per level (page/section/portion/project), portions, pages with chunks, document statuses, plus a `hint` naming the likely cause |
+| `POST /projects/:projectId/summaries/rebuild` | Re-runs the summarize job for the project — no re-upload needed |
+
+Reading the status output:
+
+- `pagesWithChunks: 0` — processing produced no text; check document status and worker logs.
+- `pagesWithChunks > 0` but `summaries.page: 0` — the summarize job never ran or exited
+  early. The worker logs the reason: `SUMMARIES_ENABLED=false` or
+  `ANTHROPIC_API_KEY not set on the worker`.
+- `summaries.page > 0` but `summaries.project: 0` — the rollup tier failed; rebuild and
+  watch the worker log for `rolling up N page summaries`.
+
+The summary panel shows this `hint` in place of "no summary yet" once processing has
+finished, with a **Re-run summarization** button that calls the rebuild endpoint — so the
+usual case needs neither curl nor the worker log.
+
+The rollup tiers degrade instead of disappearing: if Claude returns unusable JSON for a
+section, portion, or project rollup (or the level below cites nothing), the worker merges
+the level below deterministically and logs `merging the level below instead`. A page whose
+summary fails to parse is retried once. So a project with page summaries always ends up
+with a project summary — previously a single bad response on a small project left the DB
+with page rows and nothing above them.
+
 ## Queue operations (stuck / failed jobs)
 
 Authenticated instance-wide endpoints for inspecting and unsticking BullMQ

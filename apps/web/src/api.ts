@@ -8,6 +8,7 @@ import type {
   PortionDto,
   ProjectDto,
   SummaryDto,
+  SummaryStatusDto,
   UserDto,
 } from "@cdip/shared";
 
@@ -111,6 +112,16 @@ export const api = {
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
 
   listSummaries: (projectId: string) => request<SummaryDto[]>(`/projects/${projectId}/summaries`),
+
+  /** Why is there no summary? Reports what each tier produced, plus a hint. */
+  summaryStatus: (projectId: string) =>
+    request<SummaryStatusDto>(`/projects/${projectId}/summaries/status`),
+
+  /** Re-run the summarize job without re-uploading anything. */
+  rebuildSummaries: (projectId: string) =>
+    request<{ queued: boolean; jobId: string }>(`/projects/${projectId}/summaries/rebuild`, {
+      method: "POST",
+    }),
 
   /** FR-19: resolve a summary item's chunk to page + bbox for highlighting. */
   chunkLocation: (projectId: string, chunkId: string) =>
