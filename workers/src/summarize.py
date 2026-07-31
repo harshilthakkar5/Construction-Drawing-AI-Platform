@@ -156,6 +156,11 @@ def rollup_prompt(kind: str, label: str, lower: list[dict]) -> str:
 _CACHED_SYSTEM = [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}]
 
 
+# Project the current run belongs to, so every model call can be attributed
+# without threading the id through each rollup helper. Set once in run().
+_current_project: str | None = None
+
+
 def _call_direct(prompt: str) -> str:
     response = _get_client().messages.create(
         model=SUMMARY_MODEL,
@@ -163,6 +168,9 @@ def _call_direct(prompt: str) -> str:
         system=_CACHED_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
+    import usage
+
+    usage.record_message(_current_project, "summary", SUMMARY_MODEL, response.usage)
     return "".join(b.text for b in response.content if b.type == "text")
 
 
@@ -187,10 +195,13 @@ def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
     while batch.processing_status != "ended":
         time.sleep(2)
         batch = client.messages.batches.retrieve(batch.id)
+    import usage
+
     results: dict[str, str] = {}
     for entry in client.messages.batches.results(batch.id):
         if entry.result.type == "succeeded":
             message = entry.result.message
+            usage.record_message(_current_project, "summary", SUMMARY_MODEL, message.usage)
             results[entry.custom_id] = "".join(
                 b.text for b in message.content if b.type == "text"
             )
@@ -334,6 +345,9 @@ def run(project_id: str) -> dict:
     import db
 
     import config
+
+    global _current_project
+    _current_project = project_id  # attributes every model call in this run
 
     # The project may have been deleted while this job sat in the queue.
     if not db.project_exists(project_id):

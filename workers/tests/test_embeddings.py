@@ -55,7 +55,7 @@ def test_reuse_skips_voyage_for_unchanged_text(monkeypatch):
         lambda chunks, vectors: upserted.extend(c["chunk_id"] for c in chunks),
     )
 
-    def fake_embed(texts, input_type="document"):
+    def fake_embed(texts, input_type="document", project_id=None):
         embedded_texts.extend(texts)
         return [[0.9, 0.9] for _ in texts]
 
@@ -77,7 +77,7 @@ def test_no_previous_revision_embeds_everything(monkeypatch):
     monkeypatch.setattr(embeddings, "ensure_collection", lambda: None)
     monkeypatch.setattr(embeddings, "upsert_chunks", lambda chunks, vectors: None)
     monkeypatch.setattr(
-        embeddings, "embed_texts", lambda texts, input_type="document": (calls.extend(texts), [[0.0]] * len(texts))[1]
+        embeddings, "embed_texts", lambda texts, input_type="document", project_id=None: (calls.extend(texts), [[0.0]] * len(texts))[1]
     )
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
 
@@ -97,7 +97,7 @@ def test_reuse_falls_back_to_voyage_when_old_points_gone(monkeypatch):
     monkeypatch.setattr(embeddings, "upsert_chunks", lambda chunks, vectors: None)
     embedded: list[str] = []
     monkeypatch.setattr(
-        embeddings, "embed_texts", lambda texts, input_type="document": (embedded.extend(texts), [[0.0]] * len(texts))[1]
+        embeddings, "embed_texts", lambda texts, input_type="document", project_id=None: (embedded.extend(texts), [[0.0]] * len(texts))[1]
     )
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
 

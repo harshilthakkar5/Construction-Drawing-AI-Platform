@@ -41,7 +41,7 @@ async function retrieveChunkIds(projectId: string, portionId: string | undefined
   retrievalCacheCounter.add(1, { result: cached ? "hit" : "miss" });
   if (cached) return JSON.parse(cached) as string[];
 
-  const vector = await embedQuery(question);
+  const vector = await embedQuery(question, projectId);
   const ids = await searchChunks(projectId, vector, { portionId, limit: RETRIEVAL_LIMIT });
   await redis.set(key, JSON.stringify(ids), "EX", RETRIEVAL_CACHE_TTL).catch(() => {});
   return ids;
@@ -106,6 +106,7 @@ chatRouter.post("/", async (req, res) => {
       text: c.text,
     })),
     history,
+    projectId,
   );
 
   const records = new Map<string, ChunkSourceRecord>(

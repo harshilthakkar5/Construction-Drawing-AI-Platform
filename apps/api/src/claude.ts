@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { recordUsage } from "./usage.js";
 
 const CHAT_MODEL = process.env.CHAT_MODEL ?? "claude-sonnet-5";
 
@@ -50,6 +51,8 @@ export async function answerFromChunks(
   question: string,
   chunks: PromptChunk[],
   history: HistoryTurn[],
+  /** Recorded against this project's token usage (dashboard spend). */
+  projectId?: string,
 ): Promise<string> {
   const messages: Anthropic.MessageParam[] = [
     ...history.map((turn) => ({ role: turn.role, content: turn.text })),
@@ -81,6 +84,15 @@ export async function answerFromChunks(
     ],
     messages,
   });
+
+  // FR-23 adjacent: the dashboard reports spend per project and per stage.
+  await recordUsage(projectId ?? null, "chat", CHAT_MODEL, {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+  });
+
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)

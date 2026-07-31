@@ -37,15 +37,67 @@ enum ProjectRole {
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
+  /// Display name, kept as the single source for headers/avatars. Derived
+  /// from firstName + lastName on register/update.
   name         String
+  firstName    String?
+  lastName     String?
+  company      String?
   /// scrypt hash, format "salt:hash" (hex). Sessions live in Redis.
   passwordHash String
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
-  memberships   ProjectMember[]
-  ownedProjects Project[]
+  memberships    ProjectMember[]
+  ownedProjects  Project[]
+  supportTickets SupportTicket[]
 
   @@map("users")
+}
+
+/// What produced the tokens — one row per model call, so the dashboard can
+/// break spend down by project and by stage without re-reading provider bills.
+enum UsageKind {
+  chat
+  summary
+  classification
+  embedding
+}
+
+model UsageEvent {
+  id        String    @id @default(uuid())
+  /// Null for calls not tied to a project (none today; kept for future
+  /// account-level calls). SetNull rather than Cascade so deleting a project
+  /// does not erase its historical spend.
+  projectId String?
+  kind      UsageKind
+  model     String
+  inputTokens      Int @default(0)
+  outputTokens     Int @default(0)
+  cacheReadTokens  Int @default(0)
+  cacheWriteTokens Int @default(0)
+  createdAt DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([createdAt])
+  @@map("usage_events")
+}
+
+model SupportTicket {
+  id        String   @id @default(uuid())
+  userId    String?
+  name      String
+  email     String
+  subject   String
+  message   String
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("support_tickets")
 }
 
 model ProjectMember {
@@ -77,6 +129,7 @@ model Project {
   portions     Portion[]
   summaries    Summary[]
   chatSessions ChatSession[]
+  usageEvents  UsageEvent[]
 
   @@map("projects")
 }
