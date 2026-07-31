@@ -8,8 +8,11 @@ export interface Highlight {
   bbox: BBox;
 }
 
+/** Top-level page. `project` is implied by selectedProjectId being set. */
+export type View = "dashboard" | "projects" | "support" | "account";
+
 /**
- * Global UI state. selectedProjectId doubles as navigation (no router yet);
+ * Global UI state. `view` + selectedProjectId are the navigation (no router);
  * selectedPortionId drives the summary panel / viewer jump / chat filter
  * (FR-16/FR-22). requestJump moves the viewer (FR-18) and optionally pins a
  * bbox highlight on the target page (FR-19).
@@ -17,6 +20,9 @@ export interface Highlight {
 interface AppState {
   user: UserDto | null;
   setUser: (user: UserDto | null) => void;
+  view: View;
+  /** Switching pages also leaves any open project. */
+  setView: (view: View) => void;
   selectedProjectId: string | null;
   openProject: (projectId: string | null) => void;
   selectedPortionId: string | null;
@@ -31,9 +37,19 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   user: null,
   setUser: (user) => set({ user }),
+  view: "dashboard",
+  setView: (view) =>
+    set({ view, selectedProjectId: null, jumpToPage: null, highlight: null, selectedPortionId: null }),
   selectedProjectId: null,
   openProject: (projectId) =>
-    set({ selectedProjectId: projectId, jumpToPage: null, highlight: null, selectedPortionId: null }),
+    set({
+      selectedProjectId: projectId,
+      // Opening a project — and backing out of one — both belong to Projects.
+      view: "projects",
+      jumpToPage: null,
+      highlight: null,
+      selectedPortionId: null,
+    }),
   selectedPortionId: null,
   selectPortion: (portionId) => set({ selectedPortionId: portionId }),
   jumpToPage: null,
