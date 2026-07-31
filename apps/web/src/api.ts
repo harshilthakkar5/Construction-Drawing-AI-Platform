@@ -43,7 +43,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status} ${body}`);
+    // The API answers errors as JSON; surface its own wording (and the `fix`
+    // hint it sends for recoverable setup problems) instead of a raw dump.
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body) as { error?: string; fix?: string };
+      detail = [parsed.error, parsed.fix].filter(Boolean).join(" — ") || body;
+    } catch {
+      // not JSON — keep the raw text
+    }
+    throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status} ${detail}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }

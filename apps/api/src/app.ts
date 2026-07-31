@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireProjectMember } from "./auth.js";
-import { prisma } from "./db.js";
+import { missingPrismaModels, prisma, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
 import { redis } from "./redis.js";
 import { httpMetricsMiddleware } from "./telemetry.js";
@@ -18,6 +18,17 @@ import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { summariesRouter } from "./routes/summaries.js";
 import { supportRouter } from "./routes/support.js";
+
+/** 503 + the remedy when the generated Prisma client predates a model. */
+const requireGeneratedModels = (_req: Request, res: Response, next: NextFunction) => {
+  const missing = missingPrismaModels();
+  if (missing.length === 0) return next();
+  res.status(503).json({
+    error: "prisma client out of date",
+    missingModels: missing,
+    fix: PRISMA_STALE_MESSAGE,
+  });
+};
 
 export function createApp() {
   const app = express();
@@ -58,9 +69,11 @@ export function createApp() {
   app.use(requireAuth);
   app.use("/projects/:projectId", requireProjectMember);
 
-  // Account-level surfaces (not project-scoped).
-  app.use("/dashboard", dashboardRouter);
-  app.use("/support", supportRouter);
+  // Account-level surfaces (not project-scoped). Both read models that only
+  // exist in a freshly generated client — answer with the fix rather than a
+  // TypeError from deep inside the handler.
+  app.use("/dashboard", requireGeneratedModels, dashboardRouter);
+  app.use("/support", requireGeneratedModels, supportRouter);
   // Instance-wide queue operations (inspect / retry / purge stuck jobs).
   app.use("/queues", queuesRouter);
   app.use("/projects", projectsRouter);

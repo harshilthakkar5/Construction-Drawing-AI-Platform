@@ -147,6 +147,22 @@ burning the embedding quota, then set it back to `true` and run
 re-queued, already-processed pages are skipped, and only the missing vectors
 are created.
 
+## After pulling schema changes
+
+`/dashboard` or `/support` returning **503 "prisma client out of date"** (or, on an older
+build, `TypeError: Cannot read properties of undefined (reading 'findMany')`) means the
+generated Prisma client predates a model the code uses — the delegate is `undefined`.
+Regenerate it:
+
+```bash
+npm run prisma:migrate     # applies pending migrations AND regenerates the client
+# or, if the tables already exist:
+npm run prisma:generate
+```
+
+Restart the API afterwards. It logs the same warning at startup, naming the missing models,
+so you see it before the first request.
+
 ## No summary? Diagnose it
 
 | Endpoint | What it tells you |
