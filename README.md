@@ -162,6 +162,17 @@ Reading the status output:
 - `summaries.page > 0` but `summaries.project: 0` — the rollup tier failed; rebuild and
   watch the worker log for `rolling up N page summaries`.
 
+The summary panel shows this `hint` in place of "no summary yet" once processing has
+finished, with a **Re-run summarization** button that calls the rebuild endpoint — so the
+usual case needs neither curl nor the worker log.
+
+The rollup tiers degrade instead of disappearing: if Claude returns unusable JSON for a
+section, portion, or project rollup (or the level below cites nothing), the worker merges
+the level below deterministically and logs `merging the level below instead`. A page whose
+summary fails to parse is retried once. So a project with page summaries always ends up
+with a project summary — previously a single bad response on a small project left the DB
+with page rows and nothing above them.
+
 ## Queue operations (stuck / failed jobs)
 
 Authenticated instance-wide endpoints for inspecting and unsticking BullMQ

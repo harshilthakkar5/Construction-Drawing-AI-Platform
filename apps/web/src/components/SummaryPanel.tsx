@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SummaryItem } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore } from "../store";
@@ -48,6 +48,24 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  // Only asked for when there is nothing to show: turns "no summary yet" into
+  // the actual reason (job never ran, SUMMARIES_ENABLED=false, no API key…).
+  const hasAnySummary = (summaries.data?.length ?? 0) > 0;
+  const status = useQuery({
+    queryKey: ["summary-status", projectId],
+    queryFn: () => api.summaryStatus(projectId),
+    enabled: !summaries.isLoading && !hasAnySummary && !processing,
+  });
+
+  const queryClient = useQueryClient();
+  const rebuild = useMutation({
+    mutationFn: () => api.rebuildSummaries(projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["summary-status", projectId] });
+    },
+  });
+
   const summary = selectedPortionId
     ? summaries.data?.find((s) => s.level === "portion" && s.portionId === selectedPortionId)
     : summaries.data?.find((s) => s.level === "project");
@@ -60,13 +78,31 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     <div className="border-b border-gray-200 p-3">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{heading}</h3>
       {!summary && (
-        <p className="mt-2 text-xs text-gray-400">
-          {summaries.isLoading
-            ? "Loading…"
-            : pagesSummarized
-              ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
-              : "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker)."}
-        </p>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-gray-400">
+            {summaries.isLoading
+              ? "Loading…"
+              : pagesSummarized
+                ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
+                : processing
+                  ? "No summary yet — it is generated once processing finishes."
+                  : (status.data?.hint ??
+                    "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker).")}
+          </p>
+          {!summaries.isLoading && !processing && (
+            <button
+              className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => rebuild.mutate()}
+              disabled={rebuild.isPending}
+            >
+              {rebuild.isPending
+                ? "Queuing…"
+                : rebuild.isSuccess
+                  ? "Re-run queued — watch the worker log"
+                  : "Re-run summarization"}
+            </button>
+          )}
+        </div>
       )}
       {summary && (
         <>

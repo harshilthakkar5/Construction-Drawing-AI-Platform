@@ -240,7 +240,21 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
         allowed = {c["id"] for c in page["chunks"]}
         summary = parse_summary_json(raw, allowed)
         if summary is None:
-            log.warning("invalid page-summary JSON for combined page %s — skipped", page["combined_page"])
+            # One retry with an explicit format reminder: a page dropped here
+            # takes its whole rollup chain with it on a small project.
+            log.warning(
+                "invalid page-summary JSON for combined page %s — retrying once",
+                page["combined_page"],
+            )
+            retry = _call_direct(
+                prompts[f"page-{i}"] + "\n\nRespond with ONLY the JSON object described above."
+            )
+            summary = parse_summary_json(retry, allowed)
+        if summary is None:
+            log.warning(
+                "page %s could not be summarized (invalid JSON twice) — skipped",
+                page["combined_page"],
+            )
             continue
         summary = attach_pages(summary, chunk_pages)
         summary.update(
@@ -256,13 +270,64 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
     return written
 
 
+def _merge_lower(lower: list[dict], chunk_pages: dict[str, int]) -> dict | None:
+    """Deterministic merge of the level below, used when the model's rollup is
+    unusable (invalid JSON, no items left after citation validation, or nothing
+    citable to work from).
+
+    Without it one bad response silently emptied every level above it: a
+    project whose only section rollup failed ended with page summaries in the
+    DB and no portion or project summary at all — the "processing finished but
+    there is no summary" case."""
+    items: list[dict] = []
+    for summary in lower:
+        for item in summary.get("items", []):
+            ids = [cid for cid in item.get("chunkIds", []) if cid in chunk_pages]
+            page = min((chunk_pages[cid] for cid in ids), default=item.get("page"))
+            if page is None:
+                continue  # FR-13: no statement without a resolvable source
+            items.append({"text": item["text"], "chunkIds": ids, "page": page})
+    overview = " ".join(s["overview"] for s in lower if s.get("overview")).strip()[:1500]
+    if not overview and not items:
+        return None
+    return {"overview": overview, "items": items[:MAX_ITEMS]}
+
+
 def _rollup(kind: str, label: str, lower: list[dict], chunk_pages: dict[str, int]) -> dict | None:
     allowed = {cid for s in lower for item in s["items"] for cid in item["chunkIds"]}
-    if not allowed:
-        return None
-    raw = _call_direct(rollup_prompt(kind, label, lower))
-    summary = parse_summary_json(raw, allowed)
-    return attach_pages(summary, chunk_pages) if summary else None
+    if allowed:
+        raw = _call_direct(rollup_prompt(kind, label, lower))
+        summary = parse_summary_json(raw, allowed)
+        if summary is not None:
+            resolved = attach_pages(summary, chunk_pages)
+            if resolved["overview"] or resolved["items"]:
+                return resolved
+        log.warning("unusable %s rollup for %s — merging the level below instead", kind, label)
+    else:
+        log.warning("%s rollup for %s cites nothing — merging the level below instead", kind, label)
+    return _merge_lower(lower, chunk_pages)
+
+
+def _write_sections(
+    project_id: str,
+    portion_id: str | None,
+    label: str,
+    covered: list[dict],
+    chunk_pages: dict[str, int],
+) -> list[dict]:
+    """Section tier for one group of page summaries; returns what was written."""
+    import db
+
+    written: list[dict] = []
+    for group in group_sections(covered):
+        group_label = f"pages {group[0]['combinedPage']}–{group[-1]['combinedPage']} of {label}"
+        summary = _rollup("section", group_label, group, chunk_pages)
+        if summary is None:
+            continue
+        summary.update(startPage=group[0]["combinedPage"], endPage=group[-1]["combinedPage"])
+        db.insert_summary(project_id, portion_id, "section", summary, collect_sources(summary))
+        written.append(summary)
+    return written
 
 
 def run(project_id: str) -> dict:
@@ -318,16 +383,10 @@ def run(project_id: str) -> dict:
                 "portion %s has no page summaries yet — skipping its rollup", portion["name"]
             )
             continue
-        section_summaries = []
-        for group in group_sections(covered):
-            label = f"pages {group[0]['combinedPage']}–{group[-1]['combinedPage']} of {portion['name']}"
-            summary = _rollup("section", label, group, chunk_pages)
-            if summary is None:
-                continue
-            summary.update(startPage=group[0]["combinedPage"], endPage=group[-1]["combinedPage"])
-            db.insert_summary(project_id, portion["id"], "section", summary, collect_sources(summary))
-            section_summaries.append(summary)
-            sections_written += 1
+        section_summaries = _write_sections(
+            project_id, portion["id"], portion["name"], covered, chunk_pages
+        )
+        sections_written += len(section_summaries)
         if not section_summaries:
             continue
         summary = _rollup("portion", f"the {portion['name']} portion", section_summaries, chunk_pages)
@@ -337,9 +396,26 @@ def run(project_id: str) -> dict:
         db.set_portion_summary_text(portion["id"], summary["overview"])
         portion_summaries.append({**summary, "portion": portion["name"]})
 
+    # The project summary must exist whenever the project has summarized
+    # content. If no portion produced one — a portion whose pages carry no
+    # usable page summaries, or a rollup that failed — fall back to rolling the
+    # page summaries up directly rather than leaving the project with nothing.
+    base = portion_summaries
+    if not base and enriched:
+        log.warning(
+            "no portion rollup succeeded — building the project summary from "
+            "%d page summaries directly",
+            len(enriched),
+        )
+        page_level = [s for _, s in enriched]
+        base = _write_sections(project_id, None, "the project", page_level, chunk_pages)
+        sections_written += len(base)
+        if not base:
+            base = page_level[:SECTION_SIZE]
+
     project_written = 0
-    if portion_summaries:
-        summary = _rollup("whole-project", "the entire project", portion_summaries, chunk_pages)
+    if base:
+        summary = _rollup("whole-project", "the entire project", base, chunk_pages)
         if summary is not None:
             db.insert_summary(project_id, None, "project", summary, collect_sources(summary))
             project_written = 1

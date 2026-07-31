@@ -222,3 +222,12 @@ export interface SummaryDto {
   summary: SummaryContent;
   sources: string[];
 }
+
+/** Diagnosis for "processing finished but there is no summary". */
+export interface SummaryStatusDto {
+  summaries: Record<SummaryLevel, number>;
+  portions: number;
+  pagesWithChunks: number;
+  documents: Record<string, number>;
+  hint: string;
+}
