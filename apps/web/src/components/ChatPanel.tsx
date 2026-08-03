@@ -59,10 +59,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2">
-        <span className="text-sm font-medium">Chat</span>
+      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Chat</span>
         <select
-          className="ml-auto max-w-44 rounded border border-gray-300 px-2 py-1 text-xs"
+          className="ml-auto max-w-44 rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink-soft outline-none focus:border-brand-500"
           value={portionFilter}
           onChange={(e) => setPortionFilter(e.target.value)}
           title="Restrict retrieval to one portion"
@@ -78,25 +78,25 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3">
         {turns.length === 0 && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm leading-relaxed text-ink-muted">
             Ask about the drawings — answers cite their sources, and clicking a source jumps the
             viewer to the exact page.
           </p>
         )}
         {turns.map((turn, i) =>
           turn.role === "user" ? (
-            <div key={i} className="ml-8 rounded-lg bg-blue-600 p-2 text-sm text-white">
+            <div key={i} className="ml-8 rounded-xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm leading-relaxed text-white">
               {turn.text}
             </div>
           ) : (
-            <div key={i} className="mr-8 rounded-lg border border-gray-200 bg-white p-2 text-sm">
+            <div key={i} className="mr-8 rounded-xl rounded-bl-sm border border-hairline bg-surface px-3 py-2 text-sm leading-relaxed text-ink-soft">
               <AnswerText text={turn.text} sources={turn.sources ?? []} />
               {turn.sources && turn.sources.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1 border-t border-gray-100 pt-2">
+                <div className="mt-2 flex flex-wrap gap-1 border-t border-hairline pt-2">
                   {turn.sources.map((s) => (
                     <button
                       key={s.index}
-                      className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-blue-700 hover:bg-blue-50"
+                      className="rounded-full bg-page px-2 py-0.5 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
                       onClick={() => requestJump(s.combinedPageNumber, s.bbox)}
                       title={`Jump to combined page ${s.combinedPageNumber} and highlight the cited region`}
                     >
@@ -108,24 +108,29 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </div>
           ),
         )}
-        {ask.isPending && <div className="mr-8 text-sm text-gray-400">Thinking…</div>}
+        {ask.isPending && (
+          <div className="mr-8 flex items-center gap-2 text-sm text-ink-muted">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" aria-hidden />
+            Thinking…
+          </div>
+        )}
       </div>
 
       <form
-        className="flex gap-2 border-t border-gray-200 p-3"
+        className="flex gap-2 border-t border-hairline p-3"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
         <input
-          className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+          className="min-w-0 flex-1 rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
           placeholder="Ask about the drawings…"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
         <button
-          className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="shrink-0 rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           disabled={!question.trim() || ask.isPending}
         >
           Send
@@ -148,7 +153,7 @@ function AnswerText({ text, sources }: { text: string; sources: ChatSourceDto[] 
         return source ? (
           <button
             key={i}
-            className="mx-0.5 rounded bg-blue-100 px-1 text-xs font-medium text-blue-700 hover:bg-blue-200"
+            className="mx-0.5 rounded bg-brand-50 px-1 text-xs font-semibold text-brand-700 hover:bg-brand-100"
             onClick={() => requestJump(source.combinedPageNumber, source.bbox)}
             title={source.label}
           >

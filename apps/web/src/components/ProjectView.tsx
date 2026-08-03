@@ -46,38 +46,37 @@ export function ProjectView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
-        <button className="text-sm text-blue-600 hover:underline" onClick={() => openProject(null)}>
-          ← Projects
+      <header className="flex items-center gap-3 border-b border-hairline bg-surface px-4 py-2.5">
+        <button
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-ink-soft transition hover:bg-page hover:text-ink"
+          onClick={() => openProject(null)}
+        >
+          <span aria-hidden>←</span> Projects
         </button>
-        <h2 className="font-semibold">{project.data?.name ?? "…"}</h2>
+        <span className="h-5 w-px bg-hairline" aria-hidden />
+        <h2 className="truncate font-semibold text-ink">{project.data?.name ?? "…"}</h2>
         {project.data?.description && (
-          <span className="truncate text-sm text-gray-500">{project.data.description}</span>
+          <span className="truncate text-sm text-ink-muted">{project.data.description}</span>
         )}
         <button
-          className="ml-auto shrink-0 rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+          className="ml-auto shrink-0 rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink-soft transition hover:bg-page hover:text-ink"
           onClick={() => setChatHidden((hidden) => !hidden)}
           title={chatHidden ? "Show the chat pane" : "Hide the chat pane and widen the viewer"}
         >
           {chatHidden ? "Show chat" : "Hide chat"}
         </button>
-      </div>
+      </header>
       <div className="flex min-h-0 flex-1">
-        {/* Each section scrolls on its own so a long summary never buries the
-            portions list or the upload / document controls below it. */}
+        {/* One scroll column, not three clipped boxes: a long summary used to
+            be cut off mid-sentence while the documents area sat empty. Each
+            section's heading sticks to the top so you keep your bearings. */}
         <aside
-          className="flex shrink-0 flex-col border-r border-gray-200"
+          className="shrink-0 overflow-y-auto border-r border-hairline bg-surface"
           style={{ width: sidebarWidth }}
         >
-          <div className="max-h-[40%] shrink-0 overflow-y-auto">
-            <SummaryPanel projectId={projectId} />
-          </div>
-          <div className="shrink-0 overflow-y-auto">
-            <PortionsPanel projectId={projectId} />
-          </div>
-          <div className="min-h-0 flex-1">
-            <DocumentsPanel projectId={projectId} />
-          </div>
+          <SummaryPanel projectId={projectId} />
+          <PortionsPanel projectId={projectId} />
+          <DocumentsPanel projectId={projectId} />
         </aside>
         <DragDivider
           width={sidebarWidth}
@@ -90,7 +89,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
         {!chatHidden && (
           <>
             <section
-              className="shrink-0 border-r border-gray-200 bg-gray-50"
+              className="shrink-0 border-r border-hairline bg-surface"
               style={{ width: chatWidth }}
             >
               <ChatPanel projectId={projectId} />
