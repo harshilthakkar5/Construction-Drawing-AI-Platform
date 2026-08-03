@@ -4,6 +4,26 @@ import type { DocumentStatus } from "@cdip/shared";
 import { api } from "../api";
 import { uploadPdf } from "../upload";
 
+function PdfIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#d03b3b"
+      strokeWidth="1.7"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-hidden
+    >
+      <path d="M7 3h7l5 5v13H7z" />
+      <path d="M14 3v5h5" />
+      <path d="M9.5 17v-3.5h1.2a1.1 1.1 0 0 1 0 2.2H9.5M14 17v-3.5h1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Dot colors match the dashboard's document-status donut (charts/palette.ts). */
 const statusDot: Record<DocumentStatus, string> = {
   uploaded: "#2a78d6",
@@ -112,8 +132,11 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
             key={doc.id}
             className={`p-3 text-sm ${doc.supersededAt ? "opacity-50" : ""}`}
           >
-            <div className="truncate font-medium" title={doc.filename}>
-              {doc.filename}
+            <div className="flex items-center gap-2">
+              <PdfIcon />
+              <span className="truncate font-medium text-ink" title={doc.filename}>
+                {doc.filename}
+              </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-page px-2 py-0.5 text-xs font-medium text-ink-soft">
