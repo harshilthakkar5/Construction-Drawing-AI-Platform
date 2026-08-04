@@ -54,13 +54,13 @@ export function AppShell({
               onClick={() => setView(item.view)}
               title={item.label}
               aria-current={view === item.view ? "page" : undefined}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
                 view === item.view
-                  ? "bg-page font-medium text-ink"
+                  ? "bg-brand-50 font-semibold text-brand-700"
                   : "text-ink-soft hover:bg-page hover:text-ink"
               }`}
             >
-              <span className="shrink-0 text-ink-soft">{item.icon}</span>
+              <span className="shrink-0">{item.icon}</span>
               {!collapsed && <span className="truncate">{item.label}</span>}
             </button>
           ))}

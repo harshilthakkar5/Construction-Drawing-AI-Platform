@@ -87,8 +87,10 @@ export const api = {
   changePassword: (body: { currentPassword: string; newPassword: string }) =>
     request<void>("/auth/password", { method: "POST", body: JSON.stringify(body) }),
 
-  /** Everything the dashboard shows, in one call. */
-  dashboard: () => request<DashboardDto>("/dashboard"),
+  /** Everything the dashboard shows, in one call. `days` sets the activity
+   * window the API aggregates (7 / 14 / 30 / 90). */
+  dashboard: (days?: number) =>
+    request<DashboardDto>(`/dashboard${days ? `?days=${days}` : ""}`),
 
   submitSupport: (body: { name: string; email: string; subject: string; message: string }) =>
     request<{ id: string; createdAt: string }>("/support", {

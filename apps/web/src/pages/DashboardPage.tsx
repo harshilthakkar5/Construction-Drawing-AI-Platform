@@ -1,12 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import type { DashboardDto, TokenTotals, UsageKind } from "@cdip/shared";
 import { api } from "../api";
 import { BarList } from "../charts/BarList";
 import { Donut } from "../charts/Donut";
 import { STATUS_COLORS, STATUS_ORDER } from "../charts/palette";
 import { TrendArea } from "../charts/TrendArea";
-import { Card, PageHeader, StatTile } from "../components/ui";
+import { ActionButton, Card, PageHeader, StatTile } from "../components/ui";
 import { useAppStore } from "../store";
+
+/** Ranges the activity chart can ask the API for (GET /dashboard?days=N). */
+const RANGES = [
+  { days: 7, label: "Last 7 days" },
+  { days: 14, label: "Last 14 days" },
+  { days: 30, label: "Last 30 days" },
+  { days: 90, label: "Last 90 days" },
+] as const;
 
 /**
  * Account dashboard. One /dashboard call feeds every tile and chart:
@@ -39,27 +48,29 @@ export const usd = (n: number) =>
 export function DashboardPage() {
   const openProject = useAppStore((s) => s.openProject);
   const setView = useAppStore((s) => s.setView);
+  const user = useAppStore((s) => s.user);
+  const [days, setDays] = useState<number>(14);
 
   const dashboard = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.dashboard,
+    queryKey: ["dashboard", days],
+    queryFn: () => api.dashboard(days),
     // Cheap poll so uploads in another tab show up without a manual refresh.
     refetchInterval: 30_000,
+    placeholderData: (previous) => previous, // no flash when the range changes
   });
   const data = dashboard.data;
+  const firstName = user?.firstName || user?.name.split(" ")[0] || "there";
 
   return (
     <div className="h-full overflow-y-auto p-6 lg:p-8">
       <PageHeader
         title="Dashboard"
-        action={
-          <button
-            className="flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
-            onClick={() => setView("projects")}
-          >
-            Add Project <span aria-hidden>+</span>
-          </button>
+        subtitle={
+          <>
+            Welcome back, {firstName}! <span aria-hidden>👋</span>
+          </>
         }
+        action={<ActionButton icon={<PlusIcon />} onClick={() => setView("projects")}>Add Project</ActionButton>}
       />
 
       {dashboard.isError && (
@@ -68,37 +79,61 @@ export function DashboardPage() {
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Projects"
           value={String(data?.totals.projects ?? "—")}
+          hint={data ? `${data.totals.projects === 1 ? "Active project" : "Active projects"}` : undefined}
           icon={<BriefcaseIcon />}
+          tint="violet"
+          art="buildings"
         />
         <StatTile
           label="Drawings processed"
           value={`${data?.totals.documents ?? "—"}`}
           hint={data ? `${compactNumber(data.totals.pages)} pages` : undefined}
           icon={<PagesIcon />}
+          tint="blue"
+          art="blueprint"
         />
         <StatTile
           label="Tokens used"
           value={data ? compactNumber(data.tokens.totalTokens) : "—"}
           hint={data ? `${usd(data.tokens.costUsd)} estimated` : undefined}
           icon={<SparkIcon />}
+          tint="green"
+          art="coins"
         />
         <StatTile
           label="Chat messages"
           value={data ? compactNumber(data.totals.chatMessages) : "—"}
           hint={data ? `${compactNumber(data.totals.chunks)} indexed chunks` : undefined}
           icon={<ChatIcon />}
+          tint="indigo"
+          art="chat"
         />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-5 grid gap-5 xl:grid-cols-3">
         <Card
           className="xl:col-span-2"
           title="Token usage"
-          subtitle="Last 14 days, all projects"
+          subtitle={`${RANGES.find((r) => r.days === days)?.label ?? ""}, all projects`}
+          art="trend"
+          action={
+            <select
+              className="rounded-lg border border-hairline bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-soft outline-none focus:border-accent-500"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              aria-label="Activity range"
+            >
+              {RANGES.map((r) => (
+                <option key={r.days} value={r.days}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          }
         >
           {data ? (
             <TrendArea
@@ -114,7 +149,7 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card title="Document status" subtitle="Across every project">
+        <Card title="Document status" subtitle="Across every project" art="document">
           {data ? (
             <Donut
               centerLabel="documents"
@@ -132,8 +167,8 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title="Pages by discipline" subtitle="From the sheet number on each page">
+      <div className="mt-5 grid gap-5 xl:grid-cols-3">
+        <Card title="Pages by discipline" subtitle="From the sheet number on each page" art="columns">
           {data ? (
             <BarList
               rows={data.disciplines
@@ -147,7 +182,7 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card title="Spend by stage" subtitle="Where the tokens go">
+        <Card title="Spend by stage" subtitle="Where the tokens go" art="funnel">
           {data ? (
             <BarList
               rows={(Object.entries(data.tokensByKind) as [UsageKind, TokenTotals][])
@@ -161,7 +196,7 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card title="Recent projects" subtitle="Most recently created">
+        <Card title="Recent projects" subtitle="Most recently created" art="folder">
           {data && data.recentProjects.length > 0 ? (
             <ul className="divide-y divide-hairline">
               {data.recentProjects.map((p) => (
@@ -198,7 +233,7 @@ function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] })
   const openProject = useAppStore((s) => s.openProject);
   const rows = [...projects].sort((a, b) => b.tokens.totalTokens - a.tokens.totalTokens);
   return (
-    <Card className="mt-4" title="Per-project usage" subtitle="Documents, pages and token spend">
+    <Card className="mt-5" title="Per-project usage" subtitle="Documents, pages and token spend" art="pie">
       <div className="-mx-4 overflow-x-auto px-4">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
@@ -284,6 +319,11 @@ const PagesIcon = () => (
 const SparkIcon = () => (
   <svg {...ic}>
     <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
+  </svg>
+);
+const PlusIcon = () => (
+  <svg {...ic} width={16} height={16}>
+    <path d="M12 5v14M5 12h14" />
   </svg>
 );
 const ChatIcon = () => (

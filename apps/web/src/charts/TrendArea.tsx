@@ -14,14 +14,32 @@ export interface TrendPoint {
 }
 
 const W = 640;
-const H = 260;
-const PAD = { top: 12, right: 8, bottom: 22, left: 8 };
+const H = 250;
+const PAD = { top: 12, right: 10, bottom: 24, left: 40 };
+
+/** 0 / 10K / 20K … — a round step just above the series max. */
+function axisTicks(max: number): number[] {
+  const raw = max / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(raw || 1));
+  const nice = [1, 2, 2.5, 5, 10].find((m) => m * magnitude >= raw) ?? 10;
+  const step = Math.max(1, nice * magnitude);
+  const ticks: number[] = [];
+  for (let v = 0; v <= step * 4; v += step) ticks.push(v);
+  return ticks;
+}
+
+const tickLabel = (v: number) => {
+  if (v >= 1_000_000) return `${+(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1000) return `${+(v / 1000).toFixed(v % 1000 ? 1 : 0)}K`;
+  return String(v);
+};
 
 export function TrendArea({ points, formatValue }: { points: TrendPoint[]; formatValue: (v: number) => string }) {
   const [active, setActive] = useState<number | null>(null);
   if (points.length === 0) return null;
 
-  const max = Math.max(...points.map((p) => p.value), 1);
+  const ticks = axisTicks(Math.max(...points.map((p) => p.value), 1));
+  const max = ticks[ticks.length - 1]!;
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
   const x = (i: number) =>
@@ -41,17 +59,28 @@ export function TrendArea({ points, formatValue }: { points: TrendPoint[]; forma
         aria-label={`Daily token usage over the last ${points.length} days`}
         onMouseLeave={() => setActive(null)}
       >
-        {/* recessive gridlines */}
-        {[0, 0.5, 1].map((t) => (
-          <line
-            key={t}
-            x1={PAD.left}
-            x2={W - PAD.right}
-            y1={PAD.top + innerH * t}
-            y2={PAD.top + innerH * t}
-            stroke={GRID}
-            strokeWidth="1"
-          />
+        {/* recessive gridlines, one per axis tick */}
+        {ticks.map((t) => (
+          <g key={t}>
+            <line
+              x1={PAD.left}
+              x2={W - PAD.right}
+              y1={y(t)}
+              y2={y(t)}
+              stroke={GRID}
+              strokeWidth="1"
+            />
+            <text
+              x={PAD.left - 8}
+              y={y(t)}
+              textAnchor="end"
+              dominantBaseline="middle"
+              fontSize="10"
+              fill={AXIS_TEXT}
+            >
+              {tickLabel(t)}
+            </text>
+          </g>
         ))}
 
         <defs>

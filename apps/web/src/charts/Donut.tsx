@@ -16,9 +16,9 @@ export interface Slice {
   color: string;
 }
 
-const SIZE = 200;
-const R_OUTER = 92;
-const R_INNER = 58;
+const SIZE = 176;
+const R_OUTER = 80;
+const R_INNER = 50;
 const GAP_DEGREES = 1.6; // ≈2px of surface between segments at this radius
 
 const polar = (cx: number, cy: number, r: number, deg: number) => {
@@ -57,7 +57,7 @@ export function Donut({
 
   if (!total) {
     return (
-      <div className="grid h-[200px] place-items-center text-sm text-ink-muted">No data yet</div>
+      <div className="grid h-[176px] place-items-center text-sm text-ink-muted">No data yet</div>
     );
   }
 
@@ -88,6 +88,9 @@ export function Donut({
         {arcs.map(({ slice, share, start, end, mid }) => {
           const [lx, ly] = polar(SIZE / 2, SIZE / 2, (R_OUTER + R_INNER) / 2, mid);
           const dim = hovered !== null && hovered !== slice.key;
+          // A 360° arc starts and ends at the same point, which SVG renders as
+          // nothing — draw the lone slice as a stroked circle instead.
+          const whole = end - start >= 359.9;
           return (
             <g
               key={slice.key}
@@ -95,12 +98,25 @@ export function Donut({
               onMouseLeave={() => setHovered(null)}
             >
               <title>{`${slice.label}: ${slice.value} (${Math.round(share * 100)}%)`}</title>
-              <path
-                d={arcPath(start, end)}
-                fill={slice.color}
-                opacity={dim ? 0.35 : 1}
-                className="transition-opacity"
-              />
+              {whole ? (
+                <circle
+                  cx={SIZE / 2}
+                  cy={SIZE / 2}
+                  r={(R_OUTER + R_INNER) / 2}
+                  fill="none"
+                  stroke={slice.color}
+                  strokeWidth={R_OUTER - R_INNER}
+                  opacity={dim ? 0.35 : 1}
+                  className="transition-opacity"
+                />
+              ) : (
+                <path
+                  d={arcPath(start, end)}
+                  fill={slice.color}
+                  opacity={dim ? 0.35 : 1}
+                  className="transition-opacity"
+                />
+              )}
               {share >= 0.06 && (
                 <text
                   x={lx}
@@ -132,7 +148,7 @@ export function Donut({
         </text>
       </svg>
 
-      <ul className="min-w-[130px] flex-1 space-y-1.5">
+      <ul className="min-w-[120px] flex-1 space-y-1.5">
         {present.map((slice) => (
           <li
             key={slice.key}

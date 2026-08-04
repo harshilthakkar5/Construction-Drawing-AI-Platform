@@ -18,6 +18,14 @@
   --color-brand-700: #26235c;
   --color-brand-900: #171540;
 
+  /* Action accent — primary CTAs and data-viz marks. Navy stays the brand
+     identity (logo, sidebar, avatars); this is what you click. */
+  --color-accent-50: #eff5ff;
+  --color-accent-100: #dbe8fe;
+  --color-accent-500: #3b82f6;
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+
   /* Surfaces and ink. */
   --color-surface: #ffffff;
   --color-page: #f7f7f9;
