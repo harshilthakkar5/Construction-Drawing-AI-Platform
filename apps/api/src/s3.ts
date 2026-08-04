@@ -13,13 +13,27 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env.js";
+import { normalizeSpacesEndpoint } from "./spacesEndpoint.js";
+
+const { endpoint: spacesEndpoint, corrected } = normalizeSpacesEndpoint(
+  env.SPACES_ENDPOINT,
+  env.SPACES_BUCKET,
+);
+if (corrected) {
+  console.warn(
+    `[s3] SPACES_ENDPOINT included the bucket name — using ${spacesEndpoint} instead. ` +
+      `Set SPACES_ENDPOINT=${spacesEndpoint} in .env. Objects uploaded before this ` +
+      `correction were stored under a "${env.SPACES_BUCKET}/" key prefix and will not be found.`,
+  );
+}
 
 /**
  * DigitalOcean Spaces in prod, MinIO locally — S3 API with endpoint override.
- * Path-style addressing is required for MinIO.
+ * Path-style addressing is required for MinIO; see spacesEndpoint.ts for why
+ * the endpoint must be the region host.
  */
 export const s3 = new S3Client({
-  endpoint: env.SPACES_ENDPOINT,
+  endpoint: spacesEndpoint,
   region: env.SPACES_REGION,
   credentials: {
     accessKeyId: env.SPACES_KEY,
@@ -135,9 +149,28 @@ export async function deletePrefix(prefix: string): Promise<number> {
   let deleted = 0;
   let continuationToken: string | undefined;
   do {
-    const listing = await s3.send(
-      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: continuationToken }),
-    );
+    let listing;
+    try {
+      listing = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+    } catch (err) {
+      // A LIST can't legitimately 404 on a key — that means the request was
+      // routed as a GetObject, i.e. the endpoint/bucket pair is wrong.
+      if (isNotFound(err)) {
+        throw new Error(
+          `Listing "${prefix}" in bucket "${BUCKET}" returned NoSuchKey. That means the ` +
+            `request was addressed as an object, not a listing — check SPACES_ENDPOINT is ` +
+            `the region host (e.g. https://blr1.digitaloceanspaces.com) and not the bucket URL.`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     const keys = (listing.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
     for (let i = 0; i < keys.length; i += CONCURRENCY) {
       const slice = keys.slice(i, i + CONCURRENCY);
