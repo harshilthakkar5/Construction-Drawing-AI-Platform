@@ -30,7 +30,7 @@ export function DragDivider({
       role="separator"
       aria-orientation="vertical"
       title={title}
-      className="group relative w-1 shrink-0 cursor-col-resize bg-gray-200 transition-colors hover:bg-blue-400 active:bg-blue-500"
+      className="group relative w-1 shrink-0 cursor-col-resize bg-page transition-colors hover:bg-brand-300 active:bg-brand-500"
       onPointerDown={(e) => {
         start.current = { x: e.clientX, width };
         e.currentTarget.setPointerCapture(e.pointerId);

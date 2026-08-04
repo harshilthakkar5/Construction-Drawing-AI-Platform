@@ -27,19 +27,22 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
     refetchInterval: processing ? 3000 : false,
   });
 
-  const selected = portions.data?.find((p) => p.id === selectedPortionId) ?? null;
+  const selected =
+    portions.data?.find((p) => p.id === selectedPortionId) ?? null;
 
   return (
-    <div className="flex min-h-0 flex-col border-b border-gray-200">
-      <h3 className="px-3 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+    <section className="border-b border-hairline">
+      <h3 className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
         Portions
       </h3>
-      <ul className="max-h-64 overflow-y-auto p-2">
+      <ul className="p-2">
         {portions.data?.map((portion) => (
           <li key={portion.id}>
             <button
-              className={`mb-1 w-full rounded px-2 py-1.5 text-left text-sm hover:bg-blue-50 ${
-                portion.id === selectedPortionId ? "bg-blue-100 font-medium" : ""
+              className={`mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-page ${
+                portion.id === selectedPortionId
+                  ? "bg-brand-50 font-semibold text-brand-700"
+                  : "text-ink-soft"
               }`}
               onClick={() => {
                 if (portion.id === selectedPortionId) {
@@ -50,25 +53,40 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                 requestJump(portion.startPage);
               }}
             >
-              <span>{portion.name}</span>
-              <span className="float-right text-xs text-gray-500">
+              <span className="min-w-0 flex-1 truncate">{portion.name}</span>
+              <span className="shrink-0 text-xs tabular-nums text-ink-muted">
                 pp. {portion.startPage}–{portion.endPage}
               </span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-ink-muted"
+                aria-hidden
+              >
+                <path d="m9 6 6 6-6 6" />
+              </svg>
             </button>
           </li>
         ))}
         {portions.data?.length === 0 && (
-          <li className="px-2 py-1 text-sm text-gray-500">
+          <li className="px-2 py-1 text-sm text-ink-muted">
             {processing ? "Detecting…" : "No portions yet — upload a PDF."}
           </li>
         )}
       </ul>
 
       {selected && (
-        <div className="border-t border-gray-100 px-3 pb-2 text-xs text-gray-500">
-          {selected.name}: combined pages {selected.startPage}–{selected.endPage}
+        <div className="border-t border-hairline px-3 pb-2 text-xs text-ink-muted">
+          {selected.name}: combined pages {selected.startPage}–
+          {selected.endPage}
         </div>
       )}
-    </div>
+    </section>
   );
 }

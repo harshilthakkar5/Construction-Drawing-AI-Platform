@@ -9,8 +9,20 @@ const REBUILD_TIMEOUT_MS = 5 * 60 * 1000;
 
 function Spinner() {
   return (
-    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <svg
+      className="h-3 w-3 animate-spin"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
       <path
         className="opacity-75"
         fill="currentColor"
@@ -77,7 +89,8 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   const status = useQuery({
     queryKey: ["summary-status", projectId],
     queryFn: () => api.summaryStatus(projectId),
-    enabled: !summaries.isLoading && !hasAnySummary && !processing && !rebuilding,
+    enabled:
+      !summaries.isLoading && !hasAnySummary && !processing && !rebuilding,
   });
 
   const queryClient = useQueryClient();
@@ -85,14 +98,19 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     mutationFn: () => api.rebuildSummaries(projectId),
     onSuccess: () => {
       setRebuilding(true);
-      void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["summary-status", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["summaries", projectId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["summary-status", projectId],
+      });
     },
   });
 
   // Stop waiting once the run produced a project summary, or after the timeout
   // (a failed job never writes anything — don't spin forever).
-  const hasProjectSummary = summaries.data?.some((s) => s.level === "project") ?? false;
+  const hasProjectSummary =
+    summaries.data?.some((s) => s.level === "project") ?? false;
   useEffect(() => {
     if (!rebuilding) return;
     if (hasProjectSummary) {
@@ -104,64 +122,81 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   }, [rebuilding, hasProjectSummary]);
 
   const summary = selectedPortionId
-    ? summaries.data?.find((s) => s.level === "portion" && s.portionId === selectedPortionId)
+    ? summaries.data?.find(
+        (s) => s.level === "portion" && s.portionId === selectedPortionId,
+      )
     : summaries.data?.find((s) => s.level === "project");
   const heading = selectedPortionId ? "Portion summary" : "Project summary";
   // Page summaries exist but the rollup for this level doesn't yet — makes the
   // "still working" case distinguishable from "nothing at all".
-  const pagesSummarized = summaries.data?.some((s) => s.level === "page") ?? false;
+  const pagesSummarized =
+    summaries.data?.some((s) => s.level === "page") ?? false;
 
   return (
-    <div className="border-b border-gray-200 p-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{heading}</h3>
-      {!summary && (
-        <div className="mt-2 space-y-2">
-          <p className="text-xs text-gray-400">
-            {summaries.isLoading
-              ? "Loading…"
-              : rebuilding
-                ? "Summarizing… page summaries first, then the rollups. This can take a while on a large set."
-                : pagesSummarized
-                  ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
-                  : processing
-                    ? "No summary yet — it is generated once processing finishes."
-                    : (status.data?.hint ??
-                      "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker).")}
-          </p>
-          {!summaries.isLoading && !processing && (
-            <button
-              className="inline-flex items-center gap-1.5 rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60"
-              onClick={() => rebuild.mutate()}
-              disabled={rebuild.isPending || rebuilding}
-            >
-              {(rebuild.isPending || rebuilding) && <Spinner />}
-              {rebuild.isPending ? "Queuing…" : rebuilding ? "Summarizing…" : "Re-run summarization"}
-            </button>
-          )}
-          {rebuild.isError && (
-            <p className="text-xs text-red-600">Could not queue the job — is the API running?</p>
-          )}
-        </div>
-      )}
-      {summary && (
-        <>
-          <p className="mt-2 text-sm text-gray-700">{summary.summary.overview}</p>
-          <ul className="mt-2 space-y-1">
-            {summary.summary.items.map((item, i) => (
-              <li key={i}>
-                <button
-                  className="w-full rounded px-1.5 py-1 text-left text-xs text-gray-600 hover:bg-blue-50 hover:text-blue-800"
-                  onClick={() => void jumpToItem(item)}
-                  title={`Jump to combined page ${item.page} and highlight the source`}
-                >
-                  {item.text}
-                  <span className="ml-1 text-blue-500">p.{item.page}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </div>
+    <section className="border-b border-hairline">
+      <h3 className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        {heading}
+      </h3>
+      <div className="px-3 pb-3">
+        {!summary && (
+          <div className="space-y-2">
+            <p className="text-xs text-ink-muted">
+              {summaries.isLoading
+                ? "Loading…"
+                : rebuilding
+                  ? "Summarizing… page summaries first, then the rollups. This can take a while on a large set."
+                  : pagesSummarized
+                    ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
+                    : processing
+                      ? "No summary yet — it is generated once processing finishes."
+                      : (status.data?.hint ??
+                        "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker).")}
+            </p>
+            {!summaries.isLoading && !processing && (
+              <button
+                className="inline-flex items-center gap-1.5 rounded border border-hairline px-2 py-1 text-xs text-ink-soft hover:bg-page disabled:opacity-60"
+                onClick={() => rebuild.mutate()}
+                disabled={rebuild.isPending || rebuilding}
+              >
+                {(rebuild.isPending || rebuilding) && <Spinner />}
+                {rebuild.isPending
+                  ? "Queuing…"
+                  : rebuilding
+                    ? "Summarizing…"
+                    : "Re-run summarization"}
+              </button>
+            )}
+            {rebuild.isError && (
+              <p className="text-xs text-red-600">
+                Could not queue the job — is the API running?
+              </p>
+            )}
+          </div>
+        )}
+        {summary && (
+          <>
+            <p className="text-sm leading-relaxed text-ink-soft">
+              {summary.summary.overview}
+            </p>
+            <ul className="mt-3 space-y-1">
+              {summary.summary.items.map((item, i) => (
+                <li key={i}>
+                  <button
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed text-ink-soft transition hover:bg-brand-50 hover:text-brand-700"
+                    onClick={() => void jumpToItem(item)}
+                    title={`Jump to combined page ${item.page} and highlight the source`}
+                  >
+                    <span className="min-w-0 flex-1">{item.text}</span>
+                    <span className="mt-px shrink-0 rounded bg-page px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink-muted">
+                      p.{item.page}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

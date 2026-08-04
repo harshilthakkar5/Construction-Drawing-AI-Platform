@@ -280,6 +280,7 @@ history (the FK is `SET NULL`).
 | **Fit** | Scales the page to the current viewer width |
 | Ctrl/⌘ + scroll wheel | Zooms over the page area |
 | Drag lines between panes | Resize the sidebar and the chat pane; the viewer takes the rest. Double-click a line to collapse that pane to its minimum |
+| First open | The page is fitted to the viewer width automatically; after that your own zoom is remembered |
 | **Hide chat** / **Show chat** (project header) | Removes the chat pane so the viewer spans the window |
 
 Zoom, both pane widths, and the chat-hidden state persist in `localStorage` per browser.
