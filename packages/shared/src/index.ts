@@ -252,6 +252,8 @@ export interface DashboardProjectRow {
 }
 
 export interface DashboardDto {
+  /** Length of the `activity` window, echoed back from the ?days= query. */
+  activityDays: number;
   totals: {
     projects: number;
     documents: number;

@@ -22,13 +22,8 @@ export function Logo({ compact = false }: { compact?: boolean }) {
         <circle cx="9" cy="25" r="2.1" fill="white" />
       </svg>
       {!compact && (
-        <span className="leading-none">
-          <span className="block text-[15px] font-semibold tracking-tight text-ink">
-            ArcAligned
-          </span>
-          <span className="mt-0.5 block text-[11px] font-semibold uppercase tracking-[0.28em] text-ink-soft">
-            AI
-          </span>
+        <span className="text-[17px] font-bold leading-none tracking-tight text-ink">
+          ArcAligned<span className="text-ink-muted">.</span>AI
         </span>
       )}
     </span>

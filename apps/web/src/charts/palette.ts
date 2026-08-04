@@ -35,7 +35,7 @@ export const SEQUENTIAL = [
 ] as const;
 
 /** The accent used for single-series trends. */
-export const ACCENT = "#2a78d6";
+export const ACCENT = "#2563eb";
 
 /** Chart chrome. */
 export const GRID = "#e6e6ec";

@@ -30,19 +30,19 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
-  const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard });
+  const dashboard = useQuery({ queryKey: ["dashboard", 14], queryFn: () => api.dashboard(14) });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteProject(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
   const rename = useMutation({
     mutationFn: (p: { id: string; name: string }) => api.updateProject(p.id, { name: p.name }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
@@ -310,7 +310,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
     mutationFn: () =>
       api.createProject({ name: name.trim(), description: description.trim() || undefined }),
     onSuccess: (project) => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       onClose();
       openProject(project.id);

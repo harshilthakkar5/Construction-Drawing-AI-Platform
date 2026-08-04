@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { estimateCostUsd } from "../usage.js";
@@ -14,7 +15,10 @@ import { estimateCostUsd } from "../usage.js";
  */
 export const dashboardRouter = Router();
 
-const ACTIVITY_DAYS = 14;
+/** Window for the activity series, chosen by the range control on the page. */
+const rangeSchema = z.object({
+  days: z.coerce.number().int().refine((n) => [7, 14, 30, 90].includes(n)).default(14),
+});
 
 const emptyTokens = () => ({
   inputTokens: 0,
@@ -52,6 +56,7 @@ const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 
 dashboardRouter.get("/", async (req, res) => {
   const user = currentUser(req);
+  const { days } = rangeSchema.parse(req.query);
   const visibleProjects = {
     OR: [
       { ownerId: null },
@@ -68,7 +73,7 @@ dashboardRouter.get("/", async (req, res) => {
   const projectIds = projects.map((p) => p.id);
   const scope = { projectId: { in: projectIds } };
 
-  const since = new Date(Date.now() - ACTIVITY_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [documents, pageCount, chunkCount, portionRows, messageCount, usageRows, summaryCount] =
     await Promise.all([
@@ -166,13 +171,14 @@ dashboardRouter.get("/", async (req, res) => {
 
   // Dense day series so the chart has no gaps.
   const activity: { date: string; totalTokens: number; costUsd: number }[] = [];
-  for (let i = ACTIVITY_DAYS - 1; i >= 0; i--) {
+  for (let i = days - 1; i >= 0; i--) {
     const key = dayKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000));
     const day = byDay.get(key);
     activity.push({ date: key, totalTokens: day?.totalTokens ?? 0, costUsd: day?.costUsd ?? 0 });
   }
 
   res.json({
+    activityDays: days,
     totals: {
       projects: projects.length,
       documents: documents.length,

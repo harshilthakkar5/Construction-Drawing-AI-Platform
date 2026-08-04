@@ -1,9 +1,10 @@
-import { sequentialStep } from "./palette";
+import { ACCENT } from "./palette";
 
 /**
  * Horizontal magnitude bars — the form for "compare magnitude, low → high"
- * with long category names (disciplines). One hue, more-is-darker (sequential),
- * so rank reads without a legend; every row is directly labeled with its value.
+ * with long category names (disciplines). One hue: length carries magnitude
+ * and every row is directly labelled with its value, so color has no work to
+ * do beyond marking the bar.
  */
 export function BarList({
   rows,
@@ -20,8 +21,8 @@ export function BarList({
   const max = Math.max(...rows.map((r) => r.value), 1);
 
   return (
-    <ul className="space-y-2.5">
-      {rows.map((row, i) => (
+    <ul className="space-y-3.5">
+      {rows.map((row) => (
         <li key={row.label}>
           <div className="flex items-baseline justify-between gap-3 pb-1">
             <span className="truncate text-sm text-ink-soft" title={row.label}>
@@ -33,12 +34,13 @@ export function BarList({
             </span>
           </div>
           {/* 4px rounded data-end, anchored to the baseline at left */}
-          <div className="h-2 w-full overflow-hidden rounded-sm bg-page">
+          {/* 4px rounded data-end on a full-width track */}
+          <div className="h-2 w-full overflow-hidden rounded-full bg-page">
             <div
-              className="h-full rounded-r-sm"
+              className="h-full rounded-full transition-[width] duration-500"
               style={{
                 width: `${Math.max(2, (row.value / max) * 100)}%`,
-                background: sequentialStep(i, rows.length),
+                background: ACCENT,
               }}
             />
           </div>

@@ -1,3 +1,5 @@
+import { CardArt, type ArtMotif } from "./CardArt";
+
 /** Shared page furniture: header, card, stat tile, form controls. */
 
 export function PageHeader({
@@ -6,13 +8,13 @@ export function PageHeader({
   action,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   action?: React.ReactNode;
 }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-ink">{title}</h1>
+        <h1 className="text-[32px] font-bold leading-tight tracking-tight text-ink">{title}</h1>
         {subtitle && <p className="mt-1 max-w-prose text-sm text-ink-soft">{subtitle}</p>}
       </div>
       {action}
@@ -20,56 +22,101 @@ export function PageHeader({
   );
 }
 
+/** The page's primary call to action (accent, icon-led). */
+export function ActionButton({
+  children,
+  onClick,
+  icon,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-2 rounded-xl bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent-700"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
 export function Card({
   title,
   subtitle,
   action,
+  art,
   className = "",
   children,
 }: {
   title?: string;
   subtitle?: string;
   action?: React.ReactNode;
+  /** Faint corner motif — decoration only (see CardArt). */
+  art?: ArtMotif;
   className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className={`rounded-xl border border-hairline bg-surface p-4 ${className}`}>
+    <section
+      className={`relative overflow-hidden rounded-2xl border border-hairline bg-surface p-5 shadow-[0_1px_2px_rgba(16,16,20,0.04)] ${className}`}
+    >
+      {art && <CardArt motif={art} />}
       {(title || action) && (
-        <header className="mb-4 flex items-start justify-between gap-3">
+        <header className="relative mb-4 flex items-start justify-between gap-3">
           <div>
-            {title && <h2 className="text-base font-semibold text-ink">{title}</h2>}
-            {subtitle && <p className="text-xs text-ink-muted">{subtitle}</p>}
+            {title && <h2 className="text-[17px] font-semibold text-ink">{title}</h2>}
+            {subtitle && <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p>}
           </div>
           {action}
         </header>
       )}
-      {children}
+      <div className="relative">{children}</div>
     </section>
   );
 }
+
+/** Icon tints — identity per tile, not a data encoding. */
+const TILE_TINTS = {
+  violet: "bg-violet-50 text-violet-600",
+  blue: "bg-accent-50 text-accent-600",
+  green: "bg-emerald-50 text-emerald-600",
+  indigo: "bg-brand-50 text-brand-600",
+} as const;
 
 export function StatTile({
   label,
   value,
   hint,
   icon,
+  tint = "blue",
+  art,
 }: {
   label: string;
   value: string;
   hint?: string;
   icon?: React.ReactNode;
+  tint?: keyof typeof TILE_TINTS;
+  art?: ArtMotif;
 }) {
   return (
-    <div className="rounded-xl border border-hairline bg-surface p-4">
-      {icon && (
-        <span className="mb-3 grid h-10 w-10 place-items-center rounded-lg bg-page text-brand-700">
-          {icon}
-        </span>
-      )}
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 text-3xl font-bold tracking-tight text-ink">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-ink-muted">{hint}</p>}
+    <div className="relative overflow-hidden rounded-2xl border border-hairline bg-surface p-5 shadow-[0_1px_2px_rgba(16,16,20,0.04)]">
+      {art && <CardArt motif={art} />}
+      <div className="relative flex items-center gap-3">
+        {icon && (
+          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${TILE_TINTS[tint]}`}>
+            {icon}
+          </span>
+        )}
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+      </div>
+      <p className="relative mt-3 text-[34px] font-bold leading-none tracking-tight text-ink">
+        {value}
+      </p>
+      {hint && <p className="relative mt-2 text-xs text-ink-muted">{hint}</p>}
     </div>
   );
 }
