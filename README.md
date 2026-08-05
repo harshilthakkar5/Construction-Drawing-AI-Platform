@@ -328,9 +328,17 @@ SPACES_KEY=<access key>
 SPACES_SECRET=<secret>
 ```
 
-⚠️ `SPACES_ENDPOINT` must be the region endpoint, **not** the bucket URL
-(`https://<bucket>.blr1.digitaloceanspaces.com` breaks path-style addressing —
-requests would target `<bucket>.…/<bucket>/…` and 404).
+⚠️ `SPACES_ENDPOINT` must be the region endpoint, **not** the bucket URL the DO
+console shows. With path-style addressing the SDK appends the bucket itself, so
+`https://<bucket>.blr1.digitaloceanspaces.com` addresses `<bucket>.…/<bucket>/<key>`:
+Spaces takes the bucket from the host and the rest as the key. Symptoms are a
+doubled `<bucket>/` prefix on every uploaded object and project deletion failing
+with `storage cleanup FAILED NoSuchKey` (the *list* call arrives as a GetObject).
+
+The API detects this at startup, strips the bucket from the host and logs a
+warning naming the correct value — but fix `.env` anyway, and note that objects
+uploaded under the doubled prefix are orphaned. The quickest cleanup is to
+delete those projects and re-upload; otherwise move the keys in the bucket.
 
 The code uses the AWS S3 SDK/boto3 with an endpoint override, so no code changes are
 needed between MinIO and Spaces. Add a CORS rule on the bucket allowing `PUT` from
