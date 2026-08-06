@@ -141,15 +141,25 @@ class TestRollupFallback:
         monkeypatch.setattr(
             summarize,
             "_call_direct",
-            lambda prompt: json.dumps(
-                {"overview": "Rolled up.", "items": [{"text": "Footings", "chunkIds": [ID_A]}]}
+            lambda prompt, max_tokens=None: (
+                json.dumps(
+                    {
+                        "overview": "Rolled up.",
+                        "items": [{"text": "Footings", "chunkIds": [ID_A]}],
+                    }
+                ),
+                "end_turn",
             ),
         )
         result = _rollup("section", "pages 3–3", self._lower(), CHUNK_PAGES)
         assert result["overview"] == "Rolled up."
 
     def test_falls_back_on_invalid_json(self, monkeypatch):
-        monkeypatch.setattr(summarize, "_call_direct", lambda prompt: "sorry, I cannot")
+        monkeypatch.setattr(
+            summarize,
+            "_call_direct",
+            lambda prompt, max_tokens=None: ("sorry, I cannot", "end_turn"),
+        )
         result = _rollup("section", "pages 3–3", self._lower(), CHUNK_PAGES)
         assert result == {
             "overview": "Page 3.",
@@ -160,7 +170,10 @@ class TestRollupFallback:
         monkeypatch.setattr(
             summarize,
             "_call_direct",
-            lambda prompt: json.dumps({"overview": "", "items": [{"text": "x", "chunkIds": []}]}),
+            lambda prompt, max_tokens=None: (
+                json.dumps({"overview": "", "items": [{"text": "x", "chunkIds": []}]}),
+                "end_turn",
+            ),
         )
         result = _rollup("portion", "the Structural portion", self._lower(), CHUNK_PAGES)
         assert result["items"][0]["page"] == 3
@@ -172,3 +185,69 @@ class TestRollupFallback:
             "overview": "Uncited overview.",
             "items": [],
         }
+
+
+class TestUserApprovalGuard:
+    """Summaries cost real tokens, so a job may only run when a user asked.
+    The API sets the portion to 'queued' when the button is pressed; anything
+    else reaching the worker — a job left in Redis by an older build, a replay,
+    a hand-rolled enqueue — must be discarded rather than quietly spend money.
+    """
+
+    class _FakeDb:
+        def __init__(self, status):
+            self.portion = {
+                "id": "p1",
+                "name": "Structural",
+                "discipline": "structural",
+                "start_page": 1,
+                "end_page": 1,
+                "summary_status": status,
+            }
+            self.statuses: list[tuple] = []
+            self.summarized = False
+
+        def project_exists(self, project_id):
+            return True
+
+        def project_portions(self, project_id):
+            return [self.portion]
+
+        def set_portion_summary_status(self, portion_id, status, **kwargs):
+            self.statuses.append((status, kwargs))
+
+        def chunk_page_map(self, project_id):
+            self.summarized = True  # first thing the real run touches
+            return {}
+
+        def page_index(self, project_id):
+            return {}
+
+        def pages_with_chunks(self, project_id):
+            return []
+
+    def _run(self, monkeypatch, status, **kwargs):
+        fake = self._FakeDb(status)
+        monkeypatch.setitem(sys.modules, "db", fake)
+        monkeypatch.setattr(summarize, "_preflight", lambda project_id: None)
+        monkeypatch.setitem(sys.modules, "cache", type("c", (), {"invalidate_summaries": staticmethod(lambda p: None)}))
+        return fake, summarize.run_portion("proj", "p1", **kwargs)
+
+    def test_unrequested_portion_is_discarded(self, monkeypatch):
+        fake, result = self._run(monkeypatch, "none")
+        assert result == {"skipped": "not requested by a user"}
+        assert fake.summarized is False  # no model call was even set up
+
+    def test_ready_portion_is_not_resummarized_by_a_stray_job(self, monkeypatch):
+        _, result = self._run(monkeypatch, "ready")
+        assert result == {"skipped": "not requested by a user"}
+
+    def test_queued_portion_proceeds(self, monkeypatch):
+        fake, result = self._run(monkeypatch, "queued")
+        assert result != {"skipped": "not requested by a user"}
+        assert ("running", {}) in fake.statuses
+
+    def test_admin_rebuild_bypasses_the_guard(self, monkeypatch):
+        fake, result = self._run(monkeypatch, "none", requested=True)
+        assert result != {"skipped": "not requested by a user"}
+        assert ("running", {}) in fake.statuses
