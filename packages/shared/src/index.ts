@@ -271,16 +271,15 @@ export interface ScrapeRegionJob {
  * can check it before paying for a whole-project scrape. Queued on the
  * scrape-region queue under the job name "preview"; the worker writes the
  * result to Redis and the API serves it from there — PDF bytes are never
- * touched inside an HTTP request. */
+ * touched inside an HTTP request. (The Redis key format lives with the route
+ * that reads it, apps/api/src/routes/region.ts, mirroring how the summaries
+ * cache key is arranged.) */
 export interface RegionPreviewJob {
   projectId: string;
   previewId: string;
   box: RegionBox;
   sampleSize: number;
 }
-
-/** Redis key holding a finished preview. Duplicated in workers/src/cache.py. */
-export const regionPreviewKey = (previewId: string) => `region:preview:${previewId}`;
 
 /** FR-10/12 on demand: summarize ONE discipline, because a user asked. */
 export interface SummarizePortionJob {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { regionPreviewKey, type SheetRegionDto } from "@cdip/shared";
+import { type SheetRegionDto } from "@cdip/shared";
 import { z } from "zod";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
@@ -24,6 +24,13 @@ import {
  * business.
  */
 export const regionRouter = Router({ mergeParams: true });
+
+/**
+ * Redis key a finished preview lands under — the worker writes it, this route
+ * reads it. Key format shared with workers/src/cache.py `region_preview_key`;
+ * keep the two in sync (same arrangement as summariesCacheKey).
+ */
+export const regionPreviewKey = (previewId: string) => `region:preview:${previewId}`;
 
 const projectParam = z.object({ projectId: z.string().uuid() });
 
