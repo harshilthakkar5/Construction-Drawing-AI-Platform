@@ -759,13 +759,20 @@ def project_portions(project_id: str) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, name, discipline, "startPage", "endPage"
+            SELECT id, name, discipline, "startPage", "endPage", "summaryStatus"
             FROM portions WHERE "projectId" = %s ORDER BY "startPage"
             """,
             (project_id,),
         ).fetchall()
         return [
-            {"id": r[0], "name": r[1], "discipline": r[2], "start_page": r[3], "end_page": r[4]}
+            {
+                "id": r[0],
+                "name": r[1],
+                "discipline": r[2],
+                "start_page": r[3],
+                "end_page": r[4],
+                "summary_status": r[5],
+            }
             for r in rows
         ]
 
