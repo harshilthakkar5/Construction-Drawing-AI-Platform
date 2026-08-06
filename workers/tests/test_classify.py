@@ -9,6 +9,7 @@ from classify import (  # noqa: E402
     classify_by_filename,
     classify_by_rules,
     classify_pages,
+    group_portions,
     fill_unresolved,
     parse_sheet_response,
     title_block_snippet,
@@ -267,3 +268,104 @@ class TestBuildPortions:
 
     def test_empty(self):
         assert build_portions([]) == []
+
+
+class TestGroupPortionsPageCount:
+    """pageCount is what the category cards show, and it is NOT the span when
+    disciplines interleave."""
+
+    def test_page_count_counts_pages_not_span(self):
+        pages = [(1, ""), (2, ""), (3, ""), (4, "")]
+        disciplines = ["architectural", "structural", "architectural", "structural"]
+        result = group_portions(pages, disciplines)
+        by_name = {p["name"]: p for p in result}
+        assert by_name["Architectural"]["pageCount"] == 2
+        assert (by_name["Architectural"]["startPage"], by_name["Architectural"]["endPage"]) == (1, 3)
+        assert by_name["Structural"]["pageCount"] == 2
+        assert (by_name["Structural"]["startPage"], by_name["Structural"]["endPage"]) == (2, 4)
+
+    def test_contiguous_page_count_matches_span(self):
+        pages = [(1, ""), (2, ""), (3, "")]
+        result = group_portions(pages, ["civil"] * 3)
+        assert result[0]["pageCount"] == 3
+        assert (result[0]["startPage"], result[0]["endPage"]) == (1, 3)
+
+
+class TestClassifyRegionText:
+    """Region path: the scraped box is the ONLY input. With no API key the
+    rules ladder still has to resolve a discipline, so offline runs work."""
+
+    def test_rules_fallback_reads_the_scraped_sheet_number(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(classify, "_client", None)
+        monkeypatch.setattr(classify, "_client_unavailable", True)
+        sheet, discipline, source = classify.classify_region_text("S-003.0", None, None)
+        assert (sheet, discipline, source) == ("S-003.0", "structural", "region_rules")
+
+    def test_falls_back_to_the_filename_when_the_box_is_empty(self, monkeypatch):
+        monkeypatch.setattr(classify, "_client_unavailable", True)
+        assert classify.classify_region_text("", "E1.1 POWER PLAN.pdf", None) == (
+            None,
+            "electrical",
+            "filename",
+        )
+
+    def test_unreadable_box_and_filename_resolve_to_nothing(self, monkeypatch):
+        monkeypatch.setattr(classify, "_client_unavailable", True)
+        assert classify.classify_region_text("SCALE 1/4\" = 1'-0\"", "plans.pdf", None) == (
+            None,
+            None,
+            None,
+        )
+
+    def test_ai_result_wins_and_is_reported_as_region_ai(self, monkeypatch):
+        monkeypatch.setenv("SHEET_EXTRACTION", "ai")
+        monkeypatch.setattr(
+            classify, "extract_sheet_from_region", lambda *a, **k: ("FP-2", "fire_protection")
+        )
+        assert classify.classify_region_text("FP-2 FIRE PROTECTION", None, None) == (
+            "FP-2",
+            "fire_protection",
+            "region_ai",
+        )
+
+    def test_rules_mode_skips_the_model_entirely(self, monkeypatch):
+        monkeypatch.setenv("SHEET_EXTRACTION", "rules")
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("the model must not be called with SHEET_EXTRACTION=rules")
+
+        monkeypatch.setattr(classify, "extract_sheet_from_region", _boom)
+        assert classify.classify_region_text("M301", None, None)[1] == "mechanical"
+
+
+class TestRegionCache:
+    """The region cache key is the hash of the scraped string — hundreds of
+    sheets share a box layout, so a cached 'no answer' must stay negative."""
+
+    class _FakeRedis:
+        def __init__(self, value):
+            self.value = value
+            self.sets = []
+
+        def get(self, key):
+            return self.value
+
+        def set(self, key, value, ex=None):
+            self.sets.append((key, value))
+
+    def test_cache_hit_returns_without_calling_the_model(self, monkeypatch):
+        monkeypatch.setattr(
+            classify, "_get_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
+        )
+        cached = classify.extract_sheet_from_region("S-003.0", None, self._FakeRedis(b"S-003.0|structural"))
+        assert cached == ("S-003.0", "structural")
+
+    def test_cached_empty_string_means_no_answer(self, monkeypatch):
+        monkeypatch.setattr(
+            classify, "_get_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
+        )
+        assert classify.extract_sheet_from_region("nothing here", None, self._FakeRedis(b"")) is None
+
+    def test_blank_region_never_reaches_the_model(self):
+        assert classify.extract_sheet_from_region("   ", None, None) is None

@@ -10,10 +10,20 @@ combined react-pdf viewer, portion detection (rule classifier + Haiku fallback),
 chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned by project,
 payloads refreshed after portion rebuilds), RAG chat with chunk-ID citations mapped to
 document/page/bbox, portion filter, Redis retrieval cache, FR-23 persistence, and hierarchical
-summaries (page → section → portion → project as a summarize-project BullMQ job; page level is
-incremental and can use the Anthropic Message Batches API via SUMMARY_USE_BATCH=true; every
-item cites chunk IDs with the jump page derived server-side from the first cited chunk;
-section/portion rows cascade-delete on portion rebuild).
+summaries (page → section → portion → project; page level is incremental and can use the
+Anthropic Message Batches API via SUMMARY_USE_BATCH=true; every item cites chunk IDs with the
+jump page derived server-side from the first cited chunk).
+
+Phase 6 (current): discipline detection is region-driven and summaries are user-approved. The
+user drags ONE box over the title block per project (`sheet_regions`); the `scrape-region` job
+applies it to every page (`workers/src/region.py`, rotation-aware, ported from the standalone
+scraper in docs/reference/), stores `pages.sheetRegionText`, and only that string goes to Haiku
+for the sheet number. Portions are stable rows UPSERTed on `(projectId, discipline)`, so a
+re-scrape keeps portion IDs — and the summaries and chunk links hanging off them. Nothing is
+summarized automatically: each discipline has a "Generate summary" button (`summarize-portion`
+job), the project rollup is its own button, and a re-scrape that moves pages marks the affected
+summaries `stale` instead of deleting them. Full spec:
+docs/region-based-classification.md.
 
 Phase 5 additions: FR-19 bbox highlighting (pages store pdfWidth/pdfHeight; chat sources carry
 bbox+dims; summary items resolve via GET /projects/:id/chunks/:chunkId/location; overlay in
@@ -50,7 +60,8 @@ worker venv):
 - `npm run dev:api` (port 4000, `/health` checks Postgres/Redis/Qdrant) and `npm run dev:web` (port 3000)
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
-- Workers: `cd workers && python src/worker.py` (BullMQ consumer; deps in `requirements.txt`;
+- Workers: `cd workers && python src/worker.py` (consumes process-document, scrape-region,
+  summarize-portion and summarize-project; deps in `requirements.txt`;
   PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
   does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
@@ -159,24 +170,35 @@ projects/{projectId}/
 - FR-23: Persist per project: prompt, retrieved chunks, Claude response, sources, timestamp
   (replay, audit, analytics).
 
-## Portion (discipline) detection
+## Portion (discipline) detection — region-driven
 
-Classify pages by the SHEET NUMBER, not content. Claude Haiku READS the sheet number from the
-title-block text (`extract_sheet_by_ai`, default `SHEET_EXTRACTION=ai`) — real title blocks also
-print license numbers (`NC License No. F-1105`), job/permit numbers and detail callouts that
-pattern matching mistakes for sheet numbers. The model only reports the number; the deterministic
-`PREFIX_TO_DISCIPLINE` table maps it, so the mapping never depends on model judgement. Results
-are Redis-cached by content hash and the instructions are prompt-cached. Pattern matching
-(`classify_by_filename` → `classify_by_rules`, tiered by own-line / clean-line / strong / weak) is
-the fallback for pages the model can't resolve and for offline runs (no `ANTHROPIC_API_KEY`, or
-`SHEET_EXTRACTION=rules`). There is NO content-based classification — an unreadable page inherits
-its neighbour's discipline instead. Detection reuses `pages.discipline` for pages already
-classified, so a new upload only pays for its own pages. Stage switches `EMBEDDINGS_ENABLED` /
-`SUMMARIES_ENABLED` (workers/src/config.py) let the chat and summary flows be tested
-independently; `POST /projects/:id/documents/reindex` re-queues completed documents to fill in
-vectors afterwards. Prefix →
+Classify pages by the SHEET NUMBER, not content, and read that number out of a region the USER
+points at. Per project the user drags one box over the title block on a single page
+(`sheet_regions`, relative 0–1 coordinates); the `scrape-region` job (`workers/src/scrape.py`)
+applies it to every page of every PDF and stores what it reads in `pages.sheetRegionText`. Only
+that string reaches Claude Haiku (`classify_region_text` → `extract_sheet_from_region`), which
+reports the sheet number; the deterministic `PREFIX_TO_DISCIPLINE` table maps it, so the mapping
+never depends on model judgement. Results are Redis-cached by `sha256(region_text)` — hundreds of
+sheets share a box layout — and the instructions are prompt-cached.
+
+The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
+(`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but
+`page.get_text(clip=…)` is NOT, so the clip must be mapped with `clip * page.derotation_matrix`
+first or every rotated CAD sheet comes back empty. Extraction ladder per page: vector text →
+word-overlap pass (≥30% of a word inside the box) → OCR the rendered crop.
+
+Fallbacks, in order: pattern match on the scraped string (`classify_by_rules`), the filename sheet
+number (`classify_by_filename`), then neighbour inheritance (`fill_unresolved`) — so detection
+still works with no `ANTHROPIC_API_KEY` or `SHEET_EXTRACTION=rules`. There is NO content-based
+classification. `workers/src/portions.py` is the LEGACY page-text path, kept only for projects with
+no region defined; the document pipeline no longer calls it. Editing the region bumps
+`sheet_regions.version`, and the pages to re-scrape are exactly those whose `pages.regionVersion`
+differs. Stage switches `EMBEDDINGS_ENABLED` / `SUMMARIES_ENABLED` (workers/src/config.py) let the
+chat and summary flows be tested independently; `POST /projects/:id/documents/reindex` re-queues
+completed documents to fill in vectors afterwards. Prefix →
 discipline (two-letter prefixes win over single letters; mirrored in workers/src/classify.py
 `PREFIX_TO_DISCIPLINE` and `@cdip/shared` `Discipline`):
+
 G → General | A → Architectural | S → Structural | C → Civil | L → Landscape | I → Interiors |
 M → Mechanical | H → HVAC | P → Plumbing | E → Electrical | F/FP → Fire Protection |
 FA → Fire Alarm | T → Telecommunications | IT → Information Technology | AV → Audio Visual |
@@ -198,12 +220,21 @@ groups covered pages by discipline. Portion and section summaries are therefore 
 Answer → chunk_id → page → bounding box → original PDF. Summaries and chat answers reference
 chunk IDs; the UI maps chunk IDs back to pages/regions for click-to-highlight.
 
-## Hierarchical summarization
+## Hierarchical summarization — on demand, never automatic
 
 Bottom-up only: page → section → portion → project. Never summarize 1000 pages in one call.
 Each level cites chunk IDs from the level below. Summaries are stored as structured JSON with
-sources. Incremental: a new upload recomputes only its own page/portion summaries and affected
-higher levels. Use the Anthropic Batch API for bulk summary jobs.
+sources. Use the Anthropic Batch API for bulk summary jobs.
+
+**Nothing is summarized until a user asks.** Each discipline card carries a "Generate summary"
+button → `POST /projects/:id/portions/:portionId/summarize` → the `summarize-portion` job runs
+`summarize.run_portion`, which summarizes ONLY that discipline's pages (reusing any page summaries
+that already exist, so a second discipline over the same pages is nearly free). The project rollup
+is its own button (`POST /summaries/project` → `summarize.run_project`) and combines the portion
+summaries that exist. `POST /summaries/rebuild` is the admin full re-run (job name `rebuild` →
+`summarize.run`). `portions.summaryStatus` tracks the lifecycle
+(`none|queued|running|ready|failed|stale`); a re-scrape that changes a discipline's page set marks
+its summary `stale` and keeps the text rather than deleting work the user paid for.
 
 ## RAG chat flow
 
@@ -224,9 +255,12 @@ frequent retrievals in Redis. Persist the full exchange to PostgreSQL.
 
 ```
 projects(id, name, description, createdAt)
+sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, counters)
 documents(id, projectId, filename, spacesKey, pages, revision, status)
-pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text)
-portions(id, projectId, name, startPage, endPage, summary)
+pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
+      discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
+portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
+         summaryStatus, ...)   // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
 chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId)  // embeddingId = Qdrant point ID
 summaries(id, projectId, portionId, level[page|section|portion|project], summary JSON, sources)
 chat_sessions(id, projectId, createdAt)
@@ -234,6 +268,12 @@ messages(id, sessionId, role, content JSON incl. citations, sources, createdAt)
 ```
 
 PostgreSQL is the single source of truth for references; Qdrant holds vectors only.
+
+`pages.discipline ↔ portions.discipline` is a LOGICAL join, not an FK — a page's discipline comes
+from its own sheet number, the portion is the derived grouping. `assign_chunk_portions`
+materializes it onto `chunks.portionId` (FK, SetNull) for the chat portion filter, so re-run it —
+and refresh the Qdrant payloads — after every regroup. Page-level summaries keep `portionId = NULL`
+so they survive a page changing discipline; only section/portion rollups hang off `portionId`.
 
 ## UI layout
 

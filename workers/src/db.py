@@ -230,6 +230,262 @@ def set_page_disciplines(project_id: str, mapping: list[tuple[int, str]]) -> Non
             )
 
 
+# --- Title-block region (region-based discipline detection) ---
+
+
+def get_sheet_region(project_id: str) -> dict | None:
+    """The project's active region row, or None when the user hasn't drawn one."""
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, "relX", "relY", "relW", "relH", version, "scrapeStatus"
+            FROM sheet_regions WHERE "projectId" = %s
+            """,
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "relX": row[1],
+            "relY": row[2],
+            "relW": row[3],
+            "relH": row[4],
+            "version": row[5],
+            "scrapeStatus": row[6],
+        }
+
+
+def set_region_status(
+    project_id: str,
+    status: str,
+    scraped_pages: int | None = None,
+    total_pages: int | None = None,
+    not_found_pages: int | None = None,
+    last_error: str | None = None,
+    touch_scraped_at: bool = False,
+) -> None:
+    """Progress/status writes for the scrape job. Only the fields passed are
+    updated, so a progress heartbeat doesn't clobber the counters."""
+    sets = ['"scrapeStatus" = %s::"RegionScrapeStatus"']
+    params: list = [status]
+    if scraped_pages is not None:
+        sets.append('"scrapedPages" = %s')
+        params.append(scraped_pages)
+    if total_pages is not None:
+        sets.append('"totalPages" = %s')
+        params.append(total_pages)
+    if not_found_pages is not None:
+        sets.append('"notFoundPages" = %s')
+        params.append(not_found_pages)
+    sets.append('"lastError" = %s')
+    params.append(last_error)
+    if touch_scraped_at:
+        sets.append('"lastScrapedAt" = NOW()')
+    params.append(project_id)
+    with connect() as conn:
+        conn.execute(
+            f'UPDATE sheet_regions SET {", ".join(sets)} WHERE "projectId" = %s',
+            tuple(params),
+        )
+
+
+def pages_to_scrape(
+    project_id: str, region_version: int, document_id: str | None = None
+) -> list[dict]:
+    """Pages whose stored scrape predates the current region version — exactly
+    the work a (re-)scrape has to do. Grouped by document by the caller so each
+    PDF is downloaded once. A retried job naturally skips the pages it already
+    committed."""
+    sql = """
+        SELECT p.id, p."documentId", p."pageNumber", d."spacesKey", d.filename
+        FROM pages p
+        JOIN documents d ON p."documentId" = d.id
+        WHERE d."projectId" = %s
+          AND d."supersededAt" IS NULL
+          AND (p."regionVersion" IS NULL OR p."regionVersion" <> %s)
+    """
+    params: list = [project_id, region_version]
+    if document_id is not None:
+        sql += ' AND d.id = %s'
+        params.append(document_id)
+    sql += ' ORDER BY d."createdAt", d.id, p."pageNumber"'
+    with connect() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        return [
+            {
+                "page_id": r[0],
+                "document_id": r[1],
+                "page_number": r[2],
+                "spaces_key": r[3],
+                "filename": r[4],
+            }
+            for r in rows
+        ]
+
+
+def sample_pages(project_id: str, count: int) -> list[dict]:
+    """`count` live pages spread evenly across the project — the sample a
+    region preview runs against. Spread, not the first N, so the box is checked
+    against more than one document's layout."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber",
+                   d."spacesKey", d.filename,
+                   ROW_NUMBER() OVER (ORDER BY p."combinedPageNumber") AS rn,
+                   COUNT(*) OVER () AS total
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+            ORDER BY p."combinedPageNumber"
+            """,
+            (project_id,),
+        ).fetchall()
+    if not rows:
+        return []
+    total = len(rows)
+    step = max(1, total // max(1, count))
+    picked = rows[::step][:count]
+    return [
+        {
+            "page_id": r[0],
+            "document_id": r[1],
+            "page_number": r[2],
+            "combined_page": r[3],
+            "spaces_key": r[4],
+            "filename": r[5],
+        }
+        for r in picked
+    ]
+
+
+def set_page_region_text(page_id: str, text: str, method: str, version: int) -> None:
+    """One page's scrape result. Committed per page so a crash at page 700
+    keeps pages 1..699 (same rule as the extraction pipeline)."""
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE pages
+            SET "sheetRegionText" = %s, "regionMethod" = %s, "regionVersion" = %s
+            WHERE id = %s
+            """,
+            ((text or "").replace("\x00", ""), method, version, page_id),
+        )
+
+
+def pages_to_classify(project_id: str) -> list[dict]:
+    """Every live page with its scraped region text, combined order. Pages
+    whose discipline was set by hand (disciplineSource = 'manual') are returned
+    too, so they keep their slot in the ordering, but callers must not
+    overwrite them."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p."combinedPageNumber", p."sheetRegionText", d.filename,
+                   p.discipline, p."disciplineSource", p."sheetNumber"
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+            ORDER BY p."combinedPageNumber"
+            """,
+            (project_id,),
+        ).fetchall()
+        return [
+            {
+                "page_id": r[0],
+                "combined_page": r[1],
+                "region_text": r[2],
+                "filename": r[3],
+                "discipline": r[4],
+                "discipline_source": r[5],
+                "sheet_number": r[6],
+            }
+            for r in rows
+        ]
+
+
+def set_page_sheet(
+    page_id: str, sheet_number: str | None, discipline: str | None, source: str | None
+) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE pages
+            SET "sheetNumber" = %s, discipline = %s, "disciplineSource" = %s
+            WHERE id = %s
+            """,
+            (sheet_number, discipline, source, page_id),
+        )
+
+
+def portion_page_ids(project_id: str) -> dict[str, set[str]]:
+    """portionId -> the page ids currently carrying its discipline. Compared
+    before/after a re-scrape to decide which summaries went stale."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT po.id, p.id
+            FROM portions po
+            JOIN documents d ON d."projectId" = po."projectId" AND d."supersededAt" IS NULL
+            JOIN pages p ON p."documentId" = d.id AND p.discipline = po.discipline
+            WHERE po."projectId" = %s
+            """,
+            (project_id,),
+        ).fetchall()
+    sets: dict[str, set[str]] = {}
+    for portion_id, page_id in rows:
+        sets.setdefault(portion_id, set()).add(page_id)
+    return sets
+
+
+def mark_portions_stale(portion_ids: list[str]) -> int:
+    """A summary whose discipline gained or lost pages is stale, not wrong —
+    keep the text (the user paid for it) and let them decide to regenerate."""
+    if not portion_ids:
+        return 0
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE portions SET "summaryStatus" = 'stale'
+            WHERE id = ANY(%s) AND "summaryStatus" = 'ready'
+            """,
+            (portion_ids,),
+        )
+        return cur.rowcount or 0
+
+
+def set_portion_summary_status(
+    portion_id: str,
+    status: str,
+    error: str | None = None,
+    completed: bool = False,
+) -> None:
+    sets = ['"summaryStatus" = %s::"PortionSummaryStatus"', '"summaryError" = %s']
+    params: list = [status, error]
+    if completed:
+        sets.append('"summaryCompletedAt" = NOW()')
+    params.append(portion_id)
+    with connect() as conn:
+        conn.execute(
+            f'UPDATE portions SET {", ".join(sets)} WHERE id = %s', tuple(params)
+        )
+
+
+def mark_project_summary_stale(project_id: str) -> None:
+    """The project rollup sits above the portions; flag it in its own JSON
+    rather than adding a column for a single boolean."""
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE summaries
+            SET summary = jsonb_set(summary::jsonb, '{stale}', 'true'::jsonb, true)
+            WHERE "projectId" = %s AND level = 'project'
+            """,
+            (project_id,),
+        )
+
+
 def assign_chunk_portions(project_id: str) -> None:
     """Point every chunk at its discipline's portion. Chunks are grouped by
     the page's stored discipline (one portion per discipline), so a discipline
@@ -471,6 +727,34 @@ def delete_summaries(project_id: str, levels: list[str]) -> None:
         )
 
 
+def delete_portion_summaries(portion_id: str) -> None:
+    """Clear ONE portion's rollups before rewriting them. Scoped to the portion
+    so regenerating Structural never touches Electrical's summary — the whole
+    point of per-discipline, user-approved generation."""
+    with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM summaries
+            WHERE "portionId" = %s AND level IN ('section', 'portion')
+            """,
+            (portion_id,),
+        )
+
+
+def portion_summary_rows(portion_id: str) -> list[dict]:
+    """A portion's own rollup(s), portion level first — the input the project
+    rollup is built from."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT summary FROM summaries
+            WHERE "portionId" = %s AND level = 'portion'
+            """,
+            (portion_id,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
 def project_portions(project_id: str) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
@@ -511,17 +795,37 @@ def pages_for_classification(project_id: str) -> list[tuple[int, str | None, str
         return [(r[0], r[1], r[2], r[3]) for r in rows]
 
 
-def replace_portions(project_id: str, portions: list[dict]) -> None:
-    """Atomically rebuild the project's portion rows (combined numbering may
-    have shifted). Chunk links use ON DELETE SET NULL, so this stays safe once
-    chunks exist; summaries are recomputed by the incremental pipeline later."""
+def upsert_portions(project_id: str, portions: list[dict]) -> dict[str, str]:
+    """Rebuild the project's portions WITHOUT losing their identity.
+
+    Keyed on (projectId, discipline): existing disciplines are updated in
+    place, new ones inserted, and only disciplines that no longer have a single
+    page are deleted. Portion IDs therefore survive a re-categorization — which
+    is what keeps user-requested summaries (Summary.portionId, Cascade) and
+    chunk links alive across a region edit.
+
+    Returns discipline -> portion id.
+    """
+    if not portions:
+        with connect() as conn:
+            conn.execute('DELETE FROM portions WHERE "projectId" = %s', (project_id,))
+        return {}
+
+    ids: dict[str, str] = {}
+    disciplines = [p["discipline"] for p in portions]
     with connect() as conn:
-        conn.execute('DELETE FROM portions WHERE "projectId" = %s', (project_id,))
         for p in portions:
-            conn.execute(
+            row = conn.execute(
                 """
-                INSERT INTO portions (id, "projectId", name, discipline, "startPage", "endPage")
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO portions (id, "projectId", name, discipline, "startPage",
+                                      "endPage", "pageCount")
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT ("projectId", discipline) DO UPDATE
+                SET name = EXCLUDED.name,
+                    "startPage" = EXCLUDED."startPage",
+                    "endPage" = EXCLUDED."endPage",
+                    "pageCount" = EXCLUDED."pageCount"
+                RETURNING id
                 """,
                 (
                     str(uuid.uuid4()),
@@ -530,8 +834,23 @@ def replace_portions(project_id: str, portions: list[dict]) -> None:
                     p["discipline"],
                     p["startPage"],
                     p["endPage"],
+                    p.get("pageCount", 0),
                 ),
-            )
+            ).fetchone()
+            ids[p["discipline"]] = row[0]
+        # Disciplines that vanished from the project take their summaries with
+        # them (Summary.portionId cascades) — there is nothing left to describe.
+        # `discipline IS NULL` catches legacy rows from before the discipline
+        # column existed — they can never match a page, so they are dead too.
+        conn.execute(
+            """
+            DELETE FROM portions
+            WHERE "projectId" = %s
+              AND (discipline IS NULL OR NOT (discipline = ANY(%s)))
+            """,
+            (project_id, disciplines),
+        )
+    return ids
 
 
 def recompute_combined_numbering(project_id: str) -> None:

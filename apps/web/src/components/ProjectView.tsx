@@ -7,6 +7,7 @@ import { CombinedViewer } from "./CombinedViewer";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DragDivider } from "./DragDivider";
 import { PortionsPanel } from "./PortionsPanel";
+import { RegionBanner } from "./RegionBanner";
 import { SummaryPanel } from "./SummaryPanel";
 
 /**
@@ -89,6 +90,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
           style={{ width: sidebarWidth }}
         >
           <SummaryPanel projectId={projectId} />
+          {/* Categorization starts here: no region, no disciplines. */}
+          <RegionBanner projectId={projectId} />
           <PortionsPanel projectId={projectId} />
           <DocumentsPanel projectId={projectId} />
         </aside>

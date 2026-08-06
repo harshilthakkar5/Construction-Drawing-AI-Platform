@@ -103,7 +103,7 @@ export interface ManifestEntryDto extends PageManifestEntry {
   pageHeight: number | null;
 }
 
-/** FR-15: contiguous run of one discipline in combined numbering. */
+/** FR-15: one portion per discipline, spanning all of its pages. */
 export interface PortionDto {
   id: string;
   projectId: string;
@@ -111,7 +111,68 @@ export interface PortionDto {
   discipline: Discipline | "unclassified" | null;
   startPage: number;
   endPage: number;
+  /** Pages carrying this discipline (differs from the span when interleaved). */
+  pageCount: number;
   summary: string | null;
+  /** Summaries are user-approved — "none" until someone presses the button. */
+  summaryStatus: PortionSummaryStatus;
+  summaryRequestedAt: string | null;
+  summaryCompletedAt: string | null;
+  summaryError: string | null;
+  /** A sheet number scraped from this discipline's pages, for the UI label. */
+  sheetNumberSample?: string | null;
+}
+
+// --- Title-block region (region-based discipline detection) ---
+
+export type RegionScrapeStatus = "pending" | "running" | "completed" | "failed";
+
+export type PortionSummaryStatus =
+  | "none"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "stale";
+
+/** How a page's region text was obtained (see workers/src/region.py). */
+export type RegionExtractionMethod = "vector" | "words" | "ocr" | "none";
+
+/** The box the user drew over the title block, in relative page coordinates. */
+export interface RegionBox {
+  relX: number;
+  relY: number;
+  relW: number;
+  relH: number;
+}
+
+export interface SheetRegionDto extends RegionBox {
+  sampleDocumentId: string | null;
+  samplePageNumber: number | null;
+  version: number;
+  scrapeStatus: RegionScrapeStatus;
+  scrapedPages: number;
+  totalPages: number;
+  notFoundPages: number;
+  lastError: string | null;
+  lastScrapedAt: string | null;
+  updatedAt: string;
+}
+
+/** One row of the "what does this box scrape?" dry run. */
+export interface RegionPreviewRowDto {
+  combinedPageNumber: number;
+  documentId: string;
+  filename: string;
+  /** Empty when the box came back blank on this page. */
+  text: string;
+  method: RegionExtractionMethod;
+}
+
+export interface RegionPreviewDto {
+  rows: RegionPreviewRowDto[];
+  foundCount: number;
+  notFoundCount: number;
 }
 
 /** A numbered, clickable chat source (FR-21): chunk → document/page/bbox. */
@@ -184,6 +245,8 @@ export interface InitiateUploadResponse {
 
 export const QUEUES = {
   processDocument: "process-document",
+  scrapeRegion: "scrape-region",
+  summarizePortion: "summarize-portion",
   summarizeProject: "summarize-project",
 } as const;
 
@@ -191,6 +254,39 @@ export interface ProcessDocumentJob {
   projectId: string;
   documentId: string;
   spacesKey: string;
+}
+
+/** Apply the project's title-block region to its pages, then classify them. */
+export interface ScrapeRegionJob {
+  projectId: string;
+  /** The worker discards the job when the stored region version moved on
+   * (the user edited the box again while this one was queued). */
+  regionVersion: number;
+  /** Scope to one document — a new upload into a project that already has a
+   * region. Omit to (re-)scrape the whole project. */
+  documentId?: string;
+}
+
+/** Dry run: scrape a candidate box on a handful of sample pages so the user
+ * can check it before paying for a whole-project scrape. Queued on the
+ * scrape-region queue under the job name "preview"; the worker writes the
+ * result to Redis and the API serves it from there — PDF bytes are never
+ * touched inside an HTTP request. */
+export interface RegionPreviewJob {
+  projectId: string;
+  previewId: string;
+  box: RegionBox;
+  sampleSize: number;
+}
+
+/** Redis key holding a finished preview. Duplicated in workers/src/cache.py. */
+export const regionPreviewKey = (previewId: string) => `region:preview:${previewId}`;
+
+/** FR-10/12 on demand: summarize ONE discipline, because a user asked. */
+export interface SummarizePortionJob {
+  projectId: string;
+  portionId: string;
+  requestedById?: string;
 }
 
 export interface SummarizeProjectJob {
@@ -210,6 +306,9 @@ export interface SummaryItem {
 export interface SummaryContent {
   overview: string;
   items: SummaryItem[];
+  /** Set on the project rollup when a portion underneath it changed after this
+   * summary was written — the text is kept, the UI flags it. */
+  stale?: boolean;
   /** page level only */
   documentId?: string;
   pageNumber?: number;

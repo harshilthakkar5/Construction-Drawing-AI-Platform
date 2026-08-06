@@ -8,6 +8,9 @@ import type {
   ManifestEntryDto,
   PortionDto,
   ProjectDto,
+  RegionBox,
+  RegionPreviewDto,
+  SheetRegionDto,
   SummaryDto,
   SummaryStatusDto,
   SupportTicketDto,
@@ -146,7 +149,67 @@ export const api = {
   deleteDocument: (projectId: string, documentId: string) =>
     request<void>(`/projects/${projectId}/documents/${documentId}`, { method: "DELETE" }),
 
+  // --- Title-block region: one box per project, applied to every page ---
+
+  /** null when the user hasn't drawn a box yet (the API answers 404). */
+  getRegion: async (projectId: string) => {
+    try {
+      return await request<SheetRegionDto>(`/projects/${projectId}/region`);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("→ 404")) return null;
+      throw err;
+    }
+  },
+
+  /** Save the box and kick off a whole-project re-scrape. */
+  saveRegion: (
+    projectId: string,
+    body: RegionBox & { sampleDocumentId?: string; samplePageNumber?: number },
+  ) =>
+    request<SheetRegionDto & { jobId: string }>(`/projects/${projectId}/region`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  /** Re-run the scrape without moving the box. */
+  rescrapeRegion: (projectId: string) =>
+    request<SheetRegionDto & { jobId: string }>(`/projects/${projectId}/region/rescrape`, {
+      method: "POST",
+    }),
+
+  deleteRegion: (projectId: string) =>
+    request<void>(`/projects/${projectId}/region`, { method: "DELETE" }),
+
+  /** Dry run on a few sample pages; returns an id to poll. */
+  previewRegion: (projectId: string, body: RegionBox & { sampleSize?: number }) =>
+    request<{ previewId: string }>(`/projects/${projectId}/region/preview`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** null while the preview job is still running. */
+  regionPreview: async (projectId: string, previewId: string) => {
+    const result = await request<RegionPreviewDto | { status: "pending" }>(
+      `/projects/${projectId}/region/preview/${previewId}`,
+    );
+    return "status" in result ? null : result;
+  },
+
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
+
+  /** FR-10/12 on demand: summarize ONE discipline, because the user asked. */
+  summarizePortion: (projectId: string, portionId: string) =>
+    request<{ queued: boolean; jobId: string }>(
+      `/projects/${projectId}/portions/${portionId}/summarize`,
+      { method: "POST" },
+    ),
+
+  /** Roll the existing per-discipline summaries up into the project summary. */
+  generateProjectSummary: (projectId: string) =>
+    request<{ queued: boolean; jobId: string; portionsUsed: number }>(
+      `/projects/${projectId}/summaries/project`,
+      { method: "POST" },
+    ),
 
   listSummaries: (projectId: string) => request<SummaryDto[]>(`/projects/${projectId}/summaries`),
 

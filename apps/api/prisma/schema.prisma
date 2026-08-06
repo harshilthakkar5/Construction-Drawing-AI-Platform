@@ -22,6 +22,27 @@ enum SummaryLevel {
   project
 }
 
+/// Progress of the title-block region scrape across a project's pages.
+enum RegionScrapeStatus {
+  pending
+  running
+  completed
+  failed
+}
+
+/// Summaries are user-approved: nothing is generated until someone presses
+/// "Generate summary" on a discipline. `stale` means the discipline's page set
+/// changed after the summary was written — the text is kept and shown with a
+/// badge rather than deleted, so paid-for work is never thrown away silently.
+enum PortionSummaryStatus {
+  none
+  queued
+  running
+  ready
+  failed
+  stale
+}
+
 enum MessageRole {
   user
   assistant
@@ -51,6 +72,8 @@ model User {
   memberships    ProjectMember[]
   ownedProjects  Project[]
   supportTickets SupportTicket[]
+  sheetRegions   SheetRegion[]
+  requestedPortionSummaries Portion[]
 
   @@map("users")
 }
@@ -130,8 +153,51 @@ model Project {
   summaries    Summary[]
   chatSessions ChatSession[]
   usageEvents  UsageEvent[]
+  sheetRegion  SheetRegion?
 
   @@map("projects")
+}
+
+/// The title-block rectangle the user drew once for this project, in RELATIVE
+/// coordinates (0–1 of the rendered page box). It re-applies to every page of
+/// every document regardless of page size or rotation, and the text scraped
+/// out of it is the ONLY thing the classifier sees — see
+/// docs/region-based-classification.md.
+model SheetRegion {
+  id        String @id @default(uuid())
+  projectId String @unique
+
+  relX Float
+  relY Float
+  relW Float
+  relH Float
+
+  /// The page the user drew on, reopened when editing the region.
+  sampleDocumentId String?
+  samplePageNumber Int?
+
+  /// Bumped on every edit. Pages store the version that produced their scrape,
+  /// so the pages needing a re-scrape are a single WHERE away.
+  version Int @default(1)
+
+  scrapeStatus RegionScrapeStatus @default(pending)
+  scrapedPages Int                @default(0)
+  totalPages   Int                @default(0)
+  /// Pages where the box came back empty — surfaced so the user can widen the
+  /// box instead of silently getting "unclassified".
+  notFoundPages Int @default(0)
+  lastError     String?
+  lastScrapedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sampleDocument Document? @relation(fields: [sampleDocumentId], references: [id], onDelete: SetNull)
+  createdBy      User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("sheet_regions")
 }
 
 model Document {
@@ -155,6 +221,7 @@ model Document {
   previousVersion Document? @relation("DocumentRevisions", fields: [previousVersionId], references: [id], onDelete: SetNull)
   nextVersion     Document? @relation("DocumentRevisions")
   pageRows        Page[]
+  regionSamples   SheetRegion[]
 
   @@index([projectId])
   @@map("documents")
@@ -177,6 +244,20 @@ model Page {
   pdfWidth           Float?
   pdfHeight          Float?
 
+  /// Raw text scraped out of the project's title-block region on this page.
+  /// The only input the sheet-number classifier sees.
+  sheetRegionText String?
+  /// Sheet number read out of sheetRegionText ("S-003.0", "A17-11").
+  sheetNumber     String?
+  /// How sheetRegionText was obtained: vector | words | ocr | none.
+  regionMethod    String?
+  /// SheetRegion.version that produced the three fields above. NULL, or lower
+  /// than the project's current version, means this page needs a re-scrape.
+  regionVersion   Int?
+  /// Where `discipline` came from: region_ai | region_rules | filename |
+  /// inherited | manual. A manual override survives re-classification.
+  disciplineSource String?
+
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   chunks   Chunk[]
 
@@ -185,22 +266,38 @@ model Page {
   @@map("pages")
 }
 
+/// One portion per discipline (FR-15), covering all of its pages even when they
+/// are non-contiguous. Rows are UPSERTed on (projectId, discipline) — never
+/// delete+reinsert — so portion IDs survive a re-categorization and the
+/// summaries and chunk links hanging off them are not collateral damage.
 model Portion {
   id         String  @id @default(uuid())
   projectId  String
   name       String
-  /// Discipline slug (see Discipline in @cdip/shared); one discipline can span
-  /// multiple portion rows when its pages are non-contiguous.
+  /// Discipline slug (see Discipline in @cdip/shared).
   discipline String?
-  /// Start/end in combined page numbering (FR-15).
+  /// Start/end in combined page numbering (FR-15); start is the jump target.
   startPage  Int
   endPage    Int
+  /// Pages carrying this discipline (≠ endPage - startPage + 1 when the
+  /// discipline's pages are interleaved with another's).
+  pageCount  Int     @default(0)
   summary    String?
 
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  chunks    Chunk[]
-  summaries Summary[]
+  /// FR-10/12 are user-approved: a summary exists only once someone asked.
+  summaryStatus        PortionSummaryStatus @default(none)
+  summaryJobId         String?
+  summaryRequestedById String?
+  summaryRequestedAt   DateTime?
+  summaryCompletedAt   DateTime?
+  summaryError         String?
 
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  summaryRequestedBy User?     @relation(fields: [summaryRequestedById], references: [id], onDelete: SetNull)
+  chunks             Chunk[]
+  summaries          Summary[]
+
+  @@unique([projectId, discipline])
   @@index([projectId])
   @@map("portions")
 }

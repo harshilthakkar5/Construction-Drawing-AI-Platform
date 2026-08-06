@@ -38,6 +38,10 @@ function Spinner() {
  * chunk IDs; clicking it jumps the viewer to the item's source page AND
  * highlights the first cited chunk's bounding box (resolved via the
  * chunk-location endpoint — the same chain as chat citations).
+ *
+ * Summaries are user-approved: nothing is generated until a category's button
+ * (PortionsPanel) is pressed, so "no summary yet" is a normal resting state
+ * here, not a fault to diagnose.
  */
 export function SummaryPanel({ projectId }: { projectId: string }) {
   const selectedPortionId = useAppStore((s) => s.selectedPortionId);
@@ -73,64 +77,98 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   // showing progress across the queue → page → rollup tiers.
   const [rebuilding, setRebuilding] = useState(false);
 
+  // Portions carry the summary lifecycle now: a run is in flight when one of
+  // them is queued/running, and that is the only reason to keep polling.
+  const portions = useQuery({
+    queryKey: ["portions", projectId],
+    queryFn: () => api.listPortions(projectId),
+  });
+  const summaryRunning =
+    portions.data?.some(
+      (p) => p.summaryStatus === "queued" || p.summaryStatus === "running",
+    ) ?? false;
+
   const summaries = useQuery({
     queryKey: ["summaries", projectId],
     queryFn: () => api.listSummaries(projectId),
     refetchInterval: (query) => {
+      if (rebuilding || summaryRunning) return 3000; // a run is in flight
       if (query.state.data?.some((s) => s.level === "project")) return false; // done
-      if (rebuilding) return 3000; // watching a run we just kicked off
-      return processing ? 5000 : 30_000; // slow poll: the job may still be running
+      return processing ? 5000 : false; // idle: nothing will appear unasked
     },
   });
 
-  // Only asked for when there is nothing to show: turns "no summary yet" into
-  // the actual reason (job never ran, SUMMARIES_ENABLED=false, no API key…).
+  // Only asked for when a run has produced nothing: turns "no summary" into the
+  // actual reason (SUMMARIES_ENABLED=false, no API key…). Never asked when
+  // simply nobody has pressed a button yet — that is not a fault.
   const hasAnySummary = (summaries.data?.length ?? 0) > 0;
+  const everRequested =
+    portions.data?.some((p) => p.summaryStatus !== "none") ?? false;
   const status = useQuery({
     queryKey: ["summary-status", projectId],
     queryFn: () => api.summaryStatus(projectId),
     enabled:
-      !summaries.isLoading && !hasAnySummary && !processing && !rebuilding,
+      !summaries.isLoading && !hasAnySummary && everRequested && !processing && !rebuilding,
   });
 
   const queryClient = useQueryClient();
-  const rebuild = useMutation({
-    mutationFn: () => api.rebuildSummaries(projectId),
+  const selectedPortion = portions.data?.find((p) => p.id === selectedPortionId) ?? null;
+
+  /**
+   * The one button in this panel. Which job it starts depends on what is
+   * selected: a discipline summarizes just its own sheets, the project view
+   * rolls up the discipline summaries that already exist. Neither ever runs on
+   * its own — that is the point of this change.
+   */
+  const generate = useMutation({
+    mutationFn: () =>
+      selectedPortionId
+        ? api.summarizePortion(projectId, selectedPortionId)
+        : api.generateProjectSummary(projectId),
     onSuccess: () => {
       setRebuilding(true);
-      void queryClient.invalidateQueries({
-        queryKey: ["summaries", projectId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["summary-status", projectId],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["summary-status", projectId] });
     },
   });
-
-  // Stop waiting once the run produced a project summary, or after the timeout
-  // (a failed job never writes anything — don't spin forever).
-  const hasProjectSummary =
-    summaries.data?.some((s) => s.level === "project") ?? false;
-  useEffect(() => {
-    if (!rebuilding) return;
-    if (hasProjectSummary) {
-      setRebuilding(false);
-      return;
-    }
-    const timer = setTimeout(() => setRebuilding(false), REBUILD_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [rebuilding, hasProjectSummary]);
 
   const summary = selectedPortionId
     ? summaries.data?.find(
         (s) => s.level === "portion" && s.portionId === selectedPortionId,
       )
     : summaries.data?.find((s) => s.level === "project");
-  const heading = selectedPortionId ? "Portion summary" : "Project summary";
-  // Page summaries exist but the rollup for this level doesn't yet — makes the
-  // "still working" case distinguishable from "nothing at all".
-  const pagesSummarized =
-    summaries.data?.some((s) => s.level === "page") ?? false;
+  const heading = selectedPortionId
+    ? `${selectedPortion?.name ?? "Portion"} summary`
+    : "Project summary";
+
+  // Stop waiting once the run produced the summary for THIS level, or after the
+  // timeout (a failed job never writes anything — don't spin forever).
+  useEffect(() => {
+    if (!rebuilding) return;
+    if (summary) {
+      setRebuilding(false);
+      return;
+    }
+    const timer = setTimeout(() => setRebuilding(false), REBUILD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [rebuilding, summary]);
+
+  const waiting =
+    rebuilding ||
+    selectedPortion?.summaryStatus === "queued" ||
+    selectedPortion?.summaryStatus === "running";
+  const stale = selectedPortionId
+    ? selectedPortion?.summaryStatus === "stale"
+    : (summary?.summary.stale ?? false);
+  const portionsReady =
+    portions.data?.some(
+      (p) => p.summaryStatus === "ready" || p.summaryStatus === "stale",
+    ) ?? false;
+  // The project rollup combines discipline summaries, so it needs one first.
+  const canGenerate = selectedPortionId
+    ? (selectedPortion?.pageCount ?? 0) > 0
+    : portionsReady;
 
   return (
     <section className="border-b border-hairline">
@@ -143,38 +181,54 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
             <p className="text-xs text-ink-muted">
               {summaries.isLoading
                 ? "Loading…"
-                : rebuilding
+                : waiting
                   ? "Summarizing… page summaries first, then the rollups. This can take a while on a large set."
-                  : pagesSummarized
-                    ? `Page summaries are ready; the ${selectedPortionId ? "portion" : "project"} summary is still being written.`
-                    : processing
-                      ? "No summary yet — it is generated once processing finishes."
-                      : (status.data?.hint ??
-                        "No summary yet — it is generated after processing (requires ANTHROPIC_API_KEY on the worker).")}
+                  : selectedPortion?.summaryStatus === "failed"
+                    ? (selectedPortion.summaryError ?? "The last run failed.")
+                    : selectedPortionId
+                      ? `No summary for ${selectedPortion?.name ?? "this discipline"} yet — generate one when you need it.`
+                      : portionsReady
+                        ? "No project summary yet — it combines the discipline summaries you have generated."
+                        : (status.data?.hint ??
+                          "No summary yet. Generate a discipline summary from the categories above, then roll them up into a project summary.")}
             </p>
-            {!summaries.isLoading && !processing && (
+            {!summaries.isLoading && canGenerate && (
               <button
                 className="inline-flex items-center gap-1.5 rounded border border-hairline px-2 py-1 text-xs text-ink-soft hover:bg-page disabled:opacity-60"
-                onClick={() => rebuild.mutate()}
-                disabled={rebuild.isPending || rebuilding}
+                onClick={() => generate.mutate()}
+                disabled={generate.isPending || waiting}
               >
-                {(rebuild.isPending || rebuilding) && <Spinner />}
-                {rebuild.isPending
+                {(generate.isPending || waiting) && <Spinner />}
+                {generate.isPending
                   ? "Queuing…"
-                  : rebuilding
+                  : waiting
                     ? "Summarizing…"
-                    : "Re-run summarization"}
+                    : selectedPortionId
+                      ? `Generate ${selectedPortion?.name ?? "portion"} summary`
+                      : "Generate project summary"}
               </button>
             )}
-            {rebuild.isError && (
-              <p className="text-xs text-red-600">
-                Could not queue the job — is the API running?
-              </p>
+            {generate.isError && (
+              <p className="text-xs text-red-600">{(generate.error as Error).message}</p>
             )}
           </div>
         )}
         {summary && (
           <>
+            {stale && (
+              <div className="mb-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                <p className="min-w-0 flex-1 text-[11px] leading-snug text-amber-800">
+                  These sheets changed after this summary was written.
+                </p>
+                <button
+                  className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                  onClick={() => generate.mutate()}
+                  disabled={generate.isPending || waiting}
+                >
+                  {generate.isPending || waiting ? "Working…" : "Regenerate"}
+                </button>
+              </div>
+            )}
             <p className="text-sm leading-relaxed text-ink-soft">
               {summary.summary.overview}
             </p>

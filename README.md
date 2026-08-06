@@ -50,7 +50,8 @@ npm run dev:web    # http://localhost:3000
 cd workers
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python src/worker.py       # consumes process-document + summarize-project queues
+python src/worker.py       # consumes process-document, scrape-region,
+                           # summarize-portion and summarize-project
 ```
 
 Or containerized: `docker build -t cdip-worker workers/`.
@@ -120,7 +121,7 @@ The worker logs every processing stage with timestamps and levels
 10:12:01 INFO [pipeline] [doc 13c35c8d] stage 1/6 download: projects/…/original.pdf
 10:12:03 INFO [pipeline] [doc 13c35c8d] stage 2/6 extract: 240 pages (0 already done — resuming)
 10:12:41 INFO [pipeline] [doc 13c35c8d] stage 2/6 extract: 25/240 pages (3 OCR)
-10:14:55 INFO [pipeline] [doc 13c35c8d] stage 4/6 portions done: 5 portions
+10:14:55 INFO [pipeline] [doc 13c35c8d] stage 4/6 numbering done
 10:15:20 INFO [pipeline] [doc 13c35c8d] stage 5/6 embed done: 512/512 chunks in Qdrant
 10:15:20 INFO [pipeline] [doc 13c35c8d] stage 6/6 finalize: completed in 199.2s — {...}
 ```
@@ -136,10 +137,11 @@ a free Voyage tier keeps hitting its rate limit:
 
 | Variable | Effect |
 | --- | --- |
-| `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks, portions and **summaries still run**; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
-| `SUMMARIES_ENABLED=false` | Skips the summarize job. Processing, embedding and **chat still run**. |
+| `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
+| `SUMMARIES_ENABLED=false` | Refuses summary jobs. Processing, region scraping, embedding and **chat still run**. (Summaries never run unasked anyway — see below.) |
 | `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. |
-| `SHEET_EXTRACTION=rules` | Skips the per-page Haiku sheet-number read (pattern matching only, no API calls). |
+| `SHEET_EXTRACTION=rules` | Skips the Haiku sheet-number read (pattern matching on the scraped region only, no API calls). |
+| `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
 
 Typical loop: upload with `EMBEDDINGS_ENABLED=false` to test summaries without
 burning the embedding quota, then set it back to `true` and run
@@ -163,25 +165,62 @@ npm run prisma:generate
 Restart the API afterwards. It logs the same warning at startup, naming the missing models,
 so you see it before the first request.
 
+## Title-block region: how sheets get categorized
+
+A drawing set prints its sheet number in the same physical place on every sheet, and you
+know where that is — so you point at it once instead of making the AI hunt for it.
+
+1. **Draw the box.** Sidebar → *Define region* → pick any page → drag a rectangle over the
+   sheet number. It is stored as ratios of the page (0–1), not pixels, so it re-applies to
+   every page regardless of size or rotation.
+2. **Check it.** *Preview on 5 sheets* scrapes the box on pages spread across the project
+   and shows exactly what came back, before a full run.
+3. **Scrape.** Saving queues `scrape-region`, which applies the box to every page:
+   vector text → word-overlap pass → OCR of the rendered crop for scanned sheets.
+4. **Classify.** Only that scraped string goes to Claude Haiku, which reports the sheet
+   number; the deterministic prefix table maps it to a discipline (`S-003.0` → Structural).
+   Unreadable sheets inherit their neighbour's discipline.
+5. **Group.** One category per discipline, with its combined page range and sheet count.
+
+Editing the box bumps its version and re-scans every page. Portions are keyed on
+`(projectId, discipline)` and upserted, so their IDs — and any summaries you already
+generated — survive the re-scan; a discipline whose page set changed is marked *Out of
+date* rather than wiped.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET/PUT/DELETE /projects/:projectId/region` | Read, save (bumps version + queues a full scrape), or clear the box |
+| `POST /projects/:projectId/region/preview` | Dry run on sample pages → `{previewId}` to poll |
+| `POST /projects/:projectId/region/rescrape` | Re-run with the same box (after new uploads or a failure) |
+| `GET /projects/:projectId/pages/:combined/region-text` | What the scrape read on one page, and what the classifier made of it |
+
+**A sheet came out in the wrong category?** Ask that last endpoint first — the answer is
+almost always a box that clips the number, and the fix is redrawing it slightly larger.
+
 ## No summary? Diagnose it
 
 | Endpoint | What it tells you |
 | --- | --- |
 | `GET /projects/:projectId/summaries/status` | Counts per level (page/section/portion/project), portions, pages with chunks, document statuses, plus a `hint` naming the likely cause |
-| `POST /projects/:projectId/summaries/rebuild` | Re-runs the summarize job for the project — no re-upload needed |
+| `POST /projects/:projectId/portions/:portionId/summarize` | Generate ONE discipline's summary (what the button in the sidebar calls) |
+| `POST /projects/:projectId/summaries/project` | Roll the existing discipline summaries up into the project summary |
+| `POST /projects/:projectId/summaries/rebuild` | Admin full re-run: every discipline plus the rollup — no re-upload needed |
 
 Reading the status output:
 
 - `pagesWithChunks: 0` — processing produced no text; check document status and worker logs.
-- `pagesWithChunks > 0` but `summaries.page: 0` — the summarize job never ran or exited
-  early. The worker logs the reason: `SUMMARIES_ENABLED=false` or
-  `ANTHROPIC_API_KEY not set on the worker`.
+- `pagesWithChunks > 0` but `summaries.page: 0` — usually nobody has pressed a
+  discipline's **Generate summary** button yet; summaries are never produced
+  automatically. If one was requested and the portion shows `failed`, the worker logs the
+  reason: `SUMMARIES_ENABLED=false` or `ANTHROPIC_API_KEY not set on the worker`.
 - `summaries.page > 0` but `summaries.project: 0` — the rollup tier failed; rebuild and
   watch the worker log for `rolling up N page summaries`.
 
-The summary panel shows this `hint` in place of "no summary yet" once processing has
-finished, with a **Re-run summarization** button that calls the rebuild endpoint — so the
-usual case needs neither curl nor the worker log.
+The summary panel shows this `hint` in place of "no summary yet" once a run has produced
+nothing, with the same **Generate summary** button — so the usual case needs neither curl
+nor the worker log. Each category also carries its own status chip
+(`No summary / Queued / Summarizing… / Summary ready / Out of date / Failed`), and a
+failed run shows its error inline.
 
 The rollup tiers degrade instead of disappearing: if Claude returns unusable JSON for a
 section, portion, or project rollup (or the level below cites nothing), the worker merges
@@ -203,7 +242,7 @@ without touching Redis by hand:
 | `POST /queues/purge-orphaned` | Remove jobs whose document/project no longer exists |
 | `DELETE /queues/:name/failed` | Give up on all failed jobs |
 
-`:name` is `process-document` or `summarize-project`.
+`:name` is `process-document`, `scrape-region`, `summarize-portion` or `summarize-project`.
 
 **Jobs looping on `ForeignKeyViolation ... is not present in table "documents"`**
 mean the document/project was deleted while its job was still queued. Deleting
@@ -246,15 +285,21 @@ With infra, API, web, and the Python worker all running:
    streams pages (text/PNG/thumb extraction, OCR fallback).
 4. Browse the combined set: continuous numbering across PDFs via the virtual page
    manifest, lazy-loaded pages, thumbnail rail, "Go to page".
-5. Detected portions (Architectural, Structural, …) appear in the sidebar; clicking one
-   jumps the viewer and filters the summary panel.
-6. With `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY` set (API + worker), chat in the middle
+5. Define the **title-block region**: click *Define region* in the sidebar, pick any page,
+   and drag a box over its sheet number. *Preview on 5 sheets* shows what the box scrapes
+   before you commit. Saving applies it to every page of every PDF in the project.
+6. The categories (Architectural, Structural, …) appear in the sidebar with their page
+   range and sheet count; clicking one jumps the viewer and switches the summary panel to
+   it. Editing the region re-scans and rebuilds the categories.
+7. With `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY` set (API + worker), chat in the middle
    pane. Clicking a citation, source chip, or summary item jumps the viewer to the page
    **and highlights the cited bounding box** (FR-19).
-7. Bottom-up summaries (page → section → portion → project) build after processing;
-   `SUMMARY_USE_BATCH=true` routes bulk page summaries through the Anthropic Message
-   Batches API.
-8. Grafana (http://localhost:3001) shows API latency, queue depth, worker job
+8. Press **Generate summary** on a category to summarize that discipline (page → section →
+   portion, bottom-up); nothing is summarized until you ask, so you only pay for the
+   disciplines you care about. Once at least one is ready, **Generate project summary**
+   rolls them up. `SUMMARY_USE_BATCH=true` routes bulk page summaries through the
+   Anthropic Message Batches API.
+9. Grafana (http://localhost:3001) shows API latency, queue depth, worker job
    durations, Qdrant search latency, and the retrieval-cache hit ratio.
 
 ### Account pages

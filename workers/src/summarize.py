@@ -341,41 +341,36 @@ def _write_sections(
     return written
 
 
-def run(project_id: str) -> dict:
+def _preflight(project_id: str) -> dict | None:
+    """Shared guards for every summary entrypoint. Returns a skip result, or
+    None when the run may proceed."""
+    import config
     import db
 
-    import config
-
-    global _current_project
-    _current_project = project_id  # attributes every model call in this run
-
-    # The project may have been deleted while this job sat in the queue.
     if not db.project_exists(project_id):
         log.warning("project %s no longer exists — discarding summarize job", project_id[:8])
         return {"skipped": "project deleted"}
-
     if not config.SUMMARIES_ENABLED:
         log.warning("SUMMARIES_ENABLED=false — skipping summaries for %s", project_id[:8])
         return {"skipped": "summaries disabled"}
-
     if not available():
-        log.warning(
-            "ANTHROPIC_API_KEY not set on the worker — no summaries will be generated"
-        )
+        log.warning("ANTHROPIC_API_KEY not set on the worker — no summaries will be generated")
         return {"skipped": "no ANTHROPIC_API_KEY"}
+    return None
 
-    pages = db.pages_with_chunks(project_id)
-    chunk_pages = db.chunk_page_map(project_id)
 
-    new_pages = _summarize_pages(pages, chunk_pages, project_id)
+def _enriched_page_summaries(project_id: str) -> list[tuple[str | None, dict]]:
+    """Every stored page summary paired with its page's CURRENT discipline and
+    combined number.
 
-    # Higher levels are always affected (numbering/portions shift): recompute.
-    db.delete_summaries(project_id, ["section", "portion", "project"])
+    Page summaries store the combined page they were written with, which goes
+    stale as later uploads renumber the set — keying on it dropped pages (and
+    collapsed several onto one number), which emptied the rollups. Resolving
+    through the live pages table by (documentId, pageNumber) is also what lets
+    a page keep its summary when a region edit moves it to another discipline.
+    """
+    import db
 
-    # Resolve each page summary against the LIVE pages table by
-    # (documentId, pageNumber). The combinedPage stored on a summary goes stale
-    # as later uploads renumber the set — keying on it dropped pages (and
-    # collapsed several onto one number), which emptied the rollups.
     index = db.page_index(project_id)
     enriched: list[tuple[str | None, dict]] = []
     for summary_row in db.page_summaries(project_id):
@@ -384,65 +379,160 @@ def run(project_id: str) -> dict:
             continue  # page no longer exists (deleted or superseded revision)
         enriched.append((info["discipline"], {**summary_row, "combinedPage": info["combined"]}))
     enriched.sort(key=lambda pair: pair[1]["combinedPage"])
-    log.info("rolling up %d page summaries", len(enriched))
+    return enriched
 
-    portion_summaries: list[dict] = []
-    sections_written = 0
-    for portion in db.project_portions(project_id):
-        # Group by discipline (not page range) so a discipline whose pages are
-        # non-contiguous still summarizes as one portion.
-        covered = [s for discipline, s in enriched if discipline == portion["discipline"]]
-        if not covered:
-            log.warning(
-                "portion %s has no page summaries yet — skipping its rollup", portion["name"]
+
+def run_portion(project_id: str, portion_id: str) -> dict:
+    """Summarize ONE discipline, because a user pressed its button (FR-10/12).
+
+    Page summaries are written only for that discipline's pages — and reused if
+    they already exist, so a second portion covering the same pages is nearly
+    free. Sections and the portion rollup for this portion are rewritten; every
+    other portion, and the project summary, are left alone.
+    """
+    import cache
+    import db
+
+    global _current_project
+    _current_project = project_id
+
+    skip = _preflight(project_id)
+    if skip is not None:
+        db.set_portion_summary_status(portion_id, "failed", error=skip["skipped"])
+        return skip
+
+    portion = next(
+        (p for p in db.project_portions(project_id) if p["id"] == portion_id), None
+    )
+    if portion is None:
+        log.warning("portion %s no longer exists — discarding job", portion_id[:8])
+        return {"skipped": "portion deleted"}
+
+    db.set_portion_summary_status(portion_id, "running")
+    log.info("summarizing portion %s (%s)", portion["name"], portion_id[:8])
+
+    try:
+        chunk_pages = db.chunk_page_map(project_id)
+        index = db.page_index(project_id)
+        discipline_pages = [
+            page
+            for page in db.pages_with_chunks(project_id)
+            if index.get((page["document_id"], page["page_number"]), {}).get("discipline")
+            == portion["discipline"]
+        ]
+        if not discipline_pages:
+            db.set_portion_summary_status(
+                portion_id, "failed", error="no pages with extracted text"
             )
-            continue
-        section_summaries = _write_sections(
-            project_id, portion["id"], portion["name"], covered, chunk_pages
+            return {"skipped": "no pages with chunks"}
+
+        new_pages = _summarize_pages(discipline_pages, chunk_pages, project_id)
+
+        covered = [
+            s
+            for discipline, s in _enriched_page_summaries(project_id)
+            if discipline == portion["discipline"]
+        ]
+        if not covered:
+            db.set_portion_summary_status(
+                portion_id, "failed", error="no page summaries could be generated"
+            )
+            return {"skipped": "no page summaries"}
+
+        # This portion's own rollups only — other portions keep theirs.
+        db.delete_portion_summaries(portion_id)
+        sections = _write_sections(project_id, portion_id, portion["name"], covered, chunk_pages)
+        summary = (
+            _rollup("portion", f"the {portion['name']} portion", sections, chunk_pages)
+            if sections
+            else None
         )
-        sections_written += len(section_summaries)
-        if not section_summaries:
-            continue
-        summary = _rollup("portion", f"the {portion['name']} portion", section_summaries, chunk_pages)
         if summary is None:
-            continue
-        db.insert_summary(project_id, portion["id"], "portion", summary, collect_sources(summary))
-        db.set_portion_summary_text(portion["id"], summary["overview"])
-        portion_summaries.append({**summary, "portion": portion["name"]})
+            db.set_portion_summary_status(
+                portion_id, "failed", error="the portion rollup produced nothing citable"
+            )
+            return {"skipped": "rollup failed"}
 
-    # The project summary must exist whenever the project has summarized
-    # content. If no portion produced one — a portion whose pages carry no
-    # usable page summaries, or a rollup that failed — fall back to rolling the
-    # page summaries up directly rather than leaving the project with nothing.
-    base = portion_summaries
-    if not base and enriched:
-        log.warning(
-            "no portion rollup succeeded — building the project summary from "
-            "%d page summaries directly",
-            len(enriched),
-        )
-        page_level = [s for _, s in enriched]
-        base = _write_sections(project_id, None, "the project", page_level, chunk_pages)
-        sections_written += len(base)
-        if not base:
-            base = page_level[:SECTION_SIZE]
-
-    project_written = 0
-    if base:
-        summary = _rollup("whole-project", "the entire project", base, chunk_pages)
-        if summary is not None:
-            db.insert_summary(project_id, None, "project", summary, collect_sources(summary))
-            project_written = 1
+        db.insert_summary(project_id, portion_id, "portion", summary, collect_sources(summary))
+        db.set_portion_summary_text(portion_id, summary["overview"])
+        db.set_portion_summary_status(portion_id, "ready", completed=True)
+        # The project rollup no longer reflects its parts.
+        db.mark_project_summary_stale(project_id)
+    except Exception as exc:
+        db.set_portion_summary_status(portion_id, "failed", error=str(exc)[:500])
+        raise
+    finally:
+        cache.invalidate_summaries(project_id)
 
     result = {
+        "portion": portion["name"],
         "newPageSummaries": new_pages,
-        "sections": sections_written,
-        "portions": len(portion_summaries),
-        "project": project_written,
+        "sections": len(sections),
+        "pageSummariesUsed": len(covered),
     }
-    log.info("project %s summaries: %s", project_id[:8], result)
-
-    import cache
-
-    cache.invalidate_summaries(project_id)
+    log.info("portion %s summarized: %s", portion["name"], result)
     return result
+
+
+def run_project(project_id: str) -> dict:
+    """Roll the portion summaries that currently exist up into one project
+    summary. Explicit: the user asks for it once they are happy with the
+    per-discipline summaries underneath."""
+    import cache
+    import db
+
+    global _current_project
+    _current_project = project_id
+
+    skip = _preflight(project_id)
+    if skip is not None:
+        return skip
+
+    chunk_pages = db.chunk_page_map(project_id)
+    base: list[dict] = []
+    for portion in db.project_portions(project_id):
+        rows = db.portion_summary_rows(portion["id"])
+        if rows:
+            base.append({**rows[0], "portion": portion["name"]})
+
+    if not base:
+        log.warning("project %s has no portion summaries to roll up", project_id[:8])
+        return {"skipped": "no portion summaries"}
+
+    db.delete_summaries(project_id, ["project"])
+    summary = _rollup("whole-project", "the entire project", base, chunk_pages)
+    written = 0
+    if summary is not None:
+        db.insert_summary(project_id, None, "project", summary, collect_sources(summary))
+        written = 1
+    cache.invalidate_summaries(project_id)
+
+    result = {"portionsUsed": len(base), "project": written}
+    log.info("project %s summary: %s", project_id[:8], result)
+    return result
+
+
+def run(project_id: str) -> dict:
+    """Full rebuild of every level — the admin path behind
+    POST /summaries/rebuild. Normal operation goes through run_portion /
+    run_project, which only summarize what a user asked for."""
+    import db
+
+    skip = _preflight(project_id)
+    if skip is not None:
+        return skip
+
+    portions = db.project_portions(project_id)
+    log.info("rebuilding summaries for %d portions of project %s", len(portions), project_id[:8])
+
+    rebuilt = 0
+    for portion in portions:
+        result = run_portion(project_id, portion["id"])
+        if "skipped" not in result:
+            rebuilt += 1
+
+    project_result = run_project(project_id)
+    return {
+        "portions": rebuilt,
+        "project": project_result.get("project", 0),
+    }

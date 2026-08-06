@@ -1,8 +1,14 @@
-"""Project-level portion detection, run after each document completes.
+"""LEGACY portion detection — page-text classification, no title-block region.
+
+The primary path is workers/src/scrape.py: the user's region is scraped off
+every page and the sheet number is read from that. This module is the fallback
+for projects that have no region defined (including everything created before
+regions existed), and is only invoked explicitly — the document pipeline no
+longer calls it.
 
 Rebuilds the whole project's portions because combined numbering can shift
-when a document is added. Haiku fallback results are cached in Redis by
-title-block text hash, so rebuilds don't re-pay for unchanged pages.
+when a document is added. Haiku results are cached in Redis by title-block text
+hash, so rebuilds don't re-pay for unchanged pages.
 """
 
 import redis as redis_lib
@@ -67,7 +73,7 @@ def detect_and_store(project_id: str) -> list[dict]:
     if changed:
         db.set_page_disciplines(project_id, changed)
     portions = classify.group_portions(pages, disciplines)
-    db.replace_portions(project_id, portions)
+    db.upsert_portions(project_id, portions)
     log.info(
         "project %s portions: %s",
         project_id[:8],
