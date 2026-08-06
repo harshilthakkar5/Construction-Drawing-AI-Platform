@@ -38,8 +38,8 @@ def invalidate_summaries(project_id: str) -> None:
 
 
 # Region previews are a request/response over Redis: the worker writes the
-# result, the API polls it. Key format shared with packages/shared
-# `regionPreviewKey` — keep in sync.
+# result, the API polls it. Key format duplicated in
+# apps/api/src/routes/region.ts `regionPreviewKey` — keep the two in sync.
 PREVIEW_TTL_SECONDS = 600
 
 
