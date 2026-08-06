@@ -1,12 +1,17 @@
 import { deletePrefix } from "./s3.js";
 import { deleteProjectPoints } from "./qdrant.js";
-import { processDocumentQueue, summarizeProjectQueue } from "./queues.js";
+import {
+  processDocumentQueue,
+  scrapeRegionQueue,
+  summarizePortionQueue,
+  summarizeProjectQueue,
+} from "./queues.js";
 import { redis } from "./redis.js";
 
 /**
  * Project deletion cleanup: a deleted project must disappear from EVERY
  * store, not just PostgreSQL (whose cascade handles documents/pages/chunks/
- * portions/summaries/chat rows):
+ * portions/summaries/chat rows, and the project's sheet_regions row):
  *
  *   1. Object storage — every object under projects/{id}/ (original PDFs,
  *      page PNGs, thumbnails, extracted text).
@@ -24,7 +29,12 @@ export async function purgeProjectData(projectId: string): Promise<void> {
   // retrying against rows that no longer exist (foreign-key violations).
   try {
     let removed = 0;
-    for (const queue of [processDocumentQueue, summarizeProjectQueue]) {
+    for (const queue of [
+      processDocumentQueue,
+      scrapeRegionQueue,
+      summarizePortionQueue,
+      summarizeProjectQueue,
+    ]) {
       const jobs = [
         ...(await queue.getWaiting(0, 999)),
         ...(await queue.getDelayed(0, 999)),

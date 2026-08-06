@@ -95,12 +95,43 @@ summariesRouter.get("/status", async (req, res) => {
   });
 });
 
-/** Re-run the summarize job for this project without re-uploading anything. */
+/**
+ * The project rollup, on request. It combines the portion summaries that
+ * already exist, so it is refused until at least one discipline has been
+ * summarized — otherwise it would silently trigger the whole-project run this
+ * change exists to avoid.
+ */
+summariesRouter.post("/project", async (req, res) => {
+  const { projectId } = paramsSchema.parse(req.params);
+  await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+
+  const ready = await prisma.portion.count({
+    where: { projectId, summaryStatus: { in: ["ready", "stale"] } },
+  });
+  if (ready === 0) {
+    return void res.status(409).json({
+      error: "generate at least one discipline summary first — the project summary rolls those up",
+    });
+  }
+
+  await redis.del(summariesCacheKey(projectId)).catch(() => {});
+  const job = await summarizeProjectQueue.add("summarize", { projectId });
+  console.log(`[summaries] project rollup queued for ${projectId} (job ${job.id})`);
+  res.status(202).json({ queued: true, jobId: job.id, portionsUsed: ready });
+});
+
+/**
+ * Admin escape hatch: re-run EVERY level for the project (every discipline
+ * plus the project rollup). This is the expensive path — normal use is the
+ * per-discipline button.
+ */
 summariesRouter.post("/rebuild", async (req, res) => {
   const { projectId } = paramsSchema.parse(req.params);
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
   await redis.del(summariesCacheKey(projectId)).catch(() => {});
-  const job = await summarizeProjectQueue.add("summarize", { projectId });
-  console.log(`[summaries] rebuild queued for project ${projectId} (job ${job.id})`);
+  // The job NAME picks the worker path: "rebuild" runs every level,
+  // "summarize" only rolls existing portion summaries up.
+  const job = await summarizeProjectQueue.add("rebuild", { projectId });
+  console.log(`[summaries] full rebuild queued for project ${projectId} (job ${job.id})`);
   res.status(202).json({ queued: true, jobId: job.id });
 });

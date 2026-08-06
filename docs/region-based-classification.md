@@ -1,8 +1,11 @@
 # Region-based discipline detection + user-approved summaries
 
-**Status:** implementation prompt (not yet built).
+**Status:** IMPLEMENTED. This document is kept as the design record — what was built and why.
+The one deviation from the plan is noted in §8 (region preview is a queued job, not a
+synchronous call).
 **Reference code:** `docs/reference/pdf-region-scraper/` — the region scraper that was already
-built and tested standalone. Its coordinate math is proven; port it, don't re-derive it.
+built and tested standalone. Its coordinate math is proven; ported verbatim into
+`workers/src/region.py`.
 
 ---
 
@@ -395,7 +398,7 @@ All under `/projects/:projectId`, all `requireProjectMember`, all Zod-validated.
 |---|---|---|
 | `GET` | `/region` | current region + scrape status (404 if none) |
 | `PUT` | `/region` | create/replace: `{relX, relY, relW, relH, sampleDocumentId, samplePageNumber}` — validate each in `[0,1]`, `relW`/`relH` > 0, `relX+relW ≤ 1`, `relY+relH ≤ 1`. Bumps `version`, sets `pending`, enqueues a full-project `scrape-region`. |
-| `POST` | `/region/preview` | dry-run the box against N sample pages (default 5, spread across the project) and return the strings — lets the user check the box before paying for a full scrape. Runs as a short synchronous worker call or a tiny queue job; never inline PDF parsing in the API process. |
+| `POST` | `/region/preview` | dry-run the box against N sample pages (default 5, spread across the project) — lets the user check the box before paying for a full scrape. **As built:** queued on the `scrape-region` queue under the job name `preview`; returns `202 {previewId}`. The worker writes the rows to `region:preview:{previewId}` in Redis (10 min TTL) and `GET /region/preview/:previewId` serves them — 202 while pending. A synchronous call would have meant PyMuPDF inside an HTTP request, which the large-file rules forbid. |
 | `POST` | `/region/rescrape` | re-run without changing coordinates (after new uploads / a failed run) |
 | `DELETE` | `/region` | clear region; leaves existing disciplines in place |
 | `GET` | `/portions` | now returns `pageCount`, `summaryStatus`, `summaryRequestedAt`, `sheetNumberSample` |

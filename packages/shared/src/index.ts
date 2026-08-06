@@ -267,6 +267,21 @@ export interface ScrapeRegionJob {
   documentId?: string;
 }
 
+/** Dry run: scrape a candidate box on a handful of sample pages so the user
+ * can check it before paying for a whole-project scrape. Queued on the
+ * scrape-region queue under the job name "preview"; the worker writes the
+ * result to Redis and the API serves it from there — PDF bytes are never
+ * touched inside an HTTP request. */
+export interface RegionPreviewJob {
+  projectId: string;
+  previewId: string;
+  box: RegionBox;
+  sampleSize: number;
+}
+
+/** Redis key holding a finished preview. Duplicated in workers/src/cache.py. */
+export const regionPreviewKey = (previewId: string) => `region:preview:${previewId}`;
+
 /** FR-10/12 on demand: summarize ONE discipline, because a user asked. */
 export interface SummarizePortionJob {
   projectId: string;
@@ -291,6 +306,9 @@ export interface SummaryItem {
 export interface SummaryContent {
   overview: string;
   items: SummaryItem[];
+  /** Set on the project rollup when a portion underneath it changed after this
+   * summary was written — the text is kept, the UI flags it. */
+  stale?: boolean;
   /** page level only */
   documentId?: string;
   pageNumber?: number;

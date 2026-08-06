@@ -166,6 +166,63 @@ def _classify_pages(project_id: str) -> list[dict]:
     return portions
 
 
+def preview(project_id: str, preview_id: str, box: dict, sample_size: int = 5) -> dict:
+    """Dry run: scrape a candidate box on a handful of pages spread across the
+    project so the user can check the box before paying for a full scrape.
+
+    The result lands in Redis under region:preview:{previewId} (the API polls
+    it) rather than being returned to an HTTP request — PDF work never happens
+    inside a request.
+    """
+    rows = db.sample_pages(project_id, sample_size)
+    region = region_mod.Region.from_row(box)
+    results: list[dict] = []
+
+    by_document: dict[str, list[dict]] = {}
+    for row in rows:
+        by_document.setdefault(row["document_id"], []).append(row)
+
+    for document_id, pages in by_document.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = os.path.join(tmp, "original.pdf")
+            try:
+                storage.download_to_file(pages[0]["spaces_key"], pdf_path)
+            except Exception as exc:
+                log.warning("preview: could not download %s: %s", document_id[:8], exc)
+                continue
+            pdf = fitz.open(pdf_path)
+            try:
+                for row in pages:
+                    index = row["page_number"] - 1
+                    if index < 0 or index >= pdf.page_count:
+                        continue
+                    text, method = region_mod.extract_region_text(pdf.load_page(index), region)
+                    results.append(
+                        {
+                            "combinedPageNumber": row["combined_page"],
+                            "documentId": row["document_id"],
+                            "filename": row["filename"],
+                            "text": text,
+                            "method": method,
+                        }
+                    )
+            finally:
+                pdf.close()
+
+    results.sort(key=lambda r: r["combinedPageNumber"])
+    found = sum(1 for r in results if r["text"])
+    payload = {
+        "rows": results,
+        "foundCount": found,
+        "notFoundCount": len(results) - found,
+    }
+    cache.store_region_preview(preview_id, payload)
+    log.info(
+        "preview %s: %d/%d sample pages returned text", preview_id[:8], found, len(results)
+    )
+    return payload
+
+
 def run(project_id: str, region_version: int, document_id: str | None = None) -> dict:
     started = time.monotonic()
     tag = project_id[:8]

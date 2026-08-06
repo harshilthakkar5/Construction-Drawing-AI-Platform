@@ -107,6 +107,19 @@ async def process_document(job, job_token: str):
 
 
 async def scrape_region(job, job_token: str):
+    # The same queue carries the "preview" dry run: scrape a candidate box on a
+    # few sample pages so the user can check it before paying for a full run.
+    if job.name == "preview":
+        log.info("region preview job %s: project=%s", job.id, job.data.get("projectId"))
+        with telemetry.observe_job(SCRAPE_REGION_QUEUE):
+            return await asyncio.to_thread(
+                scrape.preview,
+                job.data["projectId"],
+                job.data["previewId"],
+                job.data["box"],
+                int(job.data.get("sampleSize") or 5),
+            )
+
     payload = ScrapeRegionJob.from_payload(job.data)
     log.info(
         "scrape-region job %s: project=%s region=v%d document=%s",
@@ -154,10 +167,21 @@ async def summarize_portion(job, job_token: str):
 
 async def summarize_project(job, job_token: str):
     payload = SummarizeProjectJob.from_payload(job.data)
-    log.info("summarize-project job %s: project=%s", job.id, payload.project_id)
+    # Job name picks the path: "rebuild" is the admin full re-run (every
+    # discipline plus the rollup); the default only rolls up the portion
+    # summaries a user already asked for.
+    full_rebuild = job.name == "rebuild"
+    log.info(
+        "summarize-project job %s (%s): project=%s",
+        job.id,
+        "full rebuild" if full_rebuild else "rollup",
+        payload.project_id,
+    )
     try:
         with telemetry.observe_job(SUMMARIZE_PROJECT_QUEUE):
-            result = await asyncio.to_thread(summarize.run_project, payload.project_id)
+            result = await asyncio.to_thread(
+                summarize.run if full_rebuild else summarize.run_project, payload.project_id
+            )
         log.info("summarize-project job %s done: %s", job.id, result)
         return result
     except Exception:

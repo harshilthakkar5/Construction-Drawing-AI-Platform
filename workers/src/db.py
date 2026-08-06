@@ -324,6 +324,42 @@ def pages_to_scrape(
         ]
 
 
+def sample_pages(project_id: str, count: int) -> list[dict]:
+    """`count` live pages spread evenly across the project — the sample a
+    region preview runs against. Spread, not the first N, so the box is checked
+    against more than one document's layout."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber",
+                   d."spacesKey", d.filename,
+                   ROW_NUMBER() OVER (ORDER BY p."combinedPageNumber") AS rn,
+                   COUNT(*) OVER () AS total
+            FROM pages p
+            JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+            ORDER BY p."combinedPageNumber"
+            """,
+            (project_id,),
+        ).fetchall()
+    if not rows:
+        return []
+    total = len(rows)
+    step = max(1, total // max(1, count))
+    picked = rows[::step][:count]
+    return [
+        {
+            "page_id": r[0],
+            "document_id": r[1],
+            "page_number": r[2],
+            "combined_page": r[3],
+            "spaces_key": r[4],
+            "filename": r[5],
+        }
+        for r in picked
+    ]
+
+
 def set_page_region_text(page_id: str, text: str, method: str, version: int) -> None:
     """One page's scrape result. Committed per page so a crash at page 700
     keeps pages 1..699 (same rule as the extraction pipeline)."""

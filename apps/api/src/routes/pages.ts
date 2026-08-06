@@ -68,6 +68,32 @@ pagesRouter.get("/pages/:combined/image", async (req, res) => {
   );
 });
 
+/**
+ * "Why did this sheet get that discipline?" — the text the region scrape read
+ * on this page, how it was read, and what the classifier made of it. The
+ * answer to a mis-categorized sheet is almost always a box that is too tight.
+ */
+pagesRouter.get("/pages/:combined/region-text", async (req, res) => {
+  const { projectId, combined } = pageParams.parse(req.params);
+  const entry = await resolvePage(projectId, combined);
+  if (!entry) return void res.status(404).json({ error: "page not found" });
+  const page = await prisma.page.findUnique({
+    where: {
+      documentId_pageNumber: { documentId: entry.documentId, pageNumber: entry.pageNumber },
+    },
+    select: {
+      sheetRegionText: true,
+      regionMethod: true,
+      regionVersion: true,
+      sheetNumber: true,
+      discipline: true,
+      disciplineSource: true,
+    },
+  });
+  if (!page) return void res.status(404).json({ error: "page not processed yet" });
+  res.json({ combinedPageNumber: combined, ...page });
+});
+
 pagesRouter.get("/pages/:combined/thumb", async (req, res) => {
   const { projectId, combined } = pageParams.parse(req.params);
   const entry = await resolvePage(projectId, combined);

@@ -16,6 +16,7 @@ import { pagesRouter } from "./routes/pages.js";
 import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
+import { regionRouter } from "./routes/region.js";
 import { summariesRouter } from "./routes/summaries.js";
 import { supportRouter } from "./routes/support.js";
 
@@ -78,6 +79,7 @@ export function createApp() {
   app.use("/queues", queuesRouter);
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
+  app.use("/projects/:projectId/region", requireGeneratedModels, regionRouter);
   app.use("/projects/:projectId/portions", portionsRouter);
   app.use("/projects/:projectId/chat", chatRouter);
   app.use("/projects/:projectId/summaries", summariesRouter);
