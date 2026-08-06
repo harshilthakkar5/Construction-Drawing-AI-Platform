@@ -8,7 +8,8 @@ Stages (each logged, errors logged with the failing stage/page):
   1/6 download   — fetch the original PDF from object storage
   2/6 extract    — per-page text/PNG/thumb (+ OCR fallback) + chunking
   3/6 revisions  — supersede the replaced document (FR-4), if any
-  4/6 portions   — recompute combined numbering + portion detection
+  4/6 numbering  — recompute combined page numbers (discipline detection
+                   moved to the scrape-region job)
   5/6 embed      — Voyage embeddings into Qdrant (reuse across revisions)
   6/6 finalize   — mark completed, invalidate caches
 """
@@ -28,7 +29,6 @@ import db
 import embeddings
 import logutil
 import ocr
-import portions
 import storage
 
 log = logutil.get("pipeline")
@@ -213,15 +213,16 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     else:
         log.info("[doc %s] stage 3/6 revisions: first revision, nothing to supersede", doc_tag)
 
-    log.info("[doc %s] stage 4/6 portions: recomputing numbering + detection", doc_tag)
+    # Numbering only. Discipline detection belongs to the scrape-region job,
+    # which applies the project's title-block box (workers/src/scrape.py) —
+    # the worker queues it for this document once processing finishes.
+    log.info("[doc %s] stage 4/6 numbering: recomputing combined page numbers", doc_tag)
     try:
         db.recompute_combined_numbering(project_id)
-        detected = portions.detect_and_store(project_id)
-        db.assign_chunk_portions(project_id)
     except Exception:
-        log.exception("[doc %s] stage 4/6 portions FAILED", doc_tag)
+        log.exception("[doc %s] stage 4/6 numbering FAILED", doc_tag)
         raise
-    log.info("[doc %s] stage 4/6 portions done: %d portions", doc_tag, len(detected))
+    log.info("[doc %s] stage 4/6 numbering done", doc_tag)
 
     # Embed this document's new chunks (reusing the previous revision's
     # vectors for unchanged text), then refresh payloads for the rest of the
@@ -267,7 +268,6 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     db.set_document_status(document_id, "completed")
     cache.invalidate_summaries(project_id)
     result = {
-        "portions": len(detected),
         "chunks": len(to_embed),
         "embedded": len(embedded_ids),
         "pages": page_count,
