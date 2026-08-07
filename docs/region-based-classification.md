@@ -754,6 +754,11 @@ def run(project_id: str) -> dict:
 by `discipline == portion["discipline"]` before calling it — the existing "skip pages that already
 have a usable summary" logic then makes a second portion on the same pages nearly free.
 
+**As built:** `run_portion` skips the section tier for disciplines of ≤ `SECTION_SIZE` pages
+(`needs_section_tier`). Sections exist to bound the portion rollup's input; at one group they only
+restate the page summaries, which measurably cost two extra calls (~3.4k in / 2.7k out) on a
+single-page discipline for no added information.
+
 Keep page-level summaries written with `portionId = NULL` (§5) so they survive re-categorization.
 
 Add `summarize_portion` as a fourth consumer in `worker.py`, and set
