@@ -5,6 +5,7 @@ import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { summarizePortionQueue } from "../queues.js";
 import { redis } from "../redis.js";
+import { SUMMARY_MODEL, estimateSummaryRun } from "../summaryEstimate.js";
 import { summariesCacheKey } from "./summaries.js";
 
 /**
@@ -67,6 +68,69 @@ portionsRouter.get("/", async (req, res) => {
       : null,
   }));
   res.json(dtos);
+});
+
+/**
+ * What will the button cost? Backs the confirmation dialog, so the numbers are
+ * taken from stored data: the exact chunk tokens the page tier will send, and
+ * the page summaries that already exist and will be reused for free.
+ */
+portionsRouter.get("/:portionId/summarize/estimate", async (req, res) => {
+  const { projectId, portionId } = portionParams.parse(req.params);
+  const portion = await prisma.portion.findUniqueOrThrow({
+    where: { id: portionId, projectId },
+  });
+
+  const pages = await prisma.page.findMany({
+    where: {
+      document: { projectId, supersededAt: null },
+      discipline: portion.discipline,
+    },
+    select: { id: true, documentId: true, pageNumber: true },
+  });
+
+  // Chunk tokens per page — what each page-tier call actually sends.
+  const tokensByPage = new Map<string, number>();
+  if (pages.length > 0) {
+    const grouped = await prisma.chunk.groupBy({
+      by: ["pageId"],
+      where: { pageId: { in: pages.map((p) => p.id) } },
+      _sum: { tokenCount: true },
+    });
+    for (const row of grouped) tokensByPage.set(row.pageId, row._sum.tokenCount ?? 0);
+  }
+
+  // Pages that already have a summary cost nothing to reuse. Read just the two
+  // JSON keys rather than hauling every summary body back.
+  const summarized = await prisma.$queryRaw<
+    { documentId: string | null; pageNumber: number | null }[]
+  >`SELECT summary->>'documentId' AS "documentId",
+           (summary->>'pageNumber')::int AS "pageNumber"
+      FROM summaries
+     WHERE "projectId" = ${projectId} AND level = 'page'`;
+  const done = new Set(summarized.map((r) => `${r.documentId}:${r.pageNumber}`));
+
+  const pageTokens: number[] = [];
+  let reusedPages = 0;
+  for (const page of pages) {
+    if (done.has(`${page.documentId}:${page.pageNumber}`)) {
+      reusedPages++;
+      continue;
+    }
+    // A page with no chunks is skipped by the worker, so it costs nothing.
+    const tokens = tokensByPage.get(page.id) ?? 0;
+    if (tokens > 0) pageTokens.push(tokens);
+  }
+
+  const estimate = estimateSummaryRun({ pageTokens, reusedPages });
+  res.json({
+    portionName: portion.name,
+    pages: pages.length,
+    pagesToSummarize: pageTokens.length,
+    reusedPageSummaries: reusedPages,
+    model: SUMMARY_MODEL,
+    ...estimate,
+  });
 });
 
 /**

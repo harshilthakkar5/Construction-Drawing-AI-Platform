@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { SummaryItem } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore } from "../store";
+import { SummaryConfirm } from "./SummaryConfirm";
 
 /** How long the panel keeps showing "Summarizing…" before giving up waiting. */
 const REBUILD_TIMEOUT_MS = 5 * 60 * 1000;
@@ -120,12 +121,25 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
    * rolls up the discipline summaries that already exist. Neither ever runs on
    * its own — that is the point of this change.
    */
+  // Cost confirmation before spending: same dialog the category list uses.
+  const [confirming, setConfirming] = useState(false);
+  const estimate = useQuery({
+    queryKey: ["summary-estimate", projectId, selectedPortionId ?? "project"],
+    queryFn: () =>
+      selectedPortionId
+        ? api.summaryEstimate(projectId, selectedPortionId)
+        : api.projectSummaryEstimate(projectId),
+    enabled: confirming,
+    staleTime: 30_000,
+  });
+
   const generate = useMutation({
     mutationFn: () =>
       selectedPortionId
         ? api.summarizePortion(projectId, selectedPortionId)
         : api.generateProjectSummary(projectId),
     onSuccess: () => {
+      setConfirming(false);
       setRebuilding(true);
       void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
@@ -195,7 +209,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
             {!summaries.isLoading && canGenerate && (
               <button
                 className="inline-flex items-center gap-1.5 rounded border border-hairline px-2 py-1 text-xs text-ink-soft hover:bg-page disabled:opacity-60"
-                onClick={() => generate.mutate()}
+                onClick={() => setConfirming(true)}
                 disabled={generate.isPending || waiting}
               >
                 {(generate.isPending || waiting) && <Spinner />}
@@ -222,7 +236,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                 </p>
                 <button
                   className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
-                  onClick={() => generate.mutate()}
+                  onClick={() => setConfirming(true)}
                   disabled={generate.isPending || waiting}
                 >
                   {generate.isPending || waiting ? "Working…" : "Regenerate"}
@@ -251,6 +265,22 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
           </>
         )}
       </div>
+
+      {confirming && (
+        <SummaryConfirm
+          title={
+            selectedPortionId
+              ? `Summarize ${selectedPortion?.name ?? "this discipline"}?`
+              : "Generate project summary?"
+          }
+          estimate={estimate.data}
+          isLoading={estimate.isLoading}
+          error={estimate.error}
+          busy={generate.isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => generate.mutate()}
+        />
+      )}
     </section>
   );
 }

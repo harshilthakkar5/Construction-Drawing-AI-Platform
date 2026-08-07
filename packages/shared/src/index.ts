@@ -326,6 +326,30 @@ export interface SummaryDto {
   sources: string[];
 }
 
+/**
+ * What a summary run will cost, shown in the confirmation dialog before the
+ * user spends anything. Call counts come from stored data; `outputTokens` is a
+ * calibrated estimate, so treat the total as approximate.
+ */
+export interface SummaryEstimateDto {
+  /** Portion estimates only. */
+  portionName?: string;
+  pages?: number;
+  pagesToSummarize?: number;
+  /** Pages whose summary already exists and will be reused for free. */
+  reusedPageSummaries?: number;
+  /** Project rollup only: how many discipline summaries feed it. */
+  portionsUsed?: number;
+  model: string;
+  pageCalls: number;
+  sectionCalls: number;
+  portionCalls: number;
+  totalCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
 export interface TokenTotals {
   inputTokens: number;
   outputTokens: number;
