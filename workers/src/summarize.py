@@ -348,6 +348,20 @@ def _rollup(kind: str, label: str, lower: list[dict], chunk_pages: dict[str, int
     return _merge_lower(lower, chunk_pages)
 
 
+def needs_section_tier(page_count: int) -> bool:
+    """Is the section tier worth a Claude call?
+
+    Sections exist to BOUND the portion rollup's input: 40 pages become 4
+    section summaries, so the portion reads 4 compact summaries instead of 40.
+    At or below SECTION_SIZE there is exactly one group, so the section call
+    does nothing but restate the page summaries — which the portion rollup then
+    restates again. That was two extra calls (~3.4k in / 2.7k out on a
+    single-page discipline) to launder one summary, so small disciplines roll
+    the portion straight off their page summaries instead.
+    """
+    return page_count > SECTION_SIZE
+
+
 def _write_sections(
     project_id: str,
     portion_id: str | None,
@@ -486,10 +500,23 @@ def run_portion(project_id: str, portion_id: str, requested: bool = False) -> di
 
         # This portion's own rollups only — other portions keep theirs.
         db.delete_portion_summaries(portion_id)
-        sections = _write_sections(project_id, portion_id, portion["name"], covered, chunk_pages)
+        if needs_section_tier(len(covered)):
+            lower = _write_sections(
+                project_id, portion_id, portion["name"], covered, chunk_pages
+            )
+        else:
+            # One section's worth of pages: roll the portion straight off the
+            # page summaries and skip a call that would only restate them.
+            log.info(
+                "portion %s has %d page summaries (≤%d) — rolling up directly, no section tier",
+                portion["name"],
+                len(covered),
+                SECTION_SIZE,
+            )
+            lower = covered
         summary = (
-            _rollup("portion", f"the {portion['name']} portion", sections, chunk_pages)
-            if sections
+            _rollup("portion", f"the {portion['name']} portion", lower, chunk_pages)
+            if lower
             else None
         )
         if summary is None:
@@ -512,7 +539,7 @@ def run_portion(project_id: str, portion_id: str, requested: bool = False) -> di
     result = {
         "portion": portion["name"],
         "newPageSummaries": new_pages,
-        "sections": len(sections),
+        "sections": len(lower) if needs_section_tier(len(covered)) else 0,
         "pageSummariesUsed": len(covered),
     }
     log.info("portion %s summarized: %s", portion["name"], result)

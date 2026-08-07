@@ -226,6 +226,12 @@ Bottom-up only: page → section → portion → project. Never summarize 1000 p
 Each level cites chunk IDs from the level below. Summaries are stored as structured JSON with
 sources. Use the Anthropic Batch API for bulk summary jobs.
 
+The section tier exists to BOUND the portion rollup's input (40 pages → 4 section summaries →
+one portion call). It is therefore skipped when a discipline has ≤ `SECTION_SIZE` (10) pages —
+`summarize.needs_section_tier` — because `group_sections` yields exactly one group there and the
+call would only restate the page summaries before the portion rollup restates them again. A
+one-page discipline costs one rollup call, not three.
+
 **Nothing is summarized until a user asks.** Each discipline card carries a "Generate summary"
 button → `POST /projects/:id/portions/:portionId/summarize` → the `summarize-portion` job runs
 `summarize.run_portion`, which summarizes ONLY that discipline's pages (reusing any page summaries

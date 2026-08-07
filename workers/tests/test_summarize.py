@@ -251,3 +251,144 @@ class TestUserApprovalGuard:
         fake, result = self._run(monkeypatch, "none", requested=True)
         assert result != {"skipped": "not requested by a user"}
         assert ("running", {}) in fake.statuses
+
+
+class TestSectionTierSkip:
+    """Sections bound the portion rollup's input. At or below SECTION_SIZE
+    there is exactly one group, so the section call only restates the page
+    summaries before the portion rollup restates them again — two paid calls
+    to launder one summary."""
+
+    def test_predicate(self):
+        assert summarize.needs_section_tier(summarize.SECTION_SIZE + 1) is True
+        assert summarize.needs_section_tier(summarize.SECTION_SIZE) is False
+        assert summarize.needs_section_tier(1) is False
+        assert summarize.needs_section_tier(0) is False
+
+    def test_boundary_matches_group_sections(self):
+        """The skip is only safe while ≤SECTION_SIZE really is one group."""
+        for count in (1, summarize.SECTION_SIZE):
+            pages = [{"combinedPage": i} for i in range(1, count + 1)]
+            assert len(summarize.group_sections(pages)) == 1
+        over = [{"combinedPage": i} for i in range(1, summarize.SECTION_SIZE + 2)]
+        assert len(summarize.group_sections(over)) == 2
+
+
+class TestRunPortionTiers:
+    """End-to-end tier accounting for one discipline, with the DB and model
+    faked out — the thing being asserted is how many paid calls happen."""
+
+    PAGE_SUMMARY = {
+        "overview": "Special inspections.",
+        "items": [{"text": "Footings", "chunkIds": [ID_A], "page": 1}],
+        "documentId": "doc1",
+        "pageNumber": 1,
+    }
+
+    class _Db:
+        def __init__(self, page_count):
+            self.page_count = page_count
+            self.inserted: list[str] = []
+            self.statuses: list[str] = []
+
+        # --- reads ---
+        def project_exists(self, _):
+            return True
+
+        def project_portions(self, _):
+            return [
+                {
+                    "id": "p1",
+                    "name": "Architectural",
+                    "discipline": "architectural",
+                    "start_page": 1,
+                    "end_page": self.page_count,
+                    "summary_status": "queued",
+                }
+            ]
+
+        def chunk_page_map(self, _):
+            return {ID_A: 1}
+
+        def page_index(self, _):
+            return {
+                ("doc1", n): {"combined": n, "discipline": "architectural"}
+                for n in range(1, self.page_count + 1)
+            }
+
+        def pages_with_chunks(self, _):
+            return [
+                {
+                    "document_id": "doc1",
+                    "page_number": n,
+                    "combined_page": n,
+                    "chunks": [{"id": ID_A, "text": "t"}],
+                }
+                for n in range(1, self.page_count + 1)
+            ]
+
+        def existing_page_summaries(self, _):
+            # Already summarized, so the page tier costs nothing here and the
+            # only calls left are the rollups under test.
+            return {("doc1", n): [ID_A] for n in range(1, self.page_count + 1)}
+
+        def page_summaries(self, _):
+            return [
+                {**TestRunPortionTiers.PAGE_SUMMARY, "pageNumber": n}
+                for n in range(1, self.page_count + 1)
+            ]
+
+        # --- writes ---
+        def insert_summary(self, project_id, portion_id, level, summary, sources):
+            self.inserted.append(level)
+
+        def delete_portion_summaries(self, _):
+            pass
+
+        def set_portion_summary_text(self, *_):
+            pass
+
+        def set_portion_summary_status(self, portion_id, status, **kwargs):
+            self.statuses.append(status)
+
+        def mark_project_summary_stale(self, _):
+            pass
+
+    def _run(self, monkeypatch, page_count):
+        db = self._Db(page_count)
+        calls: list[str] = []
+        monkeypatch.setitem(sys.modules, "db", db)
+        monkeypatch.setitem(
+            sys.modules,
+            "cache",
+            type("c", (), {"invalidate_summaries": staticmethod(lambda p: None)}),
+        )
+        monkeypatch.setattr(summarize, "_preflight", lambda _: None)
+
+        def fake_rollup(kind, label, lower, chunk_pages):
+            calls.append(kind)
+            return {
+                "overview": f"{kind} rollup",
+                "items": [{"text": "Footings", "chunkIds": [ID_A], "page": 1}],
+            }
+
+        monkeypatch.setattr(summarize, "_rollup", fake_rollup)
+        result = summarize.run_portion("proj", "p1")
+        return db, calls, result
+
+    def test_single_page_discipline_pays_for_one_rollup(self, monkeypatch):
+        db, calls, result = self._run(monkeypatch, 1)
+        assert calls == ["portion"]  # no section call at all
+        assert db.inserted == ["portion"]
+        assert result["sections"] == 0
+        assert db.statuses[-1] == "ready"
+
+    def test_large_discipline_keeps_the_section_tier(self, monkeypatch):
+        db, calls, _ = self._run(monkeypatch, summarize.SECTION_SIZE + 1)
+        assert calls.count("section") == 2  # 11 pages → two groups
+        assert calls[-1] == "portion"
+        assert db.inserted == ["section", "section", "portion"]
+
+    def test_boundary_page_count_skips_sections(self, monkeypatch):
+        _, calls, _ = self._run(monkeypatch, summarize.SECTION_SIZE)
+        assert "section" not in calls
