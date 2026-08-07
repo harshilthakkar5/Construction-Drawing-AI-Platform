@@ -202,7 +202,9 @@ almost always a box that clips the number, and the fix is redrawing it slightly 
 | Endpoint | What it tells you |
 | --- | --- |
 | `GET /projects/:projectId/summaries/status` | Counts per level (page/section/portion/project), portions, pages with chunks, document statuses, plus a `hint` naming the likely cause |
+| `GET /projects/:projectId/portions/:portionId/summarize/estimate` | Model calls, tokens and USD the run will cost — backs the confirmation dialog |
 | `POST /projects/:projectId/portions/:portionId/summarize` | Generate ONE discipline's summary (what the button in the sidebar calls) |
+| `GET /projects/:projectId/summaries/project/estimate` | Same, for the project rollup |
 | `POST /projects/:projectId/summaries/project` | Roll the existing discipline summaries up into the project summary |
 | `POST /projects/:projectId/summaries/rebuild` | Admin full re-run: every discipline plus the rollup — no re-upload needed |
 
@@ -294,9 +296,12 @@ With infra, API, web, and the Python worker all running:
 7. With `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY` set (API + worker), chat in the middle
    pane. Clicking a citation, source chip, or summary item jumps the viewer to the page
    **and highlights the cited bounding box** (FR-19).
-8. Press **Generate summary** on a category to summarize that discipline (page → section →
-   portion, bottom-up); nothing is summarized until you ask, so you only pay for the
-   disciplines you care about. Once at least one is ready, **Generate project summary**
+8. Press **Generate summary** on a category. A dialog shows what the run will cost
+   first — model calls, tokens, and USD, computed from the stored chunk token counts —
+   so the spend is a deliberate second click. Nothing is summarized until you ask, so
+   you only pay for the disciplines you care about. (Page → section → portion,
+   bottom-up; the section tier is skipped for disciplines of 10 sheets or fewer, where
+   it would only restate the page summaries.) Once at least one is ready, **Generate project summary**
    rolls them up. `SUMMARY_USE_BATCH=true` routes bulk page summaries through the
    Anthropic Message Batches API.
 9. Grafana (http://localhost:3001) shows API latency, queue depth, worker job

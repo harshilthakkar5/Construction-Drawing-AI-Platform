@@ -12,6 +12,7 @@ import type {
   RegionPreviewDto,
   SheetRegionDto,
   SummaryDto,
+  SummaryEstimateDto,
   SummaryStatusDto,
   SupportTicketDto,
   UserDto,
@@ -196,6 +197,16 @@ export const api = {
   },
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
+
+  /** What will this discipline's summary cost? Backs the confirm dialog. */
+  summaryEstimate: (projectId: string, portionId: string) =>
+    request<SummaryEstimateDto>(
+      `/projects/${projectId}/portions/${portionId}/summarize/estimate`,
+    ),
+
+  /** What will the project rollup cost? */
+  projectSummaryEstimate: (projectId: string) =>
+    request<SummaryEstimateDto>(`/projects/${projectId}/summaries/project/estimate`),
 
   /** FR-10/12 on demand: summarize ONE discipline, because the user asked. */
   summarizePortion: (projectId: string, portionId: string) =>

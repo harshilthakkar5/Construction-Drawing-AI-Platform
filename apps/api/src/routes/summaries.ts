@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { summarizeProjectQueue } from "../queues.js";
 import { redis } from "../redis.js";
+import { SUMMARY_MODEL, estimateProjectRollup } from "../summaryEstimate.js";
 
 /**
  * Hierarchical summaries (FR-10..13) are written by the worker's
@@ -92,6 +93,20 @@ summariesRouter.get("/status", async (req, res) => {
           : counts.project === 0
             ? "Page summaries exist but the rollups are missing — re-run with POST /summaries/rebuild and check the worker log."
             : "ok",
+  });
+});
+
+/** What the project rollup will cost — backs its confirmation dialog. */
+summariesRouter.get("/project/estimate", async (req, res) => {
+  const { projectId } = paramsSchema.parse(req.params);
+  await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const portionsReady = await prisma.portion.count({
+    where: { projectId, summaryStatus: { in: ["ready", "stale"] } },
+  });
+  res.json({
+    portionsUsed: portionsReady,
+    model: SUMMARY_MODEL,
+    ...estimateProjectRollup(portionsReady),
   });
 });
 

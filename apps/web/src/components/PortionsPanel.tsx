@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import type { PortionDto, PortionSummaryStatus } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore } from "../store";
+import { SummaryConfirm } from "./SummaryConfirm";
 
 /**
  * The discipline categories (FR-15/16). Clicking one jumps the viewer to its
@@ -58,9 +60,25 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  // Which run the user is being asked to confirm: a discipline id, "project"
+  // for the rollup, or null when no dialog is open.
+  const [pending, setPending] = useState<string | null>(null);
+  const confirmingProject = pending === "project";
+
+  const estimate = useQuery({
+    queryKey: ["summary-estimate", projectId, pending],
+    queryFn: () =>
+      confirmingProject
+        ? api.projectSummaryEstimate(projectId)
+        : api.summaryEstimate(projectId, pending as string),
+    enabled: pending !== null,
+    staleTime: 30_000,
+  });
+
   const summarize = useMutation({
     mutationFn: (portionId: string) => api.summarizePortion(projectId, portionId),
     onSuccess: () => {
+      setPending(null);
       void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
     },
   });
@@ -71,6 +89,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   const projectSummary = useMutation({
     mutationFn: () => api.generateProjectSummary(projectId),
     onSuccess: () => {
+      setPending(null);
       void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
     },
   });
@@ -135,7 +154,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   <button
                     className="ml-auto shrink-0 rounded border border-hairline px-2 py-0.5 text-[11px] text-ink-soft transition hover:bg-surface disabled:opacity-50"
                     disabled={busy || summarize.isPending}
-                    onClick={() => summarize.mutate(portion.id)}
+                    onClick={() => setPending(portion.id)}
                     title={
                       CAN_START.includes(portion.summaryStatus)
                         ? `Summarize the ${portion.name} sheets`
@@ -172,7 +191,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         <div className="border-t border-hairline px-3 py-2">
           <button
             className="w-full rounded-md border border-hairline px-2 py-1.5 text-xs text-ink-soft transition hover:bg-page disabled:opacity-50"
-            onClick={() => projectSummary.mutate()}
+            onClick={() => setPending("project")}
             disabled={projectSummary.isPending}
             title="Combine the discipline summaries into one project summary"
           >
@@ -185,6 +204,24 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         <p className="px-3 pb-2 text-[11px] text-red-600">
           {(summarize.error as Error).message}
         </p>
+      )}
+
+      {pending && (
+        <SummaryConfirm
+          title={
+            confirmingProject
+              ? "Generate project summary?"
+              : `Summarize ${portions.data?.find((p) => p.id === pending)?.name ?? "this discipline"}?`
+          }
+          estimate={estimate.data}
+          isLoading={estimate.isLoading}
+          error={estimate.error}
+          busy={summarize.isPending || projectSummary.isPending}
+          onCancel={() => setPending(null)}
+          onConfirm={() =>
+            confirmingProject ? projectSummary.mutate() : summarize.mutate(pending)
+          }
+        />
       )}
     </section>
   );
