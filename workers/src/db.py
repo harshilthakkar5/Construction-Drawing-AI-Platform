@@ -6,6 +6,7 @@ apps/api/src/manifest.ts: documents ordered by ("createdAt", id), pages
 1..N within each document.
 """
 
+import hashlib
 import json
 import uuid
 from contextlib import contextmanager
@@ -13,13 +14,89 @@ from contextlib import contextmanager
 import psycopg
 
 import config
+import logutil
 from hashing import text_hash
+
+log = logutil.get("db")
+
+# Every helper below borrows a connection for one statement, and the scrape
+# loop commits per page — so at concurrency N this opened (and TLS-negotiated)
+# a fresh connection thousands of times per document. Pool them instead: the
+# call sites are unchanged, but the connections are reused and their number is
+# bounded, which is what keeps N parallel jobs from exhausting Postgres
+# max_connections.
+_pool = None
+_pool_unavailable = False
+
+
+def _get_pool():
+    global _pool, _pool_unavailable
+    if _pool is not None or _pool_unavailable:
+        return _pool
+    try:
+        from psycopg_pool import ConnectionPool
+
+        _pool = ConnectionPool(
+            config.DATABASE_URL,
+            min_size=1,
+            max_size=config.DB_POOL_SIZE,
+            timeout=30,
+            open=True,
+        )
+        log.info("Postgres connection pool ready (max %d)", config.DB_POOL_SIZE)
+    except Exception as exc:
+        # psycopg_pool is an extra; without it the worker still runs, just with
+        # a connection per statement as before.
+        log.warning("connection pool unavailable, using one connection per call: %s", exc)
+        _pool_unavailable = True
+    return _pool
 
 
 @contextmanager
 def connect():
-    with psycopg.connect(config.DATABASE_URL) as conn:
+    pool = _get_pool()
+    if pool is None:
+        with psycopg.connect(config.DATABASE_URL) as conn:
+            yield conn
+        return
+    with pool.connection() as conn:
         yield conn
+
+
+def _lock_key(project_id: str) -> int:
+    """Stable signed 64-bit key for a project's advisory lock. Derived from the
+    id rather than Postgres' hashtext() so the value is identical across
+    processes and testable without a database."""
+    digest = hashlib.sha256(project_id.encode()).digest()[:8]
+    return int.from_bytes(digest, "big", signed=True)
+
+
+@contextmanager
+def project_lock(project_id: str):
+    """Serialize the project-wide steps of otherwise-parallel jobs.
+
+    Most of the pipeline is per-document and parallelises cleanly, but three
+    steps rewrite state that belongs to the WHOLE project — combined page
+    numbering, the portion rebuild, and chunk→portion assignment. Two documents
+    of the same project finishing at the same moment would interleave those and
+    corrupt the manifest, which is a correctness-critical path.
+
+    A Postgres advisory lock (rather than an in-process lock) because the
+    contenders are separate worker processes and replicas. Held on its own
+    pooled connection for the length of the critical section; Postgres releases
+    it automatically if the worker dies, so a crash cannot wedge a project.
+    """
+    key = _lock_key(project_id)
+    with connect() as conn:
+        conn.execute("SELECT pg_advisory_lock(%s)", (key,))
+        try:
+            yield
+        finally:
+            try:
+                conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+            except Exception:
+                # The connection died; Postgres drops the lock with the session.
+                log.warning("could not release the lock for project %s", project_id[:8])
 
 
 def project_exists(project_id: str) -> bool:

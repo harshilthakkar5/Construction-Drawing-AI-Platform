@@ -288,6 +288,25 @@ Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g. "Str
 switches the summary panel, jumps the viewer to the portion's start page, and optionally filters
 chat retrieval to that portion.
 
+## Parallelism
+
+Jobs run concurrently per queue (`config.PROCESS_CONCURRENCY` etc., all defaulting to
+`WORKER_CONCURRENCY`=4), and horizontally across replicas — throughput is
+`replicas × concurrency`. The handlers hand their synchronous body to `asyncio.to_thread`, so
+the threads genuinely overlap (PyMuPDF releases the GIL while rendering; everything else is
+network I/O).
+
+Three steps are project-wide rather than per-document — `recompute_combined_numbering`, the
+portion rebuild (`upsert_portions`), and `assign_chunk_portions` — so they run inside
+`db.project_lock(project_id)`, a Postgres advisory lock keyed on `sha256(projectId)[:8]`.
+Without it, two documents of the same project finishing together interleave and corrupt the
+manifest. It is a Postgres lock, not an in-process one, because the contenders are separate
+replicas; Postgres frees it if a worker dies. Different projects never contend.
+
+`db.connect()` borrows from a `psycopg_pool` (`DB_POOL_SIZE`, default `2 × WORKER_CONCURRENCY`) —
+keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. Raising concurrency
+multiplies the Voyage/Anthropic request rate directly, so raise provider tiers first.
+
 ## Non-functional rules
 
 - Async processing via BullMQ workers only; separate API from workers, scale workers on queue
