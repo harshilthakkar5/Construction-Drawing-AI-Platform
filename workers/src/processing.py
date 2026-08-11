@@ -216,9 +216,14 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     # Numbering only. Discipline detection belongs to the scrape-region job,
     # which applies the project's title-block box (workers/src/scrape.py) —
     # the worker queues it for this document once processing finishes.
+    #
+    # This renumbers EVERY page in the project, so two documents of the same
+    # project finishing together would interleave and corrupt the manifest.
+    # Documents of different projects never contend for this lock.
     log.info("[doc %s] stage 4/6 numbering: recomputing combined page numbers", doc_tag)
     try:
-        db.recompute_combined_numbering(project_id)
+        with db.project_lock(project_id):
+            db.recompute_combined_numbering(project_id)
     except Exception:
         log.exception("[doc %s] stage 4/6 numbering FAILED", doc_tag)
         raise

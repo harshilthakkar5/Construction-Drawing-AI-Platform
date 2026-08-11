@@ -39,3 +39,42 @@ THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
 
 # FR-7: OCR pages with no text layer. Disable to run without PaddleOCR installed.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() != "false"
+
+
+# --- Parallelism ---------------------------------------------------------
+#
+# How many jobs one worker process runs at once, per queue. Ten people
+# uploading at the same time should not queue behind each other, so these
+# default above 1 — but they are not free, and each queue has a different
+# reason to be capped:
+#
+#   process-document  memory. Each job holds one PDF plus the page it is
+#                     rendering; PyMuPDF releases the GIL during rendering and
+#                     the rest is network I/O, so threads really do overlap.
+#                     Budget ~250-400 MB per concurrent job.
+#   scrape-region     provider rate limits. One Haiku call per page, so this
+#                     multiplies the request rate directly.
+#   summarize-portion provider rate limits + spend. Sonnet, and every job is
+#                     something a user is waiting on.
+#   summarize-project rollups only, cheap, and one per project — 1 is plenty.
+#
+# WORKER_CONCURRENCY sets them all; the per-queue variables override it.
+def _int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
+
+
+WORKER_CONCURRENCY = _int("WORKER_CONCURRENCY", 4)
+PROCESS_CONCURRENCY = _int("PROCESS_CONCURRENCY", WORKER_CONCURRENCY)
+SCRAPE_CONCURRENCY = _int("SCRAPE_CONCURRENCY", WORKER_CONCURRENCY)
+SUMMARIZE_PORTION_CONCURRENCY = _int("SUMMARIZE_PORTION_CONCURRENCY", WORKER_CONCURRENCY)
+SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
+
+# Postgres connections held by this process. Every db helper borrows one for
+# the length of a single statement, so the pool only has to cover the jobs
+# running at once (plus headroom for the lock connections, which are held for
+# the duration of a critical section). Postgres defaults to max_connections
+# 100 across ALL clients — keep replicas x DB_POOL_SIZE well under it.
+DB_POOL_SIZE = _int("DB_POOL_SIZE", max(4, WORKER_CONCURRENCY * 2))

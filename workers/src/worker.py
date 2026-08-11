@@ -195,17 +195,26 @@ async def main() -> None:
     telemetry.start()
     scrape_queue = Queue(SCRAPE_REGION_QUEUE, {"connection": config.REDIS_URL})
 
+    # Per-queue concurrency: ten people uploading at once should not queue
+    # behind each other. The handlers hand their synchronous body to
+    # asyncio.to_thread, so these really do run in parallel — PyMuPDF releases
+    # the GIL while rendering and everything else is network I/O. See
+    # config.py for what caps each number.
     queues = {
-        PROCESS_DOCUMENT_QUEUE: process_document,
-        SCRAPE_REGION_QUEUE: scrape_region,
-        SUMMARIZE_PORTION_QUEUE: summarize_portion,
-        SUMMARIZE_PROJECT_QUEUE: summarize_project,
+        PROCESS_DOCUMENT_QUEUE: (process_document, config.PROCESS_CONCURRENCY),
+        SCRAPE_REGION_QUEUE: (scrape_region, config.SCRAPE_CONCURRENCY),
+        SUMMARIZE_PORTION_QUEUE: (summarize_portion, config.SUMMARIZE_PORTION_CONCURRENCY),
+        SUMMARIZE_PROJECT_QUEUE: (summarize_project, config.SUMMARIZE_PROJECT_CONCURRENCY),
     }
     workers = [
-        Worker(name, handler, {"connection": config.REDIS_URL})
-        for name, handler in queues.items()
+        Worker(name, handler, {"connection": config.REDIS_URL, "concurrency": concurrency})
+        for name, (handler, concurrency) in queues.items()
     ]
-    log.info("consuming %s via %s", ", ".join(queues), config.REDIS_URL)
+    log.info(
+        "consuming %s via %s",
+        ", ".join(f"{name} (x{concurrency})" for name, (_, concurrency) in queues.items()),
+        config.REDIS_URL,
+    )
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

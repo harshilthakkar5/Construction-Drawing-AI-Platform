@@ -54,7 +54,46 @@ python src/worker.py       # consumes process-document, scrape-region,
                            # summarize-portion and summarize-project
 ```
 
-Or containerized: `docker build -t cdip-worker workers/`.
+Or containerized, which is also how you scale it:
+
+```bash
+docker compose --profile worker up -d --scale worker=3
+```
+
+## Parallel processing
+
+Jobs run in parallel, per queue, so ten people uploading at once are processed
+together rather than one after another:
+
+| Queue | Env var | Default | What caps it |
+| --- | --- | --- | --- |
+| `process-document` | `PROCESS_CONCURRENCY` | 4 | Memory — budget ~250–400 MB per concurrent job |
+| `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | Haiku rate limit (one call per page) |
+| `summarize-portion` | `SUMMARIZE_PORTION_CONCURRENCY` | 4 | Sonnet rate limit, and spend |
+| `summarize-project` | `SUMMARIZE_PROJECT_CONCURRENCY` | 1 | Rollups are cheap and one per project |
+
+`WORKER_CONCURRENCY` sets all four at once; the per-queue variables override it.
+Throughput is `replicas x concurrency`, so three replicas at the defaults process
+twelve documents simultaneously.
+
+**What keeps this correct.** Most of the pipeline is per-document and parallelises
+freely — each job writes its own pages. Three steps are project-wide, though:
+combined page numbering, the portion rebuild, and chunk→portion assignment. Two
+documents of the same project finishing at the same instant would interleave
+those and corrupt the manifest, so they run inside a **Postgres advisory lock
+keyed on the project** (`db.project_lock`). Different projects never contend;
+same-project jobs serialize for the few seconds those steps take. The lock lives
+in Postgres rather than the process because the contenders are separate replicas,
+and Postgres releases it automatically if a worker dies — a crash cannot wedge a
+project.
+
+Connections are pooled (`DB_POOL_SIZE`, default `2 x WORKER_CONCURRENCY`). Keep
+`replicas x DB_POOL_SIZE` under the server's `max_connections` (Postgres defaults
+to 100).
+
+**Before raising these numbers**, raise your provider tiers. Concurrency
+multiplies the request rate at Voyage and Anthropic directly; on a free Voyage
+tier (~3 req/min) more workers just convert queueing into 429 retries.
 
 ## Common commands
 

@@ -97,6 +97,33 @@ services:
         mc mb --ignore-existing local/cdip-local
       "
 
+  # Python workers. Behind a profile so `docker compose up -d` still starts
+  # infrastructure only — local development usually runs the worker from a venv
+  # (see README) and two consumers of the same queues would compete.
+  #
+  # Horizontal scaling, the production shape:
+  #   docker compose --profile worker up -d --scale worker=3
+  # Each replica runs every queue at its configured concurrency, so three
+  # replicas at PROCESS_CONCURRENCY=4 process twelve documents at once. Jobs
+  # are idempotent and commit per page, so a replica dying mid-document is
+  # picked up and resumed rather than restarted.
+  worker:
+    build: ./workers
+    profiles: ["worker"]
+    env_file: .env
+    environment:
+      # Container networking: reach the services by name, not localhost.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/cdip
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      SPACES_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

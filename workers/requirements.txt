@@ -14,8 +14,9 @@ opencv-python-headless==4.10.0.84
 # Object storage (DigitalOcean Spaces / local MinIO via S3 API)
 boto3==1.36.2
 
-# Database (direct SQL; Prisma is Node-only)
-psycopg[binary]==3.2.4
+# Database (direct SQL; Prisma is Node-only). The pool extra bounds the
+# connections held when jobs run in parallel — see config.DB_POOL_SIZE.
+psycopg[binary,pool]==3.2.4
 
 # Thumbnails
 Pillow==11.1.0

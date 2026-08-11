@@ -265,22 +265,30 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
     )
 
     try:
+        # Scraping is per page and parallelises freely — it only writes each
+        # page's own row. Classification and grouping rewrite the project's
+        # whole portion set, so two scrape jobs for the same project (one per
+        # uploaded document) must not interleave there.
         scrape_result = _scrape_pages(project_id, box, region_version, pending)
-        portions = _classify_pages(project_id)
+        with db.project_lock(project_id):
+            portions = _classify_pages(project_id)
+
+            # A discipline that gained or lost pages has a summary that no
+            # longer covers what it claims. Keep the text, flag it — the user
+            # decides whether to spend tokens refreshing it. Inside the lock:
+            # the comparison is only meaningful against a settled portion set.
+            after = db.portion_page_ids(project_id)
+            changed = [pid for pid, pages in after.items() if before.get(pid) != pages]
+            stale = db.mark_portions_stale(changed)
+            if stale:
+                db.mark_project_summary_stale(project_id)
+                log.info(
+                    "[project %s] stage 4/5 stale: %d portion summaries flagged", tag, stale
+                )
     except Exception as exc:
         log.exception("[project %s] region scrape FAILED", tag)
         db.set_region_status(project_id, "failed", last_error=str(exc)[:500])
         raise
-
-    # Stage 4: a discipline that gained or lost pages has a summary that no
-    # longer covers what it claims. Keep the text, flag it — the user decides
-    # whether to spend tokens refreshing it.
-    after = db.portion_page_ids(project_id)
-    changed = [pid for pid, pages in after.items() if before.get(pid) != pages]
-    stale = db.mark_portions_stale(changed)
-    if stale:
-        db.mark_project_summary_stale(project_id)
-        log.info("[project %s] stage 4/5 stale: %d portion summaries flagged", tag, stale)
 
     # Stage 5: portion/discipline moved on the chunks, so the Qdrant payloads
     # the chat filter matches on have to follow.
