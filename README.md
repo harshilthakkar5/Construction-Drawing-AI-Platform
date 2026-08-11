@@ -62,6 +62,9 @@ docker compose --profile worker up -d --scale worker=3
 
 ## Parallel processing
 
+Full runtime reference — queues, polling, capacity limits, and where the token
+spend goes: [docs/runtime-architecture.md](./docs/runtime-architecture.md).
+
 Jobs run in parallel, per queue, so ten people uploading at once are processed
 together rather than one after another:
 

@@ -290,6 +290,8 @@ chat retrieval to that portion.
 
 ## Parallelism
 
+Runtime reference (queues, polling, capacity, cost): docs/runtime-architecture.md.
+
 Jobs run concurrently per queue (`config.PROCESS_CONCURRENCY` etc., all defaulting to
 `WORKER_CONCURRENCY`=4), and horizontally across replicas — throughput is
 `replicas × concurrency`. The handlers hand their synchronous body to `asyncio.to_thread`, so
