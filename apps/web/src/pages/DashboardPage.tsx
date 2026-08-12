@@ -6,7 +6,7 @@ import { BarList } from "../charts/BarList";
 import { Donut } from "../charts/Donut";
 import { STATUS_COLORS, STATUS_ORDER } from "../charts/palette";
 import { TrendArea } from "../charts/TrendArea";
-import { ActionButton, Card, PageHeader, StatTile } from "../components/ui";
+import { ActionButton, Card, PageHeader, PageLoading, StatTile } from "../components/ui";
 import { useAppStore } from "../store";
 
 /** Ranges the activity chart can ask the API for (GET /dashboard?days=N). */
@@ -78,6 +78,10 @@ export function DashboardPage() {
           Could not load the dashboard: {(dashboard.error as Error).message}
         </p>
       )}
+
+      {/* First load only — placeholderData keeps the previous range on screen
+          while a new one fetches, so this never flashes on a range change. */}
+      {dashboard.isLoading && <PageLoading label="Loading dashboard…" />}
 
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile

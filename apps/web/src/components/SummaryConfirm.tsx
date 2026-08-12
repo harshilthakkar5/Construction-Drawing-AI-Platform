@@ -1,4 +1,5 @@
 import type { SummaryEstimateDto } from "@cdip/shared";
+import { GhostButton, Modal, Spinner } from "./ui";
 
 /**
  * Confirmation before a summary run. Summaries are the most expensive thing a
@@ -36,109 +37,102 @@ export function SummaryConfirm({
   const nothingToDo = estimate?.totalCalls === 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onCancel}
-      role="presentation"
-    >
-      <div
-        className="w-full max-w-md rounded-lg bg-surface p-4 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <h2 className="font-semibold text-ink">{title}</h2>
-
-        {isLoading && <p className="mt-3 text-sm text-ink-muted">Working out the cost…</p>}
-
-        {!!error && (
-          <p className="mt-3 text-sm text-red-600">
-            Could not estimate the cost: {(error as Error).message}
-          </p>
-        )}
-
-        {estimate && !isLoading && (
-          <>
-            {nothingToDo ? (
-              <p className="mt-3 text-sm text-ink-soft">
-                There is nothing to summarize here — this discipline has no pages with
-                extracted text yet.
-              </p>
-            ) : (
-              <>
-                <div className="mt-3 rounded-md border border-hairline">
-                  <div className="flex items-baseline justify-between border-b border-hairline px-3 py-2.5">
-                    <span className="text-sm text-ink-soft">Estimated cost</span>
-                    <span className="text-lg font-semibold tabular-nums text-ink">
-                      about {money(estimate.costUsd)}
-                    </span>
-                  </div>
-                  <dl className="divide-y divide-hairline text-xs">
-                    <Row
-                      label="Model calls"
-                      value={`${estimate.totalCalls}`}
-                      detail={[
-                        estimate.pageCalls > 0 && `${estimate.pageCalls} page`,
-                        estimate.sectionCalls > 0 && `${estimate.sectionCalls} section`,
-                        estimate.portionCalls > 0 && `${estimate.portionCalls} rollup`,
-                      ]
-                        .filter(Boolean)
-                        .join(" + ")}
-                    />
-                    <Row
-                      label="Tokens"
-                      value={`~${compact(estimate.inputTokens + estimate.outputTokens)}`}
-                      detail={`${compact(estimate.inputTokens)} in + ${compact(
-                        estimate.outputTokens,
-                      )} out`}
-                    />
-                    {estimate.pages !== undefined && (
-                      <Row
-                        label="Sheets"
-                        value={`${estimate.pages}`}
-                        detail={
-                          estimate.reusedPageSummaries
-                            ? `${estimate.pagesToSummarize} to summarize, ${estimate.reusedPageSummaries} reused free`
-                            : undefined
-                        }
-                      />
-                    )}
-                    {estimate.portionsUsed !== undefined && (
-                      <Row
-                        label="Disciplines combined"
-                        value={`${estimate.portionsUsed}`}
-                      />
-                    )}
-                    <Row label="Model" value={estimate.model} />
-                  </dl>
-                </div>
-                <p className="mt-2 text-[11px] leading-snug text-ink-muted">
-                  The call count is exact; the length of each answer is estimated from
-                  previous runs, so the real cost will differ somewhat.
-                </p>
-              </>
-            )}
-          </>
-        )}
-
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            className="rounded-md border border-hairline px-3 py-1.5 text-xs text-ink-soft transition hover:bg-page"
-            onClick={onCancel}
-          >
+    <Modal
+      title={title}
+      onClose={() => !busy && onCancel()}
+      footer={
+        <>
+          <GhostButton onClick={onCancel} disabled={busy}>
             Cancel
-          </button>
+          </GhostButton>
           <button
-            className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
             onClick={onConfirm}
             disabled={busy || isLoading || nothingToDo}
           >
+            {busy && <Spinner />}
             {busy ? "Starting…" : "Generate summary"}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {isLoading && (
+        <p className="mt-3 text-sm text-ink-muted">Working out the cost…</p>
+      )}
+
+      {!!error && (
+        <p className="mt-3 text-sm text-red-600">
+          Could not estimate the cost: {(error as Error).message}
+        </p>
+      )}
+
+      {estimate && !isLoading && (
+        <>
+          {nothingToDo ? (
+            <p className="mt-3 text-sm text-ink-soft">
+              There is nothing to summarize here — this discipline has no pages
+              with extracted text yet.
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 rounded-md border border-hairline">
+                <div className="flex items-baseline justify-between border-b border-hairline px-3 py-2.5">
+                  <span className="text-sm text-ink-soft">Estimated cost</span>
+                  <span className="text-lg font-semibold tabular-nums text-ink">
+                    about {money(estimate.costUsd)}
+                  </span>
+                </div>
+                <dl className="divide-y divide-hairline text-xs">
+                  <Row
+                    label="Model calls"
+                    value={`${estimate.totalCalls}`}
+                    detail={[
+                      estimate.pageCalls > 0 && `${estimate.pageCalls} page`,
+                      estimate.sectionCalls > 0 &&
+                        `${estimate.sectionCalls} section`,
+                      estimate.portionCalls > 0 &&
+                        `${estimate.portionCalls} rollup`,
+                    ]
+                      .filter(Boolean)
+                      .join(" + ")}
+                  />
+                  <Row
+                    label="Tokens"
+                    value={`~${compact(estimate.inputTokens + estimate.outputTokens)}`}
+                    detail={`${compact(estimate.inputTokens)} in + ${compact(
+                      estimate.outputTokens,
+                    )} out`}
+                  />
+                  {estimate.pages !== undefined && (
+                    <Row
+                      label="Sheets"
+                      value={`${estimate.pages}`}
+                      detail={
+                        estimate.reusedPageSummaries
+                          ? `${estimate.pagesToSummarize} to summarize, ${estimate.reusedPageSummaries} reused free`
+                          : undefined
+                      }
+                    />
+                  )}
+                  {estimate.portionsUsed !== undefined && (
+                    <Row
+                      label="Disciplines combined"
+                      value={`${estimate.portionsUsed}`}
+                    />
+                  )}
+                  <Row label="Model" value={estimate.model} />
+                </dl>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+                The call count is exact; the length of each answer is estimated
+                from previous runs, so the real cost will differ somewhat.
+              </p>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 

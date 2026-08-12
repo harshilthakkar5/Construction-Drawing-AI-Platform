@@ -1,7 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { DocumentStatus } from "@cdip/shared";
+import type { DocumentDto, DocumentStatus } from "@cdip/shared";
 import { api } from "../api";
+import { ConfirmDialog, Spinner } from "./ui";
 import { uploadPdf } from "../upload";
 
 function PdfIcon() {
@@ -43,6 +44,28 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
   const [replaceTarget, setReplaceTarget] = useState<string | undefined>(
     undefined,
   );
+  const [deleting, setDeleting] = useState<DocumentDto | null>(null);
+
+  function refreshProject() {
+    for (const key of ["documents", "manifest", "portions"]) {
+      void queryClient.invalidateQueries({ queryKey: [key, projectId] });
+    }
+  }
+
+  const remove = useMutation({
+    mutationFn: (documentId: string) => api.deleteDocument(projectId, documentId),
+    onSuccess: () => {
+      setDeleting(null);
+      refreshProject();
+    },
+  });
+
+  // Retrying is only offered on a failed document (see below), and the button
+  // reports its own progress rather than firing silently.
+  const retry = useMutation({
+    mutationFn: (documentId: string) => api.reprocessDocument(projectId, documentId),
+    onSuccess: refreshProject,
+  });
 
   const documents = useQuery({
     queryKey: ["documents", projectId],
@@ -173,22 +196,25 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       New revision
                     </button>
                   )}
-                  {(doc.status === "failed" || doc.status === "processing") && (
+                  {/* While a document is uploading or processing there is
+                      nothing to retry — the worker is mid-run and a second job
+                      would only race it. Show progress instead; Retry appears
+                      only once the pipeline has actually given up. */}
+                  {(doc.status === "uploaded" || doc.status === "processing") && (
+                    <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-ink-muted">
+                      <Spinner className="text-brand-600" />
+                      {doc.status === "uploaded" ? "Queued…" : "Processing…"}
+                    </span>
+                  )}
+                  {doc.status === "failed" && (
                     <button
-                      className="ml-auto text-xs text-brand-700 hover:underline"
+                      className="ml-auto inline-flex items-center gap-1.5 text-xs text-brand-700 hover:underline disabled:opacity-60"
                       title="Re-run processing — already-finished pages are skipped, so it resumes where it stopped"
-                      onClick={() => {
-                        void api
-                          .reprocessDocument(projectId, doc.id)
-                          .then(() =>
-                            queryClient.invalidateQueries({
-                              queryKey: ["documents", projectId],
-                            }),
-                          )
-                          .catch((err) => alert((err as Error).message));
-                      }}
+                      disabled={retry.isPending}
+                      onClick={() => retry.mutate(doc.id)}
                     >
-                      Retry
+                      {retry.isPending && <Spinner />}
+                      {retry.isPending ? "Retrying…" : "Retry"}
                     </button>
                   )}
                   {doc.status === "failed" && (
@@ -196,26 +222,8 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       className="text-xs text-red-600 hover:underline"
                       title="Delete this document everywhere (database, storage, search index)"
                       onClick={() => {
-                        if (
-                          !confirm(
-                            `Delete "${doc.filename}"? This removes it everywhere.`,
-                          )
-                        )
-                          return;
-                        void api
-                          .deleteDocument(projectId, doc.id)
-                          .then(() => {
-                            queryClient.invalidateQueries({
-                              queryKey: ["documents", projectId],
-                            });
-                            queryClient.invalidateQueries({
-                              queryKey: ["manifest", projectId],
-                            });
-                            queryClient.invalidateQueries({
-                              queryKey: ["portions", projectId],
-                            });
-                          })
-                          .catch((err) => alert((err as Error).message));
+                        remove.reset();
+                        setDeleting(doc);
                       }}
                     >
                       Delete
@@ -230,6 +238,36 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
           <li className="p-3 text-sm text-ink-muted">No documents yet.</li>
         )}
       </ul>
+
+      {retry.isError && (
+        <p className="px-3 py-2 text-xs text-red-600">
+          {(retry.error as Error).message}
+        </p>
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete "${deleting.filename}"?`}
+          tone="danger"
+          confirmLabel="Delete document"
+          busyLabel="Deleting…"
+          busy={remove.isPending}
+          error={remove.isError ? remove.error : undefined}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
+          message={
+            <>
+              <p>
+                This removes the PDF from storage along with its pages, chunks and
+                search index. It cannot be undone.
+              </p>
+              <p className="mt-2 text-xs text-ink-muted">
+                Other documents in this project are renumbered afterwards.
+              </p>
+            </>
+          }
+        />
+      )}
     </section>
   );
 }

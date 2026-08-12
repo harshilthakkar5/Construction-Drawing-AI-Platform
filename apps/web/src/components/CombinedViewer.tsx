@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore, type Highlight } from "../store";
+import { PageLoading } from "./ui";
 
 const PAGE_WIDTH = 850;
 const ZOOM_MIN = 0.4;
@@ -207,7 +208,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
         {/* Main pages */}
         {/* overflow-auto (not -y): a zoomed page is wider than the pane. */}
         <div ref={scrollRef} className="flex-1 overflow-auto bg-page p-4">
-          {manifest.isLoading && <p className="text-sm text-ink-muted">Loading manifest…</p>}
+          {manifest.isLoading && <PageLoading label="Loading pages…" />}
           {!manifest.isLoading && total === 0 && (
             <p className="text-sm text-ink-muted">
               No pages yet — upload a PDF and wait for processing.

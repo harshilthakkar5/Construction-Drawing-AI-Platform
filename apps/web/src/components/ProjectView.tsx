@@ -6,6 +6,7 @@ import { ChatPanel } from "./ChatPanel";
 import { CombinedViewer } from "./CombinedViewer";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DragDivider } from "./DragDivider";
+import { PageLoading } from "./ui";
 import { PortionsPanel } from "./PortionsPanel";
 import { RegionBanner } from "./RegionBanner";
 import { SummaryPanel } from "./SummaryPanel";
@@ -44,6 +45,12 @@ export function ProjectView({ projectId }: { projectId: string }) {
     () => localStorage.setItem(CHAT_HIDDEN_KEY, chatHidden ? "1" : "0"),
     [chatHidden],
   );
+
+  // Opening a project used to render the full three-pane layout instantly with
+  // every pane empty, which reads as "broken" rather than "loading".
+  if (project.isLoading) {
+    return <PageLoading label="Opening project…" />;
+  }
 
   return (
     <div className="flex h-full flex-col">
