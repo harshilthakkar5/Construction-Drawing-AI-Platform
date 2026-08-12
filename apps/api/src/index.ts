@@ -1,11 +1,23 @@
 import { createApp } from "./app.js";
 import { missingPrismaModels, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
-import { processDocumentQueue, summarizeProjectQueue } from "./queues.js";
+import {
+  processDocumentQueue,
+  scrapeRegionQueue,
+  summarizePortionQueue,
+  summarizeProjectQueue,
+} from "./queues.js";
 import { observeQueues, startTelemetry } from "./telemetry.js";
 
 await startTelemetry();
-observeQueues([processDocumentQueue, summarizeProjectQueue]);
+// Every queue, or the Grafana depth panel lies by omission — and queue depth is
+// the signal for whether workers need scaling out.
+observeQueues([
+  processDocumentQueue,
+  scrapeRegionQueue,
+  summarizePortionQueue,
+  summarizeProjectQueue,
+]);
 
 const staleModels = missingPrismaModels();
 if (staleModels.length > 0) {
