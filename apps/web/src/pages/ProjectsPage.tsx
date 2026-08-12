@@ -2,7 +2,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { DashboardProjectRow } from "@cdip/shared";
 import { api } from "../api";
-import { Card, Notice, PageHeader, PrimaryButton, TextArea, TextField } from "../components/ui";
+import {
+  Card,
+  ConfirmDialog,
+  GhostButton,
+  Modal,
+  Notice,
+  PageHeader,
+  PageLoading,
+  PrimaryButton,
+  Spinner,
+  TextArea,
+  TextField,
+} from "../components/ui";
 import { compactNumber, StatusPill } from "./DashboardPage";
 import { useAppStore } from "../store";
 
@@ -29,12 +41,18 @@ export function ProjectsPage() {
   const [sort, setSort] = useState<SortKey>("recent");
   const [creating, setCreating] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Rename and delete both open a dialog rather than a native prompt/confirm:
+  // deleting a project is irreversible and wipes documents, vectors and
+  // summaries, so the dialog has to say so — a browser confirm() cannot.
+  const [renaming, setRenaming] = useState<DashboardProjectRow | null>(null);
+  const [deleting, setDeleting] = useState<DashboardProjectRow | null>(null);
 
   const dashboard = useQuery({ queryKey: ["dashboard", 14], queryFn: () => api.dashboard(14) });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteProject(id),
     onSuccess: () => {
+      setDeleting(null);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -42,6 +60,7 @@ export function ProjectsPage() {
   const rename = useMutation({
     mutationFn: (p: { id: string; name: string }) => api.updateProject(p.id, { name: p.name }),
     onSuccess: () => {
+      setRenaming(null);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -122,7 +141,7 @@ export function ProjectsPage() {
         </label>
       </div>
 
-      {dashboard.isLoading && <p className="text-sm text-ink-muted">Loading projects…</p>}
+      {dashboard.isLoading && <PageLoading label="Loading projects…" />}
       {dashboard.isError && (
         <Notice tone="error">Could not load projects: {(dashboard.error as Error).message}</Notice>
       )}
@@ -149,24 +168,120 @@ export function ProjectsPage() {
             }}
             onOpen={() => openProject(project.id)}
             onRename={() => {
-              const next = prompt("Rename project", project.name);
-              if (next?.trim() && next !== project.name)
-                rename.mutate({ id: project.id, name: next.trim() });
+              setMenuFor(null);
+              rename.reset();
+              setRenaming(project);
             }}
             onDelete={() => {
-              if (
-                confirm(
-                  `Delete "${project.name}"? This removes its documents, pages, vectors and summaries everywhere.`,
-                )
-              )
-                remove.mutate(project.id);
+              setMenuFor(null);
+              remove.reset();
+              setDeleting(project);
             }}
           />
         ))}
       </div>
 
       {creating && <CreateProjectDialog onClose={() => setCreating(false)} />}
+
+      {renaming && (
+        <RenameProjectDialog
+          project={renaming}
+          busy={rename.isPending}
+          error={rename.isError ? rename.error : undefined}
+          onCancel={() => setRenaming(null)}
+          onSubmit={(name) => rename.mutate({ id: renaming.id, name })}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete "${deleting.name}"?`}
+          tone="danger"
+          confirmLabel="Delete project"
+          busyLabel="Deleting…"
+          busy={remove.isPending}
+          error={remove.isError ? remove.error : undefined}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
+          message={
+            <>
+              <p>This cannot be undone. It permanently removes:</p>
+              <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
+                <li>
+                  {deleting.documents} document{deleting.documents === 1 ? "" : "s"} and{" "}
+                  {deleting.pages} page{deleting.pages === 1 ? "" : "s"}, including the
+                  original PDFs in storage
+                </li>
+                <li>every summary and category generated for it</li>
+                <li>its search index, so chat can no longer answer about it</li>
+                <li>its chat history</li>
+              </ul>
+              <p className="mt-2 text-xs text-ink-muted">
+                Recorded token spend is kept for reporting.
+              </p>
+            </>
+          }
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Rename is a dialog rather than prompt() so it can validate, show the API
+ * error in place, and disable itself while saving.
+ */
+function RenameProjectDialog({
+  project,
+  busy,
+  error,
+  onCancel,
+  onSubmit,
+}: {
+  project: DashboardProjectRow;
+  busy: boolean;
+  error?: unknown;
+  onCancel: () => void;
+  onSubmit: (name: string) => void;
+}) {
+  const [name, setName] = useState(project.name);
+  const trimmed = name.trim();
+  const unchanged = trimmed === project.name;
+
+  return (
+    <Modal
+      title="Rename project"
+      onClose={() => !busy && onCancel()}
+      footer={
+        <>
+          <GhostButton onClick={onCancel} disabled={busy}>
+            Cancel
+          </GhostButton>
+          <button
+            type="button"
+            onClick={() => onSubmit(trimmed)}
+            disabled={busy || !trimmed || unchanged}
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+          >
+            {busy && <Spinner />}
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </>
+      }
+    >
+      <div className="mt-3">
+        <TextField
+          label="Project name"
+          value={name}
+          onChange={setName}
+          placeholder={project.name}
+          required
+        />
+        {!!error && (
+          <p className="mt-2 text-xs text-red-600">{(error as Error).message}</p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

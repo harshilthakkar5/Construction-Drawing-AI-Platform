@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { CardArt, type ArtMotif } from "./CardArt";
 
 /** Shared page furniture: header, card, stat tile, form controls. */
@@ -226,5 +227,180 @@ export function Notice({ tone, children }: { tone: "ok" | "error"; children: Rea
     >
       {children}
     </p>
+  );
+}
+
+// --- Feedback: spinners, loading states, modals ---------------------------
+
+/** Inline activity indicator. Sized in `em` so it matches its text. */
+export function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`h-[1em] w-[1em] animate-spin ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Whole-page loading state, used while a view's primary query is in flight.
+ * `role="status"` so a screen reader announces the wait rather than silence.
+ */
+export function PageLoading({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div
+      role="status"
+      className="grid min-h-[40vh] place-items-center gap-3 text-sm text-ink-muted"
+    >
+      <div className="flex items-center gap-2">
+        <Spinner className="text-brand-600" />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Grey placeholder block, for list/card skeletons. */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded bg-page ${className}`} aria-hidden />;
+}
+
+/**
+ * Modal shell: backdrop click and Escape both cancel, the panel stops
+ * propagation, and focus is trapped only loosely (single-purpose dialogs).
+ */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+  width = "max-w-md",
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: string;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className={`w-full ${width} rounded-lg bg-surface p-4 shadow-xl`}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <h2 className="font-semibold text-ink">{title}</h2>
+        {children}
+        {footer && <div className="mt-4 flex justify-end gap-2">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Secondary/neutral modal button. */
+export function GhostButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-md border border-hairline px-3 py-1.5 text-xs text-ink-soft transition hover:bg-page disabled:opacity-60"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Confirmation before an action that is hard or impossible to undo.
+ *
+ * `tone="danger"` colours the confirm button red and is meant for deletions —
+ * where the dialog's job is to state plainly WHAT disappears, not just to ask
+ * "are you sure". The button stays disabled while the mutation runs so a
+ * double-click can't fire it twice, and a failure is shown in place instead of
+ * closing the dialog and losing the error.
+ */
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = "Confirm",
+  busyLabel = "Working…",
+  tone = "default",
+  busy = false,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  busyLabel?: string;
+  tone?: "default" | "danger";
+  busy?: boolean;
+  error?: unknown;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      title={title}
+      onClose={() => !busy && onCancel()}
+      footer={
+        <>
+          <GhostButton onClick={onCancel} disabled={busy}>
+            Cancel
+          </GhostButton>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white transition disabled:opacity-50 ${
+              tone === "danger"
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-brand-600 hover:bg-brand-700"
+            }`}
+          >
+            {busy && <Spinner />}
+            {busy ? busyLabel : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <div className="mt-3 text-sm leading-relaxed text-ink-soft">{message}</div>
+      {!!error && (
+        <p className="mt-3 text-xs text-red-600">{(error as Error).message}</p>
+      )}
+    </Modal>
   );
 }
