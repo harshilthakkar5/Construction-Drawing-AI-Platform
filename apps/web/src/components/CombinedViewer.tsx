@@ -25,8 +25,17 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   const jumpToPage = useAppStore((s) => s.jumpToPage);
   const highlight = useAppStore((s) => s.highlight);
   const requestJump = useAppStore((s) => s.requestJump);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The scroll container doubles as the IntersectionObserver root, and the
+  // observer can only be built once it exists — hence state, not just a ref.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const setScrollNode = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  /** Mounted page elements by combined page number — see `registerNode`. */
+  const nodesRef = useRef(new Map<number, HTMLElement>());
   const [nearViewport, setNearViewport] = useState<Set<number>>(new Set());
   const [jumpInput, setJumpInput] = useState("");
   const [zoom, setZoom] = useState(() => {
@@ -63,7 +72,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
-  }, [zoom, applyZoom]);
+  }, [zoom, applyZoom, scrollEl]);
 
   const manifest = useQuery({
     queryKey: ["manifest", projectId],
@@ -73,7 +82,31 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   });
   const entries = useMemo(() => manifest.data ?? [], [manifest.data]);
 
+  /**
+   * Track each page element so the observer can pick it up whichever order
+   * they arrive in.
+   *
+   * React attaches refs during commit, BEFORE effects run. On a first visit the
+   * manifest is still loading, so the pages mount after the observer exists and
+   * observing from here works. On a RE-visit the manifest comes straight from
+   * the query cache, so every page element is attached before the observer is
+   * built — the old code observed against a null ref, nothing was ever marked
+   * near the viewport, and the viewer sat on blurred thumbnails forever.
+   */
+  const registerNode = useCallback((combined: number, el: HTMLElement | null) => {
+    const nodes = nodesRef.current;
+    const previous = nodes.get(combined);
+    if (previous && previous !== el) observerRef.current?.unobserve(previous);
+    if (el) {
+      nodes.set(combined, el);
+      observerRef.current?.observe(el);
+    } else {
+      nodes.delete(combined);
+    }
+  }, []);
+
   useEffect(() => {
+    if (!scrollEl) return;
     const observer = new IntersectionObserver(
       (observed) => {
         setNearViewport((prev) => {
@@ -83,18 +116,21 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
             if (o.isIntersecting) next.add(combined);
             else next.delete(combined);
           }
+          // Same membership: return the old set so React skips the re-render.
+          if (next.size === prev.size && [...next].every((n) => prev.has(n))) return prev;
           return next;
         });
       },
-      { root: scrollRef.current, rootMargin: "1500px 0px" },
+      { root: scrollEl, rootMargin: "1500px 0px" },
     );
     observerRef.current = observer;
-    return () => observer.disconnect();
-  }, []);
-
-  const observe = useCallback((el: HTMLElement | null) => {
-    if (el) observerRef.current?.observe(el);
-  }, []);
+    // Catch up on anything mounted before this ran (the re-visit case).
+    for (const el of nodesRef.current.values()) observer.observe(el);
+    return () => {
+      observer.disconnect();
+      observerRef.current = null;
+    };
+  }, [scrollEl]);
 
   // FR-16/FR-18 programmatic jump. Slots above the target change height as
   // images lazy-load, so re-assert the scroll position a few times until the
@@ -207,7 +243,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
 
         {/* Main pages */}
         {/* overflow-auto (not -y): a zoomed page is wider than the pane. */}
-        <div ref={scrollRef} className="flex-1 overflow-auto bg-page p-4">
+        <div ref={setScrollNode} className="flex-1 overflow-auto bg-page p-4">
           {manifest.isLoading && <PageLoading label="Loading pages…" />}
           {!manifest.isLoading && total === 0 && (
             <p className="text-sm text-ink-muted">
@@ -219,7 +255,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
               key={entry.combinedPageNumber}
               id={`combined-page-${entry.combinedPageNumber}`}
               data-combined={entry.combinedPageNumber}
-              ref={observe}
+              ref={(el) => registerNode(entry.combinedPageNumber, el)}
               className="mx-auto mb-4 overflow-hidden rounded-lg border border-hairline bg-surface shadow-sm"
               style={{ width: PAGE_WIDTH * zoom, minHeight: PAGE_WIDTH * zoom * 0.6 }}
             >
@@ -285,6 +321,14 @@ function PageImage({
   near: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // A cached image can already be decoded by the time React attaches onLoad,
+  // so the event never fires and the blurred placeholder would stay up for
+  // good. Check `complete` once the full image is mounted.
+  useEffect(() => {
+    if (near && imgRef.current?.complete) setLoaded(true);
+  }, [near]);
 
   if (!entry.hasImage) {
     return (
@@ -307,6 +351,7 @@ function PageImage({
       )}
       {near && (
         <img
+          ref={imgRef}
           src={api.pageImageUrl(projectId, entry.combinedPageNumber)}
           alt={`Page ${entry.combinedPageNumber}`}
           onLoad={() => setLoaded(true)}
