@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { UserDto } from "@cdip/shared";
 import { api, authToken } from "../api";
 import { BlueprintArt } from "./BlueprintArt";
@@ -10,7 +10,9 @@ import { Logo } from "./Logo";
  * is kept in localStorage and attached to every API call.
  */
 export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<AuthMode>("login");
+  // A reset link lands on the app root as ?reset=<token>.
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -23,7 +25,19 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
 
   const isRegister = mode === "register";
 
-  function switchMode(next: "login" | "register") {
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("reset");
+    if (!token) return;
+    setResetToken(token);
+    setMode("reset");
+    // Strip the token from the address bar: it is a credential, and leaving it
+    // there puts it in browser history, screenshots and shared links.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("reset");
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
+  function switchMode(next: AuthMode) {
     setMode(next);
     setError(null);
     setPassword("");
@@ -59,14 +73,20 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
 
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
           <h1 className="text-center text-[28px] font-bold tracking-tight text-ink">
-            {isRegister ? "Create an account" : "Login to your account"}
+            {HEADINGS[mode].title}
           </h1>
-          <p className="mt-1.5 text-center text-sm text-ink-muted">
-            {isRegister
-              ? "Enter your details to create a new account"
-              : "Enter your email below to login to your account"}
-          </p>
+          <p className="mt-1.5 text-center text-sm text-ink-muted">{HEADINGS[mode].subtitle}</p>
 
+          {mode === "forgot" && <ForgotPasswordForm onBack={() => switchMode("login")} />}
+          {mode === "reset" && (
+            <ResetPasswordForm
+              token={resetToken}
+              onSignedIn={onSignedIn}
+              onExpired={() => switchMode("forgot")}
+            />
+          )}
+
+          {(mode === "login" || mode === "register") && (
           <form className="mt-8 space-y-4" onSubmit={submit}>
             {isRegister && (
               <>
@@ -117,12 +137,13 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
               label="Password"
               aside={
                 !isRegister && (
-                  <span
-                    className="text-sm text-ink-soft"
-                    title="Password reset isn't wired up yet — ask an admin to reset it."
+                  <button
+                    type="button"
+                    className="text-sm text-brand-700 underline underline-offset-4"
+                    onClick={() => switchMode("forgot")}
                   >
                     Forgot your password?
-                  </span>
+                  </button>
                 )
               }
             >
@@ -177,17 +198,20 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
               {busy ? "Please wait…" : isRegister ? "Register" : "Login"}
             </button>
           </form>
+          )}
 
-          <p className="mt-6 text-center text-sm text-ink-soft">
-            {isRegister ? "Already have an account? " : "Don't have an account? "}
-            <button
-              type="button"
-              className="font-medium text-ink underline underline-offset-4"
-              onClick={() => switchMode(isRegister ? "login" : "register")}
-            >
-              {isRegister ? "Login" : "Sign up"}
-            </button>
-          </p>
+          {(mode === "login" || mode === "register") && (
+            <p className="mt-6 text-center text-sm text-ink-soft">
+              {isRegister ? "Already have an account? " : "Don't have an account? "}
+              <button
+                type="button"
+                className="font-medium text-ink underline underline-offset-4"
+                onClick={() => switchMode(isRegister ? "login" : "register")}
+              >
+                {isRegister ? "Login" : "Sign up"}
+              </button>
+            </p>
+          )}
         </div>
       </div>
 
@@ -195,6 +219,251 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
         <BlueprintArt variant={isRegister ? "elevation" : "plan"} />
       </div>
     </div>
+  );
+}
+
+type AuthMode = "login" | "register" | "forgot" | "reset";
+
+const HEADINGS: Record<AuthMode, { title: string; subtitle: string }> = {
+  login: {
+    title: "Login to your account",
+    subtitle: "Enter your email below to login to your account",
+  },
+  register: {
+    title: "Create an account",
+    subtitle: "Enter your details to create a new account",
+  },
+  forgot: {
+    title: "Reset your password",
+    subtitle: "We'll email you a link to choose a new one",
+  },
+  reset: {
+    title: "Choose a new password",
+    subtitle: "Pick something you haven't used here before",
+  },
+};
+
+/**
+ * Request a reset link.
+ *
+ * The confirmation is deliberately vague — "if that address has an account" —
+ * and is shown whether or not the address is registered. Saying "no such user"
+ * would turn this form into a way to test which addresses hold accounts, which
+ * is the same reason the API answers identically either way.
+ */
+function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.forgotPassword(email.trim());
+      setSent(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="mt-8 space-y-4">
+        <p className="rounded-md bg-green-50 px-3 py-2.5 text-sm text-green-800" role="status">
+          If that address has an account, a reset link is on its way. It expires in an hour
+          and works once.
+        </p>
+        <p className="text-sm text-ink-muted">
+          Nothing arrived? Check spam, or{" "}
+          <button
+            type="button"
+            className="text-brand-700 underline underline-offset-4"
+            onClick={() => setSent(false)}
+          >
+            try another address
+          </button>
+          .
+        </p>
+        <button
+          type="button"
+          className="w-full rounded-md border border-hairline py-2.5 text-sm font-medium text-ink-soft transition hover:bg-page"
+          onClick={onBack}
+        >
+          Back to login
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form className="mt-8 space-y-4" onSubmit={submit}>
+      <Field label="Email">
+        <Input
+          icon={<MailIcon />}
+          type="email"
+          placeholder="Enter your email"
+          value={email}
+          onChange={setEmail}
+          autoComplete="email"
+          required
+          autoFocus
+        />
+      </Field>
+
+      {error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+
+      <button
+        className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
+        disabled={busy || !email.trim()}
+      >
+        {busy ? "Sending…" : "Send reset link"}
+      </button>
+      <button
+        type="button"
+        className="w-full rounded-md border border-hairline py-2.5 text-sm font-medium text-ink-soft transition hover:bg-page"
+        onClick={onBack}
+      >
+        Back to login
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Redeem a reset link. The token is validated before the form is shown, so an
+ * expired link says so immediately instead of after the user has typed a new
+ * password twice.
+ */
+function ResetPasswordForm({
+  token,
+  onSignedIn,
+  onExpired,
+}: {
+  token: string | null;
+  onSignedIn: (user: UserDto) => void;
+  onExpired: () => void;
+}) {
+  const [checking, setChecking] = useState(true);
+  const [valid, setValid] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      setChecking(false);
+      return;
+    }
+    api
+      .checkResetToken(token)
+      .then((r) => setValid(r.valid))
+      .catch(() => setValid(false))
+      .finally(() => setChecking(false));
+  }, [token]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.resetPassword(token, password);
+      authToken.set(res.token);
+      onSignedIn(res.user);
+    } catch (err) {
+      setError((err as Error).message.replace(/^POST \S+ → \d+ /, ""));
+      setBusy(false);
+    }
+  }
+
+  if (checking) {
+    return <p className="mt-8 text-center text-sm text-ink-muted">Checking your link…</p>;
+  }
+
+  if (!valid) {
+    return (
+      <div className="mt-8 space-y-4">
+        <p className="rounded-md bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
+          This reset link has expired or was already used. Links last an hour and work once.
+        </p>
+        <button
+          type="button"
+          className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
+          onClick={onExpired}
+        >
+          Send a new link
+        </button>
+      </div>
+    );
+  }
+
+  const tooShort = password.length > 0 && password.length < 8;
+  const mismatch = confirm.length > 0 && confirm !== password;
+
+  return (
+    <form className="mt-8 space-y-4" onSubmit={submit}>
+      <Field label="New password">
+        <Input
+          icon={<LockIcon />}
+          type={show ? "text" : "password"}
+          placeholder="At least 8 characters"
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          minLength={8}
+          required
+          autoFocus
+          trailing={
+            <button
+              type="button"
+              className="text-ink-muted hover:text-ink"
+              onClick={() => setShow((v) => !v)}
+              aria-label={show ? "Hide password" : "Show password"}
+            >
+              <EyeIcon off={show} />
+            </button>
+          }
+        />
+      </Field>
+      <Field label="Confirm new password">
+        <Input
+          icon={<LockIcon />}
+          type={show ? "text" : "password"}
+          placeholder="Type it again"
+          value={confirm}
+          onChange={setConfirm}
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+
+      {(tooShort || mismatch || error) && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {error ?? (tooShort ? "Use at least 8 characters." : "The two passwords don't match.")}
+        </p>
+      )}
+
+      <button
+        className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
+        disabled={busy || password.length < 8 || confirm !== password}
+      >
+        {busy ? "Saving…" : "Set new password"}
+      </button>
+      <p className="text-center text-xs text-ink-muted">
+        Setting a new password signs out every other device.
+      </p>
+    </form>
   );
 }
 

@@ -19,18 +19,46 @@ import { resolveProjectAccess, type ProjectAccess } from "./security.js";
 
 const SESSION_TTL_SECONDS = 7 * 24 * 3600;
 const sessionKey = (token: string) => `session:${token}`;
+/** Reverse index: which sessions belong to a user, so all can be revoked. */
+const userSessionsKey = (userId: string) => `user-sessions:${userId}`;
 
 export { hashPassword, verifyPassword } from "./security.js";
 export type { ProjectAccess } from "./security.js";
 
 export async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString("hex");
-  await redis.set(sessionKey(token), userId, "EX", SESSION_TTL_SECONDS);
+  await redis
+    .multi()
+    .set(sessionKey(token), userId, "EX", SESSION_TTL_SECONDS)
+    .sadd(userSessionsKey(userId), token)
+    // The set can outlive its members; expiring it stops abandoned accounts
+    // accumulating token lists forever. Stale members are harmless — revoking
+    // deletes keys that may already be gone.
+    .expire(userSessionsKey(userId), SESSION_TTL_SECONDS)
+    .exec();
   return token;
 }
 
 export async function destroySession(token: string): Promise<void> {
-  await redis.del(sessionKey(token));
+  const userId = await redis.get(sessionKey(token));
+  const pipeline = redis.multi().del(sessionKey(token));
+  if (userId) pipeline.srem(userSessionsKey(userId), token);
+  await pipeline.exec();
+}
+
+/**
+ * Revoke every session a user has. Called after a password reset: the whole
+ * point of resetting is that someone else may hold a live session, so leaving
+ * those valid would defeat it.
+ */
+export async function destroyAllSessions(userId: string): Promise<number> {
+  const key = userSessionsKey(userId);
+  const tokens = await redis.smembers(key);
+  const pipeline = redis.multi();
+  for (const token of tokens) pipeline.del(sessionKey(token));
+  pipeline.del(key);
+  await pipeline.exec();
+  return tokens.length;
 }
 
 export interface AuthedRequest extends Request {
