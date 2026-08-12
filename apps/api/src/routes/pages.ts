@@ -58,10 +58,27 @@ async function resolvePage(projectId: string, combined: number) {
   return { projectId, ...entry };
 }
 
+/**
+ * How long the browser may reuse a media redirect.
+ *
+ * Every request re-signs the storage URL, so without this the redirect target
+ * changed on each load and the browser treated an already-downloaded page image
+ * as a brand-new resource — re-opening a project re-fetched every page it
+ * showed. Caching the 302 means the same presigned URL comes back, so the image
+ * itself is served from the browser cache.
+ *
+ * `private` because the URL is a capability: it must not be held by a shared
+ * proxy. Well inside the 1-hour presign expiry, so a cached redirect can never
+ * point at an expired signature. Rendered pages are immutable — reprocessing a
+ * document writes the same key — so a stale window costs nothing.
+ */
+const MEDIA_REDIRECT_CACHE = "private, max-age=600";
+
 pagesRouter.get("/pages/:combined/image", async (req, res) => {
   const { projectId, combined } = pageParams.parse(req.params);
   const entry = await resolvePage(projectId, combined);
   if (!entry) return void res.status(404).json({ error: "page not found" });
+  res.set("Cache-Control", MEDIA_REDIRECT_CACHE);
   res.redirect(
     302,
     await presignGetObject(objectKeys.pageImage(projectId, entry.documentId, entry.pageNumber)),
@@ -98,6 +115,7 @@ pagesRouter.get("/pages/:combined/thumb", async (req, res) => {
   const { projectId, combined } = pageParams.parse(req.params);
   const entry = await resolvePage(projectId, combined);
   if (!entry) return void res.status(404).json({ error: "page not found" });
+  res.set("Cache-Control", MEDIA_REDIRECT_CACHE);
   res.redirect(
     302,
     await presignGetObject(objectKeys.pageThumb(projectId, entry.documentId, entry.pageNumber)),
