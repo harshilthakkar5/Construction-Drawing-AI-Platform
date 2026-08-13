@@ -80,6 +80,28 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request<AuthResponseDto>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   logout: () => request<void>("/auth/logout", { method: "POST", body: JSON.stringify({}) }),
+
+  /** Ask for a reset link. Always succeeds — the API never reveals whether the
+   * address is registered, so the UI must not either. */
+  forgotPassword: (email: string) =>
+    request<{ sent: boolean; message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  /** Is a reset link still good? Checked before showing the form. */
+  checkResetToken: (token: string) =>
+    request<{ valid: boolean }>("/auth/reset-password/check", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
+  /** Redeem a reset link; signs the user straight in. */
+  resetPassword: (token: string, password: string) =>
+    request<AuthResponseDto>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
   me: () => request<UserDto>("/auth/me"),
   /** Account page: update the signed-in user's own profile. */
   updateProfile: (body: {

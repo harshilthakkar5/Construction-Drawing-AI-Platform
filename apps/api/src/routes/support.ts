@@ -2,11 +2,18 @@ import { Router } from "express";
 import { z } from "zod";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
+import { env } from "../env.js";
+import { sendMail, supportAckMail, supportTicketMail } from "../mailer.js";
 import { sanitizeText } from "../sanitize.js";
 
 /**
- * Support form. Tickets are persisted (support_tickets) and logged; there is
- * no outbound mail from the API — a mailer/webhook can read the table.
+ * Support form. The ticket is persisted first and is the record of truth; the
+ * email is a notification on top. Mail is therefore best-effort and never
+ * fails the request — losing the message because a mail server hiccuped would
+ * be far worse than a missed notification, and the row is still queryable.
+ *
+ * With SUPPORT_EMAIL unset (or no SMTP at all) tickets are stored and logged
+ * exactly as before.
  */
 export const supportRouter = Router();
 
@@ -30,7 +37,15 @@ supportRouter.post("/", async (req, res) => {
     },
   });
   console.log(`[support] ticket ${ticket.id} from ${ticket.email}: ${ticket.subject}`);
+
+  // Answer as soon as it is stored; notifying is not the user's problem.
   res.status(201).json({ id: ticket.id, createdAt: ticket.createdAt });
+
+  if (env.SUPPORT_EMAIL) {
+    // replyTo is the submitter, so answering the notification reaches them.
+    void sendMail(supportTicketMail(env.SUPPORT_EMAIL, ticket));
+  }
+  void sendMail(supportAckMail(ticket.email, ticket.name, ticket.subject));
 });
 
 /** The signed-in user's own tickets (most recent first). */

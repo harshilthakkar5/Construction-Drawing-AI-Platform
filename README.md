@@ -148,6 +148,35 @@ either way, the API only ever redirects to short-lived presigned storage URLs.
 - Projects created before Phase 5 have no owner and stay accessible to any
   authenticated user.
 
+### Password reset and email
+
+`POST /auth/forgot-password {email}` sends a one-hour, single-use link to
+`APP_URL/?reset=<token>`; the reset screen redeems it via
+`POST /auth/reset-password {token, password}` and signs the user straight in.
+`POST /auth/reset-password/check {token}` reports whether a link is still good,
+so an expired one says so before the user types anything.
+
+What the implementation is careful about:
+
+- **No account enumeration.** `forgot-password` always answers `202` with the
+  same body, whether or not the address is registered and whether or not the
+  mail actually went out.
+- **Tokens are stored hashed** (SHA-256), never in the clear — a leaked Redis
+  dump yields nothing usable. Redemption is an atomic `GETDEL`, so a link works
+  exactly once even under concurrent requests.
+- **A reset revokes every existing session** for that account. Resetting exists
+  precisely because someone else may be holding one.
+- **Per-address throttle**: 3 requests per 15 minutes, so the endpoint can't be
+  used to flood someone's inbox.
+- The token is **stripped from the address bar** once the reset screen reads it.
+
+Email is optional. With `SMTP_HOST` unset the API logs each message — reset
+link included — to the server console, so local development and CI work with no
+mail server. Support tickets are persisted first and mailed second: the ticket
+row is the record of truth and a mail failure never fails the request. Set
+`SUPPORT_EMAIL` to receive them (`Reply-To` is the submitter) — the submitter
+also gets an acknowledgement.
+
 Uploads are validated after completion (must start with the `%PDF-` magic bytes,
 `.pdf` filename, 2 GiB cap, sanitized name) and pass through a malware-scan hook:
 set `MALWARE_SCAN_URL` to a scanner endpoint (`POST {key, url}` →

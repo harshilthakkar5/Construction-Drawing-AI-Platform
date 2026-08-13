@@ -24,6 +24,28 @@ const envSchema = z.object({
   // Not needed to boot the scaffold; required once AI features land.
   ANTHROPIC_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
+
+  /**
+   * Outbound email (password resets, support tickets). Entirely optional: with
+   * no SMTP_HOST the mailer logs each message — including the reset link — to
+   * the server console instead of sending it, so local development works with
+   * no mail server. See apps/api/src/mailer.ts.
+   */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  /** true for implicit TLS on 465; false for STARTTLS on 587. */
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  /** From header, e.g. "ArcAligned AI <no-reply@example.com>". */
+  MAIL_FROM: z.string().default("ArcAligned AI <no-reply@localhost>"),
+  /** Where support tickets are delivered. Unset = persisted and logged only. */
+  SUPPORT_EMAIL: z.string().email().optional(),
+  /** Public URL of the web app — used to build the password-reset link. */
+  APP_URL: z.string().url().default("http://localhost:3000"),
 });
 
 export const env = envSchema.parse(process.env);
