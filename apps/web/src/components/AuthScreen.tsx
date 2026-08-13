@@ -1,8 +1,21 @@
 import { useEffect, useState } from "react";
 import type { UserDto } from "@cdip/shared";
-import { api, authToken } from "../api";
-import { BlueprintArt } from "./BlueprintArt";
-import { Logo } from "./Logo";
+import {
+  Building2Icon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  MailIcon,
+  UserIcon,
+} from "lucide-react";
+import { api, authToken } from "@/api";
+import { BlueprintArt } from "@/components/BlueprintArt";
+import { Logo } from "@/components/Logo";
+import { ModeToggle } from "@/components/theme-provider";
+import { Button } from "@/components/ui/button";
+import { Input as TextInput } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 /**
  * Split auth layout: form on the left, an animated blueprint on the right
@@ -68,14 +81,17 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
 
   return (
     <div className="grid h-full grid-cols-1 lg:grid-cols-2">
-      <div className="relative flex flex-col overflow-y-auto bg-surface px-6 py-8 sm:px-12">
-        <Logo />
+      <div className="bg-background relative flex flex-col overflow-y-auto px-6 py-8 sm:px-12">
+        <div className="flex items-center justify-between">
+          <Logo />
+          <ModeToggle />
+        </div>
 
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
-          <h1 className="text-center text-[28px] font-bold tracking-tight text-ink">
+          <h1 className="text-center text-[28px] font-bold tracking-tight">
             {HEADINGS[mode].title}
           </h1>
-          <p className="mt-1.5 text-center text-sm text-ink-muted">{HEADINGS[mode].subtitle}</p>
+          <p className="mt-1.5 text-center text-sm text-muted-foreground">{HEADINGS[mode].subtitle}</p>
 
           {mode === "forgot" && <ForgotPasswordForm onBack={() => switchMode("login")} />}
           {mode === "reset" && (
@@ -92,7 +108,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
               <>
                 <Field label="First Name">
                   <Input
-                    icon={<UserIcon />}
+                    icon={<UserIcon className="size-4" />}
                     placeholder="Enter your first name"
                     value={firstName}
                     onChange={setFirstName}
@@ -102,7 +118,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
                 </Field>
                 <Field label="Last Name">
                   <Input
-                    icon={<UserIcon />}
+                    icon={<UserIcon className="size-4" />}
                     placeholder="Enter your last name"
                     value={lastName}
                     onChange={setLastName}
@@ -111,7 +127,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
                 </Field>
                 <Field label="Company Name (Optional)">
                   <Input
-                    icon={<BuildingIcon />}
+                    icon={<Building2Icon className="size-4" />}
                     placeholder="Enter company name (optional)"
                     value={company}
                     onChange={setCompany}
@@ -123,7 +139,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
 
             <Field label="Email">
               <Input
-                icon={<MailIcon />}
+                icon={<MailIcon className="size-4" />}
                 type="email"
                 placeholder="Enter your email"
                 value={email}
@@ -137,18 +153,19 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
               label="Password"
               aside={
                 !isRegister && (
-                  <button
+                  <Button
                     type="button"
-                    className="text-sm text-brand-700 underline underline-offset-4"
+                    variant="link"
+                    className="h-auto p-0 text-sm"
                     onClick={() => switchMode("forgot")}
                   >
                     Forgot your password?
-                  </button>
+                  </Button>
                 )
               }
             >
               <Input
-                icon={<LockIcon />}
+                icon={<LockIcon className="size-4" />}
                 type={showPassword ? "text" : "password"}
                 placeholder="Enter your password"
                 value={password}
@@ -159,57 +176,59 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
                 trailing={
                   <button
                     type="button"
-                    className="text-ink-muted hover:text-ink"
+                    className="text-muted-foreground hover:text-foreground"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    <EyeIcon off={showPassword} />
+                    {showPassword ? (
+                      <EyeOffIcon className="size-4" />
+                    ) : (
+                      <EyeIcon className="size-4" />
+                    )}
                   </button>
                 }
               />
             </Field>
 
             {isRegister && (
-              <label className="flex items-start gap-2 text-sm text-ink-soft">
+              <label className="flex items-start gap-2 text-sm text-muted-foreground">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-hairline accent-brand-700"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                   checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)}
                   required
                 />
                 <span>
-                  I agree to the <span className="text-brand-700">terms of service</span> and{" "}
-                  <span className="text-brand-700">privacy policy</span>
+                  I agree to the <span className="text-primary">terms of service</span> and{" "}
+                  <span className="text-primary">privacy policy</span>
                 </span>
               </label>
             )}
 
             {error && (
-              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
                 {error}
               </p>
             )}
 
-            <button
-              className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
-              disabled={busy || (isRegister && !agreed)}
-            >
+            <Button type="submit" className="w-full" disabled={busy || (isRegister && !agreed)}>
               {busy ? "Please wait…" : isRegister ? "Register" : "Login"}
-            </button>
+            </Button>
           </form>
           )}
 
           {(mode === "login" || mode === "register") && (
-            <p className="mt-6 text-center text-sm text-ink-soft">
+            <p className="mt-6 text-center text-sm text-muted-foreground">
               {isRegister ? "Already have an account? " : "Don't have an account? "}
-              <button
+              <Button
                 type="button"
-                className="font-medium text-ink underline underline-offset-4"
+                variant="link"
+                className="h-auto p-0 font-medium"
                 onClick={() => switchMode(isRegister ? "login" : "register")}
               >
                 {isRegister ? "Login" : "Sign up"}
-              </button>
+              </Button>
             </p>
           )}
         </div>
@@ -274,28 +293,25 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   if (sent) {
     return (
       <div className="mt-8 space-y-4">
-        <p className="rounded-md bg-green-50 px-3 py-2.5 text-sm text-green-800" role="status">
+        <p className="rounded-md bg-success/10 px-3 py-2.5 text-sm text-success" role="status">
           If that address has an account, a reset link is on its way. It expires in an hour
           and works once.
         </p>
-        <p className="text-sm text-ink-muted">
+        <p className="text-sm text-muted-foreground">
           Nothing arrived? Check spam, or{" "}
-          <button
+          <Button
             type="button"
-            className="text-brand-700 underline underline-offset-4"
+            variant="link"
+            className="h-auto p-0"
             onClick={() => setSent(false)}
           >
             try another address
-          </button>
+          </Button>
           .
         </p>
-        <button
-          type="button"
-          className="w-full rounded-md border border-hairline py-2.5 text-sm font-medium text-ink-soft transition hover:bg-page"
-          onClick={onBack}
-        >
+        <Button type="button" variant="outline" className="w-full" onClick={onBack}>
           Back to login
-        </button>
+        </Button>
       </div>
     );
   }
@@ -304,7 +320,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
     <form className="mt-8 space-y-4" onSubmit={submit}>
       <Field label="Email">
         <Input
-          icon={<MailIcon />}
+          icon={<MailIcon className="size-4" />}
           type="email"
           placeholder="Enter your email"
           value={email}
@@ -316,24 +332,17 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
       </Field>
 
       {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
 
-      <button
-        className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
-        disabled={busy || !email.trim()}
-      >
+      <Button type="submit" className="w-full" disabled={busy || !email.trim()}>
         {busy ? "Sending…" : "Send reset link"}
-      </button>
-      <button
-        type="button"
-        className="w-full rounded-md border border-hairline py-2.5 text-sm font-medium text-ink-soft transition hover:bg-page"
-        onClick={onBack}
-      >
+      </Button>
+      <Button type="button" variant="outline" className="w-full" onClick={onBack}>
         Back to login
-      </button>
+      </Button>
     </form>
   );
 }
@@ -388,22 +397,18 @@ function ResetPasswordForm({
   }
 
   if (checking) {
-    return <p className="mt-8 text-center text-sm text-ink-muted">Checking your link…</p>;
+    return <p className="mt-8 text-center text-sm text-muted-foreground">Checking your link…</p>;
   }
 
   if (!valid) {
     return (
       <div className="mt-8 space-y-4">
-        <p className="rounded-md bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
+        <p className="rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive" role="alert">
           This reset link has expired or was already used. Links last an hour and work once.
         </p>
-        <button
-          type="button"
-          className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
-          onClick={onExpired}
-        >
+        <Button type="button" className="w-full" onClick={onExpired}>
           Send a new link
-        </button>
+        </Button>
       </div>
     );
   }
@@ -415,7 +420,7 @@ function ResetPasswordForm({
     <form className="mt-8 space-y-4" onSubmit={submit}>
       <Field label="New password">
         <Input
-          icon={<LockIcon />}
+          icon={<LockIcon className="size-4" />}
           type={show ? "text" : "password"}
           placeholder="At least 8 characters"
           value={password}
@@ -427,18 +432,18 @@ function ResetPasswordForm({
           trailing={
             <button
               type="button"
-              className="text-ink-muted hover:text-ink"
+              className="text-muted-foreground hover:text-foreground"
               onClick={() => setShow((v) => !v)}
               aria-label={show ? "Hide password" : "Show password"}
             >
-              <EyeIcon off={show} />
+              {show ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
             </button>
           }
         />
       </Field>
       <Field label="Confirm new password">
         <Input
-          icon={<LockIcon />}
+          icon={<LockIcon className="size-4" />}
           type={show ? "text" : "password"}
           placeholder="Type it again"
           value={confirm}
@@ -449,18 +454,19 @@ function ResetPasswordForm({
       </Field>
 
       {(tooShort || mismatch || error) && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
           {error ?? (tooShort ? "Use at least 8 characters." : "The two passwords don't match.")}
         </p>
       )}
 
-      <button
-        className="w-full rounded-md bg-brand-700 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
+      <Button
+        type="submit"
+        className="w-full"
         disabled={busy || password.length < 8 || confirm !== password}
       >
         {busy ? "Saving…" : "Set new password"}
-      </button>
-      <p className="text-center text-xs text-ink-muted">
+      </Button>
+      <p className="text-center text-xs text-muted-foreground">
         Setting a new password signs out every other device.
       </p>
     </form>
@@ -490,7 +496,9 @@ function Field({
   return (
     <label className="block">
       <span className="flex items-center justify-between pb-1.5">
-        <span className="text-sm font-medium text-ink">{label}</span>
+        <Label asChild>
+          <span>{label}</span>
+        </Label>
         {aside}
       </span>
       {children}
@@ -498,11 +506,13 @@ function Field({
   );
 }
 
+/** shadcn Input with room for a leading glyph and a trailing control. */
 function Input({
   icon,
   trailing,
   value,
   onChange,
+  className,
   ...rest
 }: {
   icon?: React.ReactNode;
@@ -511,59 +521,21 @@ function Input({
   onChange: (v: string) => void;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
   return (
-    <span className="flex items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
-      {icon && <span className="text-ink-muted">{icon}</span>}
-      <input
-        className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-muted"
+    <span className="relative block">
+      {icon && (
+        <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2">
+          {icon}
+        </span>
+      )}
+      <TextInput
+        className={cn(icon && "pl-9", trailing && "pr-9", className)}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         {...rest}
       />
-      {trailing}
+      {trailing && (
+        <span className="absolute top-1/2 right-3 -translate-y-1/2">{trailing}</span>
+      )}
     </span>
   );
 }
-
-const iconProps = {
-  width: 16,
-  height: 16,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-const MailIcon = () => (
-  <svg {...iconProps}>
-    <rect x="2" y="4" width="20" height="16" rx="2" />
-    <path d="m2 7 10 6 10-6" />
-  </svg>
-);
-const LockIcon = () => (
-  <svg {...iconProps}>
-    <rect x="4" y="10" width="16" height="11" rx="2" />
-    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-  </svg>
-);
-const UserIcon = () => (
-  <svg {...iconProps}>
-    <circle cx="12" cy="8" r="4" />
-    <path d="M4 21a8 8 0 0 1 16 0" />
-  </svg>
-);
-const BuildingIcon = () => (
-  <svg {...iconProps}>
-    <rect x="4" y="3" width="16" height="18" rx="1.5" />
-    <path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3" />
-  </svg>
-);
-const EyeIcon = ({ off }: { off: boolean }) => (
-  <svg {...iconProps}>
-    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z" />
-    <circle cx="12" cy="12" r="3" />
-    {off && <path d="m4 20 16-16" />}
-  </svg>
-);

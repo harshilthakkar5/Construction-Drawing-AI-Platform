@@ -1,5 +1,6 @@
 import type { SummaryEstimateDto } from "@cdip/shared";
-import { GhostButton, Modal, Spinner } from "./ui";
+import { Modal, Spinner } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 
 /**
  * Confirmation before a summary run. Summaries are the most expensive thing a
@@ -42,27 +43,22 @@ export function SummaryConfirm({
       onClose={() => !busy && onCancel()}
       footer={
         <>
-          <GhostButton onClick={onCancel} disabled={busy}>
+          <Button variant="outline" onClick={onCancel} disabled={busy}>
             Cancel
-          </GhostButton>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
-            onClick={onConfirm}
-            disabled={busy || isLoading || nothingToDo}
-          >
+          </Button>
+          <Button onClick={onConfirm} disabled={busy || isLoading || nothingToDo}>
             {busy && <Spinner />}
             {busy ? "Starting…" : "Generate summary"}
-          </button>
+          </Button>
         </>
       }
     >
       {isLoading && (
-        <p className="mt-3 text-sm text-ink-muted">Working out the cost…</p>
+        <p className="mt-3 text-sm text-muted-foreground">Working out the cost…</p>
       )}
 
       {!!error && (
-        <p className="mt-3 text-sm text-red-600">
+        <p className="mt-3 text-sm text-destructive">
           Could not estimate the cost: {(error as Error).message}
         </p>
       )}
@@ -70,20 +66,20 @@ export function SummaryConfirm({
       {estimate && !isLoading && (
         <>
           {nothingToDo ? (
-            <p className="mt-3 text-sm text-ink-soft">
+            <p className="mt-3 text-sm text-muted-foreground">
               There is nothing to summarize here — this discipline has no pages
               with extracted text yet.
             </p>
           ) : (
             <>
-              <div className="mt-3 rounded-md border border-hairline">
-                <div className="flex items-baseline justify-between border-b border-hairline px-3 py-2.5">
-                  <span className="text-sm text-ink-soft">Estimated cost</span>
-                  <span className="text-lg font-semibold tabular-nums text-ink">
+              <div className="mt-3 rounded-md border border-border">
+                <div className="flex items-baseline justify-between border-b border-border px-3 py-2.5">
+                  <span className="text-sm text-muted-foreground">Estimated cost</span>
+                  <span className="text-lg font-semibold tabular-nums text-foreground">
                     about {money(estimate.costUsd)}
                   </span>
                 </div>
-                <dl className="divide-y divide-hairline text-xs">
+                <dl className="divide-y divide-border text-xs">
                   <Row
                     label="Model calls"
                     value={`${estimate.totalCalls}`}
@@ -124,7 +120,7 @@ export function SummaryConfirm({
                   <Row label="Model" value={estimate.model} />
                 </dl>
               </div>
-              <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
                 The call count is exact; the length of each answer is estimated
                 from previous runs, so the real cost will differ somewhat.
               </p>
@@ -147,10 +143,10 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 px-3 py-2">
-      <dt className="text-ink-muted">{label}</dt>
+      <dt className="text-muted-foreground">{label}</dt>
       <dd className="text-right">
-        <span className="font-medium tabular-nums text-ink">{value}</span>
-        {detail && <span className="ml-2 text-ink-muted">{detail}</span>}
+        <span className="font-medium tabular-nums text-foreground">{value}</span>
+        {detail && <span className="ml-2 text-muted-foreground">{detail}</span>}
       </dd>
     </div>
   );

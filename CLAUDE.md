@@ -91,7 +91,9 @@ embeddings → summaries.
 
 ## Tech stack (fixed — do not substitute)
 
-- Frontend: React + TypeScript, TanStack Query, Zustand, Tailwind CSS
+- Frontend: React + TypeScript, TanStack Query, Zustand, Tailwind CSS v4, shadcn/ui (Radix +
+  class-variance-authority; components live in `apps/web/src/components/ui`, imported via the
+  `@/` alias)
 - PDF rendering: PDF.js / react-pdf (programmatic page jump + region highlight)
 - Backend API: Node.js (Express), REST
 - Processing workers: Python (PyMuPDF, pdfplumber, PaddleOCR, OpenCV)
@@ -283,10 +285,29 @@ so they survive a page changing discipline; only section/portion rollups hang of
 
 ## UI layout
 
-Three panes: Sidebar (project summary + portion list) | Middle (chat with clickable sources) |
-Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g. "Structural")
-switches the summary panel, jumps the viewer to the portion's start page, and optionally filters
-chat retrieval to that portion.
+Signed-in chrome is shadcn's inset sidebar shell (`apps/web/src/components/AppShell.tsx`):
+collapsible sidebar (brand, grouped nav, user menu) + a sticky header carrying the sidebar
+trigger, the page name, the light/dark toggle and the account menu. Navigation is store state
+(`view` + `selectedProjectId`), not a router.
+
+Inside a project, three panes: Sidebar (project summary + portion list) | Middle (chat with
+clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g.
+"Structural") switches the summary panel, jumps the viewer to the portion's start page, and
+optionally filters chat retrieval to that portion.
+
+### Design system
+
+Every colour is a semantic token defined for both themes in `apps/web/src/index.css`
+(`background`, `card`, `muted`, `primary`, `border`, `sidebar`, `destructive`, `success`,
+`warning`, plus `chart-1..5` and `status-*` for data viz). Components never carry a raw hex, and
+dark mode is a variable swap — the `.dark` class on `<html>`, driven by
+`components/theme-provider.tsx` (light / dark / system, persisted). Build UI out of the
+primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
+`components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
+`PageLoading`); charts read their colours from `charts/palette.ts`, which resolves to those same
+tokens. The shadcn sources target React 19 — on this app's React 18, any component used as a
+Radix `asChild` trigger (`Button`, `SidebarMenuButton`, `Input`, `Textarea`) must keep its
+`forwardRef`.
 
 ## Parallelism
 

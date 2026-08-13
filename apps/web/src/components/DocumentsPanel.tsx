@@ -1,36 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { DocumentDto, DocumentStatus } from "@cdip/shared";
-import { api } from "../api";
-import { ConfirmDialog, Spinner } from "./ui";
-import { uploadPdf } from "../upload";
+import { FileTextIcon, UploadIcon } from "lucide-react";
+import { api } from "@/api";
+import { ConfirmDialog, Spinner } from "@/components/shared";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { STATUS_COLORS } from "@/charts/palette";
+import { uploadPdf } from "@/upload";
 
-function PdfIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#d03b3b"
-      strokeWidth="1.7"
-      strokeLinejoin="round"
-      className="shrink-0"
-      aria-hidden
-    >
-      <path d="M7 3h7l5 5v13H7z" />
-      <path d="M14 3v5h5" />
-      <path d="M9.5 17v-3.5h1.2a1.1 1.1 0 0 1 0 2.2H9.5M14 17v-3.5h1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Dot colors match the dashboard's document-status donut (charts/palette.ts). */
+/** Dot colours come from the same tokens as the dashboard's status donut. */
 const statusDot: Record<DocumentStatus, string> = {
-  uploaded: "#2a78d6",
-  processing: "#eda100",
-  completed: "#0ca30c",
-  failed: "#d03b3b",
+  uploaded: STATUS_COLORS.uploaded!,
+  processing: STATUS_COLORS.processing!,
+  completed: STATUS_COLORS.completed!,
+  failed: STATUS_COLORS.failed!,
 };
 
 /** FR-9: per-document status, polled while anything is still in flight.
@@ -105,19 +90,20 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
 
   return (
     <section>
-      <h3 className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
         Documents
       </h3>
       <div className="px-3 pb-3 pt-1">
-        <button
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
+        <Button
+          className="w-full"
           onClick={() => {
             setReplaceTarget(undefined);
             fileInput.current?.click();
           }}
         >
-          <span aria-hidden>↑</span> Upload PDFs
-        </button>
+          <UploadIcon />
+          Upload PDFs
+        </Button>
         <input
           ref={fileInput}
           type="file"
@@ -132,61 +118,53 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         />
         {Object.entries(uploads).map(([name, progress]) => (
           <div key={name} className="mt-2 text-xs">
-            <div className="truncate text-ink-soft">{name}</div>
+            <div className="truncate text-muted-foreground">{name}</div>
             {progress === "error" ? (
-              <div className="text-red-600">
+              <div className="text-destructive">
                 upload failed — select the file again to resume
               </div>
             ) : (
-              <div className="mt-1 h-1.5 rounded bg-page">
-                <div
-                  className="h-1.5 rounded bg-brand-500 transition-all"
-                  style={{ width: `${Math.round(progress * 100)}%` }}
-                />
-              </div>
+              <Progress className="mt-1 h-1.5" value={Math.round(progress * 100)} />
             )}
           </div>
         ))}
       </div>
 
-      <ul className="divide-y divide-hairline border-t border-hairline">
+      <ul className="divide-y border-t">
         {documents.data?.map((doc) => (
           <li
             key={doc.id}
             className={`p-3 text-sm ${doc.supersededAt ? "opacity-50" : ""}`}
           >
             <div className="flex items-center gap-2">
-              <PdfIcon />
-              <span className="truncate font-medium text-ink" title={doc.filename}>
+              <FileTextIcon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              <span className="truncate font-medium" title={doc.filename}>
                 {doc.filename}
               </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-page px-2 py-0.5 text-xs font-medium text-ink-soft">
+              <Badge variant="outline" className="gap-1.5 font-normal">
                 <span
-                  className="h-1.5 w-1.5 rounded-full"
+                  className="size-1.5 rounded-full"
                   style={{ background: statusDot[doc.status] }}
                   aria-hidden
                 />
                 {doc.status}
-              </span>
-              {doc.revision > 1 && (
-                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
-                  rev {doc.revision}
-                </span>
-              )}
+              </Badge>
+              {doc.revision > 1 && <Badge variant="secondary">rev {doc.revision}</Badge>}
               {doc.supersededAt ? (
-                <span className="text-xs text-ink-muted">superseded</span>
+                <span className="text-xs text-muted-foreground">superseded</span>
               ) : (
                 <>
                   {doc.pages > 0 && (
-                    <span className="text-xs text-ink-muted">
+                    <span className="text-xs text-muted-foreground">
                       {doc.pages} pages
                     </span>
                   )}
                   {doc.status === "completed" && (
-                    <button
-                      className="ml-auto text-xs text-brand-700 hover:underline"
+                    <Button
+                      variant="link"
+                      className="ml-auto h-auto p-0 text-xs"
                       title="Upload a newer revision of this drawing set (FR-4)"
                       onClick={() => {
                         setReplaceTarget(doc.id);
@@ -194,32 +172,34 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       }}
                     >
                       New revision
-                    </button>
+                    </Button>
                   )}
                   {/* While a document is uploading or processing there is
                       nothing to retry — the worker is mid-run and a second job
                       would only race it. Show progress instead; Retry appears
                       only once the pipeline has actually given up. */}
                   {(doc.status === "uploaded" || doc.status === "processing") && (
-                    <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-ink-muted">
-                      <Spinner className="text-brand-600" />
+                    <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Spinner />
                       {doc.status === "uploaded" ? "Queued…" : "Processing…"}
                     </span>
                   )}
                   {doc.status === "failed" && (
-                    <button
-                      className="ml-auto inline-flex items-center gap-1.5 text-xs text-brand-700 hover:underline disabled:opacity-60"
+                    <Button
+                      variant="link"
+                      className="ml-auto h-auto gap-1.5 p-0 text-xs"
                       title="Re-run processing — already-finished pages are skipped, so it resumes where it stopped"
                       disabled={retry.isPending}
                       onClick={() => retry.mutate(doc.id)}
                     >
                       {retry.isPending && <Spinner />}
                       {retry.isPending ? "Retrying…" : "Retry"}
-                    </button>
+                    </Button>
                   )}
                   {doc.status === "failed" && (
-                    <button
-                      className="text-xs text-red-600 hover:underline"
+                    <Button
+                      variant="link"
+                      className="text-destructive h-auto p-0 text-xs"
                       title="Delete this document everywhere (database, storage, search index)"
                       onClick={() => {
                         remove.reset();
@@ -227,7 +207,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       }}
                     >
                       Delete
-                    </button>
+                    </Button>
                   )}
                 </>
               )}
@@ -235,12 +215,12 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
           </li>
         ))}
         {documents.data?.length === 0 && (
-          <li className="p-3 text-sm text-ink-muted">No documents yet.</li>
+          <li className="p-3 text-sm text-muted-foreground">No documents yet.</li>
         )}
       </ul>
 
       {retry.isError && (
-        <p className="px-3 py-2 text-xs text-red-600">
+        <p className="px-3 py-2 text-xs text-destructive">
           {(retry.error as Error).message}
         </p>
       )}
@@ -261,7 +241,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                 This removes the PDF from storage along with its pages, chunks and
                 search index. It cannot be undone.
               </p>
-              <p className="mt-2 text-xs text-ink-muted">
+              <p className="mt-2 text-xs text-muted-foreground">
                 Other documents in this project are renumbered afterwards.
               </p>
             </>
