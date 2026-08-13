@@ -7,6 +7,10 @@ PyMuPDF==1.25.2
 pdfplumber==0.11.5
 
 # OCR (FR-7: applied when a page lacks a text layer)
+# PaddleOCR imports pkg_resources at import time, which ships inside
+# setuptools — no longer bundled with a fresh venv on Python 3.12+, so it has
+# to be requested explicitly or OCR silently disables itself.
+setuptools>=70
 paddleocr==2.9.1
 paddlepaddle==2.6.2
 opencv-python-headless==4.10.0.84

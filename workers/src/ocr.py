@@ -26,7 +26,14 @@ def _get_engine():
 
         _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
     except Exception as exc:  # ImportError or model download failure
-        log.warning("PaddleOCR unavailable, OCR disabled: %s", exc)
+        # Name the consequence, not just the cause: without OCR a scanned or
+        # flattened sheet yields no text at all — no page content to chunk, and
+        # an empty title-block region, so the sheet ends up unclassified.
+        log.warning(
+            "PaddleOCR unavailable, OCR disabled (%s) — scanned pages will "
+            "return no text and no sheet number. Fix: pip install -r requirements.txt",
+            exc,
+        )
         _unavailable = True
     return _engine
 
