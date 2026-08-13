@@ -1,14 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, authToken } from "./api";
-import { AppShell } from "./components/AppShell";
-import { AuthScreen } from "./components/AuthScreen";
-import { ProjectView } from "./components/ProjectView";
-import { AccountPage } from "./pages/AccountPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { SupportPage } from "./pages/SupportPage";
-import { useAppStore } from "./store";
+import { api, authToken } from "@/api";
+import { AppShell } from "@/components/AppShell";
+import { AuthScreen } from "@/components/AuthScreen";
+import { ProjectView } from "@/components/ProjectView";
+import { PageLoading } from "@/components/shared";
+import { AccountPage } from "@/pages/AccountPage";
+import { DashboardPage } from "@/pages/DashboardPage";
+import { ProjectsPage } from "@/pages/ProjectsPage";
+import { SupportPage } from "@/pages/SupportPage";
+import { useAppStore } from "@/store";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -39,8 +40,8 @@ export function App() {
 
   if (checkingSession) {
     return (
-      <div className="grid h-full place-items-center text-sm text-ink-muted">
-        Restoring session…
+      <div className="grid h-full place-items-center">
+        <PageLoading label="Restoring session…" />
       </div>
     );
   }

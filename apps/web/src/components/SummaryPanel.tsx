@@ -1,37 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { SummaryItem } from "@cdip/shared";
-import { api } from "../api";
-import { useAppStore } from "../store";
-import { SummaryConfirm } from "./SummaryConfirm";
+import { api } from "@/api";
+import { Spinner } from "@/components/shared";
+import { SummaryConfirm } from "@/components/SummaryConfirm";
+import { Button } from "@/components/ui/button";
+import { useAppStore } from "@/store";
 
 /** How long the panel keeps showing "Summarizing…" before giving up waiting. */
 const REBUILD_TIMEOUT_MS = 5 * 60 * 1000;
-
-function Spinner() {
-  return (
-    <svg
-      className="h-3 w-3 animate-spin"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-      />
-    </svg>
-  );
-}
 
 /**
  * FR-10..12 + FR-18/19: shows the project summary by default and the selected
@@ -185,14 +162,14 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     : portionsReady;
 
   return (
-    <section className="border-b border-hairline">
-      <h3 className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+    <section className="border-b">
+      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
         {heading}
       </h3>
       <div className="px-3 pb-3">
         {!summary && (
           <div className="space-y-2">
-            <p className="text-xs text-ink-muted">
+            <p className="text-xs text-muted-foreground">
               {summaries.isLoading
                 ? "Loading…"
                 : waiting
@@ -207,8 +184,10 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                           "No summary yet. Generate a discipline summary from the categories above, then roll them up into a project summary.")}
             </p>
             {!summaries.isLoading && canGenerate && (
-              <button
-                className="inline-flex items-center gap-1.5 rounded border border-hairline px-2 py-1 text-xs text-ink-soft hover:bg-page disabled:opacity-60"
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
                 onClick={() => setConfirming(true)}
                 disabled={generate.isPending || waiting}
               >
@@ -220,42 +199,42 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                     : selectedPortionId
                       ? `Generate ${selectedPortion?.name ?? "portion"} summary`
                       : "Generate project summary"}
-              </button>
+              </Button>
             )}
             {generate.isError && (
-              <p className="text-xs text-red-600">{(generate.error as Error).message}</p>
+              <p className="text-xs text-destructive">{(generate.error as Error).message}</p>
             )}
           </div>
         )}
         {summary && (
           <>
             {stale && (
-              <div className="mb-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-                <p className="min-w-0 flex-1 text-[11px] leading-snug text-amber-800">
+              <div className="mb-2 flex items-center gap-2 rounded border border-warning/30 bg-warning/10 px-2 py-1.5">
+                <p className="min-w-0 flex-1 text-[11px] leading-snug text-warning">
                   These sheets changed after this summary was written.
                 </p>
-                <button
-                  className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-warning/40 text-warning hover:bg-warning/20 h-6 shrink-0 px-1.5 text-[11px]"
                   onClick={() => setConfirming(true)}
                   disabled={generate.isPending || waiting}
                 >
                   {generate.isPending || waiting ? "Working…" : "Regenerate"}
-                </button>
+                </Button>
               </div>
             )}
-            <p className="text-sm leading-relaxed text-ink-soft">
-              {summary.summary.overview}
-            </p>
+            <p className="text-sm leading-relaxed">{summary.summary.overview}</p>
             <ul className="mt-3 space-y-1">
               {summary.summary.items.map((item, i) => (
                 <li key={i}>
                   <button
-                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed text-ink-soft transition hover:bg-brand-50 hover:text-brand-700"
+                    className="hover:bg-accent hover:text-accent-foreground flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed transition"
                     onClick={() => void jumpToItem(item)}
                     title={`Jump to combined page ${item.page} and highlight the source`}
                   >
                     <span className="min-w-0 flex-1">{item.text}</span>
-                    <span className="mt-px shrink-0 rounded bg-page px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink-muted">
+                    <span className="mt-px shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
                       p.{item.page}
                     </span>
                   </button>

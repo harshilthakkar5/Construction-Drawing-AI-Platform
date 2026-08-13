@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "../api";
 import { useAppStore, type Highlight } from "../store";
-import { PageLoading } from "./ui";
+import { MinusIcon, PlusIcon } from "lucide-react";
+import { PageLoading } from "@/components/shared";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const PAGE_WIDTH = 850;
 const ZOOM_MIN = 0.4;
@@ -154,38 +157,44 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-hairline bg-surface px-3 py-2 text-sm">
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+      <div className="bg-card flex items-center gap-3 border-b px-3 py-2 text-sm">
+        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
           Combined set
         </span>
-        <span className="text-ink-muted">{total} pages</span>
+        <span className="text-muted-foreground">{total} pages</span>
 
         <div className="ml-auto flex items-center gap-1" title="Ctrl/⌘ + scroll also zooms">
-          <button
-            className="h-7 w-7 rounded-md border border-hairline text-ink-soft transition hover:bg-page hover:text-ink disabled:opacity-40"
+          <Button
+            variant="outline"
+            size="icon-sm"
             onClick={() => applyZoom(zoom - ZOOM_STEP)}
             disabled={zoom <= ZOOM_MIN}
             aria-label="Zoom out"
           >
-            −
-          </button>
-          <button
-            className="w-14 rounded-md px-1 py-1 text-xs font-medium tabular-nums text-ink-soft transition hover:bg-page"
+            <MinusIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-14 px-1 text-xs tabular-nums"
             onClick={() => applyZoom(1)}
             title="Reset to 100%"
           >
             {Math.round(zoom * 100)}%
-          </button>
-          <button
-            className="h-7 w-7 rounded-md border border-hairline text-ink-soft transition hover:bg-page hover:text-ink disabled:opacity-40"
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
             onClick={() => applyZoom(zoom + ZOOM_STEP)}
             disabled={zoom >= ZOOM_MAX}
             aria-label="Zoom in"
           >
-            +
-          </button>
-          <button
-            className="rounded-md border border-hairline px-2 py-1 text-xs font-medium text-ink-soft transition hover:bg-page hover:text-ink"
+            <PlusIcon />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
             onClick={() => {
               const available = (scrollRef.current?.clientWidth ?? PAGE_WIDTH) - 32; // p-4
               applyZoom(available / PAGE_WIDTH);
@@ -193,7 +202,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
             title="Fit the page to the viewer width"
           >
             Fit
-          </button>
+          </Button>
         </div>
 
         <form
@@ -204,9 +213,12 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
             if (Number.isInteger(n) && n >= 1 && n <= total) requestJump(n);
           }}
         >
-          <label className="text-ink-muted">Go to page</label>
-          <input
-            className="w-20 rounded-md border border-hairline bg-surface px-2 py-1 text-ink outline-none focus:border-brand-500"
+          <label className="text-muted-foreground text-xs" htmlFor="viewer-goto">
+            Go to page
+          </label>
+          <Input
+            id="viewer-goto"
+            className="h-8 w-20"
             value={jumpInput}
             onChange={(e) => setJumpInput(e.target.value)}
             placeholder={total ? `1–${total}` : "–"}
@@ -216,11 +228,11 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
 
       <div className="flex min-h-0 flex-1">
         {/* Thumbnail rail (FR-20) */}
-        <div className="w-28 shrink-0 overflow-y-auto border-r border-hairline bg-surface p-2">
+        <div className="bg-card w-28 shrink-0 overflow-y-auto border-r p-2">
           {entries.map((e) => (
             <button
               key={e.combinedPageNumber}
-              className="mb-2 block w-full rounded-md border border-hairline bg-surface p-1 text-left transition hover:border-brand-500 hover:shadow-sm"
+              className="bg-card hover:border-ring mb-2 block w-full rounded-md border p-1 text-left transition hover:shadow-sm"
               onClick={() => requestJump(e.combinedPageNumber)}
               title={`${e.filename} — page ${e.pageNumber}`}
             >
@@ -232,21 +244,21 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
                   className="w-full"
                 />
               ) : (
-                <div className="flex h-16 items-center justify-center bg-page text-xs text-ink-muted">
+                <div className="flex h-16 items-center justify-center bg-muted text-xs text-muted-foreground">
                   …
                 </div>
               )}
-              <div className="mt-0.5 text-center text-xs text-ink-muted">{e.combinedPageNumber}</div>
+              <div className="mt-0.5 text-center text-xs text-muted-foreground">{e.combinedPageNumber}</div>
             </button>
           ))}
         </div>
 
         {/* Main pages */}
         {/* overflow-auto (not -y): a zoomed page is wider than the pane. */}
-        <div ref={setScrollNode} className="flex-1 overflow-auto bg-page p-4">
+        <div ref={setScrollNode} className="flex-1 overflow-auto bg-muted p-4">
           {manifest.isLoading && <PageLoading label="Loading pages…" />}
           {!manifest.isLoading && total === 0 && (
-            <p className="text-sm text-ink-muted">
+            <p className="text-sm text-muted-foreground">
               No pages yet — upload a PDF and wait for processing.
             </p>
           )}
@@ -256,7 +268,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
               id={`combined-page-${entry.combinedPageNumber}`}
               data-combined={entry.combinedPageNumber}
               ref={(el) => registerNode(entry.combinedPageNumber, el)}
-              className="mx-auto mb-4 overflow-hidden rounded-lg border border-hairline bg-surface shadow-sm"
+              className="bg-card mx-auto mb-4 overflow-hidden rounded-lg border shadow-sm"
               style={{ width: PAGE_WIDTH * zoom, minHeight: PAGE_WIDTH * zoom * 0.6 }}
             >
               <div className="relative">
@@ -269,7 +281,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
                   <HighlightOverlay highlight={highlight} entry={entry} />
                 )}
               </div>
-              <div className="border-t border-hairline bg-surface px-2.5 py-1.5 text-xs text-ink-muted">
+              <div className="bg-card text-muted-foreground border-t px-2.5 py-1.5 text-xs">
                 {entry.filename} · page {entry.pageNumber} · combined {entry.combinedPageNumber}
               </div>
             </div>
@@ -293,7 +305,7 @@ function HighlightOverlay({ highlight, entry }: { highlight: Highlight; entry: M
   const { bbox } = highlight;
   return (
     <div
-      className="pointer-events-none absolute animate-pulse rounded-sm border-2 border-amber-500 bg-amber-300/30"
+      className="pointer-events-none absolute animate-pulse rounded-sm border-2 border-warning bg-warning/30"
       style={{
         left: `${clamp((bbox.x / entry.pageWidth) * 100)}%`,
         top: `${clamp((bbox.y / entry.pageHeight) * 100)}%`,
@@ -332,7 +344,7 @@ function PageImage({
 
   if (!entry.hasImage) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-ink-muted">
+      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
         page {entry.combinedPageNumber} — processing…
       </div>
     );

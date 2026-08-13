@@ -1,18 +1,74 @@
-import { useState } from "react";
+import {
+  ChevronsUpDownIcon,
+  LayoutDashboardIcon,
+  LifeBuoyIcon,
+  LogOutIcon,
+  FolderOpenIcon,
+  UserIcon,
+} from "lucide-react";
 import type { UserDto } from "@cdip/shared";
-import { useAppStore, type View } from "../store";
-import { Logo } from "./Logo";
+import { LogoMark } from "@/components/Logo";
+import { ModeToggle } from "@/components/theme-provider";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
+import { useAppStore, type View } from "@/store";
 
 /**
- * Signed-in chrome: collapsible sidebar (logo, nav, user card) + the page.
- * Navigation is store state, not a router — `view` plus selectedProjectId is
- * the whole location.
+ * Signed-in chrome: shadcn's inset sidebar (brand, grouped nav, user menu) and
+ * a sticky page header. Navigation is store state, not a router — `view` plus
+ * selectedProjectId is the whole location — so the nav items set `view`
+ * directly and mark themselves active off it.
  */
-const NAV: { view: View; label: string; icon: React.ReactNode }[] = [
-  { view: "dashboard", label: "Dashboard", icon: <GridIcon /> },
-  { view: "projects", label: "Projects", icon: <FilesIcon /> },
-  { view: "support", label: "Support", icon: <LifebuoyIcon /> },
+const NAV: { group: string; items: { view: View; label: string; icon: React.ElementType }[] }[] = [
+  {
+    group: "Workspace",
+    items: [
+      { view: "dashboard", label: "Dashboard", icon: LayoutDashboardIcon },
+      { view: "projects", label: "Projects", icon: FolderOpenIcon },
+    ],
+  },
+  {
+    group: "Account",
+    items: [
+      { view: "account", label: "Account", icon: UserIcon },
+      { view: "support", label: "Support", icon: LifeBuoyIcon },
+    ],
+  },
 ];
+
+const TITLES: Record<View, string> = {
+  dashboard: "Dashboard",
+  projects: "Projects",
+  account: "Account",
+  support: "Support",
+};
 
 export function AppShell({
   user,
@@ -24,97 +80,184 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const view = useAppStore((s) => s.view);
-  const setView = useAppStore((s) => s.setView);
-  const [collapsed, setCollapsed] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
 
   return (
-    <div className="flex h-full">
-      <aside
-        className={`flex shrink-0 flex-col border-r border-hairline bg-surface transition-[width] duration-200 ${
-          collapsed ? "w-[68px]" : "w-64"
-        }`}
-      >
-        <div className="flex items-center justify-between px-4 py-4">
-          {collapsed ? <Logo compact /> : <Logo />}
-          <button
-            className="rounded p-1 text-ink-muted hover:bg-page hover:text-ink"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <PanelIcon collapsed={collapsed} />
-          </button>
-        </div>
-
-        <nav className="flex-1 space-y-1 px-3">
-          {NAV.map((item) => (
-            <button
-              key={item.view}
-              onClick={() => setView(item.view)}
-              title={item.label}
-              aria-current={view === item.view ? "page" : undefined}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
-                view === item.view
-                  ? "bg-brand-50 font-semibold text-brand-700"
-                  : "text-ink-soft hover:bg-page hover:text-ink"
-              }`}
-            >
-              <span className="shrink-0">{item.icon}</span>
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </button>
-          ))}
-        </nav>
-
-        <div className="relative border-t border-hairline p-3">
-          {menuOpen && (
-            <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-lg border border-hairline bg-surface shadow-lg">
-              <button
-                className="block w-full px-3 py-2 text-left text-sm text-ink-soft hover:bg-page"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setView("account");
-                }}
-              >
-                Account settings
-              </button>
-              <button
-                className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-page"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onSignOut();
-                }}
-              >
-                Sign out
-              </button>
-            </div>
+    <SidebarProvider className="h-svh min-h-0 overflow-hidden">
+      <AppSidebar user={user} onSignOut={onSignOut} />
+      <SidebarInset className="min-h-0">
+        <header className="bg-background/80 sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 h-4" />
+          <span className="text-sm font-medium">
+            {selectedProjectId ? "Projects" : TITLES[view]}
+          </span>
+          {selectedProjectId && (
+            <>
+              <span className="text-muted-foreground/60 text-sm">/</span>
+              <span className="text-muted-foreground text-sm">Project</span>
+            </>
           )}
-          <button
-            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-page"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-expanded={menuOpen}
-          >
-            <Avatar name={user.name} />
-            {!collapsed && (
-              <>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink">{user.name}</span>
-                  <span className="block truncate text-xs text-ink-muted">{user.email}</span>
-                </span>
-                <ChevronsIcon />
-              </>
-            )}
-          </button>
-        </div>
-      </aside>
-
-      {/* Pages own their scrolling so the project view can fill the height. */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
-    </div>
+          <div className="ml-auto flex items-center gap-1">
+            <ModeToggle />
+            <UserMenu user={user} onSignOut={onSignOut} align="end" compact />
+          </div>
+        </header>
+        {/* Pages own their scrolling so the project view can fill the height. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
-export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+function AppSidebar({ user, onSignOut }: { user: UserDto; onSignOut: () => void }) {
+  const view = useAppStore((s) => s.view);
+  const setView = useAppStore((s) => s.setView);
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const go = (next: View) => {
+    setView(next);
+    if (isMobile) setOpenMobile(false);
+  };
+
+  return (
+    <Sidebar variant="inset" collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              onClick={() => go("dashboard")}
+              className="group-data-[collapsible=icon]:p-1.5!"
+            >
+              {/* Wrapped: the menu-button variant forces direct-child svgs to 16px. */}
+              <div className="flex shrink-0 items-center">
+                <LogoMark className="size-8 rounded-md" />
+              </div>
+              <div className="grid flex-1 text-left leading-tight">
+                <span className="truncate font-semibold">ArcAligned AI</span>
+                <span className="text-muted-foreground truncate text-xs">Drawing intelligence</span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+
+      <SidebarContent>
+        {NAV.map((group) => (
+          <SidebarGroup key={group.group}>
+            <SidebarGroupLabel>{group.group}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.view}>
+                    <SidebarMenuButton
+                      isActive={view === item.view}
+                      tooltip={item.label}
+                      onClick={() => go(item.view)}
+                    >
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <UserMenu user={user} onSignOut={onSignOut} align="start" side="right" />
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  );
+}
+
+/**
+ * The account menu. Rendered twice — as the sidebar footer card and as the
+ * header avatar (`compact`) — because the sidebar can be collapsed away.
+ */
+function UserMenu({
+  user,
+  onSignOut,
+  align,
+  side,
+  compact = false,
+}: {
+  user: UserDto;
+  onSignOut: () => void;
+  align: "start" | "end";
+  side?: "right" | "bottom";
+  compact?: boolean;
+}) {
+  const setView = useAppStore((s) => s.setView);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        {compact ? (
+          <button className="focus-visible:ring-ring/50 rounded-full outline-none focus-visible:ring-[3px]">
+            <InitialsAvatar name={user.name} className="size-8" />
+            <span className="sr-only">Open account menu</span>
+          </button>
+        ) : (
+          <SidebarMenuButton
+            size="lg"
+            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+          >
+            <InitialsAvatar name={user.name} />
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">{user.name}</span>
+              <span className="text-muted-foreground truncate text-xs">{user.email}</span>
+            </div>
+            <ChevronsUpDownIcon className="ml-auto size-4" />
+          </SidebarMenuButton>
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="w-56 rounded-lg"
+        align={align}
+        side={side}
+        sideOffset={4}
+      >
+        <DropdownMenuLabel className="p-0 font-normal">
+          <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+            <InitialsAvatar name={user.name} />
+            <div className="grid flex-1 leading-tight">
+              <span className="truncate font-medium">{user.name}</span>
+              <span className="text-muted-foreground truncate text-xs">{user.email}</span>
+            </div>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={() => setView("account")}>
+            <UserIcon />
+            Account settings
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setView("support")}>
+            <LifeBuoyIcon />
+            Support
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onSignOut}>
+          <LogOutIcon />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Initials avatar — the app has no uploaded profile images. */
+export function InitialsAvatar({ name, className }: { name: string; className?: string }) {
   const initials =
     name
       .split(/\s+/)
@@ -123,68 +266,10 @@ export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
       .map((part) => part[0]?.toUpperCase())
       .join("") || "?";
   return (
-    <span
-      className="grid shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-700"
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
-      aria-hidden
-    >
-      {initials}
-    </span>
-  );
-}
-
-const nav = {
-  width: 18,
-  height: 18,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.7,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-function GridIcon() {
-  return (
-    <svg {...nav}>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-function FilesIcon() {
-  return (
-    <svg {...nav}>
-      <rect x="4" y="3" width="16" height="18" rx="2" />
-      <path d="M8 7h4M8 11h8M8 15h8" />
-    </svg>
-  );
-}
-function LifebuoyIcon() {
-  return (
-    <svg {...nav}>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="3.5" />
-      <path d="m5.6 5.6 3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
-    </svg>
-  );
-}
-function PanelIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg {...nav}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M9 4v16" />
-      <path d={collapsed ? "m14 9 3 3-3 3" : "m17 9-3 3 3 3"} />
-    </svg>
-  );
-}
-function ChevronsIcon() {
-  return (
-    <svg {...nav} width={14} height={14}>
-      <path d="m8 9 4-4 4 4M8 15l4 4 4-4" />
-    </svg>
+    <Avatar className={cn("size-8 rounded-lg", className)}>
+      <AvatarFallback className="bg-primary text-primary-foreground rounded-lg font-medium">
+        {initials}
+      </AvatarFallback>
+    </Avatar>
   );
 }

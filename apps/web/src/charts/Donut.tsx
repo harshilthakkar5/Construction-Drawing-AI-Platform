@@ -16,9 +16,9 @@ export interface Slice {
   color: string;
 }
 
-const SIZE = 176;
-const R_OUTER = 80;
-const R_INNER = 50;
+const SIZE = 160;
+const R_OUTER = 72;
+const R_INNER = 45;
 const GAP_DEGREES = 1.6; // ≈2px of surface between segments at this radius
 
 const polar = (cx: number, cy: number, r: number, deg: number) => {
@@ -57,7 +57,7 @@ export function Donut({
 
   if (!total) {
     return (
-      <div className="grid h-[176px] place-items-center text-sm text-ink-muted">No data yet</div>
+      <div className="text-muted-foreground grid h-[160px] place-items-center text-sm">No data yet</div>
     );
   }
 
@@ -75,7 +75,7 @@ export function Donut({
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-6">
+    <div className="flex flex-wrap items-center gap-5">
       <svg
         width={SIZE}
         height={SIZE}
@@ -125,7 +125,7 @@ export function Donut({
                   dominantBaseline="central"
                   fontSize="11"
                   fontWeight="600"
-                  fill="#ffffff"
+                  fill="var(--card)"
                 >
                   {Math.round(share * 100)}%
                 </text>
@@ -139,16 +139,16 @@ export function Donut({
           textAnchor="middle"
           fontSize="20"
           fontWeight="700"
-          fill="#101014"
+          fill="var(--foreground)"
         >
           {centerValue}
         </text>
-        <text x={SIZE / 2} y={SIZE / 2 + 13} textAnchor="middle" fontSize="10" fill="#83838f">
+        <text x={SIZE / 2} y={SIZE / 2 + 13} textAnchor="middle" fontSize="10" fill="var(--muted-foreground)">
           {centerLabel}
         </text>
       </svg>
 
-      <ul className="min-w-[120px] flex-1 space-y-1.5">
+      <ul className="min-w-[150px] flex-1 space-y-1.5">
         {present.map((slice) => (
           <li
             key={slice.key}
@@ -161,9 +161,9 @@ export function Donut({
               style={{ background: slice.color }}
               aria-hidden
             />
-            <span className="min-w-0 flex-1 truncate text-ink-soft">{slice.label}</span>
-            <span className="tabular-nums font-medium text-ink">{slice.value}</span>
-            <span className="w-9 text-right tabular-nums text-ink-muted">
+            <span className="min-w-0 flex-1 truncate">{slice.label}</span>
+            <span className="font-medium tabular-nums">{slice.value}</span>
+            <span className="text-muted-foreground w-9 text-right tabular-nums">
               {Math.round((slice.value / total) * 100)}%
             </span>
           </li>
