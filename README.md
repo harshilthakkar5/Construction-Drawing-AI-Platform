@@ -9,7 +9,7 @@ traces to the exact PDF document, page, and bounding box. See
 ## Repository layout
 
 ```
-apps/web            React + TypeScript frontend (Vite, Tailwind, TanStack Query, Zustand)
+apps/web            React + TypeScript frontend (Vite, Tailwind v4, shadcn/ui, TanStack Query, Zustand)
 apps/api            Express + TypeScript REST API (Prisma, Zod, BullMQ producer)
 workers             Python processing workers (PyMuPDF, pdfplumber, PaddleOCR, OpenCV; BullMQ consumer)
 packages/shared     Shared TypeScript types (queue names, job payloads, domain types)

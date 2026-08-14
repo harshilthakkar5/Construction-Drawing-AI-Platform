@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { PortionDto, PortionSummaryStatus } from "@cdip/shared";
-import { api } from "../api";
-import { useAppStore } from "../store";
-import { SummaryConfirm } from "./SummaryConfirm";
+import { api } from "@/api";
+import { SummaryConfirm } from "@/components/SummaryConfirm";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store";
 
 /**
  * The discipline categories (FR-15/16). Clicking one jumps the viewer to its
@@ -14,13 +17,16 @@ import { SummaryConfirm } from "./SummaryConfirm";
  * discipline. `summaryStatus` drives the chip and the polling.
  */
 
-const CHIP: Record<PortionSummaryStatus, { label: string; className: string }> = {
-  none: { label: "No summary", className: "bg-page text-ink-muted" },
-  queued: { label: "Queued", className: "bg-amber-50 text-amber-700" },
-  running: { label: "Summarizing…", className: "bg-amber-50 text-amber-700" },
-  ready: { label: "Summary ready", className: "bg-emerald-50 text-emerald-700" },
-  stale: { label: "Out of date", className: "bg-amber-50 text-amber-700" },
-  failed: { label: "Failed", className: "bg-red-50 text-red-700" },
+const CHIP: Record<
+  PortionSummaryStatus,
+  { label: string; variant: "secondary" | "warning" | "success" | "destructive" }
+> = {
+  none: { label: "No summary", variant: "secondary" },
+  queued: { label: "Queued", variant: "warning" },
+  running: { label: "Summarizing…", variant: "warning" },
+  ready: { label: "Summary ready", variant: "success" },
+  stale: { label: "Out of date", variant: "warning" },
+  failed: { label: "Failed", variant: "destructive" },
 };
 
 /** Statuses where pressing the button does something. */
@@ -104,8 +110,8 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="border-b border-hairline">
-      <h3 className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+    <section className="border-b">
+      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
         Categories
       </h3>
       <ul className="p-2">
@@ -116,11 +122,12 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           return (
             <li key={portion.id} className="mb-1">
               <div
-                className={`rounded-md border px-2 py-1.5 transition ${
+                className={cn(
+                  "rounded-md border px-2 py-1.5 transition",
                   portion.id === selectedPortionId
-                    ? "border-brand-200 bg-brand-50"
-                    : "border-transparent hover:bg-page"
-                }`}
+                    ? "border-primary/30 bg-accent"
+                    : "border-transparent hover:bg-muted",
+                )}
               >
                 <button
                   className="flex w-full items-center gap-2 text-left"
@@ -128,31 +135,32 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   title={`Jump to combined page ${portion.startPage}`}
                 >
                   <span
-                    className={`min-w-0 flex-1 truncate text-sm ${
-                      portion.id === selectedPortionId
-                        ? "font-semibold text-brand-700"
-                        : "text-ink-soft"
-                    }`}
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-sm",
+                      portion.id === selectedPortionId && "font-semibold",
+                    )}
                   >
                     {portion.name}
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-ink-muted">
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     pp. {portion.startPage}–{portion.endPage}
                   </span>
                 </button>
 
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-[11px] tabular-nums text-ink-muted">
+                {/* The pane is narrow: the count takes its own line so the
+                    status chip and the action button never get squeezed. */}
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground w-full text-[11px] tabular-nums">
                     {portion.pageCount} sheet{portion.pageCount === 1 ? "" : "s"}
                     {portion.sheetNumberSample && ` · ${portion.sheetNumberSample}`}
                   </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${chip.className}`}
-                  >
+                  <Badge variant={chip.variant} className="text-[11px]">
                     {chip.label}
-                  </span>
-                  <button
-                    className="ml-auto shrink-0 rounded border border-hairline px-2 py-0.5 text-[11px] text-ink-soft transition hover:bg-surface disabled:opacity-50"
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-6 shrink-0 px-2 text-[11px]"
                     disabled={busy || summarize.isPending}
                     onClick={() => setPending(portion.id)}
                     title={
@@ -162,14 +170,14 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     }
                   >
                     {busy ? "Working…" : buttonLabel(portion.summaryStatus)}
-                  </button>
+                  </Button>
                 </div>
 
                 {portion.summaryStatus === "failed" && portion.summaryError && (
-                  <p className="mt-1 text-[11px] text-red-600">{portion.summaryError}</p>
+                  <p className="mt-1 text-[11px] text-destructive">{portion.summaryError}</p>
                 )}
                 {portion.summaryStatus === "stale" && (
-                  <p className="mt-1 text-[11px] text-ink-muted">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     These sheets changed since the summary was written.
                   </p>
                 )}
@@ -179,7 +187,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         })}
 
         {portions.data?.length === 0 && (
-          <li className="px-2 py-1 text-sm text-ink-muted">
+          <li className="px-2 py-1 text-sm text-muted-foreground">
             {processing
               ? "Processing…"
               : "No categories yet — define the title-block region above."}
@@ -188,20 +196,22 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
       </ul>
 
       {anyReady && (
-        <div className="border-t border-hairline px-3 py-2">
-          <button
-            className="w-full rounded-md border border-hairline px-2 py-1.5 text-xs text-ink-soft transition hover:bg-page disabled:opacity-50"
+        <div className="border-t px-3 py-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs"
             onClick={() => setPending("project")}
             disabled={projectSummary.isPending}
             title="Combine the discipline summaries into one project summary"
           >
             {projectSummary.isPending ? "Queuing…" : "Generate project summary"}
-          </button>
+          </Button>
         </div>
       )}
 
       {summarize.isError && (
-        <p className="px-3 pb-2 text-[11px] text-red-600">
+        <p className="px-3 pb-2 text-[11px] text-destructive">
           {(summarize.error as Error).message}
         </p>
       )}

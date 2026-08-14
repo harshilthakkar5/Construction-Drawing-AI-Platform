@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ACCENT, AXIS_TEXT, GRID } from "./palette";
+import { ACCENT, AXIS_TEXT, GRID, SURFACE } from "./palette";
 
 /**
  * Single-series trend over time (daily token spend). One series, so no legend
@@ -13,9 +13,12 @@ export interface TrendPoint {
   note?: string;
 }
 
-const W = 640;
-const H = 250;
-const PAD = { top: 12, right: 10, bottom: 24, left: 40 };
+/* The viewBox ratio IS the rendered aspect ratio — the svg is width-100%, so a
+   taller box means a taller card. 1200x270 keeps a full-width dashboard chart
+   at roughly the height of a stat card row. */
+const W = 1200;
+const H = 270;
+const PAD = { top: 16, right: 16, bottom: 30, left: 56 };
 
 /** 0 / 10K / 20K … — a round step just above the series max. */
 function axisTicks(max: number): number[] {
@@ -75,7 +78,7 @@ export function TrendArea({ points, formatValue }: { points: TrendPoint[]; forma
               y={y(t)}
               textAnchor="end"
               dominantBaseline="middle"
-              fontSize="10"
+              fontSize="13"
               fill={AXIS_TEXT}
             >
               {tickLabel(t)}
@@ -104,7 +107,7 @@ export function TrendArea({ points, formatValue }: { points: TrendPoint[]; forma
               strokeWidth="1"
             />
             {/* 2px surface ring so the marker reads over the area fill */}
-            <circle cx={x(active!)} cy={y(current.value)} r="5" fill={ACCENT} stroke="#fff" strokeWidth="2" />
+            <circle cx={x(active!)} cy={y(current.value)} r="5" fill={ACCENT} stroke={SURFACE} strokeWidth="2" />
           </>
         )}
 
@@ -128,7 +131,7 @@ export function TrendArea({ points, formatValue }: { points: TrendPoint[]; forma
               x={x(i)}
               y={H - 6}
               textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}
-              fontSize="10"
+              fontSize="13"
               fill={AXIS_TEXT}
             >
               {p.date.slice(5)}
@@ -139,12 +142,12 @@ export function TrendArea({ points, formatValue }: { points: TrendPoint[]; forma
 
       {current && (
         <div
-          className="pointer-events-none absolute top-0 rounded-md border border-hairline bg-surface px-2.5 py-1.5 text-xs shadow-sm"
+          className="bg-popover text-popover-foreground pointer-events-none absolute top-0 rounded-lg border px-2.5 py-1.5 text-xs shadow-md"
           style={{ left: `${(x(active!) / W) * 100}%`, transform: "translateX(-50%)" }}
         >
-          <div className="font-medium text-ink">{formatValue(current.value)}</div>
-          <div className="text-ink-muted">{current.date}</div>
-          {current.note && <div className="text-ink-muted">{current.note}</div>}
+          <div className="font-medium">{formatValue(current.value)}</div>
+          <div className="text-muted-foreground">{current.date}</div>
+          {current.note && <div className="text-muted-foreground">{current.note}</div>}
         </div>
       )}
     </div>

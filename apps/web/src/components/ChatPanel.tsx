@@ -1,8 +1,19 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment, useRef, useState } from "react";
 import type { ChatSourceDto } from "@cdip/shared";
-import { api } from "../api";
-import { useAppStore } from "../store";
+import { SendHorizonalIcon, ThumbsDownIcon, ThumbsUpIcon } from "lucide-react";
+import { api } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store";
 
 interface ChatTurn {
   id: number;
@@ -96,27 +107,37 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-hairline bg-surface px-3 py-2.5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Chat</span>
-        <select
-          className="ml-auto max-w-44 rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink-soft outline-none focus:border-brand-500"
-          value={portionFilter}
-          onChange={(e) => setPortionFilter(e.target.value)}
-          title="Restrict retrieval to one portion"
+      <div className="bg-card flex items-center gap-2 border-b px-3 py-2.5">
+        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+          Chat
+        </span>
+        <Select
+          value={portionFilter || "all"}
+          onValueChange={(value) => setPortionFilter(value === "all" ? "" : value)}
         >
-          <option value="">All portions</option>
-          {portions.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            size="sm"
+            className="ml-auto max-w-44 text-xs"
+            title="Restrict retrieval to one portion"
+            aria-label="Portion filter"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All portions</SelectItem>
+            {portions.data?.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-3">
         {turns.length === 0 && (
           <Row avatar={<SparkAvatar />}>
-            <div className="rounded-2xl rounded-tl-sm bg-page px-3.5 py-2.5 text-sm leading-relaxed text-ink-soft">
+            <div className="rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground">
               Ask about the drawings — answers cite their sources, and clicking a source jumps the
               viewer to the exact page.
             </div>
@@ -126,9 +147,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         {turns.map((turn) =>
           turn.role === "user" ? (
             <div key={turn.id} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-50 px-3.5 py-2.5">
-                <p className="text-sm leading-relaxed text-ink">{turn.text}</p>
-                <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-ink-muted">
+              <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-accent px-3.5 py-2.5">
+                <p className="text-sm leading-relaxed text-foreground">{turn.text}</p>
+                <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-muted-foreground">
                   {clock(turn.at)}
                   <DeliveredMark
                     delivered={!(ask.isPending && turn.id === lastUserId)}
@@ -141,32 +162,32 @@ export function ChatPanel({ projectId }: { projectId: string }) {
               <div
                 className={`max-w-full rounded-2xl rounded-tl-sm border px-3.5 py-2.5 ${
                   turn.failed
-                    ? "border-red-200 bg-red-50"
-                    : "border-hairline bg-surface"
+                    ? "border-destructive/30 bg-destructive/10"
+                    : "border-border bg-card"
                 }`}
               >
                 {turn.failed ? (
-                  <p className="text-sm leading-relaxed text-red-700">
+                  <p className="text-sm leading-relaxed text-destructive">
                     Couldn't answer that: {turn.text}
                   </p>
                 ) : (
-                  <p className="text-sm leading-relaxed text-ink-soft">
+                  <p className="text-sm leading-relaxed">
                     <AnswerText text={turn.text} sources={turn.sources ?? []} />
                   </p>
                 )}
 
                 {turn.sources && turn.sources.length > 0 && (
                   <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-ink-muted">Source:</span>
+                    <span className="text-xs text-muted-foreground">Source:</span>
                     {turn.sources.map((s) => (
                       <button
                         key={s.index}
-                        className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-ink transition hover:bg-brand-50 hover:text-brand-700"
+                        className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground transition hover:bg-accent hover:text-accent-foreground"
                         onClick={() => requestJump(s.combinedPageNumber, s.bbox)}
                         title={`Jump to combined page ${s.combinedPageNumber} and highlight the cited region`}
                       >
                         {s.label}
-                        <span className="rounded bg-page px-1.5 py-0.5 text-[11px] tabular-nums text-ink-muted group-hover:bg-surface">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground group-hover:bg-card">
                           p.{s.combinedPageNumber}
                         </span>
                       </button>
@@ -175,7 +196,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
                 )}
 
                 <div className="mt-2 flex items-center gap-1">
-                  <span className="text-[11px] text-ink-muted">{clock(turn.at)}</span>
+                  <span className="text-[11px] text-muted-foreground">{clock(turn.at)}</span>
                   {!turn.failed && <Feedback />}
                 </div>
               </div>
@@ -185,7 +206,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
         {ask.isPending && (
           <Row avatar={<AssistantAvatar />}>
-            <div className="rounded-2xl rounded-tl-sm border border-hairline bg-surface px-3.5 py-3">
+            <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-3.5 py-3">
               <TypingDots />
             </div>
           </Row>
@@ -193,24 +214,23 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       </div>
 
       <form
-        className="flex items-center gap-2 border-t border-hairline bg-surface p-3"
+        className="flex items-center gap-2 border-t border-border bg-card p-3"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <input
-          className="min-w-0 flex-1 rounded-lg border border-hairline bg-surface px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        <Input
+          className="min-w-0 flex-1"
           placeholder="Ask about the drawings…"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
+          aria-label="Question"
         />
-        <button
-          className="shrink-0 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
-          disabled={!question.trim() || ask.isPending}
-        >
-          Send
-        </button>
+        <Button type="submit" size="icon" disabled={!question.trim() || ask.isPending}>
+          <SendHorizonalIcon />
+          <span className="sr-only">Send</span>
+        </Button>
       </form>
     </div>
   );
@@ -229,17 +249,17 @@ function Row({ avatar, children }: { avatar: React.ReactNode; children: React.Re
 function AssistantAvatar() {
   return (
     <span
-      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-700"
+      className="bg-primary text-primary-foreground mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg"
       aria-hidden
     >
       <svg width="16" height="16" viewBox="0 0 34 34" fill="none">
         <path
           d="M9 25a16 16 0 0 1 16-16"
-          stroke="white"
+          stroke="currentColor"
           strokeWidth="3"
           strokeLinecap="round"
         />
-        <circle cx="9" cy="25" r="2.4" fill="white" />
+        <circle cx="9" cy="25" r="2.4" fill="currentColor" />
       </svg>
     </span>
   );
@@ -248,7 +268,7 @@ function AssistantAvatar() {
 function SparkAvatar() {
   return (
     <span
-      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700"
+      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
       aria-hidden
     >
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -270,7 +290,7 @@ function DeliveredMark({ delivered }: { delivered: boolean }) {
       strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={delivered ? "text-brand-500" : "text-ink-muted"}
+      className={delivered ? "text-primary" : "text-muted-foreground"}
       aria-label={delivered ? "Answered" : "Sending"}
       role="img"
     >
@@ -289,47 +309,28 @@ function DeliveredMark({ delivered }: { delivered: boolean }) {
 function Feedback() {
   const [vote, setVote] = useState<"up" | "down" | null>(null);
   const base =
-    "grid h-6 w-6 place-items-center rounded-md text-ink-muted transition hover:bg-page hover:text-ink-soft";
+    "text-muted-foreground hover:bg-muted hover:text-foreground grid h-6 w-6 place-items-center rounded-md transition";
   return (
     <span className="ml-auto flex items-center gap-0.5">
       <button
-        className={`${base} ${vote === "up" ? "bg-brand-50 text-brand-700" : ""}`}
+        className={cn(base, vote === "up" && "bg-accent text-accent-foreground")}
         onClick={() => setVote((v) => (v === "up" ? null : "up"))}
         aria-pressed={vote === "up"}
         aria-label="Helpful answer"
         title="Helpful"
       >
-        <ThumbIcon />
+        <ThumbsUpIcon className="size-3.5" />
       </button>
       <button
-        className={`${base} ${vote === "down" ? "bg-red-50 text-red-600" : ""}`}
+        className={cn(base, vote === "down" && "bg-destructive/10 text-destructive")}
         onClick={() => setVote((v) => (v === "down" ? null : "down"))}
         aria-pressed={vote === "down"}
         aria-label="Unhelpful answer"
         title="Not helpful"
       >
-        <ThumbIcon down />
+        <ThumbsDownIcon className="size-3.5" />
       </button>
     </span>
-  );
-}
-
-function ThumbIcon({ down = false }: { down?: boolean }) {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinejoin="round"
-      style={down ? { transform: "rotate(180deg)" } : undefined}
-      aria-hidden
-    >
-      <path d="M7 21V10l4.5-7A2 2 0 0 1 14 4.6L13 10h5.5a2 2 0 0 1 2 2.4l-1.4 6.6a2 2 0 0 1-2 1.6H7Z" />
-      <path d="M7 10H4v11h3" />
-    </svg>
   );
 }
 
@@ -339,7 +340,7 @@ function TypingDots() {
       {[0, 150, 300].map((delay) => (
         <span
           key={delay}
-          className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted"
+          className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground"
           style={{ animationDelay: `${delay}ms` }}
         />
       ))}
@@ -360,7 +361,7 @@ function AnswerText({ text, sources }: { text: string; sources: ChatSourceDto[] 
         return source ? (
           <button
             key={i}
-            className="mx-0.5 rounded bg-brand-50 px-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100"
+            className="mx-0.5 rounded bg-accent text-accent-foreground px-1 text-xs font-semibold transition hover:bg-accent/70"
             onClick={() => requestJump(source.combinedPageNumber, source.bbox)}
             title={source.label}
           >
