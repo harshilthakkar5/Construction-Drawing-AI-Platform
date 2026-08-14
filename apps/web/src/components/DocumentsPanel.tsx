@@ -90,12 +90,12 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
 
   return (
     <section>
-      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
-        Documents
-      </h3>
-      <div className="px-3 pb-3 pt-1">
+      <div className="flex items-center justify-between gap-3 px-4">
+        <h3 className="text-sm font-semibold">Documents</h3>
         <Button
-          className="w-full"
+          variant="outline"
+          size="sm"
+          className="text-xs"
           onClick={() => {
             setReplaceTarget(undefined);
             fileInput.current?.click();
@@ -104,6 +104,8 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
           <UploadIcon />
           Upload PDFs
         </Button>
+      </div>
+      <div className="px-4 pt-1 pb-3">
         <input
           ref={fileInput}
           type="file"
@@ -134,7 +136,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         {documents.data?.map((doc) => (
           <li
             key={doc.id}
-            className={`p-3 text-sm ${doc.supersededAt ? "opacity-50" : ""}`}
+            className={`px-4 py-3 text-sm ${doc.supersededAt ? "opacity-50" : ""}`}
           >
             <div className="flex items-center gap-2">
               <FileTextIcon className="text-muted-foreground size-4 shrink-0" aria-hidden />
@@ -149,7 +151,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                   style={{ background: statusDot[doc.status] }}
                   aria-hidden
                 />
-                {doc.status}
+                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
               </Badge>
               {doc.revision > 1 && <Badge variant="secondary">rev {doc.revision}</Badge>}
               {doc.supersededAt ? (
@@ -215,12 +217,12 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
           </li>
         ))}
         {documents.data?.length === 0 && (
-          <li className="p-3 text-sm text-muted-foreground">No documents yet.</li>
+          <li className="text-muted-foreground px-4 py-3 text-sm">No documents yet.</li>
         )}
       </ul>
 
       {retry.isError && (
-        <p className="px-3 py-2 text-xs text-destructive">
+        <p className="text-destructive px-4 py-2 text-xs">
           {(retry.error as Error).message}
         </p>
       )}
