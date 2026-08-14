@@ -35,21 +35,3 @@ def invalidate_summaries(project_id: str) -> None:
         log.info("invalidated summaries cache for project %s", project_id[:8])
     except Exception as exc:  # cache invalidation must never fail the job
         log.warning("failed to invalidate summaries cache for %s: %s", project_id, exc)
-
-
-# Region previews are a request/response over Redis: the worker writes the
-# result, the API polls it. Key format duplicated in
-# apps/api/src/routes/region.ts `regionPreviewKey` — keep the two in sync.
-PREVIEW_TTL_SECONDS = 600
-
-
-def region_preview_key(preview_id: str) -> str:
-    return f"region:preview:{preview_id}"
-
-
-def store_region_preview(preview_id: str, payload: dict) -> None:
-    import json
-
-    _get_client().set(
-        region_preview_key(preview_id), json.dumps(payload), ex=PREVIEW_TTL_SECONDS
-    )

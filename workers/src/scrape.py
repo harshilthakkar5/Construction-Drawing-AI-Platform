@@ -166,13 +166,13 @@ def _classify_pages(project_id: str) -> list[dict]:
     return portions
 
 
-def preview(project_id: str, preview_id: str, box: dict, sample_size: int = 5) -> dict:
+def preview(project_id: str, box: dict, sample_size: int = 5) -> dict:
     """Dry run: scrape a candidate box on a handful of pages spread across the
     project so the user can check the box before paying for a full scrape.
 
-    The result lands in Redis under region:preview:{previewId} (the API polls
-    it) rather than being returned to an HTTP request — PDF work never happens
-    inside a request.
+    The result is RETURNED, which is all that is needed: BullMQ stores a
+    handler's return value on the job, and the API polls the job for it. PDF
+    work still never happens inside an HTTP request.
     """
     rows = db.sample_pages(project_id, sample_size)
     region = region_mod.Region.from_row(box)
@@ -216,10 +216,7 @@ def preview(project_id: str, preview_id: str, box: dict, sample_size: int = 5) -
         "foundCount": found,
         "notFoundCount": len(results) - found,
     }
-    cache.store_region_preview(preview_id, payload)
-    log.info(
-        "preview %s: %d/%d sample pages returned text", preview_id[:8], found, len(results)
-    )
+    log.info("preview: %d/%d sample pages returned text", found, len(results))
     return payload
 
 
