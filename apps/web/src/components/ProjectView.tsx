@@ -1,15 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api } from "../api";
-import { useAppStore } from "../store";
-import { ChatPanel } from "./ChatPanel";
-import { CombinedViewer } from "./CombinedViewer";
-import { DocumentsPanel } from "./DocumentsPanel";
-import { DragDivider } from "./DragDivider";
-import { PageLoading } from "./ui";
-import { PortionsPanel } from "./PortionsPanel";
-import { RegionBanner } from "./RegionBanner";
-import { SummaryPanel } from "./SummaryPanel";
+import { ArrowLeftIcon, MessageSquareIcon, MessageSquareOffIcon } from "lucide-react";
+import { api } from "@/api";
+import { ChatPanel } from "@/components/ChatPanel";
+import { CombinedViewer } from "@/components/CombinedViewer";
+import { DocumentsPanel } from "@/components/DocumentsPanel";
+import { DragDivider } from "@/components/DragDivider";
+import { PageLoading } from "@/components/shared";
+import { PortionsPanel } from "@/components/PortionsPanel";
+import { RegionBanner } from "@/components/RegionBanner";
+import { SummaryPanel } from "@/components/SummaryPanel";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { useAppStore } from "@/store";
 
 /**
  * FR-17 three-pane layout: sidebar (summary + portions + documents) | chat |
@@ -54,46 +57,33 @@ export function ProjectView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-hairline bg-surface px-4 py-2.5">
-        <button
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-ink-soft transition hover:bg-page hover:text-ink"
-          onClick={() => openProject(null)}
-        >
-          <span aria-hidden>←</span> Projects
-        </button>
-        <span className="h-5 w-px bg-hairline" aria-hidden />
-        <h2 className="truncate font-semibold text-ink">{project.data?.name ?? "…"}</h2>
+      <header className="bg-card flex shrink-0 items-center gap-3 border-b px-4 py-2.5">
+        <Button variant="ghost" size="sm" onClick={() => openProject(null)}>
+          <ArrowLeftIcon />
+          Projects
+        </Button>
+        <Separator orientation="vertical" className="h-5" />
+        <h2 className="truncate font-semibold">{project.data?.name ?? "…"}</h2>
         {project.data?.description && (
-          <span className="truncate text-sm text-ink-muted">{project.data.description}</span>
+          <span className="text-muted-foreground truncate text-sm">{project.data.description}</span>
         )}
-        <button
-          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink-soft transition hover:bg-page hover:text-ink"
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto shrink-0 text-xs"
           onClick={() => setChatHidden((hidden) => !hidden)}
           title={chatHidden ? "Show the chat pane" : "Hide the chat pane and widen the viewer"}
         >
+          {chatHidden ? <MessageSquareIcon /> : <MessageSquareOffIcon />}
           {chatHidden ? "Show chat" : "Hide chat"}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6a8 8 0 0 1 8-8h2a8 8 0 0 1 8 3Z" />
-            {!chatHidden && <path d="m3 3 18 18" />}
-          </svg>
-        </button>
+        </Button>
       </header>
       <div className="flex min-h-0 flex-1">
         {/* One scroll column, not three clipped boxes: a long summary used to
             be cut off mid-sentence while the documents area sat empty. Each
             section's heading sticks to the top so you keep your bearings. */}
         <aside
-          className="shrink-0 overflow-y-auto border-r border-hairline bg-surface"
+          className="bg-card shrink-0 overflow-y-auto border-r"
           style={{ width: sidebarWidth }}
         >
           <SummaryPanel projectId={projectId} />
@@ -113,7 +103,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
         {!chatHidden && (
           <>
             <section
-              className="shrink-0 border-r border-hairline bg-surface"
+              className="bg-card shrink-0 border-r"
               style={{ width: chatWidth }}
             >
               <ChatPanel projectId={projectId} />

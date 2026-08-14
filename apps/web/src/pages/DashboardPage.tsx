@@ -1,26 +1,56 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  FileStackIcon,
+  FolderKanbanIcon,
+  MessagesSquareIcon,
+  PlusIcon,
+  SparklesIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
+} from "lucide-react";
 import { useState } from "react";
 import type { DashboardDto, TokenTotals, UsageKind } from "@cdip/shared";
-import { api } from "../api";
-import { BarList } from "../charts/BarList";
-import { Donut } from "../charts/Donut";
-import { STATUS_COLORS, STATUS_ORDER } from "../charts/palette";
-import { TrendArea } from "../charts/TrendArea";
-import { ActionButton, Card, PageHeader, PageLoading, StatTile } from "../components/ui";
-import { useAppStore } from "../store";
+import { api } from "@/api";
+import { BarList } from "@/charts/BarList";
+import { Donut } from "@/charts/Donut";
+import { STATUS_COLORS, STATUS_ORDER } from "@/charts/palette";
+import { TrendArea } from "@/charts/TrendArea";
+import { PageHeader, PageLoading } from "@/components/shared";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useAppStore } from "@/store";
 
 /** Ranges the activity chart can ask the API for (GET /dashboard?days=N). */
 const RANGES = [
-  { days: 7, label: "Last 7 days" },
-  { days: 14, label: "Last 14 days" },
-  { days: 30, label: "Last 30 days" },
-  { days: 90, label: "Last 90 days" },
+  { days: 7, label: "7 days" },
+  { days: 14, label: "14 days" },
+  { days: 30, label: "30 days" },
+  { days: 90, label: "90 days" },
 ] as const;
 
 /**
  * Account dashboard. One /dashboard call feeds every tile and chart:
  * headline totals, token spend (overall / per stage / per project), the
- * document-status and discipline distributions, and 14 days of activity.
+ * document-status and discipline distributions, and N days of activity.
  */
 const KIND_LABEL: Record<UsageKind, string> = {
   chat: "Chat answers",
@@ -45,6 +75,21 @@ export const compactNumber = (n: number) =>
 export const usd = (n: number) =>
   n >= 0.01 ? `$${n.toFixed(2)}` : n > 0 ? `<$0.01` : "$0.00";
 
+/**
+ * Token spend in the newer half of the window against the older half — the
+ * only trend the API gives us enough history for, so it is the only tile that
+ * gets a delta badge. `null` when there is no earlier spend to compare with.
+ */
+function halfOverHalf(activity: DashboardDto["activity"]): number | null {
+  if (activity.length < 4) return null;
+  const half = Math.floor(activity.length / 2);
+  const sum = (rows: DashboardDto["activity"]) => rows.reduce((t, a) => t + a.totalTokens, 0);
+  const earlier = sum(activity.slice(0, half));
+  const later = sum(activity.slice(half));
+  if (earlier === 0) return later === 0 ? null : 100;
+  return ((later - earlier) / earlier) * 100;
+}
+
 export function DashboardPage() {
   const openProject = useAppStore((s) => s.openProject);
   const setView = useAppStore((s) => s.setView);
@@ -60,175 +105,292 @@ export function DashboardPage() {
   });
   const data = dashboard.data;
   const firstName = user?.firstName || user?.name.split(" ")[0] || "there";
+  const trend = data ? halfOverHalf(data.activity) : null;
+  const rangeLabel = RANGES.find((r) => r.days === days)?.label ?? `${days} days`;
 
   return (
-    <div className="h-full overflow-y-auto p-6 lg:p-8">
-      <PageHeader
-        title="Dashboard"
-        subtitle={
-          <>
-            Welcome back, {firstName}! <span aria-hidden>👋</span>
-          </>
-        }
-        action={<ActionButton icon={<PlusIcon />} onClick={() => setView("projects")}>Add Project</ActionButton>}
-      />
-
-      {dashboard.isError && (
-        <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-          Could not load the dashboard: {(dashboard.error as Error).message}
-        </p>
-      )}
-
-      {/* First load only — placeholderData keeps the previous range on screen
-          while a new one fetches, so this never flashes on a range change. */}
-      {dashboard.isLoading && <PageLoading label="Loading dashboard…" />}
-
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          label="Projects"
-          value={String(data?.totals.projects ?? "—")}
-          hint={data ? `${data.totals.projects === 1 ? "Active project" : "Active projects"}` : undefined}
-          icon={<BriefcaseIcon />}
-          tint="violet"
-          art="buildings"
-        />
-        <StatTile
-          label="Drawings processed"
-          value={`${data?.totals.documents ?? "—"}`}
-          hint={data ? `${compactNumber(data.totals.pages)} pages` : undefined}
-          icon={<PagesIcon />}
-          tint="blue"
-          art="blueprint"
-        />
-        <StatTile
-          label="Tokens used"
-          value={data ? compactNumber(data.tokens.totalTokens) : "—"}
-          hint={data ? `${usd(data.tokens.costUsd)} estimated` : undefined}
-          icon={<SparkIcon />}
-          tint="green"
-          art="coins"
-        />
-        <StatTile
-          label="Chat messages"
-          value={data ? compactNumber(data.totals.chatMessages) : "—"}
-          hint={data ? `${compactNumber(data.totals.chunks)} indexed chunks` : undefined}
-          icon={<ChatIcon />}
-          tint="indigo"
-          art="chat"
-        />
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-3">
-        <Card
-          className="xl:col-span-2"
-          title="Token usage"
-          subtitle={`${RANGES.find((r) => r.days === days)?.label ?? ""}, all projects`}
-          art="trend"
-          action={
-            <select
-              className="rounded-lg border border-hairline bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-soft outline-none focus:border-accent-500"
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              aria-label="Activity range"
-            >
-              {RANGES.map((r) => (
-                <option key={r.days} value={r.days}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
+    <div className="@container/main h-full overflow-y-auto p-4 md:p-6">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-4 md:gap-6">
+        <PageHeader
+          title="Dashboard"
+          subtitle={
+            <>
+              Welcome back, {firstName}! <span aria-hidden>👋</span>
+            </>
           }
-        >
-          {data ? (
-            <TrendArea
-              points={data.activity.map((a) => ({
-                date: a.date,
-                value: a.totalTokens,
-                note: usd(a.costUsd),
-              }))}
-              formatValue={(v) => `${v.toLocaleString()} tokens`}
-            />
-          ) : (
-            <Skeleton height={180} />
-          )}
+          action={
+            <Button onClick={() => setView("projects")}>
+              <PlusIcon />
+              Add project
+            </Button>
+          }
+        />
+
+        {dashboard.isError && (
+          <Card className="border-destructive/30 bg-destructive/8 py-4">
+            <CardContent className="text-destructive text-sm">
+              Could not load the dashboard: {(dashboard.error as Error).message}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* First load only — placeholderData keeps the previous range on screen
+            while a new one fetches, so this never flashes on a range change. */}
+        {dashboard.isLoading && <PageLoading label="Loading dashboard…" />}
+
+        <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
+          <StatCard
+            label="Projects"
+            value={String(data?.totals.projects ?? "—")}
+            icon={<FolderKanbanIcon className="size-4" />}
+            headline={data?.totals.projects === 1 ? "One active project" : "Active projects"}
+            hint={data ? `${data.recentProjects.length} opened recently` : undefined}
+          />
+          <StatCard
+            label="Drawings processed"
+            value={String(data?.totals.documents ?? "—")}
+            icon={<FileStackIcon className="size-4" />}
+            headline={data ? `${compactNumber(data.totals.pages)} pages extracted` : undefined}
+            hint="Across every project you can see"
+          />
+          <StatCard
+            label="Tokens used"
+            value={data ? compactNumber(data.tokens.totalTokens) : "—"}
+            icon={<SparklesIcon className="size-4" />}
+            badge={
+              trend === null ? undefined : (
+                <Badge variant="outline">
+                  {trend >= 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                  {trend >= 0 ? "+" : ""}
+                  {trend.toFixed(1)}%
+                </Badge>
+              )
+            }
+            headline={data ? `${usd(data.tokens.costUsd)} estimated spend` : undefined}
+            hint={
+              trend === null
+                ? `Last ${rangeLabel}`
+                : `${trend >= 0 ? "Up" : "Down"} against the previous ${rangeLabel}`
+            }
+          />
+          <StatCard
+            label="Chat messages"
+            value={data ? compactNumber(data.totals.chatMessages) : "—"}
+            icon={<MessagesSquareIcon className="size-4" />}
+            headline={data ? `${compactNumber(data.totals.chunks)} indexed chunks` : undefined}
+            hint="Every answer is cited back to a chunk"
+          />
+        </div>
+
+        <Card className="@container/chart">
+          <CardHeader>
+            <CardTitle>Token usage</CardTitle>
+            <CardDescription>
+              <span className="@[540px]/chart:block hidden">
+                Daily spend across all projects, last {rangeLabel}
+              </span>
+              <span className="@[540px]/chart:hidden">Last {rangeLabel}</span>
+            </CardDescription>
+            <CardAction>
+              <ToggleGroup
+                type="single"
+                value={String(days)}
+                onValueChange={(value) => value && setDays(Number(value))}
+                variant="outline"
+                size="sm"
+                className="@[540px]/chart:flex hidden"
+              >
+                {RANGES.map((range) => (
+                  <ToggleGroupItem key={range.days} value={String(range.days)} className="px-3">
+                    {range.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              {/* Narrow cards get the same control as a plain select. */}
+              <select
+                aria-label="Activity range"
+                className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 @[540px]/chart:hidden h-8 rounded-md border px-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+              >
+                {RANGES.map((range) => (
+                  <option key={range.days} value={range.days}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            {data ? (
+              <TrendArea
+                points={data.activity.map((a) => ({
+                  date: a.date,
+                  value: a.totalTokens,
+                  note: usd(a.costUsd),
+                }))}
+                formatValue={(v) => `${v.toLocaleString()} tokens`}
+              />
+            ) : (
+              <Skeleton className="h-[220px] w-full" />
+            )}
+          </CardContent>
         </Card>
 
-        <Card title="Document status" subtitle="Across every project" art="document">
-          {data ? (
-            <Donut
-              centerLabel="documents"
-              centerValue={String(data.totals.documents)}
-              slices={STATUS_ORDER.filter((s) => (data.documentStatus[s] ?? 0) > 0).map((s) => ({
-                key: s,
-                label: s.charAt(0).toUpperCase() + s.slice(1),
-                value: data.documentStatus[s] ?? 0,
-                color: STATUS_COLORS[s]!,
-              }))}
-            />
+        <div className="grid gap-4 @3xl/main:grid-cols-2 @6xl/main:grid-cols-3 md:gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Document status</CardTitle>
+              <CardDescription>Across every project</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data ? (
+                <Donut
+                  centerLabel="documents"
+                  centerValue={String(data.totals.documents)}
+                  slices={STATUS_ORDER.filter((s) => (data.documentStatus[s] ?? 0) > 0).map((s) => ({
+                    key: s,
+                    label: s.charAt(0).toUpperCase() + s.slice(1),
+                    value: data.documentStatus[s] ?? 0,
+                    color: STATUS_COLORS[s]!,
+                  }))}
+                />
+              ) : (
+                <Skeleton className="h-[176px] w-full" />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Pages by discipline</CardTitle>
+              <CardDescription>From the sheet number on each page</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data ? (
+                <BarList
+                  rows={data.disciplines
+                    .slice(0, 8)
+                    .map((d) => ({ label: DISCIPLINE_LABEL(d.discipline), value: d.pages }))}
+                  unit="pages"
+                  emptyLabel="No pages classified yet"
+                />
+              ) : (
+                <Skeleton className="h-[176px] w-full" />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Spend by stage</CardTitle>
+              <CardDescription>Where the tokens go</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data ? (
+                <BarList
+                  rows={(Object.entries(data.tokensByKind) as [UsageKind, TokenTotals][])
+                    .map(([kind, t]) => ({ label: KIND_LABEL[kind] ?? kind, value: t.totalTokens }))
+                    .sort((a, b) => b.value - a.value)}
+                  unit="tokens"
+                  emptyLabel="No model calls recorded yet"
+                />
+              ) : (
+                <Skeleton className="h-[176px] w-full" />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 @4xl/main:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:gap-6">
+          {data && data.projects.length > 0 ? (
+            <ProjectUsageTable projects={data.projects} />
           ) : (
-            <Skeleton height={200} />
+            <Card>
+              <CardHeader>
+                <CardTitle>Per-project usage</CardTitle>
+                <CardDescription>Documents, pages and token spend</CardDescription>
+              </CardHeader>
+              <CardContent className="text-muted-foreground py-8 text-center text-sm">
+                No projects yet — create one to start uploading drawings.
+              </CardContent>
+            </Card>
           )}
-        </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent projects</CardTitle>
+              <CardDescription>Most recently created</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data && data.recentProjects.length > 0 ? (
+                <ul className="divide-y">
+                  {data.recentProjects.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        className="hover:bg-muted/60 -mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors"
+                        onClick={() => openProject(p.id)}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{p.name}</span>
+                          <span className="text-muted-foreground block text-xs">
+                            {p.documents} document{p.documents === 1 ? "" : "s"} ·{" "}
+                            {compactNumber(p.pages)} pages
+                          </span>
+                        </span>
+                        <StatusPill status={p.status} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted-foreground py-8 text-center text-sm">No projects yet</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-3">
-        <Card title="Pages by discipline" subtitle="From the sheet number on each page" art="columns">
-          {data ? (
-            <BarList
-              rows={data.disciplines
-                .slice(0, 8)
-                .map((d) => ({ label: DISCIPLINE_LABEL(d.discipline), value: d.pages }))}
-              unit="pages"
-              emptyLabel="No pages classified yet"
-            />
-          ) : (
-            <Skeleton height={200} />
-          )}
-        </Card>
-
-        <Card title="Spend by stage" subtitle="Where the tokens go" art="funnel">
-          {data ? (
-            <BarList
-              rows={(Object.entries(data.tokensByKind) as [UsageKind, TokenTotals][])
-                .map(([kind, t]) => ({ label: KIND_LABEL[kind] ?? kind, value: t.totalTokens }))
-                .sort((a, b) => b.value - a.value)}
-              unit="tokens"
-              emptyLabel="No model calls recorded yet"
-            />
-          ) : (
-            <Skeleton height={200} />
-          )}
-        </Card>
-
-        <Card title="Recent projects" subtitle="Most recently created" art="folder">
-          {data && data.recentProjects.length > 0 ? (
-            <ul className="divide-y divide-hairline">
-              {data.recentProjects.map((p) => (
-                <li key={p.id}>
-                  <button
-                    className="flex w-full items-center gap-3 py-2.5 text-left hover:opacity-80"
-                    onClick={() => openProject(p.id)}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-ink">{p.name}</span>
-                      <span className="block text-xs text-ink-muted">
-                        {p.documents} document{p.documents === 1 ? "" : "s"} ·{" "}
-                        {compactNumber(p.pages)} pages
-                      </span>
-                    </span>
-                    <StatusPill status={p.status} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-8 text-center text-sm text-ink-muted">No projects yet</p>
-          )}
-        </Card>
-      </div>
-
-      {data && data.projects.length > 0 && <ProjectUsageTable projects={data.projects} />}
     </div>
+  );
+}
+
+/**
+ * KPI tile. `badge` is reserved for a real measured delta — a tile with no
+ * history to compare against carries a plain headline instead of an invented
+ * percentage.
+ */
+function StatCard({
+  label,
+  value,
+  icon,
+  badge,
+  headline,
+  hint,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  badge?: React.ReactNode;
+  headline?: string;
+  hint?: string;
+}) {
+  return (
+    <Card className="@container/card gap-4 py-5">
+      <CardHeader>
+        <CardDescription className="flex items-center gap-2">
+          {icon}
+          {label}
+        </CardDescription>
+        <CardTitle className="text-2xl font-semibold tabular-nums @[220px]/card:text-3xl">
+          {value}
+        </CardTitle>
+        {badge && <CardAction>{badge}</CardAction>}
+      </CardHeader>
+      <CardFooter className="flex-col items-start gap-1 text-sm">
+        {headline && <div className="line-clamp-1 font-medium">{headline}</div>}
+        {hint && <div className="text-muted-foreground line-clamp-1 text-xs">{hint}</div>}
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -237,101 +399,60 @@ function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] })
   const openProject = useAppStore((s) => s.openProject);
   const rows = [...projects].sort((a, b) => b.tokens.totalTokens - a.tokens.totalTokens);
   return (
-    <Card className="mt-5" title="Per-project usage" subtitle="Documents, pages and token spend" art="pie">
-      <div className="-mx-4 overflow-x-auto px-4">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
-            <tr className="border-b border-hairline text-left text-xs uppercase tracking-wide text-ink-muted">
-              <th className="py-2 font-medium">Project</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 text-right font-medium">Documents</th>
-              <th className="py-2 text-right font-medium">Pages</th>
-              <th className="py-2 text-right font-medium">Tokens</th>
-              <th className="py-2 text-right font-medium">Est. cost</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hairline">
+    <Card>
+      <CardHeader>
+        <CardTitle>Per-project usage</CardTitle>
+        <CardDescription>Documents, pages and token spend</CardDescription>
+      </CardHeader>
+      <CardContent className="px-2">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="pl-4">Project</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Documents</TableHead>
+              <TableHead className="text-right">Pages</TableHead>
+              <TableHead className="text-right">Tokens</TableHead>
+              <TableHead className="pr-4 text-right">Est. cost</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((p) => (
-              <tr key={p.id} className="hover:bg-page">
-                <td className="py-2.5">
-                  <button
-                    className="font-medium text-ink hover:underline"
-                    onClick={() => openProject(p.id)}
-                  >
+              <TableRow key={p.id}>
+                <TableCell className="pl-4">
+                  <button className="font-medium hover:underline" onClick={() => openProject(p.id)}>
                     {p.name}
                   </button>
-                </td>
-                <td className="py-2.5">
+                </TableCell>
+                <TableCell>
                   <StatusPill status={p.status} />
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-ink-soft">{p.documents}</td>
-                <td className="py-2.5 text-right tabular-nums text-ink-soft">
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{p.documents}</TableCell>
+                <TableCell className="text-right tabular-nums">
                   {p.pages.toLocaleString()}
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-ink-soft">
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
                   {p.tokens.totalTokens.toLocaleString()}
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-ink-soft">
+                </TableCell>
+                <TableCell className="pr-4 text-right tabular-nums">
                   {usd(p.tokens.costUsd)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </CardContent>
     </Card>
   );
 }
 
 export function StatusPill({ status }: { status: string }) {
   const color = STATUS_COLORS[status] ?? STATUS_COLORS.empty!;
+  const label = status === "empty" ? "No documents" : status.charAt(0).toUpperCase() + status.slice(1);
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-page px-2 py-0.5 text-xs font-medium text-ink-soft">
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} aria-hidden />
-      {status === "empty" ? "no documents" : status}
-    </span>
+    <Badge variant="outline" className="gap-1.5 font-normal">
+      <span className="size-1.5 rounded-full" style={{ background: color }} aria-hidden />
+      {label}
+    </Badge>
   );
 }
-
-function Skeleton({ height }: { height: number }) {
-  return <div className="animate-pulse rounded-md bg-page" style={{ height }} />;
-}
-
-const ic = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.7,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-const BriefcaseIcon = () => (
-  <svg {...ic}>
-    <rect x="3" y="7" width="18" height="13" rx="2" />
-    <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
-  </svg>
-);
-const PagesIcon = () => (
-  <svg {...ic}>
-    <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
-    <path d="M14 3v5h5M9 13h6M9 17h6" />
-  </svg>
-);
-const SparkIcon = () => (
-  <svg {...ic}>
-    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
-  </svg>
-);
-const PlusIcon = () => (
-  <svg {...ic} width={16} height={16}>
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-const ChatIcon = () => (
-  <svg {...ic}>
-    <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6a8 8 0 0 1 8-8h2a8 8 0 0 1 8 3Z" />
-  </svg>
-);

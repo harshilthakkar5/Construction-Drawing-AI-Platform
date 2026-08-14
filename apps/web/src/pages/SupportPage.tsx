@@ -1,8 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../api";
-import { Card, Notice, PageHeader, PrimaryButton, TextArea, TextField } from "../components/ui";
-import { useAppStore } from "../store";
+import { api } from "@/api";
+import { Notice, PageHeader, Spinner, TextArea, TextField } from "@/components/shared";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useAppStore } from "@/store";
 
 /** Support form; tickets are stored server-side and listed back below. */
 export function SupportPage() {
@@ -25,70 +34,95 @@ export function SupportPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-8 lg:px-10"><div className="mx-auto max-w-2xl">
-      <PageHeader
-        title="Support"
-        subtitle="We're here to help. Fill out the form below and our support team will get back to you as soon as possible."
-      />
-
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit.mutate();
-        }}
-      >
-        <TextField label="Name" value={name} onChange={setName} placeholder="Your name" required />
-        <TextField
-          label="Email"
-          type="email"
-          value={email}
-          onChange={setEmail}
-          placeholder="Your email"
-          required
-        />
-        <TextField
-          label="Subject"
-          value={subject}
-          onChange={setSubject}
-          placeholder="Subject of your message"
-          required
-        />
-        <TextArea
-          label="Message"
-          value={message}
-          onChange={setMessage}
-          placeholder="How can we help you?"
-          required
+    <div className="h-full overflow-y-auto p-4 md:p-6">
+      <div className="mx-auto flex max-w-2xl flex-col gap-4 md:gap-6">
+        <PageHeader
+          title="Support"
+          subtitle="We're here to help. Fill out the form below and our support team will get back to you as soon as possible."
         />
 
-        {submit.isSuccess && (
-          <Notice tone="ok">Thanks — your message is with the team. We'll reply by email.</Notice>
-        )}
-        {submit.isError && <Notice tone="error">{(submit.error as Error).message}</Notice>}
+        <Card>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit.mutate();
+            }}
+          >
+            <CardHeader>
+              <CardTitle>Send a message</CardTitle>
+              <CardDescription>We reply by email, usually within a working day.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 pt-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField
+                  label="Name"
+                  value={name}
+                  onChange={setName}
+                  placeholder="Your name"
+                  required
+                />
+                <TextField
+                  label="Email"
+                  type="email"
+                  value={email}
+                  onChange={setEmail}
+                  placeholder="Your email"
+                  required
+                />
+              </div>
+              <TextField
+                label="Subject"
+                value={subject}
+                onChange={setSubject}
+                placeholder="Subject of your message"
+                required
+              />
+              <TextArea
+                label="Message"
+                value={message}
+                onChange={setMessage}
+                placeholder="How can we help you?"
+                required
+              />
 
-        <PrimaryButton className="w-full" disabled={submit.isPending}>
-          {submit.isPending ? "Sending…" : "Submit"}
-        </PrimaryButton>
-      </form>
+              {submit.isSuccess && (
+                <Notice tone="ok">
+                  Thanks — your message is with the team. We'll reply by email.
+                </Notice>
+              )}
+              {submit.isError && <Notice tone="error">{(submit.error as Error).message}</Notice>}
+            </CardContent>
+            <CardFooter className="pt-6">
+              <Button type="submit" className="w-full" disabled={submit.isPending}>
+                {submit.isPending && <Spinner />}
+                {submit.isPending ? "Sending…" : "Submit"}
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
 
-      {tickets.data && tickets.data.length > 0 && (
-        <Card className="mt-8" title="Your previous messages">
-          <ul className="divide-y divide-hairline">
-            {tickets.data.map((ticket) => (
-              <li key={ticket.id} className="py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="truncate font-medium text-ink">{ticket.subject}</span>
-                  <span className="shrink-0 text-xs text-ink-muted">
-                    {new Date(ticket.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-                <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-ink-soft">
-                  {ticket.message}
-                </p>
-              </li>
-            ))}
-          </ul>
+        {tickets.data && tickets.data.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Your previous messages</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="divide-y">
+                {tickets.data.map((ticket) => (
+                  <li key={ticket.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="truncate font-medium">{ticket.subject}</span>
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        {new Date(ticket.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground mt-1 line-clamp-2 text-sm whitespace-pre-wrap">
+                      {ticket.message}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
           </Card>
         )}
       </div>

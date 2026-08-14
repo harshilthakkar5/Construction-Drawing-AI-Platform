@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { RegionBox } from "@cdip/shared";
-import { api } from "../api";
+import { api } from "@/api";
+import { Button } from "@/components/ui/button";
 
 /**
  * Draw the title-block box once, apply it to every page of the project.
@@ -172,36 +173,35 @@ export function RegionSelector({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-surface shadow-xl">
-        <header className="flex shrink-0 items-center gap-3 border-b border-hairline px-4 py-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-card shadow-xl">
+        <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <h2 className="font-semibold text-ink">Title-block region</h2>
-            <p className="truncate text-xs text-ink-muted">
+            <h2 className="font-semibold">Title-block region</h2>
+            <p className="truncate text-xs text-muted-foreground">
               Drag a box over the sheet number. It is applied to every page of every PDF in
               this project to read each sheet&rsquo;s discipline.
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <button
-              className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-ink-soft transition hover:bg-page"
-              onClick={onClose}
-            >
+            <Button variant="outline" size="sm" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+            </Button>
+            <Button
+              size="sm"
               disabled={!ratios || save.isPending}
               onClick={() => save.mutate()}
               title={ratios ? "Save and re-scrape the project" : "Draw a box first"}
             >
               {save.isPending ? "Saving…" : "Save & scrape project"}
-            </button>
+            </Button>
           </div>
         </header>
 
-        <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-4 py-2 text-xs text-ink-soft">
-          <button
-            className="rounded border border-hairline px-2 py-1 disabled:opacity-40"
+        <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
             disabled={!current || pages.indexOf(current) <= 0}
             onClick={() => {
               const index = current ? pages.indexOf(current) : 0;
@@ -213,13 +213,15 @@ export function RegionSelector({
             }}
           >
             ← Prev
-          </button>
+          </Button>
           <span className="tabular-nums">
             Page {page ?? "…"} of {pages.length || "…"}
-            {current && <span className="ml-2 text-ink-muted">{current.filename}</span>}
+            {current && <span className="ml-2 text-muted-foreground">{current.filename}</span>}
           </span>
-          <button
-            className="rounded border border-hairline px-2 py-1 disabled:opacity-40"
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
             disabled={!current || pages.indexOf(current) >= pages.length - 1}
             onClick={() => {
               const index = current ? pages.indexOf(current) : 0;
@@ -231,10 +233,12 @@ export function RegionSelector({
             }}
           >
             Next →
-          </button>
+          </Button>
 
-          <button
-            className="ml-auto rounded border border-hairline px-2 py-1 disabled:opacity-40"
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto h-7 px-2 text-xs"
             disabled={!ratios || startPreview.isPending}
             onClick={() => {
               setPreviewJobId(null);
@@ -243,16 +247,16 @@ export function RegionSelector({
             title="Scrape this box on a few sample pages to check it"
           >
             {startPreview.isPending ? "Checking…" : "Preview on 5 sheets"}
-          </button>
+          </Button>
           {ratios && (
-            <span className="tabular-nums text-ink-muted">
+            <span className="tabular-nums text-muted-foreground">
               {(ratios.relW * 100).toFixed(1)}% × {(ratios.relH * 100).toFixed(1)}%
             </span>
           )}
         </div>
 
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-auto bg-page p-4">
+          <div className="min-w-0 flex-1 overflow-auto bg-muted p-4">
             {page !== null && (
               <div
                 ref={wrapRef}
@@ -272,26 +276,26 @@ export function RegionSelector({
                 />
                 {box && (
                   <div
-                    className="pointer-events-none absolute border-2 border-brand-600 bg-brand-600/20"
+                    className="pointer-events-none absolute border-2 border-primary bg-primary/20"
                     style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
                   />
                 )}
               </div>
             )}
             {pages.length === 0 && !manifest.isLoading && (
-              <p className="text-sm text-ink-muted">
+              <p className="text-sm text-muted-foreground">
                 No rendered pages yet — upload a PDF and let it finish processing first.
               </p>
             )}
           </div>
 
           {previewJobId && (
-            <aside className="w-80 shrink-0 overflow-y-auto border-l border-hairline p-3">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <aside className="w-80 shrink-0 overflow-y-auto border-l p-3">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 What this box scrapes
               </h3>
               {!preview.data && !preview.error && (
-                <p className="text-xs text-ink-muted">Scraping sample pages…</p>
+                <p className="text-xs text-muted-foreground">Scraping sample pages…</p>
               )}
               {!!preview.error && (
                 <p className="text-xs text-red-600">
@@ -300,7 +304,7 @@ export function RegionSelector({
               )}
               {preview.data && (
                 <>
-                  <p className="mb-2 text-xs text-ink-soft">
+                  <p className="mb-2 text-xs text-muted-foreground">
                     {preview.data.foundCount} of{" "}
                     {preview.data.foundCount + preview.data.notFoundCount} sample pages
                     returned text.
@@ -311,19 +315,19 @@ export function RegionSelector({
                     {preview.data.rows.map((row) => (
                       <li
                         key={row.combinedPageNumber}
-                        className="rounded border border-hairline px-2 py-1.5 text-xs"
+                        className="rounded-md border px-2 py-1.5 text-xs"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="tabular-nums text-ink-muted">
+                          <span className="tabular-nums text-muted-foreground">
                             p.{row.combinedPageNumber}
                           </span>
-                          <span className="ml-auto rounded bg-page px-1.5 py-0.5 text-[11px] text-ink-muted">
+                          <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                             {row.method}
                           </span>
                         </div>
                         <p
                           className={
-                            row.text ? "mt-1 break-words text-ink" : "mt-1 text-ink-muted"
+                            row.text ? "mt-1 break-words" : "mt-1 text-muted-foreground"
                           }
                         >
                           {row.text || "nothing in the box"}
@@ -338,7 +342,7 @@ export function RegionSelector({
         </div>
 
         {save.isError && (
-          <p className="shrink-0 border-t border-hairline px-4 py-2 text-xs text-red-600">
+          <p className="shrink-0 border-t px-4 py-2 text-xs text-destructive">
             {(save.error as Error).message}
           </p>
         )}
