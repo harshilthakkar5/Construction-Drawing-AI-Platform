@@ -24,17 +24,33 @@ def _get_engine():
     try:
         from paddleocr import PaddleOCR
 
+        # First construction downloads ~15 MB of models to ~/.paddleocr, over a
+        # CDN that is slow and drop-prone from some regions. Pre-warm it (see
+        # workers/Dockerfile) so this does not happen mid-job in production.
         _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
-    except Exception as exc:  # ImportError or model download failure
+    except (ImportError, ModuleNotFoundError) as exc:
+        # Permanent: the package genuinely isn't installed. Latch it, so every
+        # page doesn't retry an import that cannot start working.
+        #
         # Name the consequence, not just the cause: without OCR a scanned or
         # flattened sheet yields no text at all — no page content to chunk, and
         # an empty title-block region, so the sheet ends up unclassified.
         log.warning(
-            "PaddleOCR unavailable, OCR disabled (%s) — scanned pages will "
+            "PaddleOCR not installed, OCR disabled (%s) — scanned pages will "
             "return no text and no sheet number. Fix: pip install -r requirements.txt",
             exc,
         )
         _unavailable = True
+    except Exception as exc:
+        # Usually the model download dropping partway. Transient, so do NOT
+        # latch: a blip during one page must not leave the whole worker without
+        # OCR until it is restarted. The next page tries again.
+        log.warning(
+            "PaddleOCR could not start (%s) — skipping OCR for this page and "
+            "retrying on the next. If it repeats, pre-download the models: "
+            "python -c \"from paddleocr import PaddleOCR; PaddleOCR(lang='en')\"",
+            exc,
+        )
     return _engine
 
 
