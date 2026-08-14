@@ -1,4 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ChevronsUpDownIcon,
   LayoutDashboardIcon,
   LifeBuoyIcon,
@@ -7,6 +10,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import type { UserDto } from "@cdip/shared";
+import { api } from "@/api";
 import { LogoMark } from "@/components/Logo";
 import { ModeToggle } from "@/components/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -19,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
@@ -81,6 +86,15 @@ export function AppShell({
 }) {
   const view = useAppStore((s) => s.view);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
+  const openProject = useAppStore((s) => s.openProject);
+
+  // Same query key ProjectView uses, so the open project's name comes from the
+  // cache rather than a second request.
+  const project = useQuery({
+    queryKey: ["projects", selectedProjectId],
+    queryFn: async () => (await api.listProjects()).find((p) => p.id === selectedProjectId),
+    enabled: Boolean(selectedProjectId),
+  });
 
   return (
     <SidebarProvider className="h-svh min-h-0 overflow-hidden">
@@ -89,14 +103,28 @@ export function AppShell({
         <header className="bg-background/80 sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
-          <span className="text-sm font-medium">
-            {selectedProjectId ? "Projects" : TITLES[view]}
-          </span>
-          {selectedProjectId && (
+          {selectedProjectId ? (
             <>
-              <span className="text-muted-foreground/60 text-sm">/</span>
-              <span className="text-muted-foreground text-sm">Project</span>
+              {/* Breadcrumb doubles as the way back out of the project. */}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => openProject(null)}
+                aria-label="Back to projects"
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <button
+                className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                onClick={() => openProject(null)}
+              >
+                Projects
+              </button>
+              <ChevronRightIcon className="text-muted-foreground/60 size-4" />
+              <span className="truncate text-sm font-medium">{project.data?.name ?? "…"}</span>
             </>
+          ) : (
+            <span className="text-sm font-medium">{TITLES[view]}</span>
           )}
           <div className="ml-auto flex items-center gap-1">
             <ModeToggle />

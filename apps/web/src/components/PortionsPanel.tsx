@@ -110,11 +110,8 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="border-b">
-      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
-        Categories
-      </h3>
-      <ul className="p-2">
+    <section>
+      <ul className="px-2">
         {portions.data?.map((portion) => {
           const chip = CHIP[portion.summaryStatus];
           const busy =
@@ -187,16 +184,16 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         })}
 
         {portions.data?.length === 0 && (
-          <li className="px-2 py-1 text-sm text-muted-foreground">
+          <li className="text-muted-foreground px-2 py-1 text-sm">
             {processing
               ? "Processing…"
-              : "No categories yet — define the title-block region above."}
+              : "No categories yet — define the title-block region under Quick actions."}
           </li>
         )}
       </ul>
 
       {anyReady && (
-        <div className="border-t px-3 py-2">
+        <div className="mt-2 border-t px-4 py-3">
           <Button
             variant="outline"
             size="sm"
@@ -211,7 +208,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
       )}
 
       {summarize.isError && (
-        <p className="px-3 pb-2 text-[11px] text-destructive">
+        <p className="text-destructive px-4 pb-2 text-[11px]">
           {(summarize.error as Error).message}
         </p>
       )}

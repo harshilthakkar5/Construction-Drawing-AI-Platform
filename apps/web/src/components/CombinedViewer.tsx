@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
-import { api } from "../api";
-import { useAppStore, type Highlight } from "../store";
+import { api } from "@/api";
+import { useAppStore, type Highlight } from "@/store";
 import { MinusIcon, PlusIcon } from "lucide-react";
 import { PageLoading } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 const PAGE_WIDTH = 850;
 const ZOOM_MIN = 0.4;
@@ -40,7 +42,10 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   /** Mounted page elements by combined page number — see `registerNode`. */
   const nodesRef = useRef(new Map<number, HTMLElement>());
   const [nearViewport, setNearViewport] = useState<Set<number>>(new Set());
-  const [jumpInput, setJumpInput] = useState("");
+  /** The page the reader is looking at — drives the counter and the caption. */
+  const [currentPage, setCurrentPage] = useState(1);
+  /** Only set while the page box is being typed into; null shows currentPage. */
+  const [jumpDraft, setJumpDraft] = useState<string | null>(null);
   const [zoom, setZoom] = useState(() => {
     const saved = Number(localStorage.getItem(ZOOM_KEY));
     return saved >= ZOOM_MIN && saved <= ZOOM_MAX ? saved : 1;
@@ -135,6 +140,35 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
     };
   }, [scrollEl]);
 
+  /**
+   * Whichever page sits closest to the top of the scroll box is "the page
+   * you are on" — the counter and the footer caption both read it. Sampled on
+   * a rAF so a fast scroll does not run this per scroll event.
+   */
+  useEffect(() => {
+    if (!scrollEl) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const top = scrollEl.getBoundingClientRect().top;
+      let best: { page: number; distance: number } | null = null;
+      for (const [page, node] of nodesRef.current) {
+        const distance = Math.abs(node.getBoundingClientRect().top - top);
+        if (!best || distance < best.distance) best = { page, distance };
+      }
+      if (best) setCurrentPage(best.page);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    measure();
+    return () => {
+      scrollEl.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [scrollEl, entries]);
+
   // FR-16/FR-18 programmatic jump. Slots above the target change height as
   // images lazy-load, so re-assert the scroll position a few times until the
   // layout settles.
@@ -154,14 +188,17 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   }, [jumpToPage, requestJump]);
 
   const total = entries.length;
+  const currentEntry = entries.find((e) => e.combinedPageNumber === currentPage);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="bg-card flex items-center gap-3 border-b px-3 py-2 text-sm">
+    <div className="bg-card @container/viewer flex h-full flex-col overflow-hidden rounded-xl border">
+      <div className="flex items-center gap-x-3 border-b px-4 py-2.5 text-sm">
         <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
           Combined set
         </span>
-        <span className="text-muted-foreground">{total} pages</span>
+        <span className="text-muted-foreground @[640px]/viewer:inline hidden text-xs">
+          {total} pages
+        </span>
 
         <div className="ml-auto flex items-center gap-1" title="Ctrl/⌘ + scroll also zooms">
           <Button
@@ -203,26 +240,34 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           >
             Fit
           </Button>
+          <Separator orientation="vertical" className="mx-1 h-5" />
         </div>
 
         <form
-          className="flex items-center gap-1"
+          className="flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const n = Number(jumpInput);
+            const n = Number(jumpDraft);
             if (Number.isInteger(n) && n >= 1 && n <= total) requestJump(n);
+            setJumpDraft(null);
           }}
         >
-          <label className="text-muted-foreground text-xs" htmlFor="viewer-goto">
+          <label
+            className="text-muted-foreground @[820px]/viewer:inline hidden text-xs"
+            htmlFor="viewer-goto"
+          >
             Go to page
           </label>
           <Input
             id="viewer-goto"
-            className="h-8 w-20"
-            value={jumpInput}
-            onChange={(e) => setJumpInput(e.target.value)}
-            placeholder={total ? `1–${total}` : "–"}
+            className="h-8 w-16 text-center"
+            value={jumpDraft ?? String(total ? currentPage : "")}
+            onChange={(e) => setJumpDraft(e.target.value)}
+            onBlur={() => setJumpDraft(null)}
+            placeholder={total ? "1" : "–"}
+            aria-label="Current page"
           />
+          <span className="text-muted-foreground text-xs tabular-nums">/ {total || "–"}</span>
         </form>
       </div>
 
@@ -232,7 +277,10 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           {entries.map((e) => (
             <button
               key={e.combinedPageNumber}
-              className="bg-card hover:border-ring mb-2 block w-full rounded-md border p-1 text-left transition hover:shadow-sm"
+              className={cn(
+                "bg-card hover:border-ring mb-2 block w-full rounded-md border p-1 text-left transition hover:shadow-sm",
+                e.combinedPageNumber === currentPage && "border-primary ring-ring/40 ring-2",
+              )}
               onClick={() => requestJump(e.combinedPageNumber)}
               title={`${e.filename} — page ${e.pageNumber}`}
             >
@@ -281,13 +329,18 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
                   <HighlightOverlay highlight={highlight} entry={entry} />
                 )}
               </div>
-              <div className="bg-card text-muted-foreground border-t px-2.5 py-1.5 text-xs">
-                {entry.filename} · page {entry.pageNumber} · combined {entry.combinedPageNumber}
-              </div>
             </div>
           ))}
         </div>
       </div>
+
+      {/* What you are looking at: the virtual set never renames its sources. */}
+      {currentEntry && (
+        <div className="text-muted-foreground border-t px-4 py-2 text-xs">
+          {currentEntry.filename} · page {currentEntry.pageNumber} · combined{" "}
+          {currentEntry.combinedPageNumber}
+        </div>
+      )}
     </div>
   );
 }

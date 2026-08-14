@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckIcon, ChevronDownIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { SummaryItem } from "@cdip/shared";
 import { api } from "@/api";
@@ -9,6 +10,9 @@ import { useAppStore } from "@/store";
 
 /** How long the panel keeps showing "Summarizing…" before giving up waiting. */
 const REBUILD_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Highlights shown before "Show N more" — a long list buries the overview. */
+const COLLAPSED_ITEMS = 5;
 
 /**
  * FR-10..12 + FR-18/19: shows the project summary by default and the selected
@@ -100,6 +104,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
    */
   // Cost confirmation before spending: same dialog the category list uses.
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const estimate = useQuery({
     queryKey: ["summary-estimate", projectId, selectedPortionId ?? "project"],
     queryFn: () =>
@@ -161,15 +166,34 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
     ? (selectedPortion?.pageCount ?? 0) > 0
     : portionsReady;
 
+  const items = summary?.summary.items ?? [];
+  const shownItems = expanded ? items : items.slice(0, COLLAPSED_ITEMS);
+
   return (
-    <section className="border-b">
-      <h3 className="bg-card text-muted-foreground sticky top-0 z-10 px-3 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase">
-        {heading}
-      </h3>
-      <div className="px-3 pb-3">
+    <section className="px-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <SparklesIcon className="text-muted-foreground size-4" />
+          {heading}
+        </h3>
+        {summary && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            onClick={() => setConfirming(true)}
+            disabled={generate.isPending || waiting}
+          >
+            {generate.isPending || waiting ? <Spinner /> : <RefreshCwIcon />}
+            {generate.isPending || waiting ? "Working…" : "Regenerate"}
+          </Button>
+        )}
+      </div>
+
+      <div className="mt-3">
         {!summary && (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {summaries.isLoading
                 ? "Loading…"
                 : waiting
@@ -209,7 +233,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
         {summary && (
           <>
             {stale && (
-              <div className="mb-2 flex items-center gap-2 rounded border border-warning/30 bg-warning/10 px-2 py-1.5">
+              <div className="border-warning/30 bg-warning/10 mb-3 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <p className="min-w-0 flex-1 text-[11px] leading-snug text-warning">
                   These sheets changed after this summary was written.
                 </p>
@@ -225,22 +249,40 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
               </div>
             )}
             <p className="text-sm leading-relaxed">{summary.summary.overview}</p>
-            <ul className="mt-3 space-y-1">
-              {summary.summary.items.map((item, i) => (
-                <li key={i}>
-                  <button
-                    className="hover:bg-accent hover:text-accent-foreground flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed transition"
-                    onClick={() => void jumpToItem(item)}
-                    title={`Jump to combined page ${item.page} and highlight the source`}
+
+            {items.length > 0 && (
+              <>
+                <h4 className="mt-5 text-sm font-semibold">Key highlights</h4>
+                <ul className="mt-2 space-y-0.5">
+                  {shownItems.map((item, i) => (
+                    <li key={i}>
+                      <button
+                        className="hover:bg-accent hover:text-accent-foreground flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed transition"
+                        onClick={() => void jumpToItem(item)}
+                        title={`Jump to combined page ${item.page} and highlight the source`}
+                      >
+                        <CheckIcon className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1">{item.text}</span>
+                        <span className="bg-muted text-muted-foreground mt-px shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums">
+                          p.{item.page}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {items.length > COLLAPSED_ITEMS && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground mt-1 w-full text-xs"
+                    onClick={() => setExpanded((open) => !open)}
                   >
-                    <span className="min-w-0 flex-1">{item.text}</span>
-                    <span className="mt-px shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-                      p.{item.page}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    {expanded ? "Show less" : `Show ${items.length - COLLAPSED_ITEMS} more`}
+                    <ChevronDownIcon className={expanded ? "rotate-180" : undefined} />
+                  </Button>
+                )}
+              </>
+            )}
           </>
         )}
       </div>
