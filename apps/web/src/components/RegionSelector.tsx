@@ -289,12 +289,12 @@ export function RegionSelector({
             )}
           </div>
 
-          {previewId && (
+          {previewJobId && (
             <aside className="w-80 shrink-0 overflow-y-auto border-l p-3">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 What this box scrapes
               </h3>
-              {!preview.data && (
+              {!preview.data && !preview.error && (
                 <p className="text-xs text-muted-foreground">Scraping sample pages…</p>
               )}
               {!!preview.error && (

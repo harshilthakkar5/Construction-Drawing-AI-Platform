@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { LogoMark } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -134,14 +135,25 @@ export function Spinner({ className = "" }: { className?: string }) {
 /** Whole-page loading state, used while a view's primary query is in flight. */
 export function PageLoading({ label = "Loading…" }: { label?: string }) {
   return (
-    <div
-      role="status"
-      className="text-muted-foreground grid min-h-[40vh] place-items-center gap-3 text-sm"
-    >
-      <div className="flex items-center gap-2">
-        <Spinner />
-        <span>{label}</span>
-      </div>
+    <div role="status" className="grid min-h-[40vh] place-content-center justify-items-center">
+      <span className="relative grid size-20 place-items-center">
+        {/* A single accent arc turning on a faint track, around the mark. */}
+        <svg className="absolute inset-0 size-20 animate-spin" viewBox="0 0 80 80" aria-hidden>
+          <circle cx="40" cy="40" r="36" fill="none" className="stroke-border" strokeWidth="3" />
+          <circle
+            cx="40"
+            cy="40"
+            r="36"
+            fill="none"
+            className="stroke-primary"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray="56 170"
+          />
+        </svg>
+        <LogoMark className="size-10 animate-pulse" />
+      </span>
+      <span className="text-muted-foreground mt-4 text-sm">{label}</span>
     </div>
   );
 }
