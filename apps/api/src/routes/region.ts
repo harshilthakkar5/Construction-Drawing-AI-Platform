@@ -1,11 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { Job } from "bullmq";
 import { Router } from "express";
 import { type SheetRegionDto } from "@cdip/shared";
 import { z } from "zod";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { scrapeRegionQueue } from "../queues.js";
-import { redis } from "../redis.js";
 import {
   DEFAULT_PREVIEW_SAMPLE,
   isPlausibleBox,
@@ -24,13 +23,6 @@ import {
  * business.
  */
 export const regionRouter = Router({ mergeParams: true });
-
-/**
- * Redis key a finished preview lands under — the worker writes it, this route
- * reads it. Key format shared with workers/src/cache.py `region_preview_key`;
- * keep the two in sync (same arrangement as summariesCacheKey).
- */
-export const regionPreviewKey = (previewId: string) => `region:preview:${previewId}`;
 
 const projectParam = z.object({ projectId: z.string().uuid() });
 
@@ -142,7 +134,7 @@ regionRouter.post("/rescrape", async (req, res) => {
 
 /**
  * Dry run: what does this box scrape on a few sample pages? Queued like every
- * other PDF operation — the response carries a previewId to poll, so a 1000
+ * other PDF operation — the response carries the job id to poll, so a 1000
  * page project never blocks an HTTP worker on PyMuPDF.
  */
 regionRouter.post("/preview", async (req, res) => {
@@ -154,22 +146,51 @@ regionRouter.post("/preview", async (req, res) => {
     return void res.status(409).json({ error: "no processed pages to preview against yet" });
   }
 
-  const previewId = randomUUID();
   const job = await scrapeRegionQueue.add("preview", {
     projectId,
-    previewId,
     box,
     sampleSize: sampleSize ?? DEFAULT_PREVIEW_SAMPLE,
   });
-  res.status(202).json({ previewId, jobId: job.id });
+  res.status(202).json({ jobId: job.id });
 });
 
-/** 202 while the preview job is still running, 200 with the rows once done. */
-regionRouter.get("/preview/:previewId", async (req, res) => {
-  const { previewId } = z.object({ previewId: z.string().uuid() }).parse(req.params);
-  const stored = await redis.get(regionPreviewKey(previewId)).catch(() => null);
-  if (!stored) return void res.status(202).json({ status: "pending" });
-  res.json(JSON.parse(stored));
+/**
+ * Poll a preview.
+ *
+ * The answer is read from the JOB itself — BullMQ already stores a handler's
+ * return value — rather than from a side channel the worker writes and this
+ * route reads. One source of truth, no key contract to keep in sync across two
+ * languages, and, most usefully, a FAILED job is reported as failed instead of
+ * polling "pending" forever.
+ *
+ * 202 while queued or running, 200 with the rows once done, 200 + status
+ * "failed" when the job errored.
+ */
+regionRouter.get("/preview/:jobId", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const { jobId } = z.object({ jobId: z.string().min(1).max(64) }).parse(req.params);
+
+  const job = await Job.fromId(scrapeRegionQueue, jobId);
+  if (!job) {
+    return void res.status(404).json({ error: "preview not found — it may have expired" });
+  }
+  // A job id is guessable; make sure it belongs to the project in the path so
+  // one project cannot read another's scraped sheet numbers.
+  if ((job.data as { projectId?: string }).projectId !== projectId) {
+    return void res.status(404).json({ error: "preview not found" });
+  }
+
+  const state = await job.getState();
+  if (state === "failed") {
+    return void res.json({
+      status: "failed",
+      error: job.failedReason || "the preview job failed",
+    });
+  }
+  if (state !== "completed" || !job.returnvalue) {
+    return void res.status(202).json({ status: "pending" });
+  }
+  res.json(job.returnvalue);
 });
 
 /**

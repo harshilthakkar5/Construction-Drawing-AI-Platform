@@ -138,16 +138,18 @@ export function RegionSelector({
 
   // --- preview (dry run on a handful of sample pages) ---
 
-  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
   const startPreview = useMutation({
     mutationFn: () => api.previewRegion(projectId, ratios as RegionBox),
-    onSuccess: (result) => setPreviewId(result.previewId),
+    onSuccess: (result) => setPreviewJobId(result.jobId),
   });
   const preview = useQuery({
-    queryKey: ["region-preview", projectId, previewId],
-    queryFn: () => api.regionPreview(projectId, previewId as string),
-    enabled: previewId !== null,
-    refetchInterval: (query) => (query.state.data ? false : 1500),
+    queryKey: ["region-preview", projectId, previewJobId],
+    queryFn: () => api.regionPreview(projectId, previewJobId as string),
+    enabled: previewJobId !== null,
+    // Stop on a result OR an error — a failed job must not poll forever.
+    refetchInterval: (query) => (query.state.data || query.state.error ? false : 1500),
+    retry: false,
   });
 
   const save = useMutation({
@@ -235,7 +237,7 @@ export function RegionSelector({
             className="ml-auto rounded border border-hairline px-2 py-1 disabled:opacity-40"
             disabled={!ratios || startPreview.isPending}
             onClick={() => {
-              setPreviewId(null);
+              setPreviewJobId(null);
               startPreview.mutate();
             }}
             title="Scrape this box on a few sample pages to check it"
@@ -283,13 +285,18 @@ export function RegionSelector({
             )}
           </div>
 
-          {previewId && (
+          {previewJobId && (
             <aside className="w-80 shrink-0 overflow-y-auto border-l border-hairline p-3">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                 What this box scrapes
               </h3>
-              {!preview.data && (
+              {!preview.data && !preview.error && (
                 <p className="text-xs text-ink-muted">Scraping sample pages…</p>
+              )}
+              {!!preview.error && (
+                <p className="text-xs text-red-600">
+                  {(preview.error as Error).message}
+                </p>
               )}
               {preview.data && (
                 <>

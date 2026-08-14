@@ -269,14 +269,11 @@ export interface ScrapeRegionJob {
 
 /** Dry run: scrape a candidate box on a handful of sample pages so the user
  * can check it before paying for a whole-project scrape. Queued on the
- * scrape-region queue under the job name "preview"; the worker writes the
- * result to Redis and the API serves it from there — PDF bytes are never
- * touched inside an HTTP request. (The Redis key format lives with the route
- * that reads it, apps/api/src/routes/region.ts, mirroring how the summaries
- * cache key is arranged.) */
+ * scrape-region queue under the job name "preview"; the worker's return value
+ * IS the result, which the API reads back off the job — PDF bytes are never
+ * touched inside an HTTP request. */
 export interface RegionPreviewJob {
   projectId: string;
-  previewId: string;
   box: RegionBox;
   sampleSize: number;
 }

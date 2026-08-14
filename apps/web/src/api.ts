@@ -203,19 +203,24 @@ export const api = {
   deleteRegion: (projectId: string) =>
     request<void>(`/projects/${projectId}/region`, { method: "DELETE" }),
 
-  /** Dry run on a few sample pages; returns an id to poll. */
+  /** Dry run on a few sample pages; returns the job id to poll. */
   previewRegion: (projectId: string, body: RegionBox & { sampleSize?: number }) =>
-    request<{ previewId: string }>(`/projects/${projectId}/region/preview`, {
+    request<{ jobId: string }>(`/projects/${projectId}/region/preview`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
-  /** null while the preview job is still running. */
-  regionPreview: async (projectId: string, previewId: string) => {
-    const result = await request<RegionPreviewDto | { status: "pending" }>(
-      `/projects/${projectId}/region/preview/${previewId}`,
-    );
-    return "status" in result ? null : result;
+  /** null while the job is still running; throws if the job failed, so the
+   * caller shows the error instead of polling forever. */
+  regionPreview: async (projectId: string, jobId: string) => {
+    const result = await request<
+      RegionPreviewDto | { status: "pending" } | { status: "failed"; error: string }
+    >(`/projects/${projectId}/region/preview/${jobId}`);
+    if ("status" in result) {
+      if (result.status === "failed") throw new Error(result.error);
+      return null;
+    }
+    return result;
   },
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),

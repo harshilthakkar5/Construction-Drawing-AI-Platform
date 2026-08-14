@@ -115,7 +115,6 @@ async def scrape_region(job, job_token: str):
             return await asyncio.to_thread(
                 scrape.preview,
                 job.data["projectId"],
-                job.data["previewId"],
                 job.data["box"],
                 int(job.data.get("sampleSize") or 5),
             )
