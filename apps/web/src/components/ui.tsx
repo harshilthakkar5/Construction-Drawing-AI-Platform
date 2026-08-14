@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CardArt, type ArtMotif } from "./CardArt";
+import { LogoMark } from "./Logo";
 
 /** Shared page furniture: header, card, stat tile, form controls. */
 
@@ -253,18 +254,39 @@ export function Spinner({ className = "" }: { className?: string }) {
 
 /**
  * Whole-page loading state, used while a view's primary query is in flight.
- * `role="status"` so a screen reader announces the wait rather than silence.
+ *
+ * The brand mark sits at the centre with a ring turning around it, so a wait
+ * reads as the app working rather than as a blank pane. `role="status"` so a
+ * screen reader announces the wait instead of silence.
  */
 export function PageLoading({ label = "Loading…" }: { label?: string }) {
   return (
-    <div
-      role="status"
-      className="grid min-h-[40vh] place-items-center gap-3 text-sm text-ink-muted"
-    >
-      <div className="flex items-center gap-2">
-        <Spinner className="text-brand-600" />
-        <span>{label}</span>
-      </div>
+    <div role="status" className="grid min-h-[40vh] place-content-center justify-items-center">
+      <span className="relative grid h-20 w-20 place-items-center">
+        {/* Ring: a single accent arc on a faint track, rotating. */}
+        <svg className="absolute inset-0 h-20 w-20 animate-spin" viewBox="0 0 80 80" aria-hidden>
+          <circle
+            cx="40"
+            cy="40"
+            r="36"
+            fill="none"
+            className="stroke-hairline"
+            strokeWidth="3"
+          />
+          <circle
+            cx="40"
+            cy="40"
+            r="36"
+            fill="none"
+            className="stroke-brand-600"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray="56 170"
+          />
+        </svg>
+        <LogoMark size={40} className="animate-pulse" />
+      </span>
+      <span className="mt-4 text-sm text-ink-muted">{label}</span>
     </div>
   );
 }
