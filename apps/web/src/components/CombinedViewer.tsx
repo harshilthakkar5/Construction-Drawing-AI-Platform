@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "@/api";
 import { useAppStore, type Highlight } from "@/store";
-import { MinusIcon, PlusIcon } from "lucide-react";
+import { FilterIcon, ListRestartIcon, MinusIcon, PlusIcon } from "lucide-react";
 import { PageLoading } from "@/components/shared";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -30,6 +31,8 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   const jumpToPage = useAppStore((s) => s.jumpToPage);
   const highlight = useAppStore((s) => s.highlight);
   const requestJump = useAppStore((s) => s.requestJump);
+  const pageFilter = useAppStore((s) => s.pageFilter);
+  const setPageFilter = useAppStore((s) => s.setPageFilter);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // The scroll container doubles as the IntersectionObserver root, and the
   // observer can only be built once it exists — hence state, not just a ref.
@@ -88,7 +91,17 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
     refetchInterval: (query) =>
       !query.state.data?.length || query.state.data.some((e) => !e.hasImage) ? 3000 : false,
   });
-  const entries = useMemo(() => manifest.data ?? [], [manifest.data]);
+  const allEntries = useMemo(() => manifest.data ?? [], [manifest.data]);
+  /** Category filter (FR-16): only the sheets carrying that discipline. */
+  const entries = useMemo(
+    () =>
+      pageFilter
+        ? allEntries.filter(
+            (entry) => (entry.discipline ?? "unclassified") === pageFilter.discipline,
+          )
+        : allEntries,
+    [allEntries, pageFilter],
+  );
 
   /**
    * Track each page element so the observer can pick it up whichever order
@@ -174,6 +187,11 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
   // layout settles.
   useEffect(() => {
     if (jumpToPage == null) return;
+    // A citation can point at a page the active filter hides; the jump wins.
+    if (pageFilter && !entries.some((e) => e.combinedPageNumber === jumpToPage)) {
+      setPageFilter(null);
+      return;
+    }
     const scroll = () =>
       document
         .getElementById(`combined-page-${jumpToPage}`)
@@ -185,22 +203,48 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
       timers.forEach(clearTimeout);
       clearTimeout(done);
     };
-  }, [jumpToPage, requestJump]);
+  }, [jumpToPage, requestJump, entries, pageFilter, setPageFilter]);
 
-  const total = entries.length;
+  const total = allEntries.length;
+  const shown = entries.length;
   const currentEntry = entries.find((e) => e.combinedPageNumber === currentPage);
 
   return (
     <div className="bg-card @container/viewer flex h-full flex-col overflow-hidden rounded-xl border">
       <div className="flex items-center gap-x-3 border-b px-4 py-2.5 text-sm">
-        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          Combined set
-        </span>
-        <span className="text-muted-foreground @[640px]/viewer:inline hidden text-xs">
-          {total} pages
-        </span>
+        {/* Left group truncates; the controls on the right never do. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-muted-foreground @[420px]/viewer:inline hidden shrink-0 text-xs font-semibold tracking-wide uppercase">
+            Combined set
+          </span>
+          <span className="text-muted-foreground @[640px]/viewer:inline hidden shrink-0 text-xs">
+            {pageFilter ? `${shown} of ${total} pages` : `${total} pages`}
+          </span>
+          {pageFilter && (
+            <>
+              <Badge variant="secondary" className="min-w-0 gap-1">
+                <FilterIcon className="size-3 shrink-0" />
+                <span className="truncate">{pageFilter.label}</span>
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-xs"
+                onClick={() => setPageFilter(null)}
+                title="Stop filtering and list every page again"
+              >
+                <ListRestartIcon />
+                <span className="@[760px]/viewer:inline hidden">Show all pages</span>
+                <span className="@[760px]/viewer:hidden">All</span>
+              </Button>
+            </>
+          )}
+        </div>
 
-        <div className="ml-auto flex items-center gap-1" title="Ctrl/⌘ + scroll also zooms">
+        <div
+          className="ml-auto flex shrink-0 items-center gap-1"
+          title="Ctrl/⌘ + scroll also zooms"
+        >
           <Button
             variant="outline"
             size="icon-sm"
@@ -244,7 +288,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
         </div>
 
         <form
-          className="flex items-center gap-2"
+          className="flex shrink-0 items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(jumpDraft);
@@ -306,9 +350,18 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
         <div ref={setScrollNode} className="flex-1 overflow-auto bg-muted p-4">
           {manifest.isLoading && <PageLoading label="Loading pages…" />}
           {!manifest.isLoading && total === 0 && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               No pages yet — upload a PDF and wait for processing.
             </p>
+          )}
+          {!manifest.isLoading && total > 0 && shown === 0 && (
+            <div className="text-muted-foreground grid place-items-center gap-3 py-16 text-sm">
+              <p>No pages are categorised as {pageFilter?.label} yet.</p>
+              <Button variant="outline" size="sm" onClick={() => setPageFilter(null)}>
+                <ListRestartIcon />
+                Show all pages
+              </Button>
+            </div>
           )}
           {entries.map((entry) => (
             <div

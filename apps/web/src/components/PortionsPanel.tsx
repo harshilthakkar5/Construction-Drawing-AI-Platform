@@ -5,6 +5,7 @@ import { api } from "@/api";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatRanges, formatRangesFull, pagePrefix } from "@/lib/pageRanges";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -43,6 +44,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const selectedPortionId = useAppStore((s) => s.selectedPortionId);
   const selectPortion = useAppStore((s) => s.selectPortion);
+  const setPageFilter = useAppStore((s) => s.setPageFilter);
   const requestJump = useAppStore((s) => s.requestJump);
 
   const documents = useQuery({
@@ -52,6 +54,13 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   const processing = documents.data?.some(
     (d) => d.status === "uploaded" || d.status === "processing",
   );
+
+  // The manifest carries each page's discipline, which is what the labels and
+  // the viewer filter need — a portion's start/end is only the outer span.
+  const manifest = useQuery({
+    queryKey: ["manifest", projectId],
+    queryFn: () => api.manifest(projectId),
+  });
 
   const portions = useQuery({
     queryKey: ["portions", projectId],
@@ -100,13 +109,30 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  /** Combined page numbers actually carrying this discipline, in order. */
+  function pagesOf(portion: PortionDto): number[] {
+    return (manifest.data ?? [])
+      .filter((entry) => (entry.discipline ?? "unclassified") === portion.discipline)
+      .map((entry) => entry.combinedPageNumber)
+      .sort((a, b) => a - b);
+  }
+
+  /**
+   * Clicking a category selects its summary AND filters the viewer to its
+   * sheets; clicking it again clears both. The jump targets the first page the
+   * discipline actually appears on, not the span start.
+   */
   function open(portion: PortionDto) {
     if (portion.id === selectedPortionId) {
       selectPortion(null); // toggle back to the project summary
+      setPageFilter(null);
       return;
     }
     selectPortion(portion.id);
-    requestJump(portion.startPage);
+    if (portion.discipline) {
+      setPageFilter({ discipline: portion.discipline, label: portion.name });
+    }
+    requestJump(pagesOf(portion)[0] ?? portion.startPage);
   }
 
   return (
@@ -116,6 +142,11 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           const chip = CHIP[portion.summaryStatus];
           const busy =
             portion.summaryStatus === "queued" || portion.summaryStatus === "running";
+          // Fall back to the span only while the manifest is still loading.
+          const pages = pagesOf(portion);
+          const range = pages.length
+            ? `${pagePrefix(pages)} ${formatRanges(pages)}`
+            : `pp. ${portion.startPage}–${portion.endPage}`;
           return (
             <li key={portion.id} className="mb-1">
               <div
@@ -129,7 +160,11 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                 <button
                   className="flex w-full items-center gap-2 text-left"
                   onClick={() => open(portion)}
-                  title={`Jump to combined page ${portion.startPage}`}
+                  title={
+                    pages.length
+                      ? `Show only the ${portion.name} sheets (pages ${formatRangesFull(pages)})`
+                      : `Jump to combined page ${portion.startPage}`
+                  }
                 >
                   <span
                     className={cn(
@@ -139,8 +174,11 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   >
                     {portion.name}
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    pp. {portion.startPage}–{portion.endPage}
+                  <span
+                    className="text-muted-foreground shrink-0 text-xs tabular-nums"
+                    title={pages.length ? `Pages ${formatRangesFull(pages)}` : undefined}
+                  >
+                    {range}
                   </span>
                 </button>
 
@@ -148,7 +186,8 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     status chip and the action button never get squeezed. */}
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="text-muted-foreground w-full text-[11px] tabular-nums">
-                    {portion.pageCount} sheet{portion.pageCount === 1 ? "" : "s"}
+                    {pages.length || portion.pageCount} sheet
+                    {(pages.length || portion.pageCount) === 1 ? "" : "s"}
                     {portion.sheetNumberSample && ` · ${portion.sheetNumberSample}`}
                   </span>
                   <Badge variant={chip.variant} className="text-[11px]">

@@ -8,6 +8,16 @@ export interface Highlight {
   bbox: BBox;
 }
 
+/**
+ * Viewer filter: show only the pages carrying this discipline. Set by clicking
+ * a category, cleared by "Show all pages" in the viewer. A discipline's pages
+ * are routinely non-contiguous, so this is a per-page match, not a range.
+ */
+export interface PageFilter {
+  discipline: string;
+  label: string;
+}
+
 /** Top-level page. `project` is implied by selectedProjectId being set. */
 export type View = "dashboard" | "projects" | "support" | "account";
 
@@ -27,6 +37,9 @@ interface AppState {
   openProject: (projectId: string | null) => void;
   selectedPortionId: string | null;
   selectPortion: (portionId: string | null) => void;
+  /** Active category filter for the viewer's page list (null = every page). */
+  pageFilter: PageFilter | null;
+  setPageFilter: (filter: PageFilter | null) => void;
   /** Combined page number the viewer should scroll to (FR-18 jump target). */
   jumpToPage: number | null;
   /** Active bbox highlight; persists until the next jump replaces/clears it. */
@@ -39,7 +52,14 @@ export const useAppStore = create<AppState>((set) => ({
   setUser: (user) => set({ user }),
   view: "dashboard",
   setView: (view) =>
-    set({ view, selectedProjectId: null, jumpToPage: null, highlight: null, selectedPortionId: null }),
+    set({
+      view,
+      selectedProjectId: null,
+      jumpToPage: null,
+      highlight: null,
+      selectedPortionId: null,
+      pageFilter: null,
+    }),
   selectedProjectId: null,
   openProject: (projectId) =>
     set({
@@ -49,9 +69,12 @@ export const useAppStore = create<AppState>((set) => ({
       jumpToPage: null,
       highlight: null,
       selectedPortionId: null,
+      pageFilter: null,
     }),
   selectedPortionId: null,
   selectPortion: (portionId) => set({ selectedPortionId: portionId }),
+  pageFilter: null,
+  setPageFilter: (pageFilter) => set({ pageFilter }),
   jumpToPage: null,
   highlight: null,
   // requestJump(page, bbox) → jump + highlight; requestJump(page) → plain
