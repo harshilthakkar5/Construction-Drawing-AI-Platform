@@ -31,6 +31,19 @@ export const authToken = {
 /** Thrown on 401 so the app can drop back to the login screen. */
 export class UnauthorizedError extends Error {}
 
+/**
+ * Endpoints where a 401 means "those credentials are wrong", NOT "your session
+ * ended". Treating them the same told someone who mistyped their password that
+ * their session had expired, and cleared the token of whoever was already
+ * signed in in another tab.
+ */
+const CREDENTIAL_PATHS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+];
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authToken.get();
   const res = await fetch(`${API_URL}${path}`, {
@@ -41,7 +54,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (res.status === 401) {
+  if (res.status === 401 && !CREDENTIAL_PATHS.some((p) => path.startsWith(p))) {
     authToken.clear();
     throw new UnauthorizedError("session expired — sign in again");
   }

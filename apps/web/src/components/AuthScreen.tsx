@@ -391,7 +391,7 @@ function ResetPasswordForm({
       authToken.set(res.token);
       onSignedIn(res.user);
     } catch (err) {
-      setError((err as Error).message.replace(/^POST \S+ → \d+ /, ""));
+      setError(friendlyError((err as Error).message, false));
       setBusy(false);
     }
   }
@@ -475,12 +475,22 @@ function ResetPasswordForm({
 
 /** Turns the raw `POST /auth/... → 401 {...}` into something a person reads. */
 function friendlyError(message: string, isRegister: boolean): string {
-  if (message.includes("401")) return "Wrong email or password.";
-  if (message.includes("409")) return "That email is already registered — try logging in.";
-  if (message.includes("validation failed")) {
-    return isRegister ? "Check your details — the password needs 8+ characters." : "Check your details.";
+  if (message.includes("401") || message.includes("invalid credentials")) {
+    return "That email or password is not right. Check both and try again.";
   }
-  if (message.includes("Failed to fetch")) return "Can't reach the API. Is it running?";
+  if (message.includes("409")) return "That email is already registered — try logging in.";
+  if (message.includes("429")) return "Too many attempts. Wait a minute and try again.";
+  if (message.includes("validation failed") || message.includes("400")) {
+    return isRegister
+      ? "Check your details — a valid email and a password of 8+ characters are required."
+      : "Check your details — that does not look like a valid email address.";
+  }
+  if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  if (message.includes("500") || message.includes("503")) {
+    return "The server had a problem with that request. Try again in a moment.";
+  }
   return message;
 }
 

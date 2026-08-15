@@ -4,12 +4,12 @@ import { ScanLineIcon, SquareDashedIcon } from "lucide-react";
 import { api } from "@/api";
 import { RegionSelector } from "@/components/RegionSelector";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
  * The gate on categorization: until the user draws a title-block box, pages
- * have no discipline and the project has no categories. This banner is where
- * that box is defined, edited, and re-run — and where scrape progress shows.
+ * have no discipline and the project has no categories. These are the project
+ * header's quick actions — define/edit the box, re-run it, and see how the
+ * scrape is going.
  */
 export function RegionBanner({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
@@ -49,54 +49,51 @@ export function RegionBanner({ projectId }: { projectId: string }) {
   }, [status, projectId, queryClient]);
 
   return (
-    <Card className="shrink-0 gap-3 py-4">
-      <CardHeader>
-        <CardTitle className="text-sm">Quick actions</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {!region.data && !region.isLoading && (
-          <>
-            <p className="text-muted-foreground text-xs">
-              <span className="text-foreground font-medium">No title-block region yet.</span> Draw
-              a box over one sheet&rsquo;s number and it is applied to every page to sort the
-              drawings into disciplines.
-            </p>
+    <div className="flex min-w-0 shrink-0 flex-col items-end gap-1.5">
+      <span className="text-muted-foreground text-xs font-medium">Quick actions</span>
+      {!region.data && !region.isLoading && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEditing(true)}
+            disabled={!hasProcessedDocument}
+            title={
+              hasProcessedDocument
+                ? "Pick a page and drag a box over its sheet number"
+                : "Upload a PDF and let it finish processing first"
+            }
+          >
+            <SquareDashedIcon />
+            Define region
+          </Button>
+          <p className="text-muted-foreground max-w-xs text-right text-[11px]">
+            Draw a box over one sheet&rsquo;s number; it is applied to every page to sort the
+            drawings into disciplines.
+          </p>
+        </>
+      )}
+
+      {region.data && (
+        <>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <SquareDashedIcon />
+              Edit region
+            </Button>
             <Button
               variant="outline"
-              className="w-full"
-              onClick={() => setEditing(true)}
-              disabled={!hasProcessedDocument}
-              title={
-                hasProcessedDocument
-                  ? "Pick a page and drag a box over its sheet number"
-                  : "Upload a PDF and let it finish processing first"
-              }
+              size="sm"
+              onClick={() => rescrape.mutate()}
+              disabled={rescrape.isPending || status === "running" || status === "pending"}
+              title="Re-read the sheet numbers with the same box"
             >
-              <SquareDashedIcon />
-              Define region
+              <ScanLineIcon />
+              Re-scan
             </Button>
-          </>
-        )}
+          </div>
 
-        {region.data && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                <SquareDashedIcon />
-                Edit region
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => rescrape.mutate()}
-                disabled={rescrape.isPending || status === "running" || status === "pending"}
-                title="Re-read the sheet numbers with the same box"
-              >
-                <ScanLineIcon />
-                Re-scan
-              </Button>
-            </div>
-
-            <p className="text-muted-foreground text-[11px]">
+          <p className="text-muted-foreground text-right text-[11px]">
               Title-block region v{region.data.version}
               {(status === "running" || status === "pending") &&
                 ` · scanning sheets… ${region.data.scrapedPages}/${region.data.totalPages || "?"}`}
@@ -116,16 +113,15 @@ export function RegionBanner({ projectId }: { projectId: string }) {
                 </>
               )}
             </p>
-            {status === "failed" && (
-              <p className="text-destructive text-[11px]">
-                Scan failed: {region.data.lastError ?? "unknown error"}
-              </p>
-            )}
-          </>
-        )}
-      </CardContent>
+          {status === "failed" && (
+            <p className="text-destructive text-[11px]">
+              Scan failed: {region.data.lastError ?? "unknown error"}
+            </p>
+          )}
+        </>
+      )}
 
       {editing && <RegionSelector projectId={projectId} onClose={() => setEditing(false)} />}
-    </Card>
+    </div>
   );
 }

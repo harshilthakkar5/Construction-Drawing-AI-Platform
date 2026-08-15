@@ -33,20 +33,33 @@ pagesRouter.get("/manifest", async (req, res) => {
   const docs = await manifestDocs(projectId);
   const entries = buildPageManifest(docs);
 
-  const processed = await prisma.page.findMany({
-    where: { document: { projectId, supersededAt: null }, imageUrl: { not: null } },
-    select: { documentId: true, pageNumber: true, pdfWidth: true, pdfHeight: true },
+  // Every stored page, not just the rendered ones: a page can carry a
+  // discipline before its image lands, and the viewer's category filter reads
+  // that per page (a discipline's pages are often non-contiguous).
+  const stored = await prisma.page.findMany({
+    where: { document: { projectId, supersededAt: null } },
+    select: {
+      documentId: true,
+      pageNumber: true,
+      imageUrl: true,
+      pdfWidth: true,
+      pdfHeight: true,
+      discipline: true,
+      sheetNumber: true,
+    },
   });
-  const processedByKey = new Map(processed.map((p) => [`${p.documentId}:${p.pageNumber}`, p]));
+  const storedByKey = new Map(stored.map((p) => [`${p.documentId}:${p.pageNumber}`, p]));
 
   res.json(
     entries.map((e) => {
-      const page = processedByKey.get(`${e.documentId}:${e.pageNumber}`);
+      const page = storedByKey.get(`${e.documentId}:${e.pageNumber}`);
       return {
         ...e,
-        hasImage: page !== undefined,
+        hasImage: page?.imageUrl != null,
         pageWidth: page?.pdfWidth ?? null,
         pageHeight: page?.pdfHeight ?? null,
+        discipline: page?.discipline ?? null,
+        sheetNumber: page?.sheetNumber ?? null,
       };
     }),
   );

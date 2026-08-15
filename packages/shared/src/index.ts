@@ -101,6 +101,12 @@ export interface ManifestEntryDto extends PageManifestEntry {
   /** PDF page size in points (bbox coordinate space) — null until processed. */
   pageWidth: number | null;
   pageHeight: number | null;
+  /** Discipline read off this page's sheet number; null until classified.
+   * The viewer filters on it, so it is per PAGE — a discipline's pages are
+   * routinely non-contiguous and a portion's span alone cannot express that. */
+  discipline: Discipline | "unclassified" | null;
+  /** The sheet number the discipline came from, e.g. "S-103.0". */
+  sheetNumber: string | null;
 }
 
 /** FR-15: one portion per discipline, spanning all of its pages. */

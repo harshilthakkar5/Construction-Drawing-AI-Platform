@@ -20,6 +20,7 @@ import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusPill } from "@/pages/DashboardPage";
 import { useAppStore } from "@/store";
@@ -115,10 +116,13 @@ export function ProjectView({ projectId }: { projectId: string }) {
             </p>
           </div>
           {project.data?.description && (
-            <p className="text-muted-foreground hidden max-w-md truncate text-sm lg:block">
+            <p className="text-muted-foreground hidden max-w-xs truncate text-sm xl:block">
               {project.data.description}
             </p>
           )}
+          {/* Categorization is a project-level action, so it sits with the
+              project rather than below the panels it feeds. */}
+          <RegionBanner projectId={projectId} />
         </CardContent>
       </Card>
 
@@ -134,11 +138,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
                 <TabsList className="w-full">
                   <TabsTrigger value="summary">
                     <LayoutGridIcon />
-                    Summary
-                  </TabsTrigger>
-                  <TabsTrigger value="categories">
-                    <LayersIcon />
-                    Categories
+                    Summary &amp; categories
                   </TabsTrigger>
                   <TabsTrigger value="documents">
                     <FilesIcon />
@@ -146,10 +146,15 @@ export function ProjectView({ projectId }: { projectId: string }) {
                   </TabsTrigger>
                 </TabsList>
               </div>
+              {/* One tab: picking a category swaps the summary above it, so
+                  splitting them made you flip back and forth to read it. */}
               <TabsContent value="summary" className="mt-4">
                 <SummaryPanel projectId={projectId} />
-              </TabsContent>
-              <TabsContent value="categories" className="mt-4">
+                <Separator className="my-4" />
+                <h3 className="flex items-center gap-2 px-4 pb-2 text-sm font-semibold">
+                  <LayersIcon className="text-muted-foreground size-4" />
+                  Categories
+                </h3>
                 <PortionsPanel projectId={projectId} />
               </TabsContent>
               <TabsContent value="documents" className="mt-4">
@@ -157,9 +162,6 @@ export function ProjectView({ projectId }: { projectId: string }) {
               </TabsContent>
             </Tabs>
           </Card>
-
-          {/* Categorization starts here: no region, no disciplines. */}
-          <RegionBanner projectId={projectId} />
         </aside>
         <DragDivider
           width={sidebarWidth}
