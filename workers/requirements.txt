@@ -25,8 +25,10 @@ psycopg[binary,pool]==3.2.4
 # Thumbnails
 Pillow==11.1.0
 
-# Claude (Haiku fallback classification of ambiguous title blocks)
+# Sheet-number extraction. SHEET_PROVIDER picks which one is used; both are
+# asked for the same JSON and parsed by the same code (workers/src/sheetllm.py).
 anthropic==0.116.0
+google-genai==1.15.0
 
 # Voyage embeddings + Qdrant REST (httpx also ships with anthropic)
 httpx==0.28.1

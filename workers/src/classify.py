@@ -35,6 +35,7 @@ import os
 import re
 
 import logutil
+import sheetllm
 
 log = logutil.get("classify")
 
@@ -357,7 +358,10 @@ def extract_sheet_from_region(
     cache_key = None
     if redis_conn is not None:
         digest = hashlib.sha256(snippet.encode()).hexdigest()
-        cache_key = f"classify:region:{digest}"
+        # The provider is part of the key: switching from Claude to Gemini must
+        # re-read the sheets rather than silently serve the other model's
+        # answers, otherwise a comparison between them is meaningless.
+        cache_key = f"classify:region:{sheetllm.provider()}:{digest}"
         try:
             cached = redis_conn.get(cache_key)
             if cached is not None:
@@ -369,33 +373,16 @@ def extract_sheet_from_region(
         except Exception:
             cache_key = None
 
-    client = _get_client()
-    if client is None:
-        return None
-
     user_content = (
         f"Drawing file name: {filename}\n\n" if filename else ""
     ) + f"<region>\n{snippet}\n</region>"
-    try:
-        response = client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=120,
-            system=[
-                {
-                    "type": "text",
-                    "text": _REGION_SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_content}],
-        )
-        import usage
 
-        usage.record_message(_current_project, "classification", HAIKU_MODEL, response.usage)
-        result = parse_sheet_response(response.content[0].text)
-    except Exception as exc:
-        log.warning("region sheet-number extraction failed: %s", exc)
+    raw = sheetllm.complete_json(_REGION_SYSTEM_PROMPT, user_content, _current_project)
+    if raw is None:
         return None
+    # Same parser for every provider: the model reports a sheet number, the
+    # deterministic table decides the discipline.
+    result = parse_sheet_response(raw)
 
     if cache_key is not None:
         try:

@@ -53,6 +53,11 @@ const RATES: Record<string, { input: number; output: number }> = {
   "claude-opus-5": { input: 5, output: 25 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "claude-haiku-4-5-20251001": { input: 1, output: 5 },
+  // Google (sheet-number reads when SHEET_PROVIDER=gemini). Published list
+  // rates — check them against your own billing tier before trusting the
+  // dashboard's spend figure for these.
+  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+  "gemini-2.0-flash": { input: 0.1, output: 0.4 },
   // Voyage embeddings bill input tokens only.
   "voyage-3": { input: 0.06, output: 0 },
   "voyage-3-large": { input: 0.18, output: 0 },

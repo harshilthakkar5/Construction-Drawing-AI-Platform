@@ -211,7 +211,8 @@ a free Voyage tier keeps hitting its rate limit:
 | `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
 | `SUMMARIES_ENABLED=false` | Refuses summary jobs. Processing, region scraping, embedding and **chat still run**. (Summaries never run unasked anyway — see below.) |
 | `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. |
-| `SHEET_EXTRACTION=rules` | Skips the Haiku sheet-number read (pattern matching on the scraped region only, no API calls). |
+| `SHEET_EXTRACTION=rules` | Skips the model sheet-number read (pattern matching on the scraped region only, no API calls). |
+| `SHEET_PROVIDER=gemini` | Reads the sheet number with Gemini instead of Claude Haiku (`GEMINI_API_KEY`, `GEMINI_MODEL`). Only the reading changes: both return the same JSON and the same deterministic table maps the prefix to a discipline, so results are directly comparable. Cached answers are keyed per provider, so switching re-reads rather than reusing the other model's. |
 | `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
 
 Typical loop: upload with `EMBEDDINGS_ENABLED=false` to test summaries without
