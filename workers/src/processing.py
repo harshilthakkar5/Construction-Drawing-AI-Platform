@@ -17,7 +17,9 @@ Stages (each logged, errors logged with the failing stage/page):
 import io
 import os
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -37,14 +39,20 @@ log = logutil.get("pipeline")
 PROGRESS_EVERY = 25
 
 
-def _thumbnail_jpg(png: bytes) -> bytes:
-    with Image.open(io.BytesIO(png)) as img:
-        ratio = config.THUMB_WIDTH / img.width
-        thumb = img.convert("RGB").resize(
-            (config.THUMB_WIDTH, max(1, round(img.height * ratio))), Image.LANCZOS
-        )
+def _thumbnail_jpg(page) -> bytes:
+    """Render the thumbnail straight from the page at thumbnail scale.
+
+    It used to be produced by decoding the full-resolution page PNG and
+    resizing it — ~18 megapixels of zlib decompression and a LANCZOS resize per
+    page, to end up with a 200px image. Rendering the small one directly is a
+    fraction of that: MuPDF rasterizes at the requested scale rather than
+    downsampling from a big bitmap.
+    """
+    scale = config.THUMB_WIDTH / page.rect.width
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+    with Image.open(io.BytesIO(pix.tobytes("png"))) as img:
         out = io.BytesIO()
-        thumb.save(out, format="JPEG", quality=70)
+        img.convert("RGB").save(out, format="JPEG", quality=70)
         return out.getvalue()
 
 
@@ -71,7 +79,7 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
     )
     storage.put_bytes(
         storage.page_thumb_key(project_id, document_id, page_number),
-        _thumbnail_jpg(png),
+        _thumbnail_jpg(page),
         "image/jpeg",
     )
     storage.put_bytes(
@@ -105,6 +113,80 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
     db.replace_page_chunks(document_id, page_number, page_chunks)
     log.debug("page %d done: %d chars, %d chunks", page_number, len(text), len(page_chunks))
     return used_ocr
+
+
+def _extract_pages(
+    project_id: str,
+    document_id: str,
+    pdf_path: str,
+    indices: list[int],
+    offset: int,
+    page_count: int,
+    doc_tag: str,
+) -> tuple[int, int]:
+    """Stage 2 across several pages at once. Returns (processed, ocr_count).
+
+    A page is independent work — render, encode, upload, write its own rows —
+    so the only reason it was serial is that the loop was. On a 400-page set
+    that left the CPU idle during every upload and the network idle during
+    every render.
+
+    Each thread opens its OWN fitz.Document on the already-downloaded file:
+    PyMuPDF is not thread-safe across a shared Document, and a lock around
+    page loads would serialize the expensive part again. Opening is cheap
+    (MuPDF parses lazily) and the file is local by this point.
+
+    Failure semantics are unchanged: pages commit individually, so a crash
+    still leaves earlier pages saved and a retry resumes. The first exception
+    is re-raised after the pool drains, rather than being swallowed.
+    """
+    if not indices:
+        return 0, 0
+
+    workers = max(1, min(config.PAGE_CONCURRENCY, len(indices)))
+    local = threading.local()
+    counters = {"processed": 0, "ocr": 0}
+    lock = threading.Lock()
+
+    def handle(index: int) -> None:
+        pdf = getattr(local, "pdf", None)
+        if pdf is None:
+            pdf = local.pdf = fitz.open(pdf_path)
+        used_ocr = _process_page(project_id, document_id, pdf, index, offset)
+        with lock:
+            counters["processed"] += 1
+            if used_ocr:
+                counters["ocr"] += 1
+            done = counters["processed"]
+        if done % PROGRESS_EVERY == 0:
+            log.info(
+                "[doc %s] stage 2/6 extract: %d/%d pages (%d OCR, x%d)",
+                doc_tag,
+                done,
+                page_count,
+                counters["ocr"],
+                workers,
+            )
+
+    log.info("[doc %s] stage 2/6 extract: %d threads", doc_tag, workers)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(handle, i): i for i in indices}
+        try:
+            for future in as_completed(futures):
+                future.result()  # re-raises inside the worker thread's page
+        except Exception:
+            # Stop handing out new pages; those already running finish and
+            # commit, so nothing half-written is left behind.
+            for pending in futures:
+                pending.cancel()
+            log.exception(
+                "[doc %s] stage 2/6 extract FAILED (%d/%d pages saved; a retry resumes)",
+                doc_tag,
+                counters["processed"],
+                page_count,
+            )
+            raise
+    return counters["processed"], counters["ocr"]
 
 
 def process_document(project_id: str, document_id: str, spaces_key: str) -> dict:
@@ -154,33 +236,11 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
                 len(already_done),
             )
 
-            for index in range(page_count):
-                page_number = index + 1
-                if page_number in already_done:
-                    skipped += 1
-                    continue
-                try:
-                    if _process_page(project_id, document_id, pdf, index, offset):
-                        ocr_count += 1
-                except Exception:
-                    log.exception(
-                        "[doc %s] stage 2/6 extract FAILED at page %d/%d "
-                        "(pages 1..%d are saved; a retry resumes here)",
-                        doc_tag,
-                        page_number,
-                        page_count,
-                        page_number - 1,
-                    )
-                    raise
-                processed += 1
-                if processed % PROGRESS_EVERY == 0:
-                    log.info(
-                        "[doc %s] stage 2/6 extract: %d/%d pages (%d OCR)",
-                        doc_tag,
-                        page_number,
-                        page_count,
-                        ocr_count,
-                    )
+            todo = [i for i in range(page_count) if (i + 1) not in already_done]
+            skipped = page_count - len(todo)
+            processed, ocr_count = _extract_pages(
+                project_id, document_id, pdf_path, todo, offset, page_count, doc_tag
+            )
         finally:
             pdf.close()
     log.info(
