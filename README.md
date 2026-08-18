@@ -70,7 +70,8 @@ together rather than one after another:
 
 | Queue | Env var | Default | What caps it |
 | --- | --- | --- | --- |
-| `process-document` | `PROCESS_CONCURRENCY` | 4 | Memory — budget ~250–400 MB per concurrent job |
+| `process-document` | `PROCESS_CONCURRENCY` | 4 | Memory — see the page note below |
+| ↳ pages within one document | `PAGE_CONCURRENCY` | 4 | Memory — `PROCESS_CONCURRENCY x PAGE_CONCURRENCY` pages are rendered at once, ~18 MP each |
 | `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | Haiku rate limit (one call per page) |
 | `summarize-portion` | `SUMMARIZE_PORTION_CONCURRENCY` | 4 | Sonnet rate limit, and spend |
 | `summarize-project` | `SUMMARIZE_PROJECT_CONCURRENCY` | 1 | Rollups are cheap and one per project |
@@ -78,6 +79,13 @@ together rather than one after another:
 `WORKER_CONCURRENCY` sets all four at once; the per-queue variables override it.
 Throughput is `replicas x concurrency`, so three replicas at the defaults process
 twelve documents simultaneously.
+
+**Pages inside one document run in parallel too.** Document-level concurrency
+does nothing for a single 400-page upload — that was one page at a time, leaving
+the CPU idle during every upload and the network idle during every render. Each
+page thread opens its own PyMuPDF handle on the downloaded file (a shared
+`Document` is not thread-safe). Pages still commit individually, so a crash
+leaves the finished ones saved and a retry resumes.
 
 **What keeps this correct.** Most of the pipeline is per-document and parallelises
 freely — each job writes its own pages. Three steps are project-wide, though:

@@ -321,7 +321,10 @@ Runtime reference (queues, polling, capacity, cost): docs/runtime-architecture.m
 
 Jobs run concurrently per queue (`config.PROCESS_CONCURRENCY` etc., all defaulting to
 `WORKER_CONCURRENCY`=4), and horizontally across replicas — throughput is
-`replicas × concurrency`. The handlers hand their synchronous body to `asyncio.to_thread`, so
+`replicas × concurrency`. Within one document, pages are extracted by a thread pool
+(`PAGE_CONCURRENCY`, `processing._extract_pages`) — queue concurrency does nothing for a single
+large PDF. Each page thread opens its OWN `fitz.Document` (a shared one is not thread-safe), and
+`PROCESS_CONCURRENCY × PAGE_CONCURRENCY` is what sizes both memory and `DB_POOL_SIZE`. The handlers hand their synchronous body to `asyncio.to_thread`, so
 the threads genuinely overlap (PyMuPDF releases the GIL while rendering; everything else is
 network I/O).
 

@@ -68,13 +68,32 @@ def _int(name: str, default: int) -> int:
 
 WORKER_CONCURRENCY = _int("WORKER_CONCURRENCY", 4)
 PROCESS_CONCURRENCY = _int("PROCESS_CONCURRENCY", WORKER_CONCURRENCY)
+
+# Pages rendered at once WITHIN one document. A page is independent work, and
+# a 400-page set processed serially leaves the CPU idle during every upload and
+# the network idle during every render — concurrency across documents does
+# nothing for a single large PDF.
+#
+# The number that actually matters for memory is the PRODUCT:
+#
+#     PROCESS_CONCURRENCY x PAGE_CONCURRENCY = pages in flight at once
+#
+# Each in-flight page holds a full-resolution pixmap — an ISO A1 sheet at
+# PAGE_RENDER_ZOOM=2 is ~18 megapixels, a few hundred MB with its encode
+# buffer. At the defaults that is 16 pages, so budget accordingly (or lower
+# one of the two on a small worker).
+PAGE_CONCURRENCY = _int("PAGE_CONCURRENCY", 4)
 SCRAPE_CONCURRENCY = _int("SCRAPE_CONCURRENCY", WORKER_CONCURRENCY)
 SUMMARIZE_PORTION_CONCURRENCY = _int("SUMMARIZE_PORTION_CONCURRENCY", WORKER_CONCURRENCY)
 SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
 
 # Postgres connections held by this process. Every db helper borrows one for
-# the length of a single statement, so the pool only has to cover the jobs
-# running at once (plus headroom for the lock connections, which are held for
-# the duration of a critical section). Postgres defaults to max_connections
-# 100 across ALL clients — keep replicas x DB_POOL_SIZE well under it.
-DB_POOL_SIZE = _int("DB_POOL_SIZE", max(4, WORKER_CONCURRENCY * 2))
+# the length of a single statement, so the pool has to cover the threads that
+# might hold one at the same moment — which, with per-page parallelism, is the
+# document workers TIMES their page threads, not just the job count. Sized too
+# small, parallelism turns into pool-timeout errors rather than speed.
+# Postgres defaults to max_connections 100 across ALL clients — keep
+# replicas x DB_POOL_SIZE well under it.
+DB_POOL_SIZE = _int(
+    "DB_POOL_SIZE", max(4, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
+)
