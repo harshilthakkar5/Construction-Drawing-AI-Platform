@@ -178,9 +178,15 @@ Classify pages by the SHEET NUMBER, not content, and read that number out of a r
 points at. Per project the user drags one box over the title block on a single page
 (`sheet_regions`, relative 0–1 coordinates); the `scrape-region` job (`workers/src/scrape.py`)
 applies it to every page of every PDF and stores what it reads in `pages.sheetRegionText`. Only
-that string reaches Claude Haiku (`classify_region_text` → `extract_sheet_from_region`), which
+that string reaches the model (`classify_region_text` → `extract_sheet_from_region`), which
 reports the sheet number; the deterministic `PREFIX_TO_DISCIPLINE` table maps it, so the mapping
-never depends on model judgement. Results are Redis-cached by `sha256(region_text)` — hundreds of
+never depends on model judgement.
+
+The reader is swappable: `SHEET_PROVIDER=claude|gemini` (`workers/src/sheetllm.py`). The provider
+is a TRANSPORT detail only — both are asked for the same JSON, `parse_sheet_response` validates
+it, and the same prefix table decides the discipline, so the two are directly comparable. The
+Redis cache key includes the provider, so switching re-reads rather than serving the other
+model's answers. An unavailable or failing provider falls through to the rules ladder. Results are Redis-cached by `sha256(region_text)` — hundreds of
 sheets share a box layout — and the instructions are prompt-cached.
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
