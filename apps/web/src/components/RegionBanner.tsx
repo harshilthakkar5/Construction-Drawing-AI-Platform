@@ -15,10 +15,19 @@ import { cn } from "@/lib/utils";
 export function RegionBanner({
   projectId,
   align = "end",
+  heading,
+  actions,
+  trailing,
 }: {
   projectId: string;
   /** "end" in the project header, "start" inside the setup stepper. */
   align?: "start" | "end";
+  /** Group label; omit inside the stepper, where the step already says it. */
+  heading?: string;
+  /** Buttons that belong to the same group (setup) but not to the region. */
+  actions?: React.ReactNode;
+  /** Same, but after the region buttons — help sits at the end of the row. */
+  trailing?: React.ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -64,25 +73,27 @@ export function RegionBanner({
         align === "end" ? "items-end" : "items-start",
       )}
     >
-      {align === "end" && (
-        <span className="text-muted-foreground text-xs font-medium">Quick actions</span>
-      )}
+      {heading && <span className="text-muted-foreground text-xs font-medium">{heading}</span>}
       {!region.data && !region.isLoading && (
         <>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEditing(true)}
-            disabled={!hasProcessedDocument}
-            title={
-              hasProcessedDocument
-                ? "Pick a page and drag a box over its sheet number"
-                : "Upload a PDF and let it finish processing first"
-            }
-          >
-            <SquareDashedIcon />
-            Define region
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {actions}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(true)}
+              disabled={!hasProcessedDocument}
+              title={
+                hasProcessedDocument
+                  ? "Pick a page and drag a box over its sheet number"
+                  : "Upload a PDF and let it finish processing first"
+              }
+            >
+              <SquareDashedIcon />
+              Define region
+            </Button>
+            {trailing}
+          </div>
           <p className={cn("text-muted-foreground max-w-xs text-[11px]", align === "end" && "text-right")}>
             Draw a box over one sheet&rsquo;s number; it is applied to every page to sort the
             drawings into disciplines.
@@ -92,7 +103,8 @@ export function RegionBanner({
 
       {region.data && (
         <>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {actions}
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               <SquareDashedIcon />
               Edit region
@@ -107,6 +119,7 @@ export function RegionBanner({
               <ScanLineIcon />
               Re-scan
             </Button>
+            {trailing}
           </div>
 
           <p className={cn("text-muted-foreground text-[11px]", align === "end" && "text-right")}>

@@ -216,8 +216,8 @@ export const WORKSPACE_TOUR: TourStep[] = [
   },
   {
     target: '[data-tour="quick-actions"]',
-    title: "The title-block region",
-    body: "One box over a sheet number is what sorts the set into disciplines. Edit it or re-scan here if a category looks wrong.",
+    title: "Quick actions",
+    body: "One box over a sheet number is what sorts the set into disciplines — define it, edit it or re-scan it here. Unfinished setup and this walkthrough live in the same group.",
   },
   {
     target: '[data-tour="viewer-toolbar"]',
