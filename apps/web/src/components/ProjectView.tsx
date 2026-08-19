@@ -1,23 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  CircleHelpIcon,
   FilesIcon,
   FileTextIcon,
   LayersIcon,
   LayoutGridIcon,
+  ListChecksIcon,
   MessageSquareIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { DocumentDto } from "@cdip/shared";
+import { roleLabel, type DocumentDto } from "@cdip/shared";
 import { api } from "@/api";
 import { ChatPanel } from "@/components/ChatPanel";
 import { CombinedViewer } from "@/components/CombinedViewer";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { DragDivider } from "@/components/DragDivider";
+import {
+  ProjectSetup,
+  resumeSetup,
+  setupSkipped,
+  skipSetup,
+  useSetupProgress,
+} from "@/components/ProjectSetup";
 import { PageLoading } from "@/components/shared";
 import { PortionsPanel } from "@/components/PortionsPanel";
 import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
+import { Tour, tourSeen, WORKSPACE_TOUR } from "@/components/Tour";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -62,6 +73,20 @@ export function ProjectView({ projectId }: { projectId: string }) {
     queryFn: () => api.listDocuments(projectId),
   });
 
+  // Setup runs before the workspace on a new project: upload → region →
+  // categories. Progress is server state, so this survives a reload.
+  const setup = useSetupProgress(projectId);
+  // Latched, not derived: finishing step 3 flips `setup.complete`, and a
+  // derived flag would yank the stepper away mid-click instead of letting the
+  // user press "Open the workspace". null = not decided yet.
+  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (setupOpen !== null || setup.loading) return;
+    setSetupOpen(!setupSkipped(projectId) && !setup.complete);
+  }, [setupOpen, setup.loading, setup.complete, projectId]);
+
   const [sidebarWidth, setSidebarWidth] = useState(() => stored(SIDEBAR_KEY, 400));
   const [chatWidth, setChatWidth] = useState(() => stored(CHAT_KEY, 384));
   const [chatHidden, setChatHidden] = useState(
@@ -75,10 +100,27 @@ export function ProjectView({ projectId }: { projectId: string }) {
     [chatHidden],
   );
 
+  // The walkthrough waits for the workspace — pointing at panels that are not
+  // on screen yet would spotlight nothing.
+  useEffect(() => {
+    if (setupOpen !== false || project.isLoading) return;
+    if (tourSeen("workspace")) return;
+    const timer = setTimeout(() => setTourOpen(true), 900);
+    return () => clearTimeout(timer);
+  }, [setupOpen, project.isLoading]);
+
   // Opening a project used to render the full layout instantly with every pane
   // empty, which reads as "broken" rather than "loading".
-  if (project.isLoading) {
+  if (project.isLoading || setupOpen === null) {
     return <PageLoading label="Opening project…" />;
+  }
+
+  if (setupOpen) {
+    const leave = () => {
+      skipSetup(projectId);
+      setSetupOpen(false);
+    };
+    return <ProjectSetup projectId={projectId} onFinish={leave} onSkip={leave} />;
   }
 
   const live = (documents.data ?? []).filter((d) => !d.supersededAt);
@@ -115,11 +157,40 @@ export function ProjectView({ projectId }: { projectId: string }) {
               )}
             </p>
           </div>
-          {project.data?.description && (
-            <p className="text-muted-foreground hidden max-w-xs truncate text-sm xl:block">
-              {project.data.description}
-            </p>
+          {project.data?.roles && project.data.roles.length > 0 && (
+            <div
+              className="hidden max-w-xs flex-wrap gap-1 xl:flex"
+              title="Roles this project was created for — summaries lead with what matters to them"
+            >
+              {project.data.roles.map((role) => (
+                <Badge key={role} variant="outline" className="font-normal">
+                  {roleLabel(role)}
+                </Badge>
+              ))}
+            </div>
           )}
+          {!setup.complete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                resumeSetup(projectId);
+                setSetupOpen(true);
+              }}
+            >
+              <ListChecksIcon />
+              Finish setup
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setTourOpen(true)}
+            title="Show me around"
+            aria-label="Show me around"
+          >
+            <CircleHelpIcon />
+          </Button>
           {/* Categorization is a project-level action, so it sits with the
               project rather than below the panels it feeds. */}
           <RegionBanner projectId={projectId} />
@@ -132,7 +203,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
           className="flex min-h-0 shrink-0 flex-col gap-4 overflow-y-auto pr-3"
           style={{ width: sidebarWidth }}
         >
-          <Card className="gap-0 py-4">
+          <Card className="gap-0 py-4" data-tour="summary">
             <Tabs defaultValue="summary">
               <div className="px-4">
                 <TabsList className="w-full">
@@ -151,11 +222,13 @@ export function ProjectView({ projectId }: { projectId: string }) {
               <TabsContent value="summary" className="mt-4">
                 <SummaryPanel projectId={projectId} />
                 <Separator className="my-4" />
-                <h3 className="flex items-center gap-2 px-4 pb-2 text-sm font-semibold">
-                  <LayersIcon className="text-muted-foreground size-4" />
-                  Categories
-                </h3>
-                <PortionsPanel projectId={projectId} />
+                <div data-tour="categories">
+                  <h3 className="flex items-center gap-2 px-4 pb-2 text-sm font-semibold">
+                    <LayersIcon className="text-muted-foreground size-4" />
+                    Categories
+                  </h3>
+                  <PortionsPanel projectId={projectId} />
+                </div>
               </TabsContent>
               <TabsContent value="documents" className="mt-4">
                 <DocumentsPanel projectId={projectId} />
@@ -195,6 +268,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
             size="icon"
             variant={chatHidden ? "default" : "secondary"}
             className="absolute right-6 bottom-16 size-11 rounded-full shadow-lg"
+            data-tour="chat-toggle"
             onClick={() => setChatHidden((hidden) => !hidden)}
             title={chatHidden ? "Show the chat pane" : "Hide the chat pane and widen the viewer"}
           >
@@ -203,6 +277,10 @@ export function ProjectView({ projectId }: { projectId: string }) {
           </Button>
         </section>
       </div>
+
+      {tourOpen && (
+        <Tour steps={WORKSPACE_TOUR} storageKey="workspace" onClose={() => setTourOpen(false)} />
+      )}
     </div>
   );
 }

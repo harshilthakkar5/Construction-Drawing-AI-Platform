@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { PROJECT_ROLE_VALUES } from "@cdip/shared";
 import { z } from "zod";
 import { assertProjectOwner, currentUser } from "../auth.js";
 import { purgeProjectData } from "../cleanup.js";
@@ -6,17 +7,26 @@ import { prisma } from "../db.js";
 
 export const projectsRouter = Router();
 
+/** Roles are a closed vocabulary — the same slugs the classifier assigns. */
+const rolesSchema = z
+  .array(z.enum(PROJECT_ROLE_VALUES as [string, ...string[]]))
+  .max(PROJECT_ROLE_VALUES.length)
+  // A role picked twice would be repeated in the summarizer's prompt.
+  .transform((roles) => [...new Set(roles)]);
+
 const createProjectSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
+  roles: rolesSchema.optional(),
 });
 
 const updateProjectSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
+    roles: rolesSchema.optional(),
   })
-  .refine((b) => b.name !== undefined || b.description !== undefined, {
+  .refine((b) => b.name !== undefined || b.description !== undefined || b.roles !== undefined, {
     message: "nothing to update",
   });
 

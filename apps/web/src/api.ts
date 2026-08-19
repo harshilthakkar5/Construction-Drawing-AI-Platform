@@ -139,9 +139,12 @@ export const api = {
   listSupportTickets: () => request<SupportTicketDto[]>("/support"),
 
   listProjects: () => request<ProjectDto[]>("/projects"),
-  createProject: (body: { name: string; description?: string }) =>
+  createProject: (body: { name: string; description?: string; roles?: string[] }) =>
     request<ProjectDto>("/projects", { method: "POST", body: JSON.stringify(body) }),
-  updateProject: (id: string, body: { name?: string; description?: string | null }) =>
+  updateProject: (
+    id: string,
+    body: { name?: string; description?: string | null; roles?: string[] },
+  ) =>
     request<ProjectDto>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
 

@@ -11,7 +11,16 @@ import {
 import { useMemo, useState } from "react";
 import type { DashboardProjectRow } from "@cdip/shared";
 import { api } from "@/api";
-import { ConfirmDialog, Notice, PageHeader, PageLoading, Spinner, TextArea, TextField } from "@/components/shared";
+import { RolesSelect } from "@/components/RolesSelect";
+import {
+  ConfirmDialog,
+  Notice,
+  PageHeader,
+  PageLoading,
+  Spinner,
+  TextArea,
+  TextField,
+} from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -412,11 +421,16 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const openProject = useAppStore((s) => s.openProject);
   const [name, setName] = useState("");
+  const [roles, setRoles] = useState<string[]>([]);
   const [description, setDescription] = useState("");
 
   const create = useMutation({
     mutationFn: () =>
-      api.createProject({ name: name.trim(), description: description.trim() || undefined }),
+      api.createProject({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        roles,
+      }),
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // every range
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -448,6 +462,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
             placeholder="e.g. Riverside Medical Center"
             required
           />
+          <RolesSelect value={roles} onChange={setRoles} />
           <TextArea
             label="Description (optional)"
             value={description}

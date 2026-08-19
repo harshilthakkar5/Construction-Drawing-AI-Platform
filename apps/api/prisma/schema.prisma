@@ -141,6 +141,10 @@ model Project {
   id          String   @id @default(uuid())
   name        String
   description String?
+  /// Disciplines this project is being read FOR — the roles picked when it was
+  /// created. They steer what a summary emphasises (see workers/src/summarize.py);
+  /// they never filter what is extracted, classified or indexed.
+  roles       String[] @default([])
   /// Nullable for projects created before auth existed; those are visible to
   /// any authenticated user (documented in README).
   ownerId     String?

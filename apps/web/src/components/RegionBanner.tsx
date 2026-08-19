@@ -4,6 +4,7 @@ import { ScanLineIcon, SquareDashedIcon } from "lucide-react";
 import { api } from "@/api";
 import { RegionSelector } from "@/components/RegionSelector";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /**
  * The gate on categorization: until the user draws a title-block box, pages
@@ -11,7 +12,14 @@ import { Button } from "@/components/ui/button";
  * header's quick actions — define/edit the box, re-run it, and see how the
  * scrape is going.
  */
-export function RegionBanner({ projectId }: { projectId: string }) {
+export function RegionBanner({
+  projectId,
+  align = "end",
+}: {
+  projectId: string;
+  /** "end" in the project header, "start" inside the setup stepper. */
+  align?: "start" | "end";
+}) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
 
@@ -49,8 +57,16 @@ export function RegionBanner({ projectId }: { projectId: string }) {
   }, [status, projectId, queryClient]);
 
   return (
-    <div className="flex min-w-0 shrink-0 flex-col items-end gap-1.5">
-      <span className="text-muted-foreground text-xs font-medium">Quick actions</span>
+    <div
+      data-tour="quick-actions"
+      className={cn(
+        "flex min-w-0 shrink-0 flex-col gap-1.5",
+        align === "end" ? "items-end" : "items-start",
+      )}
+    >
+      {align === "end" && (
+        <span className="text-muted-foreground text-xs font-medium">Quick actions</span>
+      )}
       {!region.data && !region.isLoading && (
         <>
           <Button
@@ -67,7 +83,7 @@ export function RegionBanner({ projectId }: { projectId: string }) {
             <SquareDashedIcon />
             Define region
           </Button>
-          <p className="text-muted-foreground max-w-xs text-right text-[11px]">
+          <p className={cn("text-muted-foreground max-w-xs text-[11px]", align === "end" && "text-right")}>
             Draw a box over one sheet&rsquo;s number; it is applied to every page to sort the
             drawings into disciplines.
           </p>
@@ -93,7 +109,7 @@ export function RegionBanner({ projectId }: { projectId: string }) {
             </Button>
           </div>
 
-          <p className="text-muted-foreground text-right text-[11px]">
+          <p className={cn("text-muted-foreground text-[11px]", align === "end" && "text-right")}>
               Title-block region v{region.data.version}
               {(status === "running" || status === "pending") &&
                 ` · scanning sheets… ${region.data.scrapedPages}/${region.data.totalPages || "?"}`}
