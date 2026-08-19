@@ -72,7 +72,7 @@ together rather than one after another:
 | --- | --- | --- | --- |
 | `process-document` | `PROCESS_CONCURRENCY` | 4 | Memory — see the page note below |
 | ↳ pages within one document | `PAGE_CONCURRENCY` | 4 | Memory — `PROCESS_CONCURRENCY x PAGE_CONCURRENCY` pages are rendered at once, ~18 MP each |
-| `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | Haiku rate limit (one call per page) |
+| `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | Provider rate limit — pages are read in batches of `SHEET_BATCH_SIZE` (25), and unambiguous title blocks skip the model entirely |
 | `summarize-portion` | `SUMMARIZE_PORTION_CONCURRENCY` | 4 | Sonnet rate limit, and spend |
 | `summarize-project` | `SUMMARIZE_PROJECT_CONCURRENCY` | 1 | Rollups are cheap and one per project |
 
@@ -221,6 +221,8 @@ a free Voyage tier keeps hitting its rate limit:
 | `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. |
 | `SHEET_EXTRACTION=rules` | Skips the model sheet-number read (pattern matching on the scraped region only, no API calls). |
 | `SHEET_PROVIDER=gemini` | Reads the sheet number with Gemini instead of Claude Haiku (`GEMINI_API_KEY`, `GEMINI_MODEL`). Only the reading changes: both return the same JSON and the same deterministic table maps the prefix to a discipline, so results are directly comparable. Cached answers are keyed per provider, so switching re-reads rather than reusing the other model's. |
+| `SHEET_RULES_FIRST=false` | Sends every page to the model. On by default, the rules-first pre-pass resolves a title block that says exactly one thing ("S-003.0", "A17-11 EQUIPMENT PLANS") by pattern and skips the call; it abstains as soon as there is a second candidate, a license/job/permit number, or a reference to another sheet. |
+| `SHEET_BATCH_SIZE=25` | Pages per provider request. A 400-page scrape's cost is round trips, not tokens — this is what turns hundreds of calls into a handful. Every entry carries an index the model must echo; anything unanswered is retried in a smaller batch, so a bad response costs accuracy on nothing. |
 | `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
 
 Typical loop: upload with `EMBEDDINGS_ENABLED=false` to test summaries without
