@@ -28,6 +28,7 @@ import { PortionsPanel } from "@/components/PortionsPanel";
 import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { Tour, tourSeen, WORKSPACE_TOUR } from "@/components/Tour";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,6 +52,44 @@ const CHAT_HIDDEN_KEY = "cdip-chat-hidden";
 function stored(key: string, fallback: number) {
   const value = Number(localStorage.getItem(key));
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/** Roles shown before the list is trimmed — a full set is 15 chips. */
+const ROLES_SHOWN = 3;
+
+/**
+ * The disciplines this project was created for. Labelled, because a bare row
+ * of chips beside the project name reads as tags of unknown meaning — and
+ * capped, because picking every role flooded the header.
+ */
+function ProjectRoles({ roles }: { roles: string[] }) {
+  if (roles.length === 0) return null;
+  const shown = roles.slice(0, ROLES_SHOWN);
+  const rest = roles.slice(ROLES_SHOWN);
+  return (
+    <div className="hidden min-w-0 lg:block">
+      <p className="text-muted-foreground text-xs font-medium">Roles</p>
+      <div
+        className="mt-1.5 flex max-w-xs flex-wrap items-center gap-1.5"
+        title={`Summaries lead with what matters to ${roles.map(roleLabel).join(", ")}`}
+      >
+        {shown.map((role) => (
+          <Badge key={role} variant="secondary" className="font-normal">
+            {roleLabel(role)}
+          </Badge>
+        ))}
+        {rest.length > 0 && (
+          <Badge
+            variant="outline"
+            className="font-normal"
+            title={rest.map(roleLabel).join(", ")}
+          >
+            +{rest.length} more
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** The project's own status is the rollup of its documents (FR-9). */
@@ -130,70 +169,73 @@ export function ProjectView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col gap-4 overflow-hidden p-4">
       {/* Project header — identity and state, above both columns. */}
       <Card className="shrink-0 py-4">
-        <CardContent className="flex flex-wrap items-center gap-4">
-          <span className="bg-muted text-muted-foreground grid size-12 shrink-0 place-items-center rounded-xl">
-            <FileTextIcon className="size-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold tracking-tight">
-                {project.data?.name ?? "…"}
-              </h1>
-              <StatusPill status={rollupStatus(documents.data)} />
+        <CardContent className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <div className="flex min-w-[15rem] flex-1 items-center gap-4">
+            <span className="bg-muted text-muted-foreground grid size-12 shrink-0 place-items-center rounded-xl">
+              <FileTextIcon className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-xl font-semibold tracking-tight">
+                  {project.data?.name ?? "…"}
+                </h1>
+                <StatusPill status={rollupStatus(documents.data)} />
+              </div>
+              <p className="text-muted-foreground mt-0.5 truncate text-sm">
+                {project.data?.createdAt &&
+                  `Created on ${new Date(project.data.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}`}
+                {documents.data && (
+                  <>
+                    {" · "}
+                    {live.length} document{live.length === 1 ? "" : "s"} ·{" "}
+                    {pages.toLocaleString()} page{pages === 1 ? "" : "s"}
+                  </>
+                )}
+              </p>
             </div>
-            <p className="text-muted-foreground mt-0.5 truncate text-sm">
-              {project.data?.createdAt &&
-                `Created on ${new Date(project.data.createdAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}`}
-              {documents.data && (
-                <>
-                  {" · "}
-                  {live.length} document{live.length === 1 ? "" : "s"} ·{" "}
-                  {pages.toLocaleString()} page{pages === 1 ? "" : "s"}
-                </>
-              )}
-            </p>
           </div>
-          {project.data?.roles && project.data.roles.length > 0 && (
-            <div
-              className="hidden max-w-xs flex-wrap gap-1 xl:flex"
-              title="Roles this project was created for — summaries lead with what matters to them"
-            >
-              {project.data.roles.map((role) => (
-                <Badge key={role} variant="outline" className="font-normal">
-                  {roleLabel(role)}
-                </Badge>
-              ))}
-            </div>
-          )}
-          {!setup.complete && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                resumeSetup(projectId);
-                setSetupOpen(true);
-              }}
-            >
-              <ListChecksIcon />
-              Finish setup
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setTourOpen(true)}
-            title="Show me around"
-            aria-label="Show me around"
-          >
-            <CircleHelpIcon />
-          </Button>
-          {/* Categorization is a project-level action, so it sits with the
-              project rather than below the panels it feeds. */}
-          <RegionBanner projectId={projectId} />
+          <ProjectRoles roles={project.data?.roles ?? []} />
+
+          {/* One labelled group for everything you can DO to the project:
+              finishing setup, the title-block region, and the walkthrough. */}
+          <RegionBanner
+            projectId={projectId}
+            heading="Quick actions"
+            actions={
+              !setup.complete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    resumeSetup(projectId);
+                    setSetupOpen(true);
+                  }}
+                >
+                  <ListChecksIcon />
+                  Finish setup
+                </Button>
+              )
+            }
+            trailing={
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setTourOpen(true)}
+                    aria-label="Show me around"
+                  >
+                    <CircleHelpIcon />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Show me around — replay the tour</TooltipContent>
+              </Tooltip>
+            }
+          />
         </CardContent>
       </Card>
 
