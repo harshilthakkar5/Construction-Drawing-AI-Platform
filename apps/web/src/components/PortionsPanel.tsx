@@ -196,6 +196,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   <Button
                     variant="outline"
                     size="sm"
+                    data-tour="generate-summary"
                     className="ml-auto h-6 shrink-0 px-2 text-[11px]"
                     disabled={busy || summarize.isPending}
                     onClick={() => setPending(portion.id)}

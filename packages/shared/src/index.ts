@@ -28,6 +28,34 @@ export type Discipline =
   | "audio_visual"
   | "other";
 
+/**
+ * Roles a project can be created for — the disciplines whose questions the
+ * reader cares about. Same vocabulary as `Discipline` so a role lines up with
+ * the categories detected from sheet numbers, minus "other".
+ */
+export const PROJECT_ROLES: { value: Discipline; label: string }[] = [
+  { value: "architectural", label: "Architectural" },
+  { value: "structural", label: "Structural" },
+  { value: "civil", label: "Civil" },
+  { value: "landscape", label: "Landscape" },
+  { value: "interiors", label: "Interiors" },
+  { value: "mechanical", label: "Mechanical" },
+  { value: "hvac", label: "HVAC" },
+  { value: "plumbing", label: "Plumbing" },
+  { value: "electrical", label: "Electrical" },
+  { value: "fire_protection", label: "Fire Protection" },
+  { value: "fire_alarm", label: "Fire Alarm" },
+  { value: "telecommunications", label: "Telecommunications" },
+  { value: "information_technology", label: "Information Technology" },
+  { value: "audio_visual", label: "Audio Visual" },
+  { value: "general", label: "General" },
+];
+
+export const PROJECT_ROLE_VALUES = PROJECT_ROLES.map((r) => r.value);
+
+export const roleLabel = (value: string) =>
+  PROJECT_ROLES.find((r) => r.value === value)?.label ?? value;
+
 /** Bounding box in PDF page coordinates. */
 export interface BBox {
   x: number;
@@ -76,6 +104,8 @@ export interface ProjectDto {
   id: string;
   name: string;
   description: string | null;
+  /** Disciplines the project is read for; steers summary emphasis only. */
+  roles: string[];
   createdAt: string;
 }
 

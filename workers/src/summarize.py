@@ -165,6 +165,61 @@ _CACHED_SYSTEM = [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "e
 # Project the current run belongs to, so every model call can be attributed
 # without threading the id through each rollup helper. Set once in run().
 _current_project: str | None = None
+# Roles the project was created for, read alongside it. Same lifetime.
+_current_roles: list[str] = []
+
+
+def _role_focus(roles: list[str]) -> str:
+    """The instruction that turns picked roles into emphasis.
+
+    Deliberately about ORDER and DETAIL, not omission: a plumbing lead who
+    picked "plumbing" still needs the structural note that moves their pipe,
+    so this must never license dropping content the sheet actually carries.
+    """
+    named = ", ".join(_ROLE_LABELS.get(role, role) for role in roles)
+    return (
+        f"The reader works in these disciplines: {named}. "
+        "Lead with the facts that affect their scope — their systems, the "
+        "dimensions, materials and callouts they set out from, and anything on "
+        "the sheet that constrains or clashes with their work. Keep facts from "
+        "other disciplines when they bear on that scope; never drop a "
+        "safety-, code- or coordination-critical statement because it belongs "
+        "to another trade. If a page carries nothing for these disciplines, "
+        "summarize it plainly rather than inventing relevance."
+    )
+
+
+# Slug → label, mirroring PROJECT_ROLES in @cdip/shared.
+_ROLE_LABELS = {
+    "general": "General",
+    "architectural": "Architectural",
+    "structural": "Structural",
+    "civil": "Civil",
+    "landscape": "Landscape",
+    "interiors": "Interiors",
+    "mechanical": "Mechanical",
+    "hvac": "HVAC",
+    "plumbing": "Plumbing",
+    "electrical": "Electrical",
+    "fire_protection": "Fire Protection",
+    "fire_alarm": "Fire Alarm",
+    "telecommunications": "Telecommunications",
+    "information_technology": "Information Technology",
+    "audio_visual": "Audio Visual",
+    "other": "Other",
+}
+
+
+def _system_blocks() -> list[dict]:
+    """The cached instruction block, plus the project's role focus.
+
+    The role line goes in a SECOND block so the first stays byte-identical
+    across every project and keeps its cache hit; only the short focus text is
+    re-read per call.
+    """
+    if not _current_roles:
+        return _CACHED_SYSTEM
+    return [*_CACHED_SYSTEM, {"type": "text", "text": _role_focus(_current_roles)}]
 
 
 def _call_direct(prompt: str, max_tokens: int | None = None) -> tuple[str, str | None]:
@@ -174,7 +229,7 @@ def _call_direct(prompt: str, max_tokens: int | None = None) -> tuple[str, str |
     response = _get_client().messages.create(
         model=SUMMARY_MODEL,
         max_tokens=max_tokens or MAX_TOKENS,
-        system=_CACHED_SYSTEM,
+        system=_system_blocks(),
         messages=[{"role": "user", "content": prompt}],
     )
     import usage
@@ -195,7 +250,7 @@ def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
                 "params": {
                     "model": SUMMARY_MODEL,
                     "max_tokens": MAX_TOKENS,
-                    "system": _CACHED_SYSTEM,
+                    "system": _system_blocks(),
                     "messages": [{"role": "user", "content": prompt}],
                 },
             }
@@ -442,8 +497,9 @@ def run_portion(project_id: str, portion_id: str, requested: bool = False) -> di
     import cache
     import db
 
-    global _current_project
+    global _current_project, _current_roles
     _current_project = project_id
+    _current_roles = db.project_roles(project_id)
 
     skip = _preflight(project_id)
     if skip is not None:
@@ -553,8 +609,9 @@ def run_project(project_id: str) -> dict:
     import cache
     import db
 
-    global _current_project
+    global _current_project, _current_roles
     _current_project = project_id
+    _current_roles = db.project_roles(project_id)
 
     skip = _preflight(project_id)
     if skip is not None:
@@ -589,6 +646,10 @@ def run(project_id: str) -> dict:
     POST /summaries/rebuild. Normal operation goes through run_portion /
     run_project, which only summarize what a user asked for."""
     import db
+
+    global _current_project, _current_roles
+    _current_project = project_id
+    _current_roles = db.project_roles(project_id)
 
     skip = _preflight(project_id)
     if skip is not None:

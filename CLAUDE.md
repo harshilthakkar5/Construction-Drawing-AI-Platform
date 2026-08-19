@@ -147,7 +147,7 @@ projects/{projectId}/
 
 ## Functional requirements
 
-- FR-1–4: CRUD for projects (name, description, created date, owner); multi-PDF upload per
+- FR-1–4: CRUD for projects (name, roles, description, created date, owner); multi-PDF upload per
   project (no fixed count limit); document version management (revisions of the same drawing).
 - FR-6: PDFs merged VIRTUALLY, not physically — see page manifest, above.
 - FR-7: OCR applied automatically when a page lacks a text layer.
@@ -228,6 +228,15 @@ groups covered pages by discipline. Portion and section summaries are therefore 
 Answer → chunk_id → page → bounding box → original PDF. Summaries and chat answers reference
 chunk IDs; the UI maps chunk IDs back to pages/regions for click-to-highlight.
 
+## Project roles — whose questions the summaries answer
+
+A project is created with a name, ONE OR MORE roles (`projects.roles`, the `Discipline`
+vocabulary via `PROJECT_ROLES` in `@cdip/shared`), and a description. The roles are read by
+`summarize._system_blocks`, which appends `_role_focus(...)` as a SECOND system block —
+the first block stays byte-identical so it keeps its cache breakpoint. The instruction is
+about ORDER and DETAIL, never omission: a plumbing reader still needs the structural note
+that moves their pipe. Roles never filter extraction, classification, chunking or retrieval.
+
 ## Hierarchical summarization — on demand, never automatic
 
 Bottom-up only: page → section → portion → project. Never summarize 1000 pages in one call.
@@ -268,7 +277,7 @@ frequent retrievals in Redis. Persist the full exchange to PostgreSQL.
 ## PostgreSQL schema (Prisma)
 
 ```
-projects(id, name, description, createdAt)
+projects(id, name, description, roles[], createdAt)
 sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, counters)
 documents(id, projectId, filename, spacesKey, pages, revision, status)
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
@@ -290,6 +299,15 @@ and refresh the Qdrant payloads — after every regroup. Page-level summaries ke
 so they survive a page changing discipline; only section/portion rollups hang off `portionId`.
 
 ## UI layout
+
+A new project opens in a three-step setup stepper (`components/ProjectSetup.tsx`): upload PDFs
+→ mark the title-block region → let the sheets categorise, then "Open the workspace". Progress
+is read from server state (documents / region / scrapeStatus), so it resumes after a reload;
+the decision to show it is LATCHED per mount so finishing step 3 does not yank the stepper
+away mid-click. "Skip setup" (and the finished hand-off) writes `cdip-setup-skipped:{id}`; the
+project header offers "Finish setup" while the project is still incomplete. First arrival in
+the workspace runs a spotlight tour (`components/Tour.tsx`, targets marked with `data-tour`),
+shown once per browser and replayable from the ? button in the project header.
 
 Signed-in chrome is shadcn's inset sidebar shell (`apps/web/src/components/AppShell.tsx`):
 collapsible sidebar (brand, grouped nav, user menu) + a sticky header carrying the sidebar

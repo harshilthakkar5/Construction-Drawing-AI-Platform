@@ -211,7 +211,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
 
   return (
     <div className="bg-card @container/viewer flex h-full flex-col overflow-hidden rounded-xl border">
-      <div className="flex items-center gap-x-3 border-b px-4 py-2.5 text-sm">
+      <div className="flex items-center gap-x-3 border-b px-4 py-2.5 text-sm" data-tour="viewer-toolbar">
         {/* Left group truncates; the controls on the right never do. */}
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground @[420px]/viewer:inline hidden shrink-0 text-xs font-semibold tracking-wide uppercase">

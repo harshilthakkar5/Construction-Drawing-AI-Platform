@@ -107,6 +107,17 @@ def project_exists(project_id: str) -> bool:
         ).fetchone() is not None
 
 
+def project_roles(project_id: str) -> list[str]:
+    """Disciplines the project was created FOR. They steer what a summary
+    emphasises (summarize._system_blocks); they never filter what is
+    extracted, classified or indexed."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT roles FROM projects WHERE id = %s', (project_id,)
+        ).fetchone()
+    return list(row[0]) if row and row[0] else []
+
+
 def document_exists(document_id: str) -> bool:
     """False when the document (or its project) was deleted while the job was
     queued — the worker discards such jobs instead of retrying into
