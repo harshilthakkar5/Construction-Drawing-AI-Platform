@@ -40,6 +40,16 @@ THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
 # FR-7: OCR pages with no text layer. Disable to run without PaddleOCR installed.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() != "false"
 
+# FR-8: lift schedules out of the page as whole tables instead of letting the
+# block extractor shred them. Detection is a heuristic (workers/src/tables.py);
+# turn it off if a particular sheet set trips it more than it helps.
+TABLE_EXTRACTION_ENABLED = (
+    os.environ.get("TABLE_EXTRACTION_ENABLED", "true").lower() != "false"
+)
+# Above this, the page's "tables" are its drawing border and grid lines being
+# read as a grid, so the whole page's detection is discarded.
+MAX_TABLES_PER_PAGE = int(os.environ.get("MAX_TABLES_PER_PAGE", "12"))
+
 
 # --- Parallelism ---------------------------------------------------------
 #

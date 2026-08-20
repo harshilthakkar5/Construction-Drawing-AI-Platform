@@ -6,7 +6,8 @@ page N preserves pages 1..N-1 and a retried job resumes where it left off.
 
 Stages (each logged, errors logged with the failing stage/page):
   1/6 download   — fetch the original PDF from object storage
-  2/6 extract    — per-page text/PNG/thumb (+ OCR fallback) + chunking
+  2/6 extract    — per-page text/PNG/thumb (+ OCR fallback) + table
+                   detection + chunking
   3/6 revisions  — supersede the replaced document (FR-4), if any
   4/6 numbering  — recompute combined page numbers (discipline detection
                    moved to the scrape-region job)
@@ -32,6 +33,7 @@ import embeddings
 import logutil
 import ocr
 import storage
+import tables
 
 log = logutil.get("pipeline")
 
@@ -97,8 +99,16 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
         pdf_height=page.rect.height,
     )
 
-    # Hybrid chunking: structural blocks -> token windows w/ bbox.
-    page_chunks = chunker.chunk_page(page.get_text("blocks"))
+    # Hybrid chunking: schedules lifted out whole, then the remaining blocks
+    # grouped spatially and packed into token windows — each with its own bbox.
+    # The page size drives both the clustering threshold and the bbox area cap,
+    # so a D-size sheet and a letter-size page are treated proportionally.
+    page_chunks = chunker.chunk_page(
+        page.get_text("blocks"),
+        page_width=page.rect.width,
+        page_height=page.rect.height,
+        tables=tables.find_page_tables(page),
+    )
     if not page_chunks and text:
         # OCR-only page: no positioned blocks, so one chunk spans the whole
         # page rect (coarse but truthful highlight).

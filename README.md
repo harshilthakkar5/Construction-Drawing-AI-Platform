@@ -218,10 +218,48 @@ a free Voyage tier keeps hitting its rate limit:
 | --- | --- |
 | `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
 | `SUMMARIES_ENABLED=false` | Refuses summary jobs. Processing, region scraping, embedding and **chat still run**. (Summaries never run unasked anyway — see below.) |
-| `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. |
+| `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. Anthropic only; on `SUMMARY_PROVIDER=gemini` it logs a warning and falls back to sequential calls. |
 | `SHEET_EXTRACTION=rules` | Skips the model sheet-number read (pattern matching on the scraped region only, no API calls). |
-| `SHEET_PROVIDER=gemini` | Reads the sheet number with Gemini instead of Claude Haiku (`GEMINI_API_KEY`, `GEMINI_MODEL`). Only the reading changes: both return the same JSON and the same deterministic table maps the prefix to a discipline, so results are directly comparable. Cached answers are keyed per provider, so switching re-reads rather than reusing the other model's. |
 | `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
+| `TABLE_EXTRACTION_ENABLED=false` | Stops lifting schedules out as whole markdown tables; their cells go back to being chunked as ordinary text blocks. |
+
+## Choosing a model provider per stage
+
+Every stage that calls a model runs on **Claude or Gemini**, switched
+independently — they have different economics, so there is no reason they share
+a vendor:
+
+| Stage | Switch | Claude model | Gemini model |
+| --- | --- | --- | --- |
+| Sheet-number read (discipline detection) | `SHEET_PROVIDER` | `CLASSIFIER_MODEL` | `GEMINI_MODEL` |
+| Summaries (worker) | `SUMMARY_PROVIDER` | `SUMMARY_MODEL` | `SUMMARY_GEMINI_MODEL` |
+| Chat (API) | `CHAT_PROVIDER` | `CHAT_MODEL` | `CHAT_GEMINI_MODEL` |
+
+Each takes `claude` (default) or `gemini`, and needs the matching key —
+`ANTHROPIC_API_KEY` or `GEMINI_API_KEY`. An unrecognised value falls back to
+`claude` rather than taking the stage offline.
+
+**The provider is a transport detail.** Both are sent the same instructions and
+the same untrusted document text, and both replies go through the same strict
+parser: `parse_sheet_response` for sheet numbers, `parse_summary_json` for
+summaries, the `[chunk:<id>]` citation parser for chat. So switching changes
+*who* answers and nothing about what an answer is allowed to claim or cite —
+the prefix→discipline table, the FR-13 requirement that every statement carries
+a resolvable chunk ID, and the source-verification chain all hold either way.
+That is also what makes the two directly comparable on the same project.
+
+Two caveats worth knowing before you switch:
+
+- **Sheet-read caches are keyed per provider**, so switching re-reads rather
+  than serving the other model's answers.
+- **Prompt caching differs.** Anthropic uses explicit cache breakpoints;
+  Gemini caches implicitly. The prompt *content* is identical, but the
+  `/dashboard` cost figure for Gemini rows applies Anthropic's cache
+  multipliers, so its cache portion is an approximation.
+
+Costs land in the same `usage_events` table under the model that actually
+answered, so a switch shows up as a change in the dashboard's spend breakdown
+rather than being merged into the previous model's total.
 
 Typical loop: upload with `EMBEDDINGS_ENABLED=false` to test summaries without
 burning the embedding quota, then set it back to `true` and run
