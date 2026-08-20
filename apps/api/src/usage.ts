@@ -44,8 +44,10 @@ export async function recordUsage(
 /**
  * Rough USD estimate for the dashboard. Per-million-token published rates;
  * cache reads bill at 10% of the input rate and cache writes at 125% (the
- * 5-minute ephemeral TTL this app uses). Unknown models fall back to the
- * Sonnet rate so a model swap never reports $0.
+ * 5-minute ephemeral TTL this app uses). Those two multipliers are Anthropic's;
+ * Gemini's implicit caching discounts differently, so a Gemini row's cache
+ * portion is an approximation — the input/output bulk of the figure is right.
+ * Unknown models fall back to the Sonnet rate so a model swap never reports $0.
  */
 const RATES: Record<string, { input: number; output: number }> = {
   // Anthropic (models used here: chat/summaries on Sonnet, sheet reads on Haiku)
@@ -53,10 +55,12 @@ const RATES: Record<string, { input: number; output: number }> = {
   "claude-opus-5": { input: 5, output: 25 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "claude-haiku-4-5-20251001": { input: 1, output: 5 },
-  // Google (sheet-number reads when SHEET_PROVIDER=gemini). Published list
-  // rates — check them against your own billing tier before trusting the
-  // dashboard's spend figure for these.
+  // Google (any stage running on Gemini: SHEET_PROVIDER / SUMMARY_PROVIDER /
+  // CHAT_PROVIDER). Published list rates — check them against your own billing
+  // tier before trusting the dashboard's spend figure for these.
+  "gemini-2.5-pro": { input: 1.25, output: 10 },
   "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+  "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
   "gemini-2.0-flash": { input: 0.1, output: 0.4 },
   // Voyage embeddings bill input tokens only.
   "voyage-3": { input: 0.06, output: 0 },

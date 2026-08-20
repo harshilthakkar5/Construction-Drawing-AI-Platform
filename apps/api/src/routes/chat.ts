@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { buildSources, type ChunkSourceRecord } from "../citations.js";
-import { answerFromChunks, anthropicAvailable, type HistoryTurn } from "../claude.js";
+import { answerFromChunks, chatModelAvailable, type HistoryTurn } from "../answer.js";
+import { chatProvider } from "../llm.js";
 import { prisma } from "../db.js";
 import { searchChunks } from "../qdrant.js";
 import { redis } from "../redis.js";
@@ -52,9 +53,12 @@ chatRouter.post("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const { question, sessionId, portionId } = askSchema.parse(req.body);
 
-  if (!anthropicAvailable() || !voyageAvailable()) {
+  if (!chatModelAvailable() || !voyageAvailable()) {
+    // Names the key the ACTIVE provider needs — telling someone running
+    // CHAT_PROVIDER=gemini to set ANTHROPIC_API_KEY sends them the wrong way.
+    const chatKey = chatProvider() === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
     return void res.status(503).json({
-      error: "chat requires ANTHROPIC_API_KEY and VOYAGE_API_KEY to be configured",
+      error: `chat requires ${chatKey} and VOYAGE_API_KEY to be configured`,
     });
   }
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });

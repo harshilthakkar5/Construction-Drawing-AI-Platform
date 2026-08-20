@@ -36,7 +36,7 @@ document revisions FR-4 (POST documents with replacesDocumentId → previousVers
 completion the worker supersedes the old doc — excluded from manifest/numbering/summaries via
 supersededAt filters, Qdrant points deleted — and reuses embeddings for unchanged chunks via
 chunks.textHash + Qdrant vector fetch; reuse must run BEFORE old-point deletion); prompt
-caching (cache_control on chat system prompt + retrieved-chunk block in apps/api/src/claude.ts
+caching (cache_control on chat system prompt + retrieved-chunk block in apps/api/src/llm.ts
 and on the summarizer system prompt in workers/src/summarize.py); Redis summaries cache
 (cache:summaries:{projectId}, API reads / worker invalidates — key format duplicated in
 apps/api/src/routes/summaries.ts ↔ workers/src/cache.py); OpenTelemetry metrics (API
@@ -71,7 +71,7 @@ Key invariant: the combined-numbering rule (documents ordered by `createdAt` the
 the recompute SQL in `workers/src/db.py`. If you change one, change both. The same duplication
 exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
 contracts (`packages/shared` ↔ `workers/src/contracts.py`). The citation format is another
-cross-cutting contract: Claude is told to emit `[chunk:<uuid>]` (apps/api/src/claude.ts) and
+cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src/answer.ts) and
 `apps/api/src/citations.ts` (unit-tested) parses/renumbers it.
 
 No lint config yet.
@@ -106,7 +106,15 @@ embeddings → summaries.
 - Embeddings: Voyage AI (voyage-3 / voyage-3-large)
 - LLM: Claude via Anthropic API (Sonnet for chat/summaries/reasoning; Haiku for cheap per-page
   classification). Use prompt caching for repeated context and the Batch API for bulk
-  summarization.
+  summarization. Gemini is a supported ALTERNATIVE at every model call site, switched per
+  stage: `SHEET_PROVIDER` / `SUMMARY_PROVIDER` / `CHAT_PROVIDER` = `claude` (default) |
+  `gemini`, with transports in `workers/src/llm.py` and `apps/api/src/llm.ts`. The provider is
+  a TRANSPORT detail: both get the same instructions and the same untrusted document text, and
+  both replies go through the same strict parser (`parse_sheet_response`, `parse_summary_json`,
+  the `[chunk:<id>]` citation parser), so a swap changes WHO answers and never what an answer
+  may claim or cite. Anthropic-only features degrade rather than break — the Batch API falls
+  back to sequential calls on Gemini, and explicit cache breakpoints become Gemini's implicit
+  caching. Adding a call site means adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS. API and workers scale independently.
 
@@ -182,6 +190,13 @@ that string reaches the model (`classify_region_batch` → `extract_sheets_from_
 reports the sheet number; the deterministic `PREFIX_TO_DISCIPLINE` table maps it, so the mapping
 never depends on model judgement.
 
+The reader is swappable: `SHEET_PROVIDER=claude|gemini` (`workers/src/sheetllm.py`, transports
+in `workers/src/llm.py`). The provider is a TRANSPORT detail only — both are asked for the same
+JSON, `parse_sheet_response` validates it, and the same prefix table decides the discipline, so
+the two are directly comparable. The Redis cache key includes the provider, so switching
+re-reads rather than serving the other model's answers. An unavailable or failing provider falls
+through to the rules ladder. Results are Redis-cached by `sha256(region_text)` — hundreds of
+sheets share a box layout — and the instructions are prompt-cached.
 Most pages never reach a model at all. `confident_sheet_from_region` (the rules-first pre-pass,
 `SHEET_RULES_FIRST=true`) resolves a box that says exactly one thing — one strong sheet token, no
 license/job/permit context word, no cross-reference word — and abstains on everything else. It is
@@ -233,10 +248,29 @@ groups covered pages by discipline. Portion and section summaries are therefore 
 
 ## Chunking strategy (hybrid)
 
-1. Structural split first: by drawing, section, title-block boundaries.
-2. Size split second: 400–800 token chunks, 100-token overlap.
+1. Structural split first, in two passes (`workers/src/chunker.py`):
+   a. **Tables** (`workers/src/tables.py`, `page.find_tables()`) are lifted out whole — a
+      door/panel/beam schedule becomes ONE chunk of markdown with the table's own bbox, and
+      the text blocks inside that region are dropped from the block stream so the schedule is
+      indexed once, not twice. A region rejected as not-a-schedule (one column, prose-length
+      cells) absorbs nothing and leaves its text alone. Detection is a heuristic: a page
+      reporting more than `MAX_TABLES_PER_PAGE` tables has had its drawing border read as a
+      grid, and all of that page's detection is discarded.
+   b. **Spatial clustering** (`cluster_blocks`) groups the remaining blocks by proximity
+      BEFORE packing. A CAD sheet returns blocks in content-stream order, so packing in that
+      order merged a top-left note with a bottom-right callout: the chunk read as two
+      unrelated fragments and its bbox union spanned the whole sheet, making the FR-19
+      highlight useless. The gap threshold scales with the page's short side (a D-size sheet
+      and a letter page are treated proportionally); `merge_small_clusters` then merges tiny
+      neighbours back up to MIN_TOKENS, bounded by `MAX_BBOX_AREA_RATIO` so the merge cannot
+      re-create the sheet-wide bbox this exists to prevent.
+2. Size split second: 400–800 token chunks, 100-token overlap — packed WITHIN a cluster group,
+   so overlap is never carried across a spatial break.
 3. Every chunk carries metadata:
    `{ chunk_id, document_id, page, portion, discipline, bbox: {x, y, width, height}, text, image_ref, revision, token_count }`
+
+Purity split: everything needing a `fitz` page lives in `tables.py`; every rule about what a
+chunk may contain lives in `chunker.py`, unit-tested without a PDF.
 
 ## Source verification chain (never break it)
 

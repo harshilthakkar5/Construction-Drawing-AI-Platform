@@ -15,6 +15,12 @@ rebuilds cascade-delete stale portion/section rows via the portionId FK.
 
 Bulk path: with SUMMARY_USE_BATCH=true, page summaries go through the
 Anthropic Message Batches API instead of sequential calls.
+
+Provider: SUMMARY_PROVIDER=claude (default) | gemini, via workers/src/llm.py.
+Both are sent the same instructions and the same page content and are parsed by
+the same strict `parse_summary_json`, so the choice cannot change what a
+summary is allowed to claim or cite — only who writes it. The Batch API has no
+Gemini equivalent, so batching falls back to sequential calls there.
 """
 
 from __future__ import annotations
@@ -23,11 +29,16 @@ import json
 import os
 import time
 
+import llm
 import logutil
 
 log = logutil.get("summarize")
 
 SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "claude-sonnet-5")
+# Gemini counterpart, used when SUMMARY_PROVIDER=gemini. Summaries are the
+# reasoning step of this pipeline, so the default is the pro tier rather than
+# the flash tier the cheap per-page sheet reads use.
+SUMMARY_GEMINI_MODEL = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-2.5-pro")
 USE_BATCH = os.environ.get("SUMMARY_USE_BATCH", "false").lower() == "true"
 BATCH_MIN_PAGES = int(os.environ.get("SUMMARY_BATCH_MIN_PAGES", "4"))
 SECTION_SIZE = 10  # pages per section
@@ -51,28 +62,29 @@ _SYSTEM = (
     "specifications, sheet references."
 )
 
-_client = None
+def provider() -> str:
+    """Who writes the summaries: SUMMARY_PROVIDER=claude (default) | gemini.
+
+    Separate from SHEET_PROVIDER on purpose — sheet reads are a cheap
+    per-page classification and summaries are the expensive reasoning step,
+    so there is no reason the two must run on the same vendor.
+    """
+    return llm.resolve("SUMMARY_PROVIDER")
 
 
-def _get_client():
-    global _client
-    if _client is None:
-        import anthropic
-
-        # A large project makes one Claude call per page; the SDK retries 429s
-        # with backoff automatically — give it more headroom than the default 2
-        # so a rate-limited burst doesn't fail the summarize job. Set
-        # SUMMARY_USE_BATCH=true to route bulk page summaries through the Batch
-        # API instead (far higher throughput, cheaper).
-        _client = anthropic.Anthropic(
-            base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
-            max_retries=int(os.environ.get("ANTHROPIC_MAX_RETRIES", "6")),
-        )
-    return _client
+def model_name() -> str:
+    return llm.model_for(provider(), SUMMARY_MODEL, SUMMARY_GEMINI_MODEL)
 
 
 def available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return llm.available(provider())
+
+
+def batch_supported() -> bool:
+    """Bulk page summaries can only go through the Message Batches API on
+    Anthropic. On any other provider the caller falls back to sequential
+    direct calls — same summaries, slower and dearer."""
+    return provider() == "claude"
 
 
 # --- parsing / validation (pure; unit-tested) ---
@@ -223,26 +235,41 @@ def _system_blocks() -> list[dict]:
 
 
 def _call_direct(prompt: str, max_tokens: int | None = None) -> tuple[str, str | None]:
-    """Returns (text, stop_reason). The stop reason matters: `max_tokens` means
-    the JSON was cut off mid-object, so retrying the identical request just
-    pays twice for the same truncated answer."""
-    response = _get_client().messages.create(
-        model=SUMMARY_MODEL,
-        max_tokens=max_tokens or MAX_TOKENS,
-        system=_system_blocks(),
-        messages=[{"role": "user", "content": prompt}],
-    )
-    import usage
+    """Returns (text, stop_reason) from whichever provider is active.
 
-    usage.record_message(_current_project, "summary", SUMMARY_MODEL, response.usage)
-    text = "".join(b.text for b in response.content if b.type == "text")
-    return text, getattr(response, "stop_reason", None)
+    The stop reason matters: `max_tokens` means the JSON was cut off
+    mid-object, so retrying the identical request just pays twice for the same
+    truncated answer. llm.complete normalizes it across providers, so the
+    retry logic below reads the same value either way.
+
+    An unavailable provider yields empty text rather than raising, which the
+    strict parser then rejects — the page is skipped, exactly as it is for any
+    other unusable answer.
+    """
+    reply = llm.complete(
+        _system_blocks(),
+        prompt,
+        provider=provider(),
+        claude_model=SUMMARY_MODEL,
+        gemini_model=SUMMARY_GEMINI_MODEL,
+        max_tokens=max_tokens or MAX_TOKENS,
+        kind="summary",
+        project_id=_current_project,
+        json_only=True,
+    )
+    return (reply.text, reply.stop_reason) if reply is not None else ("", None)
 
 
 def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
     """Anthropic Message Batches API for bulk page summaries.
-    prompts: custom_id -> prompt. Returns custom_id -> raw text."""
-    client = _get_client()
+    prompts: custom_id -> prompt. Returns custom_id -> raw text.
+
+    Anthropic-only: `batch_supported()` gates the caller, so this is never
+    reached on another provider.
+    """
+    client = llm.anthropic_client()
+    if client is None:
+        return {}
     batch = client.messages.batches.create(
         requests=[
             {
@@ -302,10 +329,21 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
         return 0
 
     prompts = {f"page-{i}": page_prompt(p) for i, p in enumerate(todo)}
-    if USE_BATCH and len(todo) >= BATCH_MIN_PAGES:
+    if USE_BATCH and len(todo) >= BATCH_MIN_PAGES and batch_supported():
         log.info("page level via the Anthropic Batches API (%d pages)", len(todo))
         raw_by_id = _call_batch(prompts)
     else:
+        if USE_BATCH and len(todo) >= BATCH_MIN_PAGES:
+            # Asked for batching on a provider that has no equivalent here.
+            # Falling back to sequential calls is correct but materially
+            # slower and dearer on a big project, so say which it is rather
+            # than letting a 400-page run quietly take the expensive path.
+            log.warning(
+                "SUMMARY_USE_BATCH is set but SUMMARY_PROVIDER=%s has no batch path — "
+                "summarizing %d pages with sequential calls instead",
+                provider(),
+                len(todo),
+            )
         raw_by_id = {cid: _call_direct(prompt)[0] for cid, prompt in prompts.items()}
 
     written = 0
@@ -452,8 +490,13 @@ def _preflight(project_id: str) -> dict | None:
         log.warning("SUMMARIES_ENABLED=false — skipping summaries for %s", project_id[:8])
         return {"skipped": "summaries disabled"}
     if not available():
-        log.warning("ANTHROPIC_API_KEY not set on the worker — no summaries will be generated")
-        return {"skipped": "no ANTHROPIC_API_KEY"}
+        key = "GEMINI_API_KEY" if provider() == "gemini" else "ANTHROPIC_API_KEY"
+        log.warning(
+            "%s not set on the worker (SUMMARY_PROVIDER=%s) — no summaries will be generated",
+            key,
+            provider(),
+        )
+        return {"skipped": f"no {key}"}
     return None
 
 

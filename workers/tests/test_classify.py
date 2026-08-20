@@ -4,6 +4,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import classify  # noqa: E402
+
+
+def _offline(monkeypatch):
+    """No provider available: the rules ladder has to resolve on its own."""
+    monkeypatch.setattr(classify.sheetllm, "complete_json", lambda *a, **k: None)
+
+
+def _never_called(monkeypatch):
+    """Asserts the model is not reached at all (cache hit / blank input)."""
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("the model was called")
+
+    monkeypatch.setattr(classify.sheetllm, "complete_json", boom)
 from classify import (  # noqa: E402
     build_portions,
     classify_by_filename,
@@ -297,13 +311,12 @@ class TestClassifyRegionText:
 
     def test_rules_fallback_reads_the_scraped_sheet_number(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setattr(classify, "_client", None)
-        monkeypatch.setattr(classify, "_client_unavailable", True)
+        _offline(monkeypatch)
         sheet, discipline, source = classify.classify_region_text("S-003.0", None, None)
         assert (sheet, discipline, source) == ("S-003.0", "structural", "region_rules")
 
     def test_falls_back_to_the_filename_when_the_box_is_empty(self, monkeypatch):
-        monkeypatch.setattr(classify, "_client_unavailable", True)
+        _offline(monkeypatch)
         assert classify.classify_region_text("", "E1.1 POWER PLAN.pdf", None) == (
             None,
             "electrical",
@@ -311,7 +324,7 @@ class TestClassifyRegionText:
         )
 
     def test_unreadable_box_and_filename_resolve_to_nothing(self, monkeypatch):
-        monkeypatch.setattr(classify, "_client_unavailable", True)
+        _offline(monkeypatch)
         assert classify.classify_region_text("SCALE 1/4\" = 1'-0\"", "plans.pdf", None) == (
             None,
             None,
@@ -355,16 +368,12 @@ class TestRegionCache:
             self.sets.append((key, value))
 
     def test_cache_hit_returns_without_calling_the_model(self, monkeypatch):
-        monkeypatch.setattr(
-            classify, "_get_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
-        )
+        _never_called(monkeypatch)
         cached = classify.extract_sheet_from_region("S-003.0", None, self._FakeRedis(b"S-003.0|structural"))
         assert cached == ("S-003.0", "structural")
 
     def test_cached_empty_string_means_no_answer(self, monkeypatch):
-        monkeypatch.setattr(
-            classify, "_get_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
-        )
+        _never_called(monkeypatch)
         assert classify.extract_sheet_from_region("nothing here", None, self._FakeRedis(b"")) is None
 
     def test_blank_region_never_reaches_the_model(self):

@@ -210,6 +210,9 @@ class TestUserApprovalGuard:
         def project_exists(self, project_id):
             return True
 
+        def project_roles(self, project_id):
+            return []
+
         def project_portions(self, project_id):
             return [self.portion]
 
@@ -294,6 +297,9 @@ class TestRunPortionTiers:
         # --- reads ---
         def project_exists(self, _):
             return True
+
+        def project_roles(self, _):
+            return []
 
         def project_portions(self, _):
             return [

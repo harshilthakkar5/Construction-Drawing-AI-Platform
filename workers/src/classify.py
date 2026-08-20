@@ -178,9 +178,8 @@ def title_block_snippet(text: str, limit: int = 800) -> str:
     return text[-limit:].strip()
 
 
-# --- Claude Haiku: sheet-number extraction ---
+# --- Model-read sheet numbers (provider chosen in workers/src/sheetllm.py) ---
 
-HAIKU_MODEL = os.environ.get("CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
 CONFIDENCE_THRESHOLD = 0.5
 _CACHE_TTL_SECONDS = 30 * 24 * 3600
 # How much of the page tail to show the extractor: the title block sits at the
@@ -288,7 +287,10 @@ def extract_sheet_by_ai(
     cache_key = None
     if redis_conn is not None:
         digest = hashlib.sha256(f"{filename or ''}\n{snippet}".encode()).hexdigest()
-        cache_key = f"classify:sheet:{digest}"
+        # Provider in the key, as on the region path: a Claude answer must
+        # never be served as Gemini's, or a comparison between the two would
+        # silently be a comparison of one with itself.
+        cache_key = f"classify:sheet:{sheetllm.provider()}:{digest}"
         try:
             cached = redis_conn.get(cache_key)
             if cached is not None:
@@ -300,34 +302,13 @@ def extract_sheet_by_ai(
         except Exception:
             cache_key = None
 
-    client = _get_client()
-    if client is None:
-        return None
-
     user_content = (
         f"Drawing file name: {filename}\n\n" if filename else ""
     ) + f"<sheet>\n{snippet}\n</sheet>"
-    try:
-        response = client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=120,
-            # The instructions are identical for every page — cache them.
-            system=[
-                {
-                    "type": "text",
-                    "text": _SHEET_SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_content}],
-        )
-        import usage
-
-        usage.record_message(_current_project, "classification", HAIKU_MODEL, response.usage)
-        result = parse_sheet_response(response.content[0].text)
-    except Exception as exc:
-        log.warning("sheet-number extraction failed: %s", exc)
+    raw = sheetllm.complete_json(_SHEET_SYSTEM_PROMPT, user_content, _current_project)
+    if raw is None:
         return None
+    result = parse_sheet_response(raw)
 
     if cache_key is not None:
         try:
@@ -766,28 +747,6 @@ def classify_region_batch(
                 results[i] = _region_fallback((items[i][0] or "").strip(), items[i][1])
 
     return results
-
-
-_client = None
-_client_unavailable = False
-
-
-def _get_client():
-    global _client, _client_unavailable
-    if _client is not None or _client_unavailable:
-        return _client
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        log.warning("ANTHROPIC_API_KEY not set — AI sheet extraction disabled, using rules")
-        _client_unavailable = True
-        return None
-    try:
-        import anthropic
-
-        _client = anthropic.Anthropic(base_url=os.environ.get("ANTHROPIC_BASE_URL") or None)
-    except Exception as exc:
-        log.warning("anthropic SDK unavailable, AI sheet extraction disabled: %s", exc)
-        _client_unavailable = True
-    return _client
 
 
 # --- Whole-project classification + portion building ---
