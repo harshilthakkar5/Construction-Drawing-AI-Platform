@@ -62,8 +62,9 @@ MAX_TABLES_PER_PAGE = int(os.environ.get("MAX_TABLES_PER_PAGE", "12"))
 #                     rendering; PyMuPDF releases the GIL during rendering and
 #                     the rest is network I/O, so threads really do overlap.
 #                     Budget ~250-400 MB per concurrent job.
-#   scrape-region     provider rate limits. One Haiku call per page, so this
-#                     multiplies the request rate directly.
+#   scrape-region     provider rate limits. A project's unresolved pages are
+#                     batched into a few calls (SHEET_BATCH_SIZE), so this
+#                     multiplies the request rate per PROJECT, not per page.
 #   summarize-portion provider rate limits + spend. Sonnet, and every job is
 #                     something a user is waiting on.
 #   summarize-project rollups only, cheap, and one per project — 1 is plenty.

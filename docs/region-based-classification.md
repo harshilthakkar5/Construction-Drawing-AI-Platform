@@ -326,9 +326,11 @@ relative box. This is the correctness-critical path of the whole feature.
    pages.sheetRegionText / regionMethod / regionVersion.
    Commit per page (or in batches of ~50) so a crash at page 700 keeps 1..699 —
    same rule as the extraction pipeline. Log progress every 25 pages.
-4. Classify: unique non-empty sheetRegionText values → classify.extract_sheet_from_region
-   (Redis-cached by sha256 of the string). Write pages.sheetNumber / discipline /
-   disciplineSource. Skip pages whose disciplineSource = 'manual'.
+4. Classify: classify.classify_region_batch over the pages whose disciplineSource
+   is not 'manual'. Unambiguous boxes resolve by pattern with no call at all
+   (confident_sheet_from_region); the rest are read SHEET_BATCH_SIZE at a time by
+   the provider, deduplicated by string and Redis-cached by sha256 of it. Write
+   pages.sheetNumber / discipline / disciplineSource.
 5. fill_unresolved (neighbour inheritance) — unchanged.
 6. group_portions → db.upsert_portions → db.assign_chunk_portions.
 7. Mark affected portions summaryStatus='stale' (see 7.4); refresh Qdrant payloads.
@@ -356,6 +358,29 @@ Add `extract_sheet_from_region(region_text, filename=None, redis_conn=None)`:
 
 Keep `classify_by_rules(page_text)` and the old `extract_sheet_by_ai` path only as the
 no-region-defined fallback; mark them clearly as legacy in the docstring.
+
+**Rules-first pre-pass + batched reads** (added after the first cut; the ladder is now
+*unambiguous pattern → model → permissive pattern → filename*):
+
+- `confident_sheet_from_region(region_text)` answers only when the box says exactly one thing —
+  one strong sheet token, no license/job/permit/phone context word, no cross-reference word
+  (`SEE`, `DETAIL`, `TYP`, …). Anything else abstains. This is the opposite trade-off from
+  `classify_by_rules`, which is the permissive *end* of the ladder; a pre-pass sits in front of
+  the model, so being wrong there is silent and precision beats recall. Note region text arrives
+  whitespace-collapsed, so there are no lines to localise a disqualifying word to — one anywhere
+  taints the string. Disable with `SHEET_RULES_FIRST=false`.
+- `extract_sheets_from_regions(region_texts, redis)` reads what is left `SHEET_BATCH_SIZE`
+  (25) at a time: cache first, dedupe to distinct strings, then one request per batch.
+  `sheetllm.complete_json` takes a `max_tokens` override — sizing it for one entry truncates the
+  array and the tail of the batch reads as unanswered.
+- Alignment is the only new failure mode. Each entry carries an index the model must echo;
+  `parse_sheet_batch_response` drops any index that is out of range or repeated, and returns a
+  dict keyed by position so "answered with nothing" (cacheable) stays distinct from "never
+  answered" (retried in a smaller batch, bounded by `_BATCH_MAX_DEPTH`). A provider outage yields
+  `_MISS` and is **never** cached — otherwise one bad minute poisons every page for 30 days.
+- `classify_region_batch(items, redis)` is the project-level entry point and must agree
+  page-for-page with `classify_region_text`; `test_batchclassify.py` pins that equivalence
+  offline.
 
 ### 7.4 Staleness rules
 
