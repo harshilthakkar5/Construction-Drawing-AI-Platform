@@ -218,7 +218,7 @@ a free Voyage tier keeps hitting its rate limit:
 | --- | --- |
 | `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
 | `SUMMARIES_ENABLED=false` | Refuses summary jobs. Processing, region scraping, embedding and **chat still run**. (Summaries never run unasked anyway — see below.) |
-| `SUMMARY_USE_BATCH=true` | Bulk page summaries via the Anthropic Message Batches API — 50% cheaper, recommended for large sets. Anthropic only; on `SUMMARY_PROVIDER=gemini` it logs a warning and falls back to sequential calls. |
+| `SUMMARY_USE_BATCH=true` | Bulk page summaries via the active provider's batch API (Anthropic Message Batches / Gemini inline batch jobs) — 50% cheaper on both, recommended for large sets. The wait is bounded by `BATCH_TIMEOUT_SECONDS` (default 1h); a timeout fails the job rather than silently dropping pages. |
 | `SHEET_EXTRACTION=rules` | Skips the model sheet-number read (pattern matching on the scraped region only, no API calls). |
 | `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
 | `TABLE_EXTRACTION_ENABLED=false` | Stops lifting schedules out as whole markdown tables; their cells go back to being chunked as ordinary text blocks. |
@@ -247,6 +247,10 @@ summaries, the `[chunk:<id>]` citation parser for chat. So switching changes
 the prefix→discipline table, the FR-13 requirement that every statement carries
 a resolvable chunk ID, and the source-verification chain all hold either way.
 That is also what makes the two directly comparable on the same project.
+
+The **Generate summary** dialog quotes the model these settings resolve to —
+including the batch discount when `SUMMARY_USE_BATCH` is on — so the estimate
+follows the provider rather than always quoting Claude.
 
 Two caveats worth knowing before you switch:
 

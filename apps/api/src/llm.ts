@@ -25,29 +25,68 @@ export type Provider = "claude" | "gemini";
 
 const PROVIDERS: readonly Provider[] = ["claude", "gemini"] as const;
 
-export const CHAT_MODEL = process.env.CHAT_MODEL ?? "claude-sonnet-5";
-/** Chat is the reasoning path, so the pro tier rather than flash. */
-export const CHAT_GEMINI_MODEL = process.env.CHAT_GEMINI_MODEL ?? "gemini-2.5-pro";
+/**
+ * Defaults, mirrored from the worker. The summary ones MUST match
+ * workers/src/summarize.py (SUMMARY_MODEL / SUMMARY_GEMINI_MODEL): the worker
+ * writes the summaries and this process only quotes what they will cost, so a
+ * drift here shows a user one model's price for another model's work.
+ */
+export const DEFAULT_CHAT_MODEL = "claude-sonnet-5";
+export const DEFAULT_CHAT_GEMINI_MODEL = "gemini-2.5-pro";
+export const DEFAULT_SUMMARY_MODEL = "claude-sonnet-5";
+export const DEFAULT_SUMMARY_GEMINI_MODEL = "gemini-2.5-pro";
 
 /**
- * Read per call rather than captured at import, so flipping the env var takes
- * effect on the next request. An unrecognised value falls back to Claude: a
- * typo must not take chat offline.
+ * Every one of these reads its env var per call rather than capturing it at
+ * import, so a config change takes effect on the next request — and so the
+ * provider and the model can never disagree about which one is active.
+ * An unrecognised provider falls back to Claude: a typo must not take a stage
+ * offline.
  */
-export function chatProvider(): Provider {
-  const name = (process.env.CHAT_PROVIDER ?? "claude").trim().toLowerCase();
+function resolveProvider(envVar: string): Provider {
+  const name = (process.env[envVar] ?? "claude").trim().toLowerCase();
   return (PROVIDERS as readonly string[]).includes(name) ? (name as Provider) : "claude";
 }
 
+const envModel = (name: string, fallback: string) => process.env[name] || fallback;
+
+export function chatProvider(): Provider {
+  return resolveProvider("CHAT_PROVIDER");
+}
+
 export function chatModel(): string {
-  return chatProvider() === "gemini" ? CHAT_GEMINI_MODEL : CHAT_MODEL;
+  return chatProvider() === "gemini"
+    ? envModel("CHAT_GEMINI_MODEL", DEFAULT_CHAT_GEMINI_MODEL)
+    : envModel("CHAT_MODEL", DEFAULT_CHAT_MODEL);
+}
+
+/**
+ * Who writes the summaries. The work happens on the worker, not here — this
+ * process reads the same env only so the cost estimate quotes the model that
+ * will actually run.
+ */
+export function summaryProvider(): Provider {
+  return resolveProvider("SUMMARY_PROVIDER");
+}
+
+export function summaryModel(): string {
+  return summaryProvider() === "gemini"
+    ? envModel("SUMMARY_GEMINI_MODEL", DEFAULT_SUMMARY_GEMINI_MODEL)
+    : envModel("SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL);
+}
+
+/** Mirrors summarize.USE_BATCH — both providers bill batched calls at 50%. */
+export function summaryBatchEnabled(): boolean {
+  return (process.env.SUMMARY_USE_BATCH ?? "false").toLowerCase() === "true";
+}
+
+export function keyFor(provider: Provider): "GEMINI_API_KEY" | "ANTHROPIC_API_KEY" {
+  return provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
 }
 
 /** Whether the ACTIVE provider has a key. The 503 gate in routes/chat.ts. */
 export function chatAvailable(): boolean {
-  return Boolean(
-    chatProvider() === "gemini" ? process.env.GEMINI_API_KEY : process.env.ANTHROPIC_API_KEY,
-  );
+  return Boolean(process.env[keyFor(chatProvider())]);
 }
 
 export interface Turn {
@@ -105,15 +144,16 @@ async function completeClaude(request: CompletionRequest): Promise<Completion> {
     },
   ];
 
+  const model = chatModel();
   const response = await anthropicClient().messages.create({
-    model: CHAT_MODEL,
+    model,
     max_tokens: request.maxTokens,
     system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
     messages,
   });
 
   return {
-    model: CHAT_MODEL,
+    model,
     text: response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
@@ -128,8 +168,9 @@ async function completeClaude(request: CompletionRequest): Promise<Completion> {
 }
 
 async function completeGemini(request: CompletionRequest): Promise<Completion> {
+  const model = chatModel();
   const response = await geminiClient().models.generateContent({
-    model: CHAT_GEMINI_MODEL,
+    model,
     contents: [
       // Gemini calls the assistant "model"; the turns themselves are the same.
       ...request.history.map((turn) => ({
@@ -150,7 +191,7 @@ async function completeGemini(request: CompletionRequest): Promise<Completion> {
   const meta = response.usageMetadata;
   const cached = meta?.cachedContentTokenCount ?? 0;
   return {
-    model: CHAT_GEMINI_MODEL,
+    model,
     text: response.text ?? "",
     tokens: {
       // promptTokenCount INCLUDES the cached tokens, but the dashboard bills

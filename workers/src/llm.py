@@ -28,6 +28,7 @@ ladder, a skipped summary) instead of failing a job.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 
 import logutil
@@ -35,6 +36,38 @@ import logutil
 log = logutil.get("llm")
 
 PROVIDERS = ("claude", "gemini")
+
+# --- Batch polling ---------------------------------------------------------
+
+# Both vendors accept a batch and finish it "within 24h", usually in minutes.
+# A worker job cannot sit on a thread for a day, so the wait is bounded and a
+# timeout raises: the job then fails visibly and BullMQ retries, instead of the
+# caller silently writing a summary with most of its pages missing.
+BATCH_TIMEOUT_SECONDS = float(os.environ.get("BATCH_TIMEOUT_SECONDS", "3600"))
+# Backs off from the first interval to the second: a small batch is often ready
+# in seconds, and a big one should not be polled 1800 times.
+BATCH_POLL_SECONDS = float(os.environ.get("BATCH_POLL_SECONDS", "5"))
+BATCH_POLL_MAX_SECONDS = float(os.environ.get("BATCH_POLL_MAX_SECONDS", "60"))
+
+
+class BatchTimeout(RuntimeError):
+    """A batch did not finish inside BATCH_TIMEOUT_SECONDS."""
+
+
+def _await_batch(label: str, refresh, finished) -> object:
+    """Poll `refresh()` until `finished(job)`, with backoff and a timeout."""
+    deadline = time.monotonic() + BATCH_TIMEOUT_SECONDS
+    delay = BATCH_POLL_SECONDS
+    job = refresh()
+    while not finished(job):
+        if time.monotonic() >= deadline:
+            raise BatchTimeout(
+                f"{label} did not finish within {BATCH_TIMEOUT_SECONDS:.0f}s"
+            )
+        time.sleep(min(delay, max(0.0, deadline - time.monotonic())))
+        delay = min(delay * 1.5, BATCH_POLL_MAX_SECONDS)
+        job = refresh()
+    return job
 
 
 def resolve(env_var: str, default: str = "claude") -> str:
@@ -201,6 +234,207 @@ def _gemini_stop_reason(response) -> str | None:
         return None
     name = getattr(reason, "name", None) or str(reason)
     return "max_tokens" if name.upper().endswith("MAX_TOKENS") else name.lower()
+
+
+# --- Batch transports -----------------------------------------------------
+
+# Both vendors bill batched calls at 50% and finish them asynchronously, so
+# these are worth the extra machinery for bulk page summaries. The two APIs
+# differ in shape but not in contract: give them {custom_id: prompt}, get back
+# {custom_id: raw text}, with failed entries simply absent — the caller already
+# treats a missing answer as a page it could not summarize.
+
+
+def _batch_claude(
+    prompts: dict[str, str], *, system, model, max_tokens, kind, project_id, cache_system
+) -> dict[str, str]:
+    client = anthropic_client()
+    if client is None:
+        return {}
+    batch = client.messages.batches.create(
+        requests=[
+            {
+                "custom_id": custom_id,
+                "params": {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "system": _system_blocks(system, cache_system),
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            }
+            for custom_id, prompt in prompts.items()
+        ]
+    )
+    log.info("anthropic batch %s submitted (%d requests)", batch.id, len(prompts))
+    _await_batch(
+        f"anthropic batch {batch.id}",
+        lambda: client.messages.batches.retrieve(batch.id),
+        lambda job: job.processing_status == "ended",
+    )
+
+    import usage
+
+    results: dict[str, str] = {}
+    for entry in client.messages.batches.results(batch.id):
+        if entry.result.type != "succeeded":
+            log.warning(
+                "batch entry %s failed (%s)", entry.custom_id, entry.result.type
+            )
+            continue
+        message = entry.result.message
+        usage.record_message(project_id, kind, model, message.usage)
+        results[entry.custom_id] = "".join(
+            b.text for b in message.content if b.type == "text"
+        )
+    return results
+
+
+# Terminal job states. PARTIALLY_SUCCEEDED is terminal AND has results worth
+# reading — the entries that did succeed are still summaries the user paid for.
+_GEMINI_DONE = {
+    "JOB_STATE_SUCCEEDED",
+    "JOB_STATE_PARTIALLY_SUCCEEDED",
+    "JOB_STATE_FAILED",
+    "JOB_STATE_CANCELLED",
+    "JOB_STATE_EXPIRED",
+}
+
+
+def _gemini_state(job) -> str:
+    state = getattr(job, "state", None)
+    return (getattr(state, "name", None) or str(state or "")).upper()
+
+
+def _batch_gemini(
+    prompts: dict[str, str], *, system, model, max_tokens, kind, project_id, json_only
+) -> dict[str, str]:
+    client = gemini_client()
+    if client is None:
+        return {}
+
+    request_config: dict = {
+        "system_instruction": _flatten_system(system),
+        "max_output_tokens": max_tokens,
+        "temperature": 0,
+    }
+    if json_only:
+        request_config["response_mime_type"] = "application/json"
+
+    order = list(prompts)
+    job = client.batches.create(
+        model=model,
+        # The Gemini Developer API takes the requests inline (no upload step) —
+        # `metadata` is this API's equivalent of Anthropic's custom_id.
+        src=[
+            {
+                "contents": [{"role": "user", "parts": [{"text": prompts[custom_id]}]}],
+                "config": request_config,
+                "metadata": {"custom_id": custom_id},
+            }
+            for custom_id in order
+        ],
+        config={"display_name": f"cdip-{kind}"},
+    )
+    log.info("gemini batch %s submitted (%d requests)", job.name, len(prompts))
+    job = _await_batch(
+        f"gemini batch {job.name}",
+        lambda: client.batches.get(name=job.name),
+        lambda current: _gemini_state(current) in _GEMINI_DONE,
+    )
+
+    state = _gemini_state(job)
+    responses = getattr(getattr(job, "dest", None), "inlined_responses", None) or []
+    if state != "JOB_STATE_SUCCEEDED":
+        log.warning(
+            "gemini batch %s ended %s — using the %d entries that returned",
+            getattr(job, "name", "?"),
+            state,
+            len(responses),
+        )
+
+    import usage
+
+    results: dict[str, str] = {}
+    for index, entry in enumerate(responses):
+        if getattr(entry, "error", None) is not None:
+            log.warning("batch entry %d failed (%s)", index, entry.error)
+            continue
+        response = getattr(entry, "response", None)
+        if response is None:
+            continue
+        # Prefer the echoed id; fall back to position, which the API documents
+        # as matching the request order. Positional matching is only safe
+        # because a failed entry is still an entry, so indexes do not shift.
+        custom_id = (getattr(entry, "metadata", None) or {}).get("custom_id")
+        if custom_id is None:
+            if index >= len(order):
+                continue
+            custom_id = order[index]
+            log.debug("batch entry %d carried no custom_id — matched by position", index)
+
+        meta = getattr(response, "usage_metadata", None)
+        cached = getattr(meta, "cached_content_token_count", 0) or 0
+        usage.record(
+            project_id,
+            kind,
+            model,
+            # promptTokenCount includes the cached tokens; the dashboard bills
+            # cache reads separately, so subtract or a hit reads as dearer.
+            input_tokens=max(0, (getattr(meta, "prompt_token_count", 0) or 0) - cached),
+            output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+            cache_read_tokens=cached,
+        )
+        results[custom_id] = response.text or ""
+    return results
+
+
+def complete_batch(
+    prompts: dict[str, str],
+    *,
+    system: str | list[dict],
+    provider: str,
+    claude_model: str,
+    gemini_model: str,
+    max_tokens: int,
+    kind: str,
+    project_id: str | None = None,
+    json_only: bool = False,
+    cache_system: bool = True,
+) -> dict[str, str]:
+    """Run many prompts as one batch. {custom_id: prompt} -> {custom_id: text}.
+
+    Entries the provider could not complete are absent from the result rather
+    than raising, so one bad page never costs the whole run. A batch that never
+    finishes raises BatchTimeout — the caller must not quietly fall back to
+    sequential calls there, or a slow batch would be paid for twice.
+
+    Known limitation: the batch id is not persisted, so a BatchTimeout followed
+    by a BullMQ retry SUBMITS A SECOND BATCH and pays for the work twice. That
+    is why the timeout defaults to an hour rather than something tight —
+    batches usually land in minutes, and the expensive case is timing out on
+    one that was about to finish. Resuming a batch across retries needs the id
+    stored on the portion row; until then, raise BATCH_TIMEOUT_SECONDS rather
+    than lower it.
+    """
+    if provider == "gemini":
+        return _batch_gemini(
+            prompts,
+            system=system,
+            model=gemini_model,
+            max_tokens=max_tokens,
+            kind=kind,
+            project_id=project_id,
+            json_only=json_only,
+        )
+    return _batch_claude(
+        prompts,
+        system=system,
+        model=claude_model,
+        max_tokens=max_tokens,
+        kind=kind,
+        project_id=project_id,
+        cache_system=cache_system,
+    )
 
 
 # --- Dispatch -------------------------------------------------------------

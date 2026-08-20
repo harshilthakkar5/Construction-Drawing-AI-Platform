@@ -13,21 +13,20 @@ and project levels are recomputed each run (they are always "affected": the
 combined numbering and portion ranges shift when documents arrive). Portion
 rebuilds cascade-delete stale portion/section rows via the portionId FK.
 
-Bulk path: with SUMMARY_USE_BATCH=true, page summaries go through the
-Anthropic Message Batches API instead of sequential calls.
+Bulk path: with SUMMARY_USE_BATCH=true, page summaries go through the active
+provider's batch API instead of sequential calls — Anthropic's Message Batches
+or Gemini's inline batch jobs. Both bill at half price.
 
 Provider: SUMMARY_PROVIDER=claude (default) | gemini, via workers/src/llm.py.
 Both are sent the same instructions and the same page content and are parsed by
 the same strict `parse_summary_json`, so the choice cannot change what a
-summary is allowed to claim or cite — only who writes it. The Batch API has no
-Gemini equivalent, so batching falls back to sequential calls there.
+summary is allowed to claim or cite — only who writes it.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import time
 
 import llm
 import logutil
@@ -81,10 +80,10 @@ def available() -> bool:
 
 
 def batch_supported() -> bool:
-    """Bulk page summaries can only go through the Message Batches API on
-    Anthropic. On any other provider the caller falls back to sequential
-    direct calls — same summaries, slower and dearer."""
-    return provider() == "claude"
+    """Every provider here has a batch API for bulk page summaries — Anthropic's
+    Message Batches and Gemini's inline batch jobs. Kept as a function because
+    the answer is per provider, and a future one may not."""
+    return provider() in llm.PROVIDERS
 
 
 # --- parsing / validation (pure; unit-tested) ---
@@ -261,43 +260,24 @@ def _call_direct(prompt: str, max_tokens: int | None = None) -> tuple[str, str |
 
 
 def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
-    """Anthropic Message Batches API for bulk page summaries.
+    """Bulk page summaries through the active provider's batch API.
     prompts: custom_id -> prompt. Returns custom_id -> raw text.
 
-    Anthropic-only: `batch_supported()` gates the caller, so this is never
-    reached on another provider.
+    Both providers bill batched calls at half price. Pages the batch could not
+    complete are simply absent from the result, which the caller already treats
+    as a page it could not summarize.
     """
-    client = llm.anthropic_client()
-    if client is None:
-        return {}
-    batch = client.messages.batches.create(
-        requests=[
-            {
-                "custom_id": custom_id,
-                "params": {
-                    "model": SUMMARY_MODEL,
-                    "max_tokens": MAX_TOKENS,
-                    "system": _system_blocks(),
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            }
-            for custom_id, prompt in prompts.items()
-        ]
+    return llm.complete_batch(
+        prompts,
+        system=_system_blocks(),
+        provider=provider(),
+        claude_model=SUMMARY_MODEL,
+        gemini_model=SUMMARY_GEMINI_MODEL,
+        max_tokens=MAX_TOKENS,
+        kind="summary",
+        project_id=_current_project,
+        json_only=True,
     )
-    while batch.processing_status != "ended":
-        time.sleep(2)
-        batch = client.messages.batches.retrieve(batch.id)
-    import usage
-
-    results: dict[str, str] = {}
-    for entry in client.messages.batches.results(batch.id):
-        if entry.result.type == "succeeded":
-            message = entry.result.message
-            usage.record_message(_current_project, "summary", SUMMARY_MODEL, message.usage)
-            results[entry.custom_id] = "".join(
-                b.text for b in message.content if b.type == "text"
-            )
-    return results
 
 
 # --- pipeline ---
@@ -330,20 +310,9 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
 
     prompts = {f"page-{i}": page_prompt(p) for i, p in enumerate(todo)}
     if USE_BATCH and len(todo) >= BATCH_MIN_PAGES and batch_supported():
-        log.info("page level via the Anthropic Batches API (%d pages)", len(todo))
+        log.info("page level via the %s batch API (%d pages)", provider(), len(todo))
         raw_by_id = _call_batch(prompts)
     else:
-        if USE_BATCH and len(todo) >= BATCH_MIN_PAGES:
-            # Asked for batching on a provider that has no equivalent here.
-            # Falling back to sequential calls is correct but materially
-            # slower and dearer on a big project, so say which it is rather
-            # than letting a 400-page run quietly take the expensive path.
-            log.warning(
-                "SUMMARY_USE_BATCH is set but SUMMARY_PROVIDER=%s has no batch path — "
-                "summarizing %d pages with sequential calls instead",
-                provider(),
-                len(todo),
-            )
         raw_by_id = {cid: _call_direct(prompt)[0] for cid, prompt in prompts.items()}
 
     written = 0
