@@ -63,7 +63,7 @@ def complete_json(
         provider=provider(),
         claude_model=CLAUDE_MODEL,
         gemini_model=GEMINI_MODEL,
-        max_tokens=MAX_OUTPUT_TOKENS,
+        max_tokens=max_tokens or MAX_OUTPUT_TOKENS,
         kind="classification",
         project_id=project_id,
         # The instructions are identical for every page — cache them.

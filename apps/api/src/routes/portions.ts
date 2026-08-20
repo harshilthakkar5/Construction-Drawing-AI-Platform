@@ -5,7 +5,7 @@ import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { summarizePortionQueue } from "../queues.js";
 import { redis } from "../redis.js";
-import { SUMMARY_MODEL, estimateSummaryRun } from "../summaryEstimate.js";
+import { estimateSummaryRun } from "../summaryEstimate.js";
 import { summariesCacheKey } from "./summaries.js";
 
 /**
@@ -128,7 +128,6 @@ portionsRouter.get("/:portionId/summarize/estimate", async (req, res) => {
     pages: pages.length,
     pagesToSummarize: pageTokens.length,
     reusedPageSummaries: reusedPages,
-    model: SUMMARY_MODEL,
     ...estimate,
   });
 });

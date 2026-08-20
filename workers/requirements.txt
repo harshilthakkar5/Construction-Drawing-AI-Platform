@@ -28,7 +28,9 @@ Pillow==11.1.0
 # Sheet-number extraction. SHEET_PROVIDER picks which one is used; both are
 # asked for the same JSON and parsed by the same code (workers/src/sheetllm.py).
 anthropic==0.116.0
-google-genai==1.15.0
+# 2.x for batches.create(src=[inlined requests]) — the Gemini Developer API's
+# batch path. 1.15 could only take a GCS/BigQuery URI, which is Vertex-only.
+google-genai==2.19.0
 
 # Voyage embeddings + Qdrant REST (httpx also ships with anthropic)
 httpx==0.28.1

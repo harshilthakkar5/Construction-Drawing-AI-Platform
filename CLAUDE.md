@@ -11,7 +11,7 @@ chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned b
 payloads refreshed after portion rebuilds), RAG chat with chunk-ID citations mapped to
 document/page/bbox, portion filter, Redis retrieval cache, FR-23 persistence, and hierarchical
 summaries (page → section → portion → project; page level is incremental and can use the
-Anthropic Message Batches API via SUMMARY_USE_BATCH=true; every item cites chunk IDs with the
+provider's batch API via SUMMARY_USE_BATCH=true; every item cites chunk IDs with the
 jump page derived server-side from the first cited chunk).
 
 Phase 6 (current): discipline detection is region-driven and summaries are user-approved. The
@@ -72,7 +72,10 @@ the recompute SQL in `workers/src/db.py`. If you change one, change both. The sa
 exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
 contracts (`packages/shared` ↔ `workers/src/contracts.py`). The citation format is another
 cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src/answer.ts) and
-`apps/api/src/citations.ts` (unit-tested) parses/renumbers it.
+`apps/api/src/citations.ts` (unit-tested) parses/renumbers it. The summary provider/model
+defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
+summaries, `apps/api/src/llm.ts` resolves the same env vars only to quote what they will cost
+(`summaryEstimate.ts`), so a drift shows a user one model's price for another model's work.
 
 No lint config yet.
 
@@ -112,9 +115,9 @@ embeddings → summaries.
   a TRANSPORT detail: both get the same instructions and the same untrusted document text, and
   both replies go through the same strict parser (`parse_sheet_response`, `parse_summary_json`,
   the `[chunk:<id>]` citation parser), so a swap changes WHO answers and never what an answer
-  may claim or cite. Anthropic-only features degrade rather than break — the Batch API falls
-  back to sequential calls on Gemini, and explicit cache breakpoints become Gemini's implicit
-  caching. Adding a call site means adding its switch too.
+  may claim or cite. Bulk summaries batch on both (Anthropic Message Batches / Gemini inline
+  batch jobs, half price either way, bounded by `BATCH_TIMEOUT_SECONDS`); explicit cache
+  breakpoints become Gemini's implicit caching. Adding a call site means adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS. API and workers scale independently.
 
@@ -290,7 +293,9 @@ that moves their pipe. Roles never filter extraction, classification, chunking o
 
 Bottom-up only: page → section → portion → project. Never summarize 1000 pages in one call.
 Each level cites chunk IDs from the level below. Summaries are stored as structured JSON with
-sources. Use the Anthropic Batch API for bulk summary jobs.
+sources. Use the active provider's batch API for bulk page summaries (`SUMMARY_USE_BATCH`).
+Pressing the button first shows a cost estimate (`apps/api/src/summaryEstimate.ts`) that mirrors
+the worker's tier structure and prices it at the model `SUMMARY_PROVIDER` resolves to.
 
 The section tier exists to BOUND the portion rollup's input (40 pages → 4 section summaries →
 one portion call). It is therefore skipped when a discipline has ≤ `SECTION_SIZE` (10) pages —

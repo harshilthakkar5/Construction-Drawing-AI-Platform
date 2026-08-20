@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  BATCH_MIN_PAGES,
   MAX_OUTPUT_TOKENS,
   SECTION_SIZE,
   TYPICAL_OUTPUT_TOKENS,
   estimateProjectRollup,
   estimateSummaryRun,
 } from "./summaryEstimate.js";
+
+const savedEnv = { ...process.env };
+afterEach(() => {
+  process.env = { ...savedEnv };
+});
 
 /**
  * These numbers are shown to a user in a confirmation dialog before they spend
@@ -74,7 +80,7 @@ describe("estimateSummaryRun — tokens and cost", () => {
     expect(TYPICAL_OUTPUT_TOKENS).toBeLessThan(MAX_OUTPUT_TOKENS);
   });
 
-  it("prices at the Sonnet rate ($3/M in, $15/M out)", () => {
+  it("prices at the Sonnet rate ($3/M in, $15/M out) by default", () => {
     // One page call (1000 chunk tokens + scaffolding) + one portion rollup.
     const result = estimateSummaryRun({ pageTokens: [page(1000)], reusedPages: 0 });
     const expected = (result.inputTokens * 3 + result.outputTokens * 15) / 1_000_000;
@@ -104,5 +110,89 @@ describe("estimateProjectRollup", () => {
     expect(estimateProjectRollup(8).costUsd).toBeGreaterThan(
       estimateProjectRollup(2).costUsd,
     );
+  });
+});
+
+
+describe("the quote follows SUMMARY_PROVIDER", () => {
+  /**
+   * The bug this pins: the estimate hardcoded claude-sonnet-5, so a project
+   * running SUMMARY_PROVIDER=gemini was shown Claude's model name and Claude's
+   * prices for work Gemini was about to do.
+   */
+  const oneDiscipline = () => estimateSummaryRun({ pageTokens: [3900, 2100], reusedPages: 0 });
+
+  it("names the model that will actually run", () => {
+    process.env.SUMMARY_PROVIDER = "gemini";
+    expect(oneDiscipline().model).toBe("gemini-2.5-pro");
+    process.env.SUMMARY_PROVIDER = "claude";
+    expect(oneDiscipline().model).toBe("claude-sonnet-5");
+  });
+
+  it("prices Gemini at Gemini's rate, not Sonnet's", () => {
+    process.env.SUMMARY_PROVIDER = "claude";
+    const claude = oneDiscipline().costUsd;
+    process.env.SUMMARY_PROVIDER = "gemini";
+    const gemini = oneDiscipline().costUsd;
+    expect(gemini).toBeGreaterThan(0);
+    expect(gemini).not.toBeCloseTo(claude, 10);
+  });
+
+  it("honours an explicit model override", () => {
+    process.env.SUMMARY_PROVIDER = "claude";
+    process.env.SUMMARY_MODEL = "claude-opus-5";
+    expect(oneDiscipline().model).toBe("claude-opus-5");
+  });
+
+  it("the project rollup follows the provider too", () => {
+    process.env.SUMMARY_PROVIDER = "gemini";
+    expect(estimateProjectRollup(3).model).toBe("gemini-2.5-pro");
+  });
+
+  it("a typo falls back to claude rather than quoting nothing", () => {
+    process.env.SUMMARY_PROVIDER = "gpt4";
+    expect(oneDiscipline().model).toBe("claude-sonnet-5");
+  });
+});
+
+describe("batch discount", () => {
+  const pages = (n: number) => Array.from({ length: n }, () => 2000);
+
+  it("halves the page tier when batching is on", () => {
+    process.env.SUMMARY_USE_BATCH = "false";
+    const sequential = estimateSummaryRun({ pageTokens: pages(8), reusedPages: 0 });
+    process.env.SUMMARY_USE_BATCH = "true";
+    const batched = estimateSummaryRun({ pageTokens: pages(8), reusedPages: 0 });
+
+    expect(batched.batched).toBe(true);
+    expect(sequential.batched).toBe(false);
+    expect(batched.costUsd).toBeLessThan(sequential.costUsd);
+    // Page tier halves; the portion rollup is untouched, so the total falls by
+    // less than half.
+    expect(batched.costUsd).toBeGreaterThan(sequential.costUsd / 2);
+  });
+
+  it("does not discount a run too small for the worker to batch", () => {
+    process.env.SUMMARY_USE_BATCH = "true";
+    const tooFew = estimateSummaryRun({
+      pageTokens: pages(BATCH_MIN_PAGES - 1),
+      reusedPages: 0,
+    });
+    expect(tooFew.batched).toBe(false);
+  });
+
+  it("never discounts the project rollup — one call is never a batch", () => {
+    process.env.SUMMARY_USE_BATCH = "true";
+    expect(estimateProjectRollup(5).batched).toBe(false);
+  });
+
+  it("token counts are unchanged by batching — only the price moves", () => {
+    process.env.SUMMARY_USE_BATCH = "false";
+    const sequential = estimateSummaryRun({ pageTokens: pages(8), reusedPages: 0 });
+    process.env.SUMMARY_USE_BATCH = "true";
+    const batched = estimateSummaryRun({ pageTokens: pages(8), reusedPages: 0 });
+    expect(batched.inputTokens).toBe(sequential.inputTokens);
+    expect(batched.outputTokens).toBe(sequential.outputTokens);
+    expect(batched.totalCalls).toBe(sequential.totalCalls);
   });
 });

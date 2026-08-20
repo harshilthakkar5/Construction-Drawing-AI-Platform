@@ -1,3 +1,4 @@
+import { summaryBatchEnabled, summaryModel } from "./llm.js";
 import { estimateCostUsd } from "./usage.js";
 
 /**
@@ -39,8 +40,26 @@ export const TYPICAL_OUTPUT_TOKENS = 1350;
 const SYSTEM_PROMPT_TOKENS = 250;
 const PROMPT_OVERHEAD_TOKENS = 60;
 
-/** Summaries run on Sonnet (workers/src/summarize.py SUMMARY_MODEL). */
-export const SUMMARY_MODEL = "claude-sonnet-5";
+/**
+ * Mirrors summarize.BATCH_MIN_PAGES — below this the worker does not bother
+ * with a batch, so neither does the quote.
+ */
+export const BATCH_MIN_PAGES = 4;
+
+/**
+ * Batched calls bill at half price on both providers. It applies to the page
+ * tier only: the section and portion rollups are sequential by nature — each
+ * reads what the level below produced.
+ */
+const BATCH_DISCOUNT = 0.5;
+
+/**
+ * Which model the run will actually use — resolved from SUMMARY_PROVIDER and
+ * friends, NOT hardcoded. The summaries are written by the worker, so this
+ * process is only quoting someone else's work; see llm.ts on keeping the
+ * defaults in step with workers/src/summarize.py.
+ */
+export { summaryModel };
 
 export interface SummaryEstimateInput {
   /** Chunk tokens per page that still needs a page summary (one entry each). */
@@ -56,22 +75,40 @@ export interface SummaryEstimateResult {
   totalCalls: number;
   inputTokens: number;
   outputTokens: number;
+  /** True when the page tier will go through a batch, halving its price. */
+  batched: boolean;
+  /** The model that will actually run, for the dialog to name. */
+  model: string;
   costUsd: number;
 }
 
 /** Ceiling division without floating point surprises. */
 const groups = (count: number, size: number) => Math.ceil(count / size);
 
+const priceOf = (inputTokens: number, outputTokens: number) =>
+  estimateCostUsd({
+    model: summaryModel(),
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  });
+
 export function estimateSummaryRun(input: SummaryEstimateInput): SummaryEstimateResult {
   const pageCalls = input.pageTokens.length;
   const totalPages = pageCalls + input.reusedPages;
 
-  // Page tier: each call sends that page's chunks.
-  let inputTokens = input.pageTokens.reduce(
+  // Page tier: each call sends that page's chunks. Priced separately from the
+  // rollups because this is the only tier that can go through a batch.
+  const pageInput = input.pageTokens.reduce(
     (sum, tokens) => sum + tokens + SYSTEM_PROMPT_TOKENS + PROMPT_OVERHEAD_TOKENS,
     0,
   );
-  let outputTokens = pageCalls * TYPICAL_OUTPUT_TOKENS;
+  const pageOutput = pageCalls * TYPICAL_OUTPUT_TOKENS;
+  const batched = summaryBatchEnabled() && pageCalls >= BATCH_MIN_PAGES;
+
+  let inputTokens = pageInput;
+  let outputTokens = pageOutput;
 
   // Section tier: skipped at or below SECTION_SIZE pages, where it would only
   // restate the page summaries (summarize.needs_section_tier).
@@ -93,6 +130,9 @@ export function estimateSummaryRun(input: SummaryEstimateInput): SummaryEstimate
     outputTokens += TYPICAL_OUTPUT_TOKENS;
   }
 
+  const rollupCost = priceOf(inputTokens - pageInput, outputTokens - pageOutput);
+  const pageCost = priceOf(pageInput, pageOutput) * (batched ? BATCH_DISCOUNT : 1);
+
   return {
     pageCalls,
     sectionCalls,
@@ -100,13 +140,9 @@ export function estimateSummaryRun(input: SummaryEstimateInput): SummaryEstimate
     totalCalls: pageCalls + sectionCalls + portionCalls,
     inputTokens,
     outputTokens,
-    costUsd: estimateCostUsd({
-      model: SUMMARY_MODEL,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    }),
+    batched,
+    model: summaryModel(),
+    costUsd: pageCost + rollupCost,
   };
 }
 
@@ -125,12 +161,9 @@ export function estimateProjectRollup(portionSummaries: number): SummaryEstimate
     totalCalls: 1,
     inputTokens,
     outputTokens,
-    costUsd: estimateCostUsd({
-      model: SUMMARY_MODEL,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    }),
+    // One rollup call: never batched, whatever SUMMARY_USE_BATCH says.
+    batched: false,
+    model: summaryModel(),
+    costUsd: priceOf(inputTokens, outputTokens),
   };
 }

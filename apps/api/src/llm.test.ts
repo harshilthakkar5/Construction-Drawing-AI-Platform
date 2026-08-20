@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chatAvailable, chatModel, chatProvider, CHAT_MODEL, CHAT_GEMINI_MODEL } from "./llm.js";
+import {
+  chatAvailable,
+  chatModel,
+  chatProvider,
+  DEFAULT_CHAT_GEMINI_MODEL,
+  DEFAULT_CHAT_MODEL,
+} from "./llm.js";
 import { estimateCostUsd } from "./usage.js";
 
 /**
@@ -39,9 +45,17 @@ describe("chatProvider", () => {
 
   it("is read per call, so a change takes effect without a restart", () => {
     process.env.CHAT_PROVIDER = "claude";
-    expect(chatModel()).toBe(CHAT_MODEL);
+    expect(chatModel()).toBe(DEFAULT_CHAT_MODEL);
     process.env.CHAT_PROVIDER = "gemini";
-    expect(chatModel()).toBe(CHAT_GEMINI_MODEL);
+    expect(chatModel()).toBe(DEFAULT_CHAT_GEMINI_MODEL);
+  });
+
+  it("the model override is read per call too, not frozen at import", () => {
+    // The provider was resolved per call while the model was captured at
+    // import, so a CHAT_MODEL set after startup was silently ignored.
+    process.env.CHAT_PROVIDER = "claude";
+    process.env.CHAT_MODEL = "claude-opus-5";
+    expect(chatModel()).toBe("claude-opus-5");
   });
 });
 
@@ -71,7 +85,7 @@ describe("cost estimation covers both vendors", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     };
-    const gemini = estimateCostUsd({ ...row, model: CHAT_GEMINI_MODEL });
+    const gemini = estimateCostUsd({ ...row, model: DEFAULT_CHAT_GEMINI_MODEL });
     const sonnet = estimateCostUsd({ ...row, model: "claude-sonnet-5" });
     expect(gemini).toBeGreaterThan(0);
     expect(gemini).not.toBe(sonnet);
@@ -81,14 +95,14 @@ describe("cost estimation covers both vendors", () => {
     // Gemini reports cached tokens INSIDE promptTokenCount; llm.ts subtracts
     // them before recording, so a hit must come out cheaper here.
     const miss = estimateCostUsd({
-      model: CHAT_GEMINI_MODEL,
+      model: DEFAULT_CHAT_GEMINI_MODEL,
       inputTokens: 1000,
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     });
     const hit = estimateCostUsd({
-      model: CHAT_GEMINI_MODEL,
+      model: DEFAULT_CHAT_GEMINI_MODEL,
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 1000,

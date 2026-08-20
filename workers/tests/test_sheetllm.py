@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import classify  # noqa: E402
+import llm  # noqa: E402
 import sheetllm  # noqa: E402
 
 
@@ -156,3 +157,29 @@ class TestCacheIsolation:
         classify.extract_sheet_from_region("A-101", None, redis)
         classify.extract_sheet_from_region("A-101", None, redis)
         assert calls["n"] == 1
+
+
+class TestOutputCap:
+    """A batched read asks for many answers in one array, so it must be able to
+    raise the cap. Sizing a 25-page batch at one page's cap truncates the JSON
+    mid-array, and a truncated array parses as "no answer" for the tail —
+    silently sending those pages back to the rules ladder."""
+
+    def _cap(self, monkeypatch, **kwargs):
+        seen = {}
+
+        def capture(system, user, **kw):
+            seen.update(kw)
+            return llm.Reply(text="{}")
+
+        monkeypatch.setattr(llm, "complete", capture)
+        sheetllm.complete_json("system", "user", **kwargs)
+        return seen["max_tokens"]
+
+    def test_a_single_page_read_uses_the_default_cap(self, monkeypatch):
+        assert self._cap(monkeypatch) == sheetllm.MAX_OUTPUT_TOKENS
+
+    def test_a_batched_read_can_raise_it(self, monkeypatch):
+        wanted = classify._batch_max_tokens(25)
+        assert wanted > sheetllm.MAX_OUTPUT_TOKENS
+        assert self._cap(monkeypatch, max_tokens=wanted) == wanted

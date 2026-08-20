@@ -373,7 +373,10 @@ export interface SummaryEstimateDto {
   reusedPageSummaries?: number;
   /** Project rollup only: how many discipline summaries feed it. */
   portionsUsed?: number;
+  /** The model that will actually run — follows SUMMARY_PROVIDER. */
   model: string;
+  /** True when the page tier goes through a batch, billing it at half price. */
+  batched: boolean;
   pageCalls: number;
   sectionCalls: number;
   portionCalls: number;

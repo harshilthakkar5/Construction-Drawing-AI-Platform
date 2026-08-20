@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { summarizeProjectQueue } from "../queues.js";
 import { redis } from "../redis.js";
-import { SUMMARY_MODEL, estimateProjectRollup } from "../summaryEstimate.js";
+import { estimateProjectRollup } from "../summaryEstimate.js";
 
 /**
  * Hierarchical summaries (FR-10..13) are written by the worker's
@@ -105,7 +105,6 @@ summariesRouter.get("/project/estimate", async (req, res) => {
   });
   res.json({
     portionsUsed: portionsReady,
-    model: SUMMARY_MODEL,
     ...estimateProjectRollup(portionsReady),
   });
 });

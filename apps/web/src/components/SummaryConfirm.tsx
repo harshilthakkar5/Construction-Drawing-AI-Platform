@@ -117,7 +117,11 @@ export function SummaryConfirm({
                       value={`${estimate.portionsUsed}`}
                     />
                   )}
-                  <Row label="Model" value={estimate.model} />
+                  <Row
+                    label="Model"
+                    value={estimate.model}
+                    detail={estimate.batched && "batched · half price"}
+                  />
                 </dl>
               </div>
               <p className="mt-2 text-[11px] leading-snug text-muted-foreground">

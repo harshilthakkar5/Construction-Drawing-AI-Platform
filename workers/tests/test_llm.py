@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import llm  # noqa: E402
 import summarize  # noqa: E402
+import usage  # noqa: E402
 
 
 class TestResolve:
@@ -156,11 +157,20 @@ class TestSummaryProvider:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         assert summarize.available()
 
-    def test_batching_is_anthropic_only(self, monkeypatch):
+    def test_both_providers_batch(self, monkeypatch):
+        """Gemini's inline batch jobs mean bulk summaries no longer drop to
+        sequential calls — the expensive path on a 400-page project."""
+        for name in llm.PROVIDERS:
+            monkeypatch.setenv("SUMMARY_PROVIDER", name)
+            assert summarize.batch_supported(), name
+
+    def test_the_batch_goes_to_the_active_provider(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(llm, "complete_batch", lambda prompts, **kw: seen.update(kw) or {})
         monkeypatch.setenv("SUMMARY_PROVIDER", "gemini")
-        assert not summarize.batch_supported()
-        monkeypatch.setenv("SUMMARY_PROVIDER", "claude")
-        assert summarize.batch_supported()
+        summarize._call_batch({"page-0": "prompt"})
+        assert seen["provider"] == "gemini"
+        assert seen["gemini_model"] == summarize.SUMMARY_GEMINI_MODEL
 
     def test_an_unavailable_provider_yields_no_summary_rather_than_an_error(
         self, monkeypatch
@@ -170,3 +180,137 @@ class TestSummaryProvider:
         monkeypatch.setattr(llm, "complete", lambda *a, **k: None)
         assert summarize._call_direct("prompt") == ("", None)
         assert summarize.parse_summary_json("", {"chunk-1"}) is None
+
+
+class TestBatchPolling:
+    """A batch that never finishes must not pin a worker thread for a day."""
+
+    def test_returns_the_finished_job(self, monkeypatch):
+        monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+        states = iter(["running", "running", "done"])
+        current = {"state": next(states)}
+
+        def refresh():
+            return current["state"]
+
+        def finished(state):
+            if state != "done":
+                current["state"] = next(states)
+            return state == "done"
+
+        assert llm._await_batch("job", refresh, finished) == "done"
+
+    def test_times_out_rather_than_waiting_forever(self, monkeypatch):
+        """The Anthropic loop used to be `while not ended: sleep(2)` with no
+        bound. A stuck batch hung the summarize job indefinitely."""
+        monkeypatch.setattr(llm, "BATCH_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(llm, "BATCH_POLL_SECONDS", 0.01)
+        monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+        import pytest
+
+        with pytest.raises(llm.BatchTimeout):
+            llm._await_batch("job", lambda: "running", lambda _j: False)
+
+    def test_an_already_finished_job_never_sleeps(self, monkeypatch):
+        def boom(_s):
+            raise AssertionError("slept on an already-finished batch")
+
+        monkeypatch.setattr(llm.time, "sleep", boom)
+        assert llm._await_batch("job", lambda: "done", lambda j: j == "done") == "done"
+
+
+class TestGeminiBatchResults:
+    """Result-shape handling, which is where a batch quietly loses pages."""
+
+    class _Meta:
+        prompt_token_count = 120
+        candidates_token_count = 40
+        cached_content_token_count = 20
+
+    class _Response:
+        def __init__(self, text):
+            self.text = text
+            self.usage_metadata = TestGeminiBatchResults._Meta()
+
+    class _Entry:
+        def __init__(self, text=None, metadata=None, error=None):
+            self.response = TestGeminiBatchResults._Response(text) if text else None
+            self.metadata = metadata
+            self.error = error
+
+    def _run(self, monkeypatch, entries, state="JOB_STATE_SUCCEEDED"):
+        class _Job:
+            name = "batches/1"
+
+        job = _Job()
+        job.state = state
+        job.dest = type("Dest", (), {"inlined_responses": entries})()
+
+        class _Batches:
+            def create(self, **_kw):
+                return job
+
+            def get(self, **_kw):
+                return job
+
+        monkeypatch.setattr(
+            llm, "gemini_client", lambda: type("C", (), {"batches": _Batches()})()
+        )
+        # Token accounting writes to Postgres; these tests only care that the
+        # batch path records without blowing up.
+        monkeypatch.setattr(usage, "record", lambda *a, **k: None)
+        return llm._batch_gemini(
+            {"page-0": "a", "page-1": "b"},
+            system="system",
+            model="gemini-2.5-pro",
+            max_tokens=100,
+            kind="summary",
+            project_id=None,
+            json_only=True,
+        )
+
+    def test_matches_answers_to_pages_by_custom_id(self, monkeypatch):
+        results = self._run(
+            monkeypatch,
+            [
+                self._Entry("second", metadata={"custom_id": "page-1"}),
+                self._Entry("first", metadata={"custom_id": "page-0"}),
+            ],
+        )
+        # Deliberately out of order: an id-keyed result must not depend on it.
+        assert results == {"page-0": "first", "page-1": "second"}
+
+    def test_falls_back_to_position_when_no_id_comes_back(self, monkeypatch):
+        results = self._run(monkeypatch, [self._Entry("first"), self._Entry("second")])
+        assert results == {"page-0": "first", "page-1": "second"}
+
+    def test_a_failed_entry_is_skipped_without_shifting_the_others(self, monkeypatch):
+        """Positional matching is only safe because a failure is still an entry."""
+        results = self._run(
+            monkeypatch, [self._Entry(error="quota"), self._Entry("second")]
+        )
+        assert results == {"page-1": "second"}
+
+    def test_a_partially_succeeded_job_keeps_what_it_produced(self, monkeypatch):
+        """Those summaries were paid for; discarding them re-spends on a retry."""
+        results = self._run(
+            monkeypatch,
+            [self._Entry("first", metadata={"custom_id": "page-0"})],
+            state="JOB_STATE_PARTIALLY_SUCCEEDED",
+        )
+        assert results == {"page-0": "first"}
+
+    def test_no_key_returns_empty_rather_than_raising(self, monkeypatch):
+        monkeypatch.setattr(llm, "gemini_client", lambda: None)
+        assert (
+            llm._batch_gemini(
+                {"page-0": "a"},
+                system="s",
+                model="m",
+                max_tokens=10,
+                kind="summary",
+                project_id=None,
+                json_only=True,
+            )
+            == {}
+        )
