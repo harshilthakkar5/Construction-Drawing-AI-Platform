@@ -6,7 +6,9 @@ scraped string, and rebuilds the project's portions from the result.
 
 Stages (each logged, failures logged with the failing stage/page):
   1/5 scrape   — apply the box page by page (one PDF download per document)
-  2/5 classify — scraped string → sheet number → PREFIX_TO_DISCIPLINE
+  2/5 classify — scraped string → sheet number → PREFIX_TO_DISCIPLINE. The
+                 unambiguous boxes are read by pattern and never cost a call;
+                 the rest go to the provider in batches, not page by page.
   3/5 group    — one portion per discipline, UPSERTed so IDs stay stable
   4/5 stale    — flag summaries whose discipline's page set changed
   5/5 finalize — refresh Qdrant payloads, invalidate caches, write counters
@@ -117,19 +119,32 @@ def _classify_pages(project_id: str) -> list[dict]:
         return []
 
     redis_conn = _get_redis()
+
+    # A hand-set discipline is the user's answer and outranks any reading, so
+    # those pages never go near the classifier. Everything else is resolved in
+    # one pass: the unambiguous boxes by pattern, the rest batched into a
+    # handful of provider calls instead of one round trip per page.
+    manual_pages = {
+        row["page_id"]
+        for row in rows
+        if row["discipline_source"] == "manual" and row["discipline"]
+    }
+    to_read = [row for row in rows if row["page_id"] not in manual_pages]
+    readings = classify.classify_region_batch(
+        [(row["region_text"], row["filename"]) for row in to_read], redis_conn
+    )
+    by_page = {row["page_id"]: reading for row, reading in zip(to_read, readings)}
+
     resolved: list[str | None] = []
-    ai_hits = manual = 0
+    counts = {"region_ai": 0, "region_rules": 0, "filename": 0}
     for row in rows:
-        if row["discipline_source"] == "manual" and row["discipline"]:
+        if row["page_id"] in manual_pages:
             resolved.append(row["discipline"])
-            manual += 1
             continue
-        sheet_number, discipline, source = classify.classify_region_text(
-            row["region_text"], row["filename"], redis_conn
-        )
+        sheet_number, discipline, source = by_page[row["page_id"]]
         resolved.append(discipline)
-        if source == "region_ai":
-            ai_hits += 1
+        if source in counts:
+            counts[source] += 1
         if (
             sheet_number != row["sheet_number"]
             or discipline != row["discipline"]
@@ -138,10 +153,13 @@ def _classify_pages(project_id: str) -> list[dict]:
             db.set_page_sheet(row["page_id"], sheet_number, discipline, source)
 
     log.info(
-        "stage 2/5 classify: %d pages (%d read by AI, %d manual, %d unresolved)",
+        "stage 2/5 classify: %d pages (%d by rules, %d read by AI, %d by filename, "
+        "%d manual, %d unresolved)",
         len(rows),
-        ai_hits,
-        manual,
+        counts["region_rules"],
+        counts["region_ai"],
+        counts["filename"],
+        len(manual_pages),
         sum(1 for d in resolved if d is None),
     )
 

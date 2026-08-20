@@ -186,7 +186,7 @@ Classify pages by the SHEET NUMBER, not content, and read that number out of a r
 points at. Per project the user drags one box over the title block on a single page
 (`sheet_regions`, relative 0–1 coordinates); the `scrape-region` job (`workers/src/scrape.py`)
 applies it to every page of every PDF and stores what it reads in `pages.sheetRegionText`. Only
-that string reaches the model (`classify_region_text` → `extract_sheet_from_region`), which
+that string reaches the model (`classify_region_batch` → `extract_sheets_from_regions`), which
 reports the sheet number; the deterministic `PREFIX_TO_DISCIPLINE` table maps it, so the mapping
 never depends on model judgement.
 
@@ -197,6 +197,27 @@ the two are directly comparable. The Redis cache key includes the provider, so s
 re-reads rather than serving the other model's answers. An unavailable or failing provider falls
 through to the rules ladder. Results are Redis-cached by `sha256(region_text)` — hundreds of
 sheets share a box layout — and the instructions are prompt-cached.
+Most pages never reach a model at all. `confident_sheet_from_region` (the rules-first pre-pass,
+`SHEET_RULES_FIRST=true`) resolves a box that says exactly one thing — one strong sheet token, no
+license/job/permit context word, no cross-reference word — and abstains on everything else. It is
+deliberately NOT `classify_by_rules`: that one is the permissive end of the fallback ladder where
+a guess beats nothing, whereas a pre-pass sits in FRONT of the model and must be right, so it
+trades recall for precision. The pages it abstains on are then read MANY PER REQUEST
+(`SHEET_BATCH_SIZE`, default 25) — round trips, not tokens, are what a 400-page scrape spends its
+wall clock and rate limit on. Batching adds exactly one new failure mode, alignment: every entry
+carries an index the model must echo, `parse_sheet_batch_response` discards anything out of range
+or duplicated, and a page the model did not answer for is retried in a smaller batch (bounded by
+`_BATCH_MAX_DEPTH`) rather than silently downgraded — a drifted answer must become "unresolved",
+never a confident wrong discipline.
+
+The reader is swappable: `SHEET_PROVIDER=claude|gemini` (`workers/src/sheetllm.py`). The provider
+is a TRANSPORT detail only — as is the batching — both are asked for the same JSON, the same
+`_sheet_from_payload` validates it, and the same prefix table decides the discipline, so the two
+are directly comparable. The Redis cache key includes the provider, so switching re-reads rather
+than serving the other model's answers. An unavailable or failing provider falls through to the
+rules ladder, and its non-answer is NOT cached — only a real "the model looked and found nothing"
+is. Results are Redis-cached by `sha256(region_text)` — hundreds of sheets share a box layout, and
+the single-page and batched readers share the key — and the instructions are prompt-cached.
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but

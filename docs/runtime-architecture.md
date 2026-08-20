@@ -141,7 +141,7 @@ tunable, because each is capped by a different resource:
 | Queue | Env var | Default | Capped by |
 | --- | --- | --- | --- |
 | `process-document` | `PROCESS_CONCURRENCY` | 4 | **Memory** — ~250–400 MB per concurrent job |
-| `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | **Haiku rate limit** — one call per page |
+| `scrape-region` | `SCRAPE_CONCURRENCY` | 4 | **Provider rate limit** — a few batched calls per project (`SHEET_BATCH_SIZE`), not one per page |
 | `summarize-portion` | `SUMMARIZE_PORTION_CONCURRENCY` | 4 | **Sonnet rate limit** and spend |
 | `summarize-project` | `SUMMARIZE_PROJECT_CONCURRENCY` | 1 | Rollups are cheap and one per project |
 
@@ -255,7 +255,7 @@ which is why a project can show 29K tokens after a single one-page upload.
 
 | Stage | Model | Tokens | Notes |
 | --- | --- | --- | --- |
-| Region classification | Haiku | **286 in / 32 out per page** | Only the scraped box text plus a cached instruction block |
+| Region classification | Haiku | **286 in / 32 out per page**, measured before batching | Only the scraped box text plus a cached instruction block. Most pages now cost nothing at all (rules-first pre-pass), and the rest share a request — the per-page token figure barely moves, the request count collapses |
 | Embedding | voyage-3 | **~30K per dense sheet** | The whole page's text, chunked. Dominates everything |
 | Page summary | Sonnet | ~3.9K in / ~1.35K out | The page's chunks |
 | Section rollup | Sonnet | ~1.7K in / ~1.35K out | Reads the level below |
@@ -366,6 +366,6 @@ throttling you.
 | --- | --- |
 | Streaming chat responses | Works today; complicates citation renumbering, which parses complete markers after the full answer |
 | Per-account API rate limiting | Needed before open signup, not for a trusted team |
-| Batch API for sheet-number reads | One Haiku call per page is sequential; worth doing if a 1000-sheet scrape drags. Measure first |
+| Anthropic Batch API for sheet-number reads | Superseded for latency by in-request batching (`SHEET_BATCH_SIZE`) plus the rules-first pre-pass. The async Batch API is still the cheaper option for a scrape nobody is waiting on |
 | Separate worker pools per queue | Only matters past ~100 users, when a long scrape could starve summaries |
 | Load testing | Nothing here is measured. Cheapest useful test: three 500-page uploads at once, watching `GET /queues` depth and the Grafana job-duration panel |
