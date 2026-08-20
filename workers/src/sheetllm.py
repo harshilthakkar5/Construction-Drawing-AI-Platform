@@ -13,6 +13,11 @@ module returns raw text rather than a discipline.
 Either way, a provider that is unavailable or errors returns None and the
 caller falls back to pattern matching, so detection keeps working with no keys
 at all.
+
+Batching is the same kind of transport detail: `classify` sends many scraped
+strings in one request and gets one entry back per page. Both providers see the
+identical prompt and both answers go through the identical parser, so a
+provider comparison stays a comparison.
 """
 
 from __future__ import annotations
@@ -28,7 +33,10 @@ CLAUDE_MODEL = os.environ.get("CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
 # API rejects simply falls back to the rules path, and only this var changes.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
-# The answer is a dozen tokens of JSON; the cap exists to bound a runaway.
+# One page's answer is a dozen tokens of JSON; the cap exists to bound a
+# runaway. A batched read overrides it per call — sizing it for one entry while
+# asking for twenty-five truncates the array, and a truncated array reads as
+# "the model had no answer for the last twenty pages".
 MAX_OUTPUT_TOKENS = 120
 
 
@@ -67,13 +75,15 @@ def _anthropic_client():
     return _anthropic
 
 
-def _complete_claude(system: str, user: str, project_id: str | None) -> str | None:
+def _complete_claude(
+    system: str, user: str, project_id: str | None, max_tokens: int
+) -> str | None:
     client = _anthropic_client()
     if client is None:
         return None
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=MAX_OUTPUT_TOKENS,
+        max_tokens=max_tokens,
         # The instructions are identical for every page — cache them.
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user}],
@@ -108,7 +118,9 @@ def _gemini_client():
     return _gemini
 
 
-def _complete_gemini(system: str, user: str, project_id: str | None) -> str | None:
+def _complete_gemini(
+    system: str, user: str, project_id: str | None, max_tokens: int
+) -> str | None:
     client = _gemini_client()
     if client is None:
         return None
@@ -119,7 +131,7 @@ def _complete_gemini(system: str, user: str, project_id: str | None) -> str | No
         contents=user,
         config=types.GenerateContentConfig(
             system_instruction=system,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
+            max_output_tokens=max_tokens,
             temperature=0,
             # Ask for JSON directly — the shared parser is strict, and this
             # removes the "here is your JSON:" preamble that would fail it.
@@ -143,7 +155,12 @@ def _complete_gemini(system: str, user: str, project_id: str | None) -> str | No
 # --- Dispatch -------------------------------------------------------------
 
 
-def complete_json(system: str, user: str, project_id: str | None = None) -> str | None:
+def complete_json(
+    system: str,
+    user: str,
+    project_id: str | None = None,
+    max_tokens: int | None = None,
+) -> str | None:
     """Ask the active provider for the sheet-number JSON.
 
     Returns the raw response text, or None when the provider is unavailable or
@@ -151,10 +168,11 @@ def complete_json(system: str, user: str, project_id: str | None = None) -> str 
     than leaving the page unclassified.
     """
     which = provider()
+    cap = max_tokens or MAX_OUTPUT_TOKENS
     try:
         if which == "gemini":
-            return _complete_gemini(system, user, project_id)
-        return _complete_claude(system, user, project_id)
+            return _complete_gemini(system, user, project_id, cap)
+        return _complete_claude(system, user, project_id, cap)
     except Exception as exc:
         log.warning("%s sheet-number extraction failed: %s", which, exc)
         return None

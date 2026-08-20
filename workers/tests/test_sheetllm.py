@@ -50,15 +50,24 @@ class TestProviderSelection:
 
 
 class TestSharedContract:
-    """Whatever answers, the SAME parser and table decide the discipline."""
+    """Whatever answers, the SAME parser and table decide the discipline.
+
+    These turn the rules-first pre-pass OFF on purpose: it resolves an
+    unambiguous box like "S-003.0" without any provider, which is the point of
+    it — but it would mean these tests never reached the provider they claim to
+    be comparing.
+    """
 
     RESPONSE = '{"sheet_number": "S-003.0", "prefix": "S", "confidence": 0.95}'
 
     def _extract(self, monkeypatch, provider):
         monkeypatch.setenv("SHEET_PROVIDER", provider)
         monkeypatch.setenv("SHEET_EXTRACTION", "ai")
+        monkeypatch.setenv("SHEET_RULES_FIRST", "false")
         monkeypatch.setattr(
-            classify.sheetllm, "complete_json", lambda system, user, project=None: self.RESPONSE
+            classify.sheetllm,
+            "complete_json",
+            lambda system, user, project=None, max_tokens=None: self.RESPONSE,
         )
         return classify.classify_region_text("S-003.0 SPECIAL INSPECTIONS", None, None)
 
@@ -75,10 +84,11 @@ class TestSharedContract:
         for its prefix and nothing else."""
         monkeypatch.setenv("SHEET_PROVIDER", "gemini")
         monkeypatch.setenv("SHEET_EXTRACTION", "ai")
+        monkeypatch.setenv("SHEET_RULES_FIRST", "false")
         monkeypatch.setattr(
             classify.sheetllm,
             "complete_json",
-            lambda system, user, project=None: (
+            lambda system, user, project=None, max_tokens=None: (
                 '{"sheet_number": "M301", "prefix": "M", "confidence": 0.9,'
                 ' "discipline": "electrical"}'
             ),
@@ -88,8 +98,11 @@ class TestSharedContract:
     def test_provider_failure_falls_back_to_rules(self, monkeypatch):
         monkeypatch.setenv("SHEET_PROVIDER", "gemini")
         monkeypatch.setenv("SHEET_EXTRACTION", "ai")
+        monkeypatch.setenv("SHEET_RULES_FIRST", "false")
         monkeypatch.setattr(
-            classify.sheetllm, "complete_json", lambda system, user, project=None: None
+            classify.sheetllm,
+            "complete_json",
+            lambda system, user, project=None, max_tokens=None: None,
         )
         sheet, discipline, source = classify.classify_region_text("E1.1 POWER PLAN", None, None)
         assert discipline == "electrical"
@@ -115,7 +128,9 @@ class TestCacheIsolation:
         monkeypatch.setattr(
             classify.sheetllm,
             "complete_json",
-            lambda system, user, project=None: '{"sheet_number": "A-101", "prefix": "A", "confidence": 0.9}',
+            lambda system, user, project=None, max_tokens=None: (
+                '{"sheet_number": "A-101", "prefix": "A", "confidence": 0.9}'
+            ),
         )
 
         monkeypatch.setenv("SHEET_PROVIDER", "claude")
@@ -132,7 +147,7 @@ class TestCacheIsolation:
         redis = self._Redis()
         calls = {"n": 0}
 
-        def once(system, user, project=None):
+        def once(system, user, project=None, max_tokens=None):
             calls["n"] += 1
             return '{"sheet_number": "A-101", "prefix": "A", "confidence": 0.9}'
 
