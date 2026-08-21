@@ -398,3 +398,75 @@ class TestRunPortionTiers:
     def test_boundary_page_count_skips_sections(self, monkeypatch):
         _, calls, _ = self._run(monkeypatch, summarize.SECTION_SIZE)
         assert "section" not in calls
+
+
+class TestSalvageRetry:
+    """Every tier gets one retry. The rollups did not, so a single bad response
+    dropped a whole discipline to _merge_lower — a mechanical concatenation of
+    the level below, shown to the user in place of a real summary."""
+
+    ITEM = {"text": "Footings bear on undisturbed soil.", "chunkIds": ["c1"]}
+    GOOD = '{"overview": "Structural notes.", "items": [' + json.dumps(ITEM) + "]}"
+
+    def _calls(self, monkeypatch, first: str):
+        """Returns (result, retries sent). `first` is the response already in
+        hand; _call_direct is only ever the RETRY, so it always answers well —
+        the test measures how the salvage asks, not whether the model obliges."""
+        sent = []
+
+        def fake_direct(prompt, max_tokens=None):
+            sent.append((prompt, max_tokens))
+            return self.GOOD, None
+
+        monkeypatch.setattr(summarize, "_call_direct", fake_direct)
+        result = summarize._parse_or_retry(
+            "PROMPT", first, {"c1"}, "the portion rollup for Structural"
+        )
+        return result, sent
+
+    def test_a_good_response_never_retries(self, monkeypatch):
+        result, sent = self._calls(monkeypatch, self.GOOD)
+        assert result is not None and sent == []
+
+    def test_a_truncated_answer_is_retried_with_more_room(self, monkeypatch):
+        """Re-sending the identical request paid twice for the same cut-off
+        JSON, so the retry must also ask for a shorter answer."""
+        cut_off = '{"overview": "Structural notes.", "items": [{"text": "Foot'
+        result, sent = self._calls(monkeypatch, cut_off)
+        assert result is not None
+        prompt, max_tokens = sent[0]
+        assert max_tokens == summarize.MAX_TOKENS * 2
+        assert "Keep it short" in prompt
+
+    def test_a_malformed_answer_is_reminded_not_given_more_room(self, monkeypatch):
+        result, sent = self._calls(monkeypatch, "Here is your JSON: not json")
+        assert result is not None
+        prompt, max_tokens = sent[0]
+        assert max_tokens is None
+        assert "ONLY the JSON object" in prompt
+
+    def test_it_gives_up_after_one_retry(self, monkeypatch):
+        monkeypatch.setattr(summarize, "_call_direct", lambda p, max_tokens=None: ("junk", None))
+        assert summarize._parse_or_retry("PROMPT", "junk", {"c1"}, "label") is None
+
+
+class TestRollupSalvage:
+    def test_the_rollup_retries_before_falling_back_to_a_merge(self, monkeypatch):
+        """The regression: gemini-3.1-pro-preview truncated the rollup and the
+        discipline silently got a concatenation instead of a summary."""
+        lower = [{"overview": "Page 1.", "items": [{"text": "A note.", "chunkIds": ["c1"]}]}]
+        good = '{"overview": "Rolled up.", "items": [{"text": "A note.", "chunkIds": ["c1"]}]}'
+        responses = iter([('{"overview": "cut', None), (good, None)])
+        monkeypatch.setattr(summarize, "_call_direct", lambda p, max_tokens=None: next(responses))
+
+        result = summarize._rollup("portion", "Structural", lower, {"c1": 7})
+        assert result["overview"] == "Rolled up."
+
+    def test_it_still_merges_when_the_retry_also_fails(self, monkeypatch):
+        """The safety net stays: a failed rollup must never leave a discipline
+        with no summary at all."""
+        lower = [{"overview": "Page 1.", "items": [{"text": "A note.", "chunkIds": ["c1"]}]}]
+        monkeypatch.setattr(summarize, "_call_direct", lambda p, max_tokens=None: ("junk", None))
+        result = summarize._rollup("portion", "Structural", lower, {"c1": 7})
+        assert result["overview"] == "Page 1."
+        assert result["items"][0]["text"] == "A note."

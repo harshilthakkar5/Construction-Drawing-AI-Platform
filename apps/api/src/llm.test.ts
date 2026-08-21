@@ -6,7 +6,7 @@ import {
   DEFAULT_CHAT_GEMINI_MODEL,
   DEFAULT_CHAT_MODEL,
 } from "./llm.js";
-import { estimateCostUsd } from "./usage.js";
+import { estimateCostUsd, rateFor } from "./usage.js";
 
 /**
  * The invariant these pin is the one workers/tests/test_llm.py pins on the
@@ -109,5 +109,50 @@ describe("cost estimation covers both vendors", () => {
       cacheWriteTokens: 0,
     });
     expect(hit).toBeLessThan(miss);
+  });
+});
+
+
+describe("rates for models not in the table", () => {
+  /**
+   * Model names move faster than the rate table. Pricing an unknown
+   * `gemini-*-flash-lite` at Sonnet's $3/$15 was wrong by more than an order of
+   * magnitude — in the dialog whose only job is saying what a run will cost.
+   */
+  it("prices an unknown flash-lite as a flash-lite, not a frontier model", () => {
+    expect(rateFor("gemini-3.5-flash-lite")).toEqual(rateFor("gemini-2.5-flash-lite"));
+  });
+
+  it("flash-lite wins over flash — longest match first", () => {
+    expect(rateFor("gemini-9-flash-lite").input).toBeLessThan(
+      rateFor("gemini-9-flash").input,
+    );
+  });
+
+  it("an unknown gemini pro tier is priced as a gemini pro tier", () => {
+    expect(rateFor("gemini-3.1-pro-preview")).toEqual(rateFor("gemini-2.5-pro"));
+  });
+
+  it("an exact entry always beats the family fallback", () => {
+    expect(rateFor("gemini-2.5-flash")).toEqual({ input: 0.3, output: 2.5 });
+  });
+
+  it("something wholly unrecognised still costs more than nothing", () => {
+    const cost = estimateCostUsd({
+      model: "some-new-vendor-model",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+    expect(cost).toBeGreaterThan(0);
+  });
+
+  it("an unknown model is never quoted as free", () => {
+    // The original reason for a fallback at all: $0.00 in the dialog reads as
+    // "this is free", which is the one answer that is never true.
+    for (const model of ["gemini-3.1-pro-preview", "claude-something-new"]) {
+      expect(rateFor(model).input).toBeGreaterThan(0);
+    }
   });
 });

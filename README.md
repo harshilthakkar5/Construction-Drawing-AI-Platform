@@ -224,6 +224,7 @@ a free Voyage tier keeps hitting its rate limit:
 | `SHEET_RULES_FIRST=false` | Sends every page to the model. On by default, the rules-first pre-pass resolves a title block that says exactly one thing ("S-003.0", "A17-11 EQUIPMENT PLANS") by pattern and skips the call; it abstains as soon as there is a second candidate, a license/job/permit number, or a reference to another sheet. |
 | `SHEET_BATCH_SIZE=25` | Pages per provider request. A 400-page scrape's cost is round trips, not tokens — this is what turns hundreds of calls into a handful. Every entry carries an index the model must echo; anything unanswered is retried in a smaller batch, so a bad response costs accuracy on nothing. |
 | `REGION_OCR_DPI=300` | Render DPI for the OCR fallback when the title-block box holds no vector text. |
+| `GEMINI_THINKING_BUDGET=0` | Thinking tokens are spent from `max_output_tokens` before the answer is written, so on a thinking model they truncate the summary JSON. Off by default; raise it (or `-1` for automatic) if you want the model to reason first. |
 | `TABLE_EXTRACTION_ENABLED=false` | Stops lifting schedules out as whole markdown tables; their cells go back to being chunked as ordinary text blocks. |
 
 ## Choosing a model provider per stage
@@ -263,6 +264,11 @@ Two caveats worth knowing before you switch:
   Gemini caches implicitly. The prompt *content* is identical, but the
   `/dashboard` cost figure for Gemini rows applies Anthropic's cache
   multipliers, so its cache portion is an approximation.
+- **A model not in the rate table is estimated by family** (`RATES` /
+  `FAMILY_RATES` in `apps/api/src/usage.ts`), and the API logs a warning naming
+  it. That keeps a new model from being quoted at a frontier model's price, but
+  it is a guardrail — add the real published rates for anything you run in
+  earnest.
 
 Costs land in the same `usage_events` table under the model that actually
 answered, so a switch shows up as a change in the dashboard's spend breakdown

@@ -314,3 +314,113 @@ class TestGeminiBatchResults:
             )
             == {}
         )
+
+
+class TestThinkingBudget:
+    """Thinking tokens are spent from max_output_tokens BEFORE the answer is
+    written, so an unbounded budget truncates the JSON the parser needs. This
+    is what made every gemini-3.1-pro-preview summary come back cut off."""
+
+    def test_disabled_by_default(self, monkeypatch):
+        monkeypatch.setattr(llm, "GEMINI_THINKING_BUDGET", 0)
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        config = llm._gemini_config(model="gemini-x", max_tokens=2000)
+        assert config["thinking_config"] == {"thinking_budget": 0}
+
+    def test_can_be_raised_by_env(self, monkeypatch):
+        monkeypatch.setattr(llm, "GEMINI_THINKING_BUDGET", 512)
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        config = llm._gemini_config(model="gemini-x", max_tokens=2000)
+        assert config["thinking_config"] == {"thinking_budget": 512}
+
+    def test_omitted_for_a_model_that_refused_it(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_thinking_config", {"gemini-x"})
+        assert "thinking_config" not in llm._gemini_config(model="gemini-x", max_tokens=100)
+
+    def test_the_batch_and_single_paths_ask_for_the_same_thing(self, monkeypatch):
+        """A page summarized in a batch and the same page retried directly must
+        get an identical request, or the retry silently changes the shape."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        kwargs = dict(model="gemini-x", max_tokens=2000, system="sys", json_only=True)
+        assert llm._gemini_config(**kwargs) == llm._gemini_config(**kwargs)
+        assert llm._gemini_config(**kwargs)["response_mime_type"] == "application/json"
+
+    def test_a_model_that_rejects_the_budget_is_retried_without_it(self, monkeypatch):
+        """Some tiers cannot turn thinking off. That must degrade, not fail
+        every page of the project."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        calls = []
+
+        class _Models:
+            def generate_content(self, *, model, contents, config):
+                calls.append(config)
+                if "thinking_config" in config:
+                    raise ValueError("thinking_config is not supported for this model")
+                return type(
+                    "R", (), {"text": "ok", "usage_metadata": None, "candidates": []}
+                )()
+
+        monkeypatch.setattr(
+            llm, "gemini_client", lambda: type("C", (), {"models": _Models()})()
+        )
+        monkeypatch.setattr(usage, "record", lambda *a, **k: None)
+
+        reply = llm._complete_gemini(
+            "sys", "user", model="gemini-x", max_tokens=100,
+            kind="summary", project_id=None, json_only=True,
+        )
+        assert reply.text == "ok"
+        assert len(calls) == 2 and "thinking_config" not in calls[1]
+        # Latched: the next page skips straight to the working shape.
+        assert "gemini-x" in llm._no_thinking_config
+
+    def test_an_unrelated_error_still_propagates(self, monkeypatch):
+        """Only a thinking refusal earns the retry — a 500 must not be retried
+        as though the config were at fault."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+
+        class _Models:
+            def generate_content(self, **_kw):
+                raise RuntimeError("upstream 500")
+
+        monkeypatch.setattr(
+            llm, "gemini_client", lambda: type("C", (), {"models": _Models()})()
+        )
+        import pytest
+
+        with pytest.raises(RuntimeError):
+            llm._complete_gemini(
+                "sys", "user", model="gemini-x", max_tokens=100,
+                kind="summary", project_id=None, json_only=True,
+            )
+
+
+class TestThinkingTokensAreBilled:
+    """Google bills thinking as output. Recording only candidatesTokenCount
+    under-reported spend on exactly the models that think the most."""
+
+    class _Meta:
+        prompt_token_count = 1000
+        candidates_token_count = 200
+        thoughts_token_count = 1500
+        cached_content_token_count = 400
+
+    def _recorded(self, monkeypatch, meta):
+        rows = []
+        monkeypatch.setattr(usage, "record", lambda *a, **k: rows.append(k))
+        llm._record_gemini_usage(meta, kind="summary", model="m", project_id=None)
+        return rows[0]
+
+    def test_thinking_counts_as_output(self, monkeypatch):
+        row = self._recorded(monkeypatch, self._Meta())
+        assert row["output_tokens"] == 200 + 1500
+
+    def test_cached_tokens_are_not_billed_twice(self, monkeypatch):
+        # prompt_token_count INCLUDES the cached ones.
+        row = self._recorded(monkeypatch, self._Meta())
+        assert row["input_tokens"] == 1000 - 400
+        assert row["cache_read_tokens"] == 400
+
+    def test_a_response_with_no_metadata_records_zeros(self, monkeypatch):
+        row = self._recorded(monkeypatch, None)
+        assert row["output_tokens"] == 0 and row["input_tokens"] == 0
