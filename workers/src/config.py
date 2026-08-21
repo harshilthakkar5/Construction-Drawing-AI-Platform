@@ -108,3 +108,18 @@ SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
 DB_POOL_SIZE = _int(
     "DB_POOL_SIZE", max(4, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
 )
+
+# HTTPS connections botocore keeps open to Spaces. Sized off the same product
+# as DB_POOL_SIZE, for the same reason: every in-flight page uploads its PNG,
+# thumbnail and text, so the threads contending for a connection are the
+# document workers TIMES their page threads.
+#
+# botocore's own default is 10, which is under the 16 pages the defaults put in
+# flight. Overflow is not an error — urllib3 DISCARDS the returning connection
+# and logs "Connection pool is full" — so it shows up as a slow upload rather
+# than a failure: the next request pays a fresh TCP and TLS handshake to a
+# region that may be a continent away. Over a 1000-page set that is thousands
+# of avoidable round trips.
+SPACES_POOL_SIZE = _int(
+    "SPACES_POOL_SIZE", max(10, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
+)
