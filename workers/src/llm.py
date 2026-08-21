@@ -157,6 +157,41 @@ def _complete_claude(
 _gemini = None
 _gemini_unavailable = False
 
+# Thinking models spend output tokens on internal reasoning BEFORE writing the
+# answer, and that reasoning counts against max_output_tokens — the SDK's own
+# accounting is total = prompt + candidates + tool_use + thoughts. So a budget
+# sized for the JSON buys thinking AND JSON, and the JSON is what gets cut off:
+# on gemini-3.1-pro-preview every summary call at 2000 tokens came back
+# truncated, page tier and rollup alike.
+#
+# Default 0 (off), because none of this app's calls are reasoning tasks. Reading
+# a sheet number out of a title block and packing extracted facts into a fixed
+# JSON shape are extraction, not deliberation — the thinking is pure cost and
+# pure truncation risk. Set a positive budget to re-enable it, or -1 to let the
+# model decide.
+GEMINI_THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "0"))
+
+# Models that reject the setting outright (some tiers cannot turn thinking off).
+# Latched per model after the first refusal so the failed call is paid once, not
+# on every page of a 400-page project.
+_no_thinking_config: set[str] = set()
+
+# Substrings that mark "this model will not accept a thinking budget" rather
+# than a transient failure. Matched case-insensitively against the error text.
+_THINKING_REFUSALS = ("thinking", "thought")
+
+
+def _thinking_config(model: str) -> dict | None:
+    """Thinking settings for this model, or None to omit the field entirely."""
+    if model in _no_thinking_config:
+        return None
+    return {"thinking_budget": GEMINI_THINKING_BUDGET}
+
+
+def _is_thinking_refusal(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(word in text for word in _THINKING_REFUSALS)
+
 
 def gemini_client():
     global _gemini, _gemini_unavailable
@@ -187,34 +222,92 @@ def _flatten_system(system: str | list[dict]) -> str:
     return "\n\n".join(str(b.get("text", "")) for b in system if b.get("text"))
 
 
-def _complete_gemini(system, user, *, model, max_tokens, kind, project_id, json_only) -> Reply:
-    client = gemini_client()
-    if client is None:
-        return Reply(text="", stop_reason="unavailable")
-    from google.genai import types
+def _gemini_config(
+    *, model, max_tokens, system=None, json_only=False, thinking=True
+) -> dict:
+    """One request-config builder for the single and batched paths, so the two
+    cannot drift into asking the same model for different things.
 
-    config = types.GenerateContentConfig(
-        system_instruction=_flatten_system(system),
-        max_output_tokens=max_tokens,
-        temperature=0,
-    )
+    A plain dict rather than types.GenerateContentConfig: the SDK coerces it at
+    both call sites, and it keeps this module importable — and unit-testable —
+    without google-genai installed, which is the same reason every other SDK
+    import here is deferred into the function that needs it.
+    """
+    config: dict = {"max_output_tokens": max_tokens, "temperature": 0}
+    if system is not None:
+        config["system_instruction"] = _flatten_system(system)
     if json_only:
         # Ask for JSON directly — the callers' parsers are strict, and this
         # removes the "here is your JSON:" preamble that would fail them.
-        config.response_mime_type = "application/json"
+        config["response_mime_type"] = "application/json"
+    if thinking:
+        budget = _thinking_config(model)
+        if budget is not None:
+            config["thinking_config"] = budget
+    return config
 
-    response = client.models.generate_content(model=model, contents=user, config=config)
 
+def _record_gemini_usage(meta, *, kind, model, project_id) -> None:
+    """Thinking tokens are billed as output, so they are recorded as output.
+
+    Counting only candidates_token_count under-reported every thinking model's
+    spend — the reasoning is often the larger half of the bill.
+    """
     import usage
 
-    meta = getattr(response, "usage_metadata", None)
+    cached = getattr(meta, "cached_content_token_count", 0) or 0
     usage.record(
         project_id,
         kind,
         model,
-        input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
-        output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-        cache_read_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
+        # prompt_token_count INCLUDES the cached tokens; the dashboard bills
+        # cache reads separately, so subtract or a hit reads as dearer.
+        input_tokens=max(0, (getattr(meta, "prompt_token_count", 0) or 0) - cached),
+        output_tokens=(getattr(meta, "candidates_token_count", 0) or 0)
+        + (getattr(meta, "thoughts_token_count", 0) or 0),
+        cache_read_tokens=cached,
+    )
+
+
+def _complete_gemini(system, user, *, model, max_tokens, kind, project_id, json_only) -> Reply:
+    client = gemini_client()
+    if client is None:
+        return Reply(text="", stop_reason="unavailable")
+
+    def call(thinking: bool):
+        return client.models.generate_content(
+            model=model,
+            contents=user,
+            config=_gemini_config(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                json_only=json_only,
+                thinking=thinking,
+            ),
+        )
+
+    try:
+        response = call(thinking=True)
+    except Exception as exc:
+        if not _is_thinking_refusal(exc) or model in _no_thinking_config:
+            raise
+        # This model will not take a thinking budget. Latch it so the rest of
+        # the project's pages skip straight to the working shape.
+        log.warning(
+            "%s rejected the thinking budget (%s) — retrying without it, and "
+            "omitting it for this model from now on",
+            model,
+            exc,
+        )
+        _no_thinking_config.add(model)
+        response = call(thinking=False)
+
+    _record_gemini_usage(
+        getattr(response, "usage_metadata", None),
+        kind=kind,
+        model=model,
+        project_id=project_id,
     )
     return Reply(text=response.text or "", stop_reason=_gemini_stop_reason(response))
 
@@ -312,13 +405,15 @@ def _batch_gemini(
     if client is None:
         return {}
 
-    request_config: dict = {
-        "system_instruction": _flatten_system(system),
-        "max_output_tokens": max_tokens,
-        "temperature": 0,
-    }
-    if json_only:
-        request_config["response_mime_type"] = "application/json"
+    # Same builder as the single-call path: a batched page and a retried page
+    # must be asked for exactly the same thing, or the retry silently changes
+    # the answer's shape.
+    request_config = _gemini_config(
+        model=model,
+        max_tokens=max_tokens,
+        system=system,
+        json_only=json_only,
+    )
 
     order = list(prompts)
     job = client.batches.create(
@@ -352,8 +447,6 @@ def _batch_gemini(
             len(responses),
         )
 
-    import usage
-
     results: dict[str, str] = {}
     for index, entry in enumerate(responses):
         if getattr(entry, "error", None) is not None:
@@ -372,17 +465,11 @@ def _batch_gemini(
             custom_id = order[index]
             log.debug("batch entry %d carried no custom_id — matched by position", index)
 
-        meta = getattr(response, "usage_metadata", None)
-        cached = getattr(meta, "cached_content_token_count", 0) or 0
-        usage.record(
-            project_id,
-            kind,
-            model,
-            # promptTokenCount includes the cached tokens; the dashboard bills
-            # cache reads separately, so subtract or a hit reads as dearer.
-            input_tokens=max(0, (getattr(meta, "prompt_token_count", 0) or 0) - cached),
-            output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-            cache_read_tokens=cached,
+        _record_gemini_usage(
+            getattr(response, "usage_metadata", None),
+            kind=kind,
+            model=model,
+            project_id=project_id,
         )
         results[custom_id] = response.text or ""
     return results

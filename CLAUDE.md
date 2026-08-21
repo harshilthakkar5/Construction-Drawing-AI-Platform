@@ -117,7 +117,11 @@ embeddings → summaries.
   the `[chunk:<id>]` citation parser), so a swap changes WHO answers and never what an answer
   may claim or cite. Bulk summaries batch on both (Anthropic Message Batches / Gemini inline
   batch jobs, half price either way, bounded by `BATCH_TIMEOUT_SECONDS`); explicit cache
-  breakpoints become Gemini's implicit caching. Adding a call site means adding its switch too.
+  breakpoints become Gemini's implicit caching. Gemini thinking is OFF by default
+  (`GEMINI_THINKING_BUDGET`): thinking tokens are spent from `max_output_tokens` before the
+  answer is written, so on a thinking model they truncate the JSON every parser here depends
+  on — and they bill as output, so they are recorded as output. Adding a call site means
+  adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS. API and workers scale independently.
 
@@ -295,7 +299,14 @@ Bottom-up only: page → section → portion → project. Never summarize 1000 p
 Each level cites chunk IDs from the level below. Summaries are stored as structured JSON with
 sources. Use the active provider's batch API for bulk page summaries (`SUMMARY_USE_BATCH`).
 Pressing the button first shows a cost estimate (`apps/api/src/summaryEstimate.ts`) that mirrors
-the worker's tier structure and prices it at the model `SUMMARY_PROVIDER` resolves to.
+the worker's tier structure and prices it at the model `SUMMARY_PROVIDER` resolves to; a model
+missing from `RATES` is priced by family rather than at the default frontier rate.
+
+Every tier gets exactly one salvage retry (`summarize._parse_or_retry`): a truncated answer is
+re-asked with more room AND a shorter target, anything else gets a formatting reminder. The
+rollups share it with the page tier — without it one bad rollup response silently dropped a
+whole discipline to `_merge_lower`, which concatenates the level below in place of the summary
+the user reads.
 
 The section tier exists to BOUND the portion rollup's input (40 pages → 4 section summaries →
 one portion call). It is therefore skipped when a discipline has ≤ `SECTION_SIZE` (10) pages —

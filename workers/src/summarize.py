@@ -280,6 +280,55 @@ def _call_batch(prompts: dict[str, str]) -> dict[str, str]:
     )
 
 
+def _looks_truncated(raw: str) -> bool:
+    """A JSON object that opened and never closed was cut off mid-answer.
+
+    Text-based rather than stop-reason-based on purpose: batch results carry no
+    stop reason, and a truncated batch answer needs the same treatment as a
+    truncated direct one.
+    """
+    text = (raw or "").rstrip()
+    return text.startswith("{") and not text.endswith("}")
+
+
+def _parse_or_retry(prompt: str, raw: str, allowed: set[str], label: str) -> dict | None:
+    """Parse a summary response, salvaging one retry if it doesn't parse.
+
+    WHAT to change depends on why it failed: a truncated answer needs more room
+    AND a shorter target, not the same request again (that was 2x the tokens
+    for the same cut-off JSON). Anything else is a formatting slip, so remind
+    it.
+
+    Shared by every tier. The page tier had this and the rollups did not, so a
+    single bad rollup response silently dropped the whole discipline to
+    `_merge_lower` — a mechanical concatenation of the level below, in place of
+    the summary the user actually reads.
+    """
+    summary = parse_summary_json(raw, allowed)
+    if summary is not None:
+        return summary
+
+    if _looks_truncated(raw):
+        log.warning(
+            "%s was cut off (raise SUMMARY_MAX_TOKENS, currently %d) — retrying "
+            "with more room",
+            label,
+            MAX_TOKENS,
+        )
+        retry, _ = _call_direct(
+            prompt
+            + f"\n\nKeep it short: at most {max(3, MAX_ITEMS // 2)} items, "
+            "one sentence each. The response MUST be complete valid JSON.",
+            max_tokens=MAX_TOKENS * 2,
+        )
+    else:
+        log.warning("%s was not valid JSON — retrying once", label)
+        retry, _ = _call_direct(
+            prompt + "\n\nRespond with ONLY the JSON object described above."
+        )
+    return parse_summary_json(retry, allowed)
+
+
 # --- pipeline ---
 
 
@@ -321,37 +370,14 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
         if raw is None:
             continue
         allowed = {c["id"] for c in page["chunks"]}
-        summary = parse_summary_json(raw, allowed)
-        if summary is None:
-            # One retry — a page dropped here takes its whole rollup chain with
-            # it on a small project. WHAT to change depends on why it failed:
-            # a truncated answer needs more room and a shorter target, not the
-            # same request again (that was 2x the tokens for the same cut-off
-            # JSON). Anything else is a formatting slip, so remind it.
-            truncated = raw.rstrip().startswith("{") and not raw.rstrip().endswith("}")
-            if truncated:
-                log.warning(
-                    "page-summary JSON for combined page %s was cut off (raise "
-                    "SUMMARY_MAX_TOKENS, currently %d) — retrying with more room",
-                    page["combined_page"],
-                    MAX_TOKENS,
-                )
-                retry, _ = _call_direct(
-                    prompts[f"page-{i}"]
-                    + f"\n\nKeep it short: at most {max(3, MAX_ITEMS // 2)} items, "
-                    "one sentence each. The response MUST be complete valid JSON.",
-                    max_tokens=MAX_TOKENS * 2,
-                )
-            else:
-                log.warning(
-                    "invalid page-summary JSON for combined page %s — retrying once",
-                    page["combined_page"],
-                )
-                retry, _ = _call_direct(
-                    prompts[f"page-{i}"]
-                    + "\n\nRespond with ONLY the JSON object described above."
-                )
-            summary = parse_summary_json(retry, allowed)
+        # A page dropped here takes its whole rollup chain with it on a small
+        # project, so it gets one salvage attempt.
+        summary = _parse_or_retry(
+            prompts[f"page-{i}"],
+            raw,
+            allowed,
+            f"page-summary JSON for combined page {page['combined_page']}",
+        )
         if summary is None:
             log.warning(
                 "page %s could not be summarized (invalid JSON twice) — skipped",
@@ -398,13 +424,18 @@ def _merge_lower(lower: list[dict], chunk_pages: dict[str, int]) -> dict | None:
 def _rollup(kind: str, label: str, lower: list[dict], chunk_pages: dict[str, int]) -> dict | None:
     allowed = {cid for s in lower for item in s["items"] for cid in item["chunkIds"]}
     if allowed:
-        raw, _ = _call_direct(rollup_prompt(kind, label, lower))
-        summary = parse_summary_json(raw, allowed)
+        prompt = rollup_prompt(kind, label, lower)
+        raw, _ = _call_direct(prompt)
+        summary = _parse_or_retry(prompt, raw, allowed, f"the {kind} rollup for {label}")
         if summary is not None:
             resolved = attach_pages(summary, chunk_pages)
             if resolved["overview"] or resolved["items"]:
                 return resolved
-        log.warning("unusable %s rollup for %s — merging the level below instead", kind, label)
+        log.warning(
+            "unusable %s rollup for %s after a retry — merging the level below instead",
+            kind,
+            label,
+        )
     else:
         log.warning("%s rollup for %s cites nothing — merging the level below instead", kind, label)
     return _merge_lower(lower, chunk_pages)
