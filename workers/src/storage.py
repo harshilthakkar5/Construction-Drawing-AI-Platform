@@ -47,7 +47,12 @@ _s3 = boto3.client(
     aws_access_key_id=config.SPACES_KEY,
     aws_secret_access_key=config.SPACES_SECRET,
     region_name=config.SPACES_REGION,
-    config=Config(s3={"addressing_style": "path"}),
+    config=Config(
+        s3={"addressing_style": "path"},
+        # Must cover the page threads uploading at once, or urllib3 throws away
+        # each returning connection and the next upload re-handshakes TLS.
+        max_pool_connections=config.SPACES_POOL_SIZE,
+    ),
 )
 
 
