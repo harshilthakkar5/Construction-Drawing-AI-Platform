@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { requireAuth, requireProjectMember } from "./auth.js";
 import { missingPrismaModels, prisma, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
+import { authLimiter, floodLimiter, generalLimiter } from "./rateLimit.js";
 import { redis } from "./redis.js";
 import { httpMetricsMiddleware } from "./telemetry.js";
 import { authRouter } from "./routes/auth.js";
@@ -35,6 +36,9 @@ export function createApp() {
   const app = express();
 
   app.use(cors());
+  // Behind a proxy (App Platform, nginx) req.ip is the load balancer without
+  // this, which would collapse every client onto one rate-limit bucket.
+  app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS ?? 1));
   // Sanitized inputs only ever carry JSON metadata — file bytes go straight to
   // object storage — so a tight body limit is safe.
   app.use(express.json({ limit: "1mb" }));
@@ -64,10 +68,20 @@ export function createApp() {
     res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", checks });
   });
 
-  app.use("/auth", authRouter);
+  // Strictest tier, by IP and counted on failures only: these are the
+  // endpoints an attacker can reach without a session.
+  app.use("/auth", authLimiter, authRouter);
 
   // Everything below requires a session (project-level RBAC on top of it).
+  // BEFORE requireAuth: a flood of invalid tokens is rejected by requireAuth
+  // and would never reach a limiter mounted after it. Measured at ~2300 req/s
+  // of 401s against a single process before this was added — cheap per request,
+  // but free to send and unbounded.
+  app.use(floodLimiter);
   app.use(requireAuth);
+  // After requireAuth, so the everyday limit keys on the USER. Keyed on IP it
+  // would give a whole office one shared allowance.
+  app.use(generalLimiter);
   app.use("/projects/:projectId", requireProjectMember);
 
   // Account-level surfaces (not project-scoped). Both read models that only
@@ -80,6 +94,9 @@ export function createApp() {
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/region", requireGeneratedModels, regionRouter);
+  // chatLimiter and summaryLimiter are applied to the individual POST routes
+  // inside these routers, not here: each also serves GETs (listing portions,
+  // reading summaries, quoting a cost) that must stay freely browsable.
   app.use("/projects/:projectId/portions", portionsRouter);
   app.use("/projects/:projectId/chat", chatRouter);
   app.use("/projects/:projectId/summaries", summariesRouter);

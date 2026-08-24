@@ -4,6 +4,7 @@ import { z } from "zod";
 import { buildSources, type ChunkSourceRecord } from "../citations.js";
 import { answerFromChunks, chatModelAvailable, type HistoryTurn } from "../answer.js";
 import { chatProvider } from "../llm.js";
+import { chatLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { searchChunks } from "../qdrant.js";
 import { redis } from "../redis.js";
@@ -48,7 +49,7 @@ async function retrieveChunkIds(projectId: string, portionId: string | undefined
   return ids;
 }
 
-chatRouter.post("/", async (req, res) => {
+chatRouter.post("/", chatLimiter, async (req, res) => {
   const requestStart = performance.now();
   const { projectId } = projectParam.parse(req.params);
   const { question, sessionId, portionId } = askSchema.parse(req.body);
