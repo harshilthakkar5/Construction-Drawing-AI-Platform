@@ -574,12 +574,18 @@ without a number from them as a guess.
 ### Worker throughput
 
 ```bash
-python benchmarks/extract_throughput.py /path/to/real-drawings.pdf
+python benchmarks/extract_throughput.py /path/to/real-drawings.pdf            # CPU only
+python benchmarks/extract_throughput.py /path/to/real-drawings.pdf --upload   # the real thing
 ```
 
-Runs the real extraction path (render, thumbnail, text, table detection,
-chunking) with storage and DB writes stubbed, and reports **pages/minute** and
-**peak RSS**. Those two decide the actual ceilings: pages/minute tells you how
+**Use `--upload` for any number you intend to plan against.** Without it the
+benchmark skips storage and measures rendering only — which overstated real
+throughput by ~18x against production (125 pages/min reported, 6.7 actually
+achieved). Extraction ships three objects per page to Spaces, and that upload,
+not the rendering, is the work. `--upload` writes to the real bucket under a
+`benchmark/` prefix and deletes what it wrote.
+
+It reports **pages/minute**, **peak RSS**, and **bytes per page** — Those two decide the actual ceilings: pages/minute tells you how
 long a 1 GB set takes, and peak RSS times `PROCESS_CONCURRENCY x
 PAGE_CONCURRENCY` tells you how much memory the worker needs and therefore how
 many documents it can take at once.

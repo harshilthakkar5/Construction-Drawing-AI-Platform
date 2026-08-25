@@ -109,17 +109,40 @@ DB_POOL_SIZE = _int(
     "DB_POOL_SIZE", max(4, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
 )
 
-# HTTPS connections botocore keeps open to Spaces. Sized off the same product
-# as DB_POOL_SIZE, for the same reason: every in-flight page uploads its PNG,
-# thumbnail and text, so the threads contending for a connection are the
-# document workers TIMES their page threads.
+# Threads boto3 uses to fetch ONE file. Downloads are not a single stream:
+# `download_file` runs a transfer manager that pulls 8 MB parts in parallel, so
+# one 215 MB PDF can occupy this many connections by itself. Set explicitly
+# rather than inherited, because the pool below is sized from it and a library
+# default that moves would silently undersize the pool again.
+SPACES_DOWNLOAD_CONCURRENCY = _int("SPACES_DOWNLOAD_CONCURRENCY", 10)
+
+# HTTPS connections botocore keeps open to Spaces.
 #
-# botocore's own default is 10, which is under the 16 pages the defaults put in
-# flight. Overflow is not an error — urllib3 DISCARDS the returning connection
-# and logs "Connection pool is full" — so it shows up as a slow upload rather
-# than a failure: the next request pays a fresh TCP and TLS handshake to a
-# region that may be a continent away. Over a 1000-page set that is thousands
-# of avoidable round trips.
+# Overflow is not an error — urllib3 DISCARDS the connection coming back to a
+# full pool and logs "Connection pool is full" — so it shows up as a slow
+# upload rather than a failure: the next request pays a fresh TCP and TLS
+# handshake to a region that may be a continent away.
+#
+# The demand is the sum of BOTH queues that touch storage, because they run at
+# the same time:
+#
+#   process-document  PROCESS_CONCURRENCY documents, each either downloading
+#                     (SPACES_DOWNLOAD_CONCURRENCY connections) or extracting
+#                     (PAGE_CONCURRENCY page threads, 3 uploads per page)
+#   scrape-region     SCRAPE_CONCURRENCY jobs, each downloading a PDF
+#
+# The first version of this counted only the page threads and landed back on
+# the floor of 10 for a worker running PROCESS_CONCURRENCY=2 — which is exactly
+# the configuration whose logs showed the pool exhausted, because a single
+# download wanted all ten on its own.
+#
+# Lower SPACES_DOWNLOAD_CONCURRENCY if the resulting pool is larger than the
+# deployment wants; on a bandwidth-limited link parallel parts buy little.
 SPACES_POOL_SIZE = _int(
-    "SPACES_POOL_SIZE", max(10, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
+    "SPACES_POOL_SIZE",
+    max(
+        10,
+        PROCESS_CONCURRENCY * max(PAGE_CONCURRENCY, SPACES_DOWNLOAD_CONCURRENCY)
+        + SCRAPE_CONCURRENCY * SPACES_DOWNLOAD_CONCURRENCY,
+    ),
 )
