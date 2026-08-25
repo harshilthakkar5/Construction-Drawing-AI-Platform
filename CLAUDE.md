@@ -273,7 +273,13 @@ groups covered pages by discipline. Portion and section summaries are therefore 
       indexed once, not twice. A region rejected as not-a-schedule (one column, prose-length
       cells) absorbs nothing and leaves its text alone. Detection is a heuristic: a page
       reporting more than `MAX_TABLES_PER_PAGE` tables has had its drawing border read as a
-      grid, and all of that page's detection is discarded.
+      grid, and all of that page's detection is discarded. It is also BOUNDED
+      (`TABLE_DETECTION_BUDGET_SECONDS`): `find_tables()` scans ruled lines for
+      intersections and a structural drawing is mostly ruled lines — measured at 32s per page
+      on a real IFC set against 0.1–0.8s on ordinary sheets, which ran ingest 4.8x slower.
+      The first page to blow the budget disables detection for the rest of that document, so
+      a drawing-heavy set pays for one slow page rather than all of them. A budget rather than
+      a page-complexity cutoff because complexity did not predict the cost.
    b. **Spatial clustering** (`cluster_blocks`) groups the remaining blocks by proximity
       BEFORE packing. A CAD sheet returns blocks in content-stream order, so packing in that
       order merged a top-left note with a bottom-right callout: the chunk read as two

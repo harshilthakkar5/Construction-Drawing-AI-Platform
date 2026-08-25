@@ -21,17 +21,40 @@ than raising.
 
 from __future__ import annotations
 
+import threading
+import time
+
 import config
 import logutil
 from chunker import Table
 
 log = logutil.get("tables")
 
+# Documents whose sheets proved too expensive to scan. Detection is best-effort
+# and its cost is unbounded on drawing-heavy sets, so the first page to blow the
+# budget takes the rest of its document with it — one slow page instead of
+# every page. Keyed by document id and guarded, because pages are extracted by
+# a thread pool.
+_gave_up: set[str] = set()
+_gave_up_lock = threading.Lock()
 
-def find_page_tables(page) -> list[Table]:
-    """Detected tables on one page, or [] when detection is off or fails."""
+
+def reset_budget(document_id: str) -> None:
+    """Forget a document's give-up state — for a retry, and for tests."""
+    with _gave_up_lock:
+        _gave_up.discard(document_id)
+
+
+def find_page_tables(page, document_id: str = "") -> list[Table]:
+    """Detected tables on one page, or [] when detection is off, over budget,
+    or failing."""
     if not config.TABLE_EXTRACTION_ENABLED:
         return []
+    with _gave_up_lock:
+        if document_id in _gave_up:
+            return []
+
+    started = time.perf_counter()
     try:
         found = page.find_tables()
     except Exception as exc:
@@ -40,6 +63,25 @@ def find_page_tables(page) -> list[Table]:
         # reason to fail a document that is otherwise extracting fine.
         log.debug("table detection failed on page %s: %s", page.number, exc)
         return []
+
+    elapsed = time.perf_counter() - started
+    if elapsed > config.TABLE_DETECTION_BUDGET_SECONDS:
+        # Not this page's problem alone — a set is uniform, so if one sheet is
+        # this expensive the rest will be too.
+        with _gave_up_lock:
+            first = document_id not in _gave_up
+            _gave_up.add(document_id)
+        if first:
+            log.warning(
+                "table detection took %.1fs on page %s (budget %.1fs) — "
+                "skipping it for the rest of this document. Drawing-heavy "
+                "sheets scan as one huge grid; raise "
+                "TABLE_DETECTION_BUDGET_SECONDS to allow it, or set "
+                "TABLE_EXTRACTION_ENABLED=false to switch it off entirely.",
+                elapsed,
+                page.number,
+                config.TABLE_DETECTION_BUDGET_SECONDS,
+            )
 
     tables: list[Table] = []
     for table in getattr(found, "tables", []) or []:

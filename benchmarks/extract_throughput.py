@@ -147,7 +147,10 @@ def render_one(pdf_path: str, index: int, zoom: float, local, upload: bool) -> d
     )
     thumb = timed("thumbnail", lambda: thumbnail_bytes(page, config.THUMB_WIDTH))
     encoded_text = text.encode("utf-8")
-    found = timed("detect tables", lambda: tables.find_page_tables(page))
+    found = timed(
+        "detect tables", lambda: tables.find_page_tables(page, BENCH_PREFIX)
+    )
+    vector_paths = len(page.get_cdrawings())
     blocks = timed("extract blocks", lambda: page.get_text("blocks"))
     chunks = timed(
         "chunk",
@@ -186,6 +189,7 @@ def render_one(pdf_path: str, index: int, zoom: float, local, upload: bool) -> d
         "png_bytes": len(png),
         "chars": len(text),
         "tables": len(found),
+        "vector_paths": vector_paths,
         "chunks": len(chunks),
         "has_text_layer": bool(text.strip()),
     }
@@ -256,6 +260,8 @@ def main() -> int:
     print(f"chunks            {sum(r['chunks'] for r in results)} "
           f"({statistics.mean(r['chunks'] for r in results):.1f}/page)")
     print(f"tables found      {sum(r['tables'] for r in results)}")
+    print(f"vector paths      {statistics.mean(r['vector_paths'] for r in results):.0f}/page "
+          "(what table detection has to scan)")
 
     # The headline for a network-bound pipeline: three objects per page, and
     # the PNG is nearly all of it.

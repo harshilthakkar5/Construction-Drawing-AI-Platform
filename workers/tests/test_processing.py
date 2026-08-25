@@ -13,6 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import time  # noqa: E402
+import tables  # noqa: E402
 import fitz  # noqa: E402
 import pytest  # noqa: E402
 
@@ -160,3 +162,75 @@ class TestThumbnail:
         with Image.open(io.BytesIO(jpeg)) as img:
             # MuPDF rounds to whole pixels when scaling.
             assert abs(img.width - processing.config.THUMB_WIDTH) <= 2
+
+
+class TestTableDetectionBudget:
+    """Detection cost is unbounded on drawing-heavy sheets — measured at 32s a
+    page on a real structural set, against 0.1-0.8s on ordinary ones, which made
+    ingest 4.8x slower. The budget caps the damage at ONE slow page per
+    document rather than every page."""
+
+    class _Page:
+        """A page whose find_tables takes however long the test says."""
+
+        def __init__(self, seconds: float, number: int = 0):
+            self.seconds = seconds
+            self.number = number
+
+        def find_tables(self):
+            time.sleep(self.seconds)
+            return type("Found", (), {"tables": []})()
+
+        def get_cdrawings(self):
+            return []
+
+    def setup_method(self):
+        tables.reset_budget("doc")
+
+    def test_a_fast_page_does_not_trip_it(self, monkeypatch):
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 0.5)
+        tables.find_page_tables(self._Page(0.0), "doc")
+        assert "doc" not in tables._gave_up
+
+    def test_one_slow_page_stops_detection_for_the_whole_document(self, monkeypatch):
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 0.05)
+        tables.find_page_tables(self._Page(0.12), "doc")
+        assert "doc" in tables._gave_up
+
+    def test_later_pages_return_immediately_without_scanning(self, monkeypatch):
+        """The point: the remaining 86 pages must not each pay the 32 seconds."""
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 0.05)
+        tables.find_page_tables(self._Page(0.12), "doc")
+
+        scanned = {"count": 0}
+
+        class _Counting(self._Page):
+            def find_tables(self_inner):
+                scanned["count"] += 1
+                return super().find_tables()
+
+        started = time.perf_counter()
+        assert tables.find_page_tables(_Counting(5.0), "doc") == []
+        assert scanned["count"] == 0
+        assert time.perf_counter() - started < 0.5
+
+    def test_documents_do_not_infect_each_other(self, monkeypatch):
+        """Two documents extract concurrently; a drawing set giving up must not
+        disable schedules on an architectural set in the next job."""
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 0.05)
+        tables.find_page_tables(self._Page(0.12), "slow-doc")
+        assert "slow-doc" in tables._gave_up
+        assert "other-doc" not in tables._gave_up
+        tables.reset_budget("slow-doc")
+
+    def test_a_retry_gets_a_clean_budget(self, monkeypatch):
+        """process_document calls reset_budget on every attempt: a retry
+        re-reads the document and must not inherit the give-up."""
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 0.05)
+        tables.find_page_tables(self._Page(0.12), "doc")
+        tables.reset_budget("doc")
+        assert "doc" not in tables._gave_up
+
+    def test_disabled_entirely_never_scans(self, monkeypatch):
+        monkeypatch.setattr(tables.config, "TABLE_EXTRACTION_ENABLED", False)
+        assert tables.find_page_tables(self._Page(9.0), "doc") == []
