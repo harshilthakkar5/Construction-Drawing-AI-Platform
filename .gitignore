@@ -18,3 +18,6 @@ venv/
 
 # Local data volumes
 .data/
+
+# Redis dump, e.g. from running redis-server locally for a load test
+dump.rdb

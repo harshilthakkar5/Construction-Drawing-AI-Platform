@@ -75,13 +75,19 @@ export function observeQueues(queues: { name: string; getJobCounts: () => Promis
   });
 }
 
-/** Boots the Prometheus exporter; call once from the server entrypoint. */
-export async function startTelemetry() {
+/**
+ * Boots the Prometheus exporter; call once per process from the entrypoint.
+ *
+ * The port is a parameter rather than read from the environment here because
+ * clustered workers each need their OWN port — HTTP metrics are recorded in
+ * whichever process served the request, so one shared endpoint would report a
+ * single worker's traffic as though it were the whole API's.
+ */
+export async function startTelemetry(port = Number(process.env.OTEL_METRICS_PORT ?? 9464)) {
   const [{ MeterProvider }, { PrometheusExporter }] = await Promise.all([
     import("@opentelemetry/sdk-metrics"),
     import("@opentelemetry/exporter-prometheus"),
   ]);
-  const port = Number(process.env.OTEL_METRICS_PORT ?? 9464);
   const exporter = new PrometheusExporter({ port }, () => {
     console.log(`OTel metrics (Prometheus) on http://localhost:${port}/metrics`);
   });

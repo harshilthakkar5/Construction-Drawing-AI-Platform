@@ -67,15 +67,26 @@ worker venv):
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
 
 Key invariant: the combined-numbering rule (documents ordered by `createdAt` then `id`, pages
-1..N within each) is implemented twice — `apps/api/src/manifest.ts` (canonical, unit-tested) and
-the recompute SQL in `workers/src/db.py`. If you change one, change both. The same duplication
-exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
-contracts (`packages/shared` ↔ `workers/src/contracts.py`). The citation format is another
+1..N within each) is implemented twice — `apps/api/src/manifest.ts` and the recompute SQL in
+`workers/src/db.py` (mirrored as a pure function in `workers/src/numbering.py`). Both sides read
+ONE golden fixture, `packages/shared/fixtures/combined-numbering.json`, so changing the rule in
+either language fails the other's tests. `numbering.verify_against_db` checks the SQL's actual
+output against the rule when a database is available.
+
+Object keys and queue contracts are no longer hand-synced: `workers/src/generated.py` is emitted
+from `packages/shared/src/index.ts` by `packages/shared/codegen.mjs` (`npm run codegen`), and a
+vitest test fails if the checked-in copy is stale. Adding a field to a job interface without
+declaring it in `JOB_FIELDS` is a TypeScript compile error naming the missing field. The citation format is another
 cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src/answer.ts) and
 `apps/api/src/citations.ts` (unit-tested) parses/renumbers it. The summary provider/model
 defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
 summaries, `apps/api/src/llm.ts` resolves the same env vars only to quote what they will cost
 (`summaryEstimate.ts`), so a drift shows a user one model's price for another model's work.
+
+The API rate-limits five tiers (flood/general/auth/chat/summary, all Redis-backed and
+env-tunable — see README) and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
+`benchmarks/` holds the two things that had never been measured: worker pages/minute + peak RSS,
+and API throughput/p95.
 
 No lint config yet.
 

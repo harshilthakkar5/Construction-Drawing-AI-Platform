@@ -1,14 +1,61 @@
 """Queue names and job payload shapes shared with the Node API.
 
-Mirrors packages/shared/src/index.ts — keep the two in sync.
+The names, fields and casts all come from `generated.py`, which
+packages/shared/codegen.mjs emits from packages/shared/src/index.ts — so this
+module is the ergonomic wrapper, never a second copy of the contract. Adding a
+field on the TypeScript side is a compile error there until it is declared, and
+a `npm test` failure here until the generated file is refreshed.
+
+The dataclasses stay hand-written because their job is to be pleasant to use in
+the worker; only the wire shape is generated.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields as dataclass_fields
 
-PROCESS_DOCUMENT_QUEUE = "process-document"
-SCRAPE_REGION_QUEUE = "scrape-region"
-SUMMARIZE_PORTION_QUEUE = "summarize-portion"
-SUMMARIZE_PROJECT_QUEUE = "summarize-project"
+from generated import (  # noqa: F401 — re-exported for the worker's imports
+    JOB_FIELDS,
+    PROCESS_DOCUMENT_QUEUE,
+    SCRAPE_REGION_QUEUE,
+    SUMMARIZE_PORTION_QUEUE,
+    SUMMARIZE_PROJECT_QUEUE,
+)
+
+_CASTS = {"str": str, "int": int}
+
+
+def _build(cls, job: str, data: dict):
+    """Read a BullMQ payload using the generated field spec.
+
+    A required field missing from the payload raises KeyError, which fails the
+    job loudly — the alternative is a dataclass full of Nones that fails later,
+    somewhere less informative.
+    """
+    kwargs = {}
+    for payload_key, attribute, optional, cast in JOB_FIELDS[job]:
+        if optional:
+            value = data.get(payload_key)
+            kwargs[attribute] = None if value is None else _CASTS[cast](value)
+        else:
+            kwargs[attribute] = _CASTS[cast](data[payload_key])
+    return cls(**kwargs)
+
+
+def _assert_matches(cls, job: str) -> None:
+    """The dataclass and the generated spec must describe the same payload.
+
+    Import-time rather than a test, because a mismatch here means the worker
+    would mis-read every job of that type — better to refuse to start than to
+    process a queue wrongly.
+    """
+    declared = {f.name for f in dataclass_fields(cls)}
+    generated = {attribute for _key, attribute, _opt, _cast in JOB_FIELDS[job]}
+    if declared != generated:
+        raise RuntimeError(
+            f"{cls.__name__} does not match the generated {job} contract: "
+            f"only in dataclass {sorted(declared - generated)}, "
+            f"only in generated.py {sorted(generated - declared)}. "
+            "Regenerate with: npm run codegen -w @cdip/shared"
+        )
 
 
 @dataclass(frozen=True)
@@ -17,7 +64,7 @@ class SummarizeProjectJob:
 
     @classmethod
     def from_payload(cls, data: dict) -> "SummarizeProjectJob":
-        return cls(project_id=data["projectId"])
+        return _build(cls, "summarizeProject", data)
 
 
 @dataclass(frozen=True)
@@ -30,11 +77,7 @@ class ScrapeRegionJob:
 
     @classmethod
     def from_payload(cls, data: dict) -> "ScrapeRegionJob":
-        return cls(
-            project_id=data["projectId"],
-            region_version=int(data["regionVersion"]),
-            document_id=data.get("documentId"),
-        )
+        return _build(cls, "scrapeRegion", data)
 
 
 @dataclass(frozen=True)
@@ -47,11 +90,7 @@ class SummarizePortionJob:
 
     @classmethod
     def from_payload(cls, data: dict) -> "SummarizePortionJob":
-        return cls(
-            project_id=data["projectId"],
-            portion_id=data["portionId"],
-            requested_by_id=data.get("requestedById"),
-        )
+        return _build(cls, "summarizePortion", data)
 
 
 @dataclass(frozen=True)
@@ -62,8 +101,13 @@ class ProcessDocumentJob:
 
     @classmethod
     def from_payload(cls, data: dict) -> "ProcessDocumentJob":
-        return cls(
-            project_id=data["projectId"],
-            document_id=data["documentId"],
-            spaces_key=data["spacesKey"],
-        )
+        return _build(cls, "processDocument", data)
+
+
+for _cls, _job in (
+    (ProcessDocumentJob, "processDocument"),
+    (ScrapeRegionJob, "scrapeRegion"),
+    (SummarizePortionJob, "summarizePortion"),
+    (SummarizeProjectJob, "summarizeProject"),
+):
+    _assert_matches(_cls, _job)

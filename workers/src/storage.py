@@ -1,6 +1,7 @@
 """S3-compatible object storage (DigitalOcean Spaces / local MinIO).
 
-Key builders mirror packages/shared/src/index.ts `objectKeys` — keep in sync.
+The key builders are GENERATED from packages/shared/src/index.ts (the single
+source for the bucket layout) and re-exported here — see generated.py.
 """
 
 from urllib.parse import urlparse, urlunparse
@@ -56,20 +57,15 @@ _s3 = boto3.client(
 )
 
 
-def original_pdf_key(project_id: str, document_id: str) -> str:
-    return f"projects/{project_id}/pdfs/{document_id}/original.pdf"
-
-
-def page_image_key(project_id: str, document_id: str, page: int) -> str:
-    return f"projects/{project_id}/pdfs/{document_id}/pages/{page}.png"
-
-
-def page_thumb_key(project_id: str, document_id: str, page: int) -> str:
-    return f"projects/{project_id}/pdfs/{document_id}/thumbs/{page}.jpg"
-
-
-def page_text_key(project_id: str, document_id: str, page: int) -> str:
-    return f"projects/{project_id}/pdfs/{document_id}/text/{page}.txt"
+# Re-exported from the generated contract so call sites keep importing them
+# from `storage`, where they read naturally, without this module being a second
+# copy of the bucket layout.
+from generated import (  # noqa: E402,F401
+    original_pdf_key,
+    page_image_key,
+    page_text_key,
+    page_thumb_key,
+)
 
 
 def download_to_file(key: str, path: str) -> None:

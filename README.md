@@ -565,3 +565,69 @@ reuse, Anthropic prompt caching, Redis caching of summaries and repeat retrieval
 OpenTelemetry metrics with a Prometheus/Grafana stack, and this deployment guide.
 Unit tests: manifest, citations, sanitization, RBAC/passwords (`apps/api/src/*.test.ts`),
 classifier, chunker, summarizer, embedding reuse (`workers/tests/`).
+
+## Measuring it
+
+Nothing here was benchmarked until these existed, so treat any capacity claim
+without a number from them as a guess.
+
+### Worker throughput
+
+```bash
+python benchmarks/extract_throughput.py /path/to/real-drawings.pdf
+```
+
+Runs the real extraction path (render, thumbnail, text, table detection,
+chunking) with storage and DB writes stubbed, and reports **pages/minute** and
+**peak RSS**. Those two decide the actual ceilings: pages/minute tells you how
+long a 1 GB set takes, and peak RSS times `PROCESS_CONCURRENCY x
+PAGE_CONCURRENCY` tells you how much memory the worker needs and therefore how
+many documents it can take at once.
+
+Use a real drawing set. A synthetic PDF measures your PDF generator.
+
+### API load
+
+```bash
+node benchmarks/api_load.mjs --url http://localhost:4000 \
+  --token "$SESSION_TOKEN" --project "$PROJECT_ID" --users 20 --seconds 30
+```
+
+Drives the read paths a viewer actually hits and reports throughput plus p50/p95/p99.
+Read the **p95** — the mean hides the requests that make an app feel broken.
+Chat is excluded unless you pass `--chat`, because every chat request spends
+real provider tokens: that is a bill, not a benchmark.
+
+If you see 429s, the rate limiter is working; raise `RATE_LIMIT_FLOOD_PER_MINUTE`
+and `RATE_LIMIT_GENERAL_PER_MINUTE` to load-test past it.
+
+## Rate limits
+
+Four tiers, all Redis-backed so they hold across cluster workers and across
+instances, and all env-tunable (see `.env.example`). Setting one to `0` disables
+that tier; a non-numeric value falls back to the default rather than silently
+disabling a spend limit.
+
+| Tier | Default | Keyed on | Guards |
+| --- | --- | --- | --- |
+| Flood | 1200/min | IP | Unauthenticated request floods, in front of auth |
+| General | 600/min | User | Runaway clients |
+| Auth | 20/15min | IP, failures only | Credential stuffing |
+| Chat | 20/min | User | Provider spend |
+| Summary | 30/hour | User | Provider spend (dozens to hundreds of calls per run) |
+
+Chat and summary limits sit on the individual POST routes, not their routers —
+the same routers serve the GETs that list portions, read summaries and quote a
+cost, and those stay freely browsable.
+
+## Running more than one API process
+
+`API_CLUSTER_WORKERS` forks HTTP workers on one machine (`auto` = one per core);
+the default of 1 is exactly today's single-process behaviour. On App Platform or
+DOKS, scale instances instead and leave it at 1 — sessions, caches and
+rate-limit counters live in Redis precisely so either shape works.
+
+Clustered workers each export metrics on `OTEL_METRICS_PORT + worker id`, since
+HTTP metrics are recorded wherever the request was served; the primary keeps the
+base port and reports queue depth, which is a property of the queue rather than
+of any one process. Prometheus should scrape the base port and each worker port.
