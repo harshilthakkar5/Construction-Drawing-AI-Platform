@@ -107,7 +107,7 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
         page.get_text("blocks"),
         page_width=page.rect.width,
         page_height=page.rect.height,
-        tables=tables.find_page_tables(page),
+        tables=tables.find_page_tables(page, document_id),
     )
     if not page_chunks and text:
         # OCR-only page: no positioned blocks, so one chunk spans the whole
@@ -216,6 +216,9 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         return {"skipped": "document deleted"}
 
     db.set_document_status(document_id, "processing")
+    # A retry re-reads the whole document, so it gets a fresh table-detection
+    # budget rather than inheriting a give-up from the attempt that failed.
+    tables.reset_budget(document_id)
 
     with tempfile.TemporaryDirectory() as tmp:
         pdf_path = os.path.join(tmp, "original.pdf")

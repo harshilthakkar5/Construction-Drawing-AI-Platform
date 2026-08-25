@@ -50,6 +50,22 @@ TABLE_EXTRACTION_ENABLED = (
 # read as a grid, so the whole page's detection is discarded.
 MAX_TABLES_PER_PAGE = int(os.environ.get("MAX_TABLES_PER_PAGE", "12"))
 
+# Seconds a single page's table detection may take before the rest of THAT
+# DOCUMENT gives up on it.
+#
+# `find_tables()` scans ruled lines for intersections, and a structural drawing
+# is mostly ruled lines: measured on a real IFC set it took 32 SECONDS per page
+# (one page 150s), against 0.1-0.8s on ordinary sheets. Ingest ran 4.8x slower
+# with detection on — 1.9 pages/min versus 9.1 — to find 8 tables in 5 pages.
+#
+# A budget rather than a page-complexity threshold because complexity did not
+# predict the cost: a synthetic page with 5,500 vector paths detected in 0.8s,
+# so any path-count cutoff would be a guess. One slow page per document is the
+# most this can now cost, instead of every page.
+TABLE_DETECTION_BUDGET_SECONDS = float(
+    os.environ.get("TABLE_DETECTION_BUDGET_SECONDS", "5")
+)
+
 
 # --- Parallelism ---------------------------------------------------------
 #
