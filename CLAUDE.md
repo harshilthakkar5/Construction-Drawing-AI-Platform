@@ -279,7 +279,11 @@ groups covered pages by discipline. Portion and section summaries are therefore 
       on a real IFC set against 0.1–0.8s on ordinary sheets, which ran ingest 4.8x slower.
       The first page to blow the budget disables detection for the rest of that document, so
       a drawing-heavy set pays for one slow page rather than all of them. A budget rather than
-      a page-complexity cutoff because complexity did not predict the cost.
+      a page-complexity cutoff because complexity did not predict the cost. Detection is also
+      SERIALIZED process-wide: `find_tables()` is pure Python and holds the GIL, so concurrent
+      scans bought no parallelism, raced the budget (every thread was inside a scan before the
+      first returned to set it) and starved the uploads — the same run's upload fell from
+      0.3 MB/s to 0.03. A page arriving mid-scan skips its own detection rather than queueing.
    b. **Spatial clustering** (`cluster_blocks`) groups the remaining blocks by proximity
       BEFORE packing. A CAD sheet returns blocks in content-stream order, so packing in that
       order merged a top-left note with a bottom-right callout: the chunk read as two

@@ -234,3 +234,79 @@ class TestTableDetectionBudget:
     def test_disabled_entirely_never_scans(self, monkeypatch):
         monkeypatch.setattr(tables.config, "TABLE_EXTRACTION_ENABLED", False)
         assert tables.find_page_tables(self._Page(9.0), "doc") == []
+
+
+class TestTableDetectionSerialization:
+    """find_tables() is pure Python (pymupdf/table.py), so it holds the GIL for
+    its whole run. Concurrent scans bought no parallelism and cost twice: the
+    budget could not engage before every thread was already inside a scan, and
+    the uploads that should have overlapped were starved of the GIL."""
+
+    def setup_method(self):
+        tables.reset_budget("doc")
+
+    class _SlowPage:
+        def __init__(self, seconds, live, peak, lock, number=0):
+            self.seconds, self.live, self.peak, self.lock = seconds, live, peak, lock
+            self.number = number
+
+        def find_tables(self):
+            with self.lock:
+                self.live[0] += 1
+                self.peak[0] = max(self.peak[0], self.live[0])
+            time.sleep(self.seconds)
+            with self.lock:
+                self.live[0] -= 1
+            return type("Found", (), {"tables": []})()
+
+        def get_cdrawings(self):
+            return []
+
+    def test_only_one_page_is_ever_scanned_at_a_time(self, monkeypatch):
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 30)
+        live, peak, lock = [0], [0], threading.Lock()
+        pages = [self._SlowPage(0.15, live, peak, lock, n) for n in range(6)]
+
+        threads = [
+            threading.Thread(target=tables.find_page_tables, args=(page, "doc"))
+            for page in pages
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert peak[0] == 1, f"{peak[0]} concurrent scans — the GIL fight is back"
+
+    def test_a_page_arriving_mid_scan_skips_rather_than_queues(self, monkeypatch):
+        """It must not block: the whole point is that the thread goes back to
+        its uploads instead of waiting on GIL-bound Python."""
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 30)
+        live, peak, lock = [0], [0], threading.Lock()
+        blocker = self._SlowPage(0.4, live, peak, lock)
+
+        thread = threading.Thread(target=tables.find_page_tables, args=(blocker, "doc"))
+        thread.start()
+        time.sleep(0.05)  # let it get inside the scan
+
+        started = time.perf_counter()
+        assert tables.find_page_tables(self._SlowPage(0.4, live, peak, lock), "doc") == []
+        assert time.perf_counter() - started < 0.2, "it queued instead of skipping"
+        thread.join()
+
+    def test_the_lock_is_released_when_detection_raises(self, monkeypatch):
+        """A raising page must not wedge detection shut for the whole process."""
+        monkeypatch.setattr(tables.config, "TABLE_DETECTION_BUDGET_SECONDS", 30)
+
+        class _Boom:
+            number = 0
+
+            def find_tables(self):
+                raise RuntimeError("malformed content stream")
+
+        assert tables.find_page_tables(_Boom(), "doc") == []
+        assert not tables._probe_lock.locked()
+
+        live, peak, lock = [0], [0], threading.Lock()
+        assert tables.find_page_tables(self._SlowPage(0.0, live, peak, lock), "doc") == []
+        assert peak[0] == 1, "the next page was never scanned — the lock leaked"
