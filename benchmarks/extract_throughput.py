@@ -15,21 +15,19 @@ detection, chunking) WITHOUT touching storage, so it times CPU only.
     python benchmarks/extract_throughput.py drawings.pdf
     python benchmarks/extract_throughput.py drawings.pdf --upload
 
-READ THIS BEFORE TRUSTING THE CPU NUMBER. Extraction uploads three objects per
-page — a full-resolution PNG, a thumbnail and a text file — and on a real
-worker that upload, not the rendering, is what takes the time. Measured against
-production logs, the CPU-only figure overstated real throughput by roughly 18x
-(125 pages/min measured here versus 6.7 pages/min actually achieved against
-DigitalOcean Spaces). A page render is ~2 seconds; shipping a 15-megapixel PNG
-to another continent is not.
+READ THIS BEFORE TRUSTING THE CPU NUMBER. Against production it overstated real
+throughput by ~18x (125 pages/min here versus 6.7 actually achieved), because
+extraction also uploads three objects per page and the stubbed run skips all of
+it. Only `--upload` answers "how long will my documents take"; it does real
+round trips to the configured bucket, so it needs the Spaces credentials in the
+environment, and it deletes what it writes.
 
-So the CPU number answers "is my machine fast enough", and only `--upload`
-answers "how long will my documents take". `--upload` does real round trips to
-the configured bucket, so it needs the Spaces credentials in the environment
-and it writes (then deletes) objects under a benchmark/ prefix.
-
-The reported bytes-per-page is the number that matters most: multiply it by
-your page count to see what the ingest actually has to ship.
+Do NOT assume which half dominates — it is not stable across sheet sets. On a
+synthetic set the render was 57% and the upload negligible; on a real structural
+IFC set it came out 63% CPU / 37% upload with 30 SECONDS of CPU per page. That
+is why this prints a per-stage breakdown: "a page costs 30 seconds" is not
+actionable until you know which stage owns the thirty, and the answer decides
+whether the lever is PAGE_RENDER_ZOOM, TABLE_EXTRACTION_ENABLED, or the network.
 """
 
 from __future__ import annotations
@@ -46,10 +44,48 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workers" / "src"))
 
 import fitz  # noqa: E402
+from PIL import Image  # noqa: E402
+
+# Imported at module scope deliberately: inside a timed function the first page
+# pays the import cost and it is charged to whatever stage triggered it — which
+# is exactly how the thumbnail first appeared to cost 25% of a page.
+import io  # noqa: E402
 
 
 def peak_rss_mb() -> float:
-    """Peak resident set size. resource.ru_maxrss is KB on Linux, bytes on macOS."""
+    """Peak resident set size, in MB.
+
+    Three implementations because there is no portable one, and the number
+    matters most on the machine least likely to have `resource`: Windows, where
+    the POSIX module does not exist and this used to report `nan`.
+    """
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = Counters()
+        counters.cb = ctypes.sizeof(counters)
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        if ctypes.windll.psapi.GetProcessMemoryInfo(
+            handle, ctypes.byref(counters), counters.cb
+        ):
+            return counters.PeakWorkingSetSize / (1024 * 1024)
+        return float("nan")
+
     try:
         import resource
 
@@ -64,11 +100,11 @@ BENCH_PREFIX = "benchmark/extract-throughput"
 
 def thumbnail_bytes(page, width: int) -> bytes:
     """Same shape as processing._thumbnail_jpg: rendered at thumbnail scale
-    rather than downsampled from the full-resolution pixmap."""
-    import io
+    rather than downsampled from the full-resolution pixmap.
 
-    from PIL import Image
-
+    (Measured both ways on a dense sheet: rendering again is ~5x faster than
+    downsampling the full pixmap, so the pipeline's choice is the right one.)
+    """
     scale = width / page.rect.width
     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
     with Image.open(io.BytesIO(pix.tobytes("png"))) as img:
@@ -83,24 +119,44 @@ def render_one(pdf_path: str, index: int, zoom: float, local, upload: bool) -> d
     import config
     import tables
 
+    # Warm the per-thread module imports before timing anything, for the same
+    # reason: a cold import inside a stage is not that stage's cost.
+
     pdf = getattr(local, "pdf", None)
     if pdf is None:
         # Each thread opens its own Document: PyMuPDF is not thread-safe across
         # a shared one, which is what the real pipeline does too.
         pdf = local.pdf = fitz.open(pdf_path)
 
+    stages: dict[str, float] = {}
+
+    def timed(name: str, fn):
+        """Per stage, because "30 seconds of CPU per page" is not actionable
+        until you know WHICH thirty seconds."""
+        started_stage = time.perf_counter()
+        result = fn()
+        stages[name] = stages.get(name, 0.0) + time.perf_counter() - started_stage
+        return result
+
     started = time.perf_counter()
-    page = pdf.load_page(index)
-    text = page.get_text("text")
-    png = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
-    thumb = thumbnail_bytes(page, config.THUMB_WIDTH)
+    page = timed("load_page", lambda: pdf.load_page(index))
+    text = timed("extract text", lambda: page.get_text("text"))
+    png = timed(
+        "render + PNG encode",
+        lambda: page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png"),
+    )
+    thumb = timed("thumbnail", lambda: thumbnail_bytes(page, config.THUMB_WIDTH))
     encoded_text = text.encode("utf-8")
-    found = tables.find_page_tables(page)
-    chunks = chunker.chunk_page(
-        page.get_text("blocks"),
-        page_width=page.rect.width,
-        page_height=page.rect.height,
-        tables=found,
+    found = timed("detect tables", lambda: tables.find_page_tables(page))
+    blocks = timed("extract blocks", lambda: page.get_text("blocks"))
+    chunks = timed(
+        "chunk",
+        lambda: chunker.chunk_page(
+            blocks,
+            page_width=page.rect.width,
+            page_height=page.rect.height,
+            tables=found,
+        ),
     )
     cpu_seconds = time.perf_counter() - started
 
@@ -119,7 +175,10 @@ def render_one(pdf_path: str, index: int, zoom: float, local, upload: bool) -> d
             storage.put_bytes(key, body, content_type)
         upload_seconds = time.perf_counter() - started_upload
 
+    if upload:
+        stages["upload"] = upload_seconds
     return {
+        "stages": stages,
         "seconds": cpu_seconds + upload_seconds,
         "cpu_seconds": cpu_seconds,
         "upload_seconds": upload_seconds,
@@ -154,6 +213,8 @@ def main() -> int:
 
     with fitz.open(args.pdf) as probe:
         total = probe.page_count
+        first = probe.load_page(0).rect
+        page_megapixels = (first.width * zoom) * (first.height * zoom) / 1e6
     count = min(args.pages or total, total)
     size_mb = os.path.getsize(args.pdf) / 1e6
 
@@ -162,9 +223,10 @@ def main() -> int:
     if args.upload:
         print(f"mode        REAL uploads to {config.SPACES_BUCKET} under {BENCH_PREFIX}/")
     else:
-        print("mode        CPU only — no storage writes. On a real worker the "
-              "upload\n            dominates, so this number will flatter you. "
-              "See --upload.")
+        print("mode        CPU only — no storage writes, so this number will "
+              "flatter you.\n            Use --upload for a figure to plan "
+              "against; the split between\n            CPU and upload varies "
+              "enormously by sheet and by link.")
     print()
 
     local = threading.local()
@@ -203,6 +265,33 @@ def main() -> int:
     print(f"total to ship     {bytes_per_page * total / 1e9:.2f} GB for all "
           f"{total} pages, against a {size_mb:.0f} MB input "
           f"({bytes_per_page * total / (size_mb * 1e6):.0f}x amplification)")
+
+    # The breakdown is the point of running this at all: a page that costs 30
+    # seconds is a different problem depending on which stage owns the 30.
+    totals: dict[str, float] = {}
+    for result in results:
+        for stage, seconds in result["stages"].items():
+            totals[stage] = totals.get(stage, 0.0) + seconds
+    grand = sum(totals.values()) or 1.0
+    print("\nwhere the time goes (thread time across all pages):")
+    for stage, seconds in sorted(totals.items(), key=lambda kv: -kv[1]):
+        bar = "#" * max(1, round(seconds / grand * 40))
+        print(f"  {stage:<20} {seconds / count:6.2f}s/page  "
+              f"{seconds / grand * 100:5.1f}%  {bar}")
+
+    dominant, dominant_seconds = max(totals.items(), key=lambda kv: kv[1])
+    if dominant == "detect tables":
+        print("\n  Table detection dominates. It is a heuristic over ruled lines, and a "
+              "\n  structural sheet is mostly ruled lines. Compare with "
+              "TABLE_EXTRACTION_ENABLED=false\n  to see what it is buying you.")
+    elif dominant == "render + PNG encode":
+        print(f"\n  Rendering dominates. PAGE_RENDER_ZOOM={zoom} means "
+              f"{page_megapixels:.0f} MP per sheet;\n  dropping to "
+              f"{zoom * 0.75:.2f} cuts pixels ~44%, and the viewer may not need the "
+              "detail.")
+    elif dominant == "upload":
+        print("\n  Upload dominates — the lever is bytes per page (render zoom, "
+              "image format),\n  not concurrency.")
 
     if args.upload:
         cpu = sum(r["cpu_seconds"] for r in results)
