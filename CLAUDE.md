@@ -430,10 +430,18 @@ manifest. It is a Postgres lock, not an in-process one, because the contenders a
 replicas; Postgres frees it if a worker dies. Different projects never contend.
 
 `db.connect()` borrows from a `psycopg_pool` (`DB_POOL_SIZE`, default `2 × WORKER_CONCURRENCY`) —
-keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. The Spaces client is sized
-off the same product (`SPACES_POOL_SIZE` → botocore `max_pool_connections`, default 10 which is
-under the 16 pages the defaults put in flight); an undersized pool fails quietly, as urllib3
-discarding each returning connection and the next upload re-handshaking TLS. Raising concurrency
+keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. The Spaces client is sized from the worst case
+across BOTH queues that touch storage at once (`SPACES_POOL_SIZE` → botocore
+`max_pool_connections`): `PROCESS_CONCURRENCY × max(PAGE_CONCURRENCY, SPACES_DOWNLOAD_CONCURRENCY)
++ SCRAPE_CONCURRENCY × SPACES_DOWNLOAD_CONCURRENCY`. A download is NOT one stream — boto3's
+transfer manager pulls 8 MB parts in parallel, so one large PDF can occupy the whole pool by
+itself, which is what sizing it off the page threads alone missed. An undersized pool fails
+quietly, as urllib3 discarding each returning connection and the next request re-handshaking TLS.
+
+Extraction is network-bound, not CPU-bound: each page ships a full-resolution PNG, a thumbnail
+and a text file, and a measured production run managed 6.7 pages/minute against Spaces where the
+CPU-only benchmark reported 125. `benchmarks/extract_throughput.py --upload` measures the real
+thing; without the flag it reports CPU only and says so. Raising concurrency
 multiplies the Voyage/Anthropic request rate directly, so raise provider tiers first.
 
 ## Non-functional rules
