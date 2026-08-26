@@ -374,6 +374,59 @@ class TestThinkingBudget:
         # Latched: the next page skips straight to the working shape.
         assert "gemini-x" in llm._no_thinking_config
 
+    def test_a_bare_invalid_argument_also_earns_the_retry(self, monkeypatch):
+        """gemini-3.5-flash-lite rejects thinking_budget as a bare 400
+        INVALID_ARGUMENT naming nothing. Matching only the polite wording left
+        every SHEET_PROVIDER=gemini call failing into the rules ladder."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        calls = []
+
+        class _Models:
+            def generate_content(self, *, model, contents, config):
+                calls.append(config)
+                if "thinking_config" in config:
+                    raise RuntimeError(
+                        "400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': "
+                        "'Request contains an invalid argument.', 'status': "
+                        "'INVALID_ARGUMENT'}}"
+                    )
+                return type("R", (), {"text": "ok", "usage_metadata": None, "candidates": []})()
+
+        monkeypatch.setattr(llm, "gemini_client", lambda: type("C", (), {"models": _Models()})())
+        monkeypatch.setattr(usage, "record", lambda *a, **k: None)
+
+        reply = llm._complete_gemini(
+            "sys", "user", model="gemini-3.5-flash-lite", max_tokens=120,
+            kind="classification", project_id=None, json_only=True,
+        )
+        assert reply.text == "ok"
+        assert len(calls) == 2 and "thinking_config" not in calls[1]
+        assert "gemini-3.5-flash-lite" in llm._no_thinking_config
+
+    def test_a_failed_retry_reports_the_original_error_and_does_not_latch(self, monkeypatch):
+        """An invalid argument that was NOT the thinking budget costs one extra
+        call and nothing else: the model keeps its normal request shape, and
+        the error the caller logs is the real one."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        calls = []
+
+        class _Models:
+            def generate_content(self, *, model, contents, config):
+                calls.append(config)
+                raise RuntimeError("400 INVALID_ARGUMENT: contents must not be empty")
+
+        monkeypatch.setattr(llm, "gemini_client", lambda: type("C", (), {"models": _Models()})())
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="contents must not be empty"):
+            llm._complete_gemini(
+                "sys", "", model="gemini-x", max_tokens=120,
+                kind="classification", project_id=None, json_only=True,
+            )
+        assert len(calls) == 2
+        assert "gemini-x" not in llm._no_thinking_config  # not latched on a failed retry
+
     def test_an_unrelated_error_still_propagates(self, monkeypatch):
         """Only a thinking refusal earns the retry — a 500 must not be retried
         as though the config were at fault."""

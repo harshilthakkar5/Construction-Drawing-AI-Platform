@@ -209,10 +209,20 @@ def ensure_collection() -> None:
         if exists.get("result", {}).get("exists"):
             _check_collection_width(client, width)
             return
-        client.put(
+        created = client.put(
             f"{QDRANT_URL}/collections/{COLLECTION}",
             json={"vectors": {"size": width, "distance": "Cosine"}},
-        ).raise_for_status()
+        )
+        if created.status_code == 409:
+            # Another job created it between our check and our PUT. That is the
+            # NORMAL case on the first run after a provider switch: every
+            # document in flight finds the new collection missing at once.
+            # Losing the race is not a failure — verify the width and carry on,
+            # instead of failing the job and spending a BullMQ retry.
+            log.info("Qdrant collection %s was created concurrently — continuing", COLLECTION)
+            _check_collection_width(client, width)
+            return
+        created.raise_for_status()
         log.info(
             "created Qdrant collection %s (%d dimensions, %s/%s)",
             COLLECTION,
