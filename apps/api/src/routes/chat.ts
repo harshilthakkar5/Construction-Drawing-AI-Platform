@@ -8,10 +8,10 @@ import { prisma } from "../db.js";
 import { searchChunks } from "../qdrant.js";
 import { redis } from "../redis.js";
 import { chatDuration, retrievalCacheCounter } from "../telemetry.js";
-import { embedQuery, voyageAvailable } from "../voyage.js";
+import { embedQuery, embeddingKeyEnv, embeddingsAvailable } from "../embedding.js";
 
 /**
- * RAG chat (FR-14, FR-21..23): question → Voyage embedding → Qdrant search
+ * RAG chat (FR-14, FR-21..23): question → embedding → Qdrant search
  * (project filter, optional portion) → Claude with inline chunk metadata →
  * chunk-ID citations mapped back to {document, page, bbox}. Claude only ever
  * sees retrieved chunks. Retrievals are cached in Redis; every exchange is
@@ -53,12 +53,12 @@ chatRouter.post("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const { question, sessionId, portionId } = askSchema.parse(req.body);
 
-  if (!chatModelAvailable() || !voyageAvailable()) {
+  if (!chatModelAvailable() || !embeddingsAvailable()) {
     // Names the key the ACTIVE provider needs — telling someone running
     // CHAT_PROVIDER=gemini to set ANTHROPIC_API_KEY sends them the wrong way.
     const chatKey = chatProvider() === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
     return void res.status(503).json({
-      error: `chat requires ${chatKey} and VOYAGE_API_KEY to be configured`,
+      error: `chat requires ${chatKey} and ${embeddingKeyEnv()} to be configured`,
     });
   }
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
@@ -80,7 +80,7 @@ chatRouter.post("/", async (req, res) => {
     return void res.json({
       sessionId: session.id,
       answer:
-        "No indexed content matched this question yet. Upload documents and wait for processing (embedding requires VOYAGE_API_KEY on the worker), or try different wording.",
+        `No indexed content matched this question yet. Upload documents and wait for processing (embedding requires ${embeddingKeyEnv()} on the worker), or try different wording.`,
       sources: [],
     });
   }

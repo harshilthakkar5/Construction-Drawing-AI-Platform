@@ -1,98 +1,194 @@
-"""Voyage AI embeddings + Qdrant upserts.
+"""Embeddings + Qdrant upserts.
 
-Chunks are embedded in batches (Voyage takes up to 128 inputs per call) and
-upserted into one Qdrant collection partitioned by project_id payload —
-PostgreSQL stays the source of truth for references; Qdrant holds vectors
-plus the filterable payload {project_id, document_id, page, portion,
+The vectors come from whichever provider `EMBEDDING_PROVIDER` selects
+(`embedllm.py` — voyage | cohere | gemini); this module owns everything above
+that transport: what is worth embedding at all, and where the result goes.
+
+Chunks are upserted into one Qdrant collection partitioned by the project_id
+payload — PostgreSQL stays the source of truth for references; Qdrant holds
+vectors plus the filterable payload {project_id, document_id, page, portion,
 discipline}. Point ID == chunk ID.
 
-Without VOYAGE_API_KEY the embed step is skipped (chunks keep a NULL
-embeddingId and are picked up by a later retry once a key exists).
+Three layers keep the bill down, cheapest first:
+
+  1. Revision reuse (`reuse_chunk_vectors`) — a chunk whose text is unchanged
+     from the revision it replaces copies its vector straight out of Qdrant.
+  2. In-run dedup — a sheet set repeats its general notes on hundreds of
+     pages, and identical text has an identical vector by definition. Each
+     distinct string is embedded once per call, however many chunks hold it.
+  3. A Redis vector cache keyed on (provider, model, dimensions, text) — the
+     same dedup across runs, which is what makes a re-index after a portion
+     rebuild nearly free. Off with EMBED_CACHE_ENABLED=false.
+
+Without the active provider's API key the embed step is skipped (chunks keep a
+NULL embeddingId and are picked up by a later retry once a key exists).
 """
 
 from __future__ import annotations
 
 import os
-import time
+from array import array
 
 import httpx
+import redis as redis_lib
 
 import config
+import embedllm
+import hashing
 import logutil
 
 log = logutil.get("embeddings")
 
-VOYAGE_BASE_URL = os.environ.get("VOYAGE_BASE_URL", "https://api.voyageai.com")
-VOYAGE_MODEL = os.environ.get("VOYAGE_MODEL", "voyage-3")
-EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 COLLECTION = os.environ.get("QDRANT_COLLECTION", "chunks")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-BATCH_SIZE = int(os.environ.get("VOYAGE_BATCH_SIZE", "128"))
-# Free Voyage tier is heavily rate-limited (~3 requests/min). A small delay
-# between batches keeps a large document under the limit instead of getting
-# 429'd and failing the whole job. Raise VOYAGE_BATCH_DELAY on the free tier
-# (e.g. 20) or set 0 on a paid tier.
-BATCH_DELAY_SECONDS = float(os.environ.get("VOYAGE_BATCH_DELAY", "0"))
-MAX_RETRIES = int(os.environ.get("VOYAGE_MAX_RETRIES", "6"))
+
+# A vector is ~4 KB at 1024 dimensions, so the cache is bounded by a TTL
+# rather than left to grow: two weeks covers the re-index that follows a
+# portion rebuild or a chunker change, which is what it exists for.
+CACHE_TTL_SECONDS = int(os.environ.get("EMBED_CACHE_TTL_SECONDS", str(14 * 24 * 3600)))
 
 
-def voyage_available() -> bool:
-    return bool(os.environ.get("VOYAGE_API_KEY"))
+def provider_available() -> bool:
+    return embedllm.available()
 
 
-def _post_with_retry(client: httpx.Client, api_key: str, batch: list[str], input_type: str):
-    """One Voyage call with retry/backoff on 429 (rate limit) and 5xx. Honors
-    the Retry-After header when present; otherwise exponential backoff."""
-    for attempt in range(MAX_RETRIES + 1):
-        response = client.post(
-            f"{VOYAGE_BASE_URL}/v1/embeddings",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"input": batch, "model": VOYAGE_MODEL, "input_type": input_type},
-        )
-        if response.status_code == 429 or response.status_code >= 500:
-            if attempt == MAX_RETRIES:
-                response.raise_for_status()
-            retry_after = response.headers.get("retry-after")
-            wait = float(retry_after) if retry_after else min(60.0, 2.0 * (2**attempt))
-            log.warning(
-                "Voyage %s (attempt %d/%d) — backing off %.1fs",
-                response.status_code,
-                attempt + 1,
-                MAX_RETRIES,
-                wait,
-            )
-            time.sleep(wait)
+# --- Vector cache ---------------------------------------------------------
+
+_redis = None
+
+
+def _cache_enabled() -> bool:
+    return (os.environ.get("EMBED_CACHE_ENABLED") or "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+        "off",
+    )
+
+
+def _get_redis():
+    """Shared handle for the vector cache; None when unavailable — embedding
+    still runs, it just re-pays for text it has already embedded."""
+    global _redis
+    # Checked before the connection latch, not inside it, so flipping the flag
+    # takes effect without a restart (and so a test can turn it on).
+    if not _cache_enabled():
+        return None
+    if _redis is None:
+        try:
+            _redis = redis_lib.Redis.from_url(config.REDIS_URL)
+            _redis.ping()
+        except Exception as exc:
+            log.warning("Redis embedding cache unavailable: %s", exc)
+            _redis = False
+    return _redis or None
+
+
+def _cache_key(text: str, input_type: str) -> str:
+    # Provider, model and width are all part of the key: two models embed into
+    # different spaces, so serving one model's vector for another's request
+    # would poison the collection in a way no error surfaces.
+    return (
+        f"cache:embedding:{embedllm.provider()}:{embedllm.model()}:"
+        f"{embedllm.dimensions()}:{input_type}:{hashing.text_hash(text)}"
+    )
+
+
+def _cached_vectors(texts: list[str], input_type: str) -> dict[str, list[float]]:
+    """Cached vectors for the distinct texts given. Missing keys simply do not
+    appear; any cache failure degrades to an empty dict."""
+    conn = _get_redis()
+    if conn is None or not texts:
+        return {}
+    # A 1000-page project has tens of thousands of distinct chunks; one MGET
+    # with every key is a multi-megabyte command and a long stall on a shared
+    # Redis. Ask in slices instead.
+    stored: list = []
+    try:
+        for start in range(0, len(texts), 512):
+            window = texts[start : start + 512]
+            stored.extend(conn.mget([_cache_key(text, input_type) for text in window]))
+    except Exception as exc:
+        log.warning("embedding cache read failed: %s", exc)
+        return {}
+
+    width = embedllm.dimensions()
+    hits: dict[str, list[float]] = {}
+    for text, raw in zip(texts, stored):
+        if not raw:
             continue
-        response.raise_for_status()
-        return response
-    raise RuntimeError("unreachable")
+        values = array("f")
+        try:
+            values.frombytes(raw)
+        except ValueError:
+            continue
+        # A cached vector of the wrong width is a stale EMBEDDING_DIM. Drop it
+        # rather than upserting something Qdrant will reject.
+        if len(values) == width:
+            hits[text] = list(values)
+    return hits
+
+
+def _store_vectors(pairs: list[tuple[str, list[float]]], input_type: str) -> None:
+    conn = _get_redis()
+    if conn is None or not pairs:
+        return
+    try:
+        for start in range(0, len(pairs), 512):
+            pipe = conn.pipeline()
+            for text, vector in pairs[start : start + 512]:
+                # float32, as Qdrant stores them: a cache hit therefore comes
+                # back rounded from what the provider returned. That difference
+                # is well below what any cosine ranking resolves, and it halves
+                # what the cache costs in Redis.
+                pipe.set(
+                    _cache_key(text, input_type),
+                    array("f", vector).tobytes(),
+                    ex=CACHE_TTL_SECONDS,
+                )
+            pipe.execute()
+    except Exception as exc:  # caching must never fail a job
+        log.warning("embedding cache write failed: %s", exc)
+
+
+# --- Embedding ------------------------------------------------------------
 
 
 def embed_texts(
     texts: list[str], input_type: str = "document", project_id: str | None = None
 ) -> list[list[float]]:
-    """Batched Voyage embedding call with rate-limit backoff.
-    input_type: 'document' | 'query'. project_id attributes the token spend."""
-    api_key = os.environ["VOYAGE_API_KEY"]
-    vectors: list[list[float]] = []
-    tokens = 0
-    batch_count = (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE
-    with httpx.Client(timeout=120) as client:
-        for i, start in enumerate(range(0, len(texts), BATCH_SIZE)):
-            batch = texts[start : start + BATCH_SIZE]
-            if i > 0 and BATCH_DELAY_SECONDS > 0:
-                time.sleep(BATCH_DELAY_SECONDS)  # throttle to stay under the tier limit
-            log.debug("embedding batch %d/%d (%d texts)", i + 1, batch_count, len(batch))
-            response = _post_with_retry(client, api_key, batch, input_type)
-            body = response.json()
-            data = body["data"]
-            tokens += (body.get("usage") or {}).get("total_tokens", 0)
-            vectors.extend(item["embedding"] for item in sorted(data, key=lambda d: d["index"]))
-    if tokens:
-        import usage
+    """Vectors for `texts`, in order, from the active provider.
 
-        usage.record(project_id, "embedding", VOYAGE_MODEL, input_tokens=tokens)
-    return vectors
+    Duplicates and cache hits never reach the provider; what is left is sent
+    in provider-sized batches (and, with EMBED_USE_BATCH, through its async
+    batch API at half price). input_type: 'document' | 'query'. project_id
+    attributes the token spend.
+    """
+    if not texts:
+        return []
+
+    # Distinct texts, first-seen order — the order matters only for readable
+    # logs, but a stable one makes a batch reproducible.
+    distinct: list[str] = list(dict.fromkeys(texts))
+    known = _cached_vectors(distinct, input_type)
+    missing = [text for text in distinct if text not in known]
+
+    if len(missing) < len(texts):
+        log.info(
+            "embedding %d texts: %d distinct, %d cached, %d to embed",
+            len(texts),
+            len(distinct),
+            len(distinct) - len(missing),
+            len(missing),
+        )
+
+    if missing:
+        fresh = embedllm.embed(missing, input_type, project_id)
+        pairs = list(zip(missing, fresh))
+        _store_vectors(pairs, input_type)
+        known.update(pairs)
+
+    return [known[text] for text in texts]
 
 
 def _chunk_payload(chunk: dict) -> dict:
@@ -107,20 +203,56 @@ def _chunk_payload(chunk: dict) -> dict:
 
 
 def ensure_collection() -> None:
+    width = embedllm.dimensions()
     with httpx.Client(timeout=30) as client:
         exists = client.get(f"{QDRANT_URL}/collections/{COLLECTION}/exists").json()
         if exists.get("result", {}).get("exists"):
+            _check_collection_width(client, width)
             return
         client.put(
             f"{QDRANT_URL}/collections/{COLLECTION}",
-            json={"vectors": {"size": EMBEDDING_DIM, "distance": "Cosine"}},
+            json={"vectors": {"size": width, "distance": "Cosine"}},
         ).raise_for_status()
+        log.info(
+            "created Qdrant collection %s (%d dimensions, %s/%s)",
+            COLLECTION,
+            width,
+            embedllm.provider(),
+            embedllm.model(),
+        )
         # payload indexes for the filters the chat API uses
         for field, schema in (("project_id", "keyword"), ("portion", "keyword")):
             client.put(
                 f"{QDRANT_URL}/collections/{COLLECTION}/index",
                 json={"field_name": field, "field_schema": schema},
             )
+
+
+def _check_collection_width(client: httpx.Client, width: int) -> None:
+    """Fail loudly when the collection was built for a different vector width.
+
+    Switching EMBEDDING_PROVIDER or EMBEDDING_MODEL usually changes it, and
+    Qdrant's own rejection names neither side. Note that a width MATCH proves
+    nothing about the space: voyage-3 and embed-v4.0 are both 1024 and mixing
+    them silently destroys retrieval, which is why switching means a re-index
+    into a new QDRANT_COLLECTION rather than a config change.
+    """
+    try:
+        info = client.get(f"{QDRANT_URL}/collections/{COLLECTION}").json()
+        vectors = ((info.get("result") or {}).get("config") or {}).get("params", {}).get(
+            "vectors", {}
+        )
+        existing = vectors.get("size") if isinstance(vectors, dict) else None
+    except Exception as exc:  # never block indexing on the introspection call
+        log.debug("could not read %s collection config: %s", COLLECTION, exc)
+        return
+    if isinstance(existing, int) and existing != width:
+        raise RuntimeError(
+            f"Qdrant collection {COLLECTION} holds {existing}-dimension vectors but "
+            f"{embedllm.provider()}/{embedllm.model()} produces {width}. Point "
+            "QDRANT_COLLECTION at a new collection and re-index "
+            "(POST /projects/:id/documents/reindex), or restore EMBEDDING_DIM."
+        )
 
 
 def upsert_chunks(chunks: list[dict], vectors: list[list[float]]) -> None:
@@ -182,7 +314,7 @@ def delete_document_points(document_id: str) -> None:
 
 def reuse_chunk_vectors(pairs: list[tuple[dict, str]]) -> list[str]:
     """Copy vectors from a previous revision's points to new chunk IDs
-    (unchanged text ⇒ identical embedding — no Voyage call). pairs:
+    (unchanged text ⇒ identical embedding — no provider call). pairs:
     (new chunk dict, old embedded chunk id). Returns new chunk IDs upserted."""
     if not pairs:
         return []
@@ -201,7 +333,7 @@ def embed_document_chunks(chunks: list[dict], previous_document_id: str | None =
     Revision reuse (FR-4 / non-functional rule "reuse embeddings for unchanged
     revisions"): when the document replaces a previous revision, chunks whose
     textHash matches an embedded chunk of that revision copy its vector out of
-    Qdrant instead of calling Voyage.
+    Qdrant instead of calling the provider.
     """
     if not chunks:
         return []
@@ -216,14 +348,18 @@ def embed_document_chunks(chunks: list[dict], previous_document_id: str | None =
         pairs = [(c, matches[c["text_hash"]]) for c in chunks if c.get("text_hash") in matches]
         reused = set(reuse_chunk_vectors(pairs))
         if reused:
-            log.info("reused %d vectors from the previous revision (no Voyage call)", len(reused))
+            log.info("reused %d vectors from the previous revision (no provider call)", len(reused))
         done.extend(reused)
         to_embed = [c for c in chunks if c["chunk_id"] not in reused]
 
     if not to_embed:
         return done
-    if not voyage_available():
-        log.warning("VOYAGE_API_KEY not set — skipping %d chunks (they stay unindexed until a retry)", len(to_embed))
+    if not provider_available():
+        log.warning(
+            "%s not set — skipping %d chunks (they stay unindexed until a retry)",
+            embedllm.KEY_ENV[embedllm.provider()],
+            len(to_embed),
+        )
         return done
     ensure_collection()
     vectors = embed_texts(

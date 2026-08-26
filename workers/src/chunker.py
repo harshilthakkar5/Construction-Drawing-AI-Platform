@@ -35,7 +35,7 @@ MIN_TOKENS = 400
 MAX_TOKENS = 800
 OVERLAP_TOKENS = 100
 
-# Claude/Voyage tokenizers average ~1.3 tokens per English word; a cheap
+# LLM and embedding tokenizers average ~1.3 tokens per English word; a cheap
 # estimator is fine because the bounds above are soft targets.
 TOKENS_PER_WORD = 1.3
 

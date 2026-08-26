@@ -198,7 +198,7 @@ class TestBatchPolling:
                 current["state"] = next(states)
             return state == "done"
 
-        assert llm._await_batch("job", refresh, finished) == "done"
+        assert llm.await_batch("job", refresh, finished) == "done"
 
     def test_times_out_rather_than_waiting_forever(self, monkeypatch):
         """The Anthropic loop used to be `while not ended: sleep(2)` with no
@@ -209,14 +209,14 @@ class TestBatchPolling:
         import pytest
 
         with pytest.raises(llm.BatchTimeout):
-            llm._await_batch("job", lambda: "running", lambda _j: False)
+            llm.await_batch("job", lambda: "running", lambda _j: False)
 
     def test_an_already_finished_job_never_sleeps(self, monkeypatch):
         def boom(_s):
             raise AssertionError("slept on an already-finished batch")
 
         monkeypatch.setattr(llm.time, "sleep", boom)
-        assert llm._await_batch("job", lambda: "done", lambda j: j == "done") == "done"
+        assert llm.await_batch("job", lambda: "done", lambda j: j == "done") == "done"
 
 
 class TestGeminiBatchResults:

@@ -11,7 +11,7 @@ Stages (each logged, errors logged with the failing stage/page):
   3/6 revisions  — supersede the replaced document (FR-4), if any
   4/6 numbering  — recompute combined page numbers (discipline detection
                    moved to the scrape-region job)
-  5/6 embed      — Voyage embeddings into Qdrant (reuse across revisions)
+  5/6 embed      — embeddings into Qdrant (EMBEDDING_PROVIDER; reuse across revisions)
   6/6 finalize   — mark completed, invalidate caches
 """
 
@@ -305,7 +305,7 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
     to_embed = db.chunks_to_embed(document_id)
     embedded_ids: list[str] = []
     if not config.EMBEDDINGS_ENABLED:
-        # EMBEDDINGS_ENABLED=false: skip Voyage/Qdrant entirely. Chunks keep a
+        # EMBEDDINGS_ENABLED=false: skip the provider and Qdrant entirely. Chunks keep a
         # NULL embeddingId and are picked up by a later run once re-enabled, so
         # summaries can be tested without spending the embedding rate limit.
         log.warning(

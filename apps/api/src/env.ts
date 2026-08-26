@@ -23,7 +23,16 @@ const envSchema = z.object({
   SPACES_ACL: z.enum(["private", "public-read"]).optional(),
   // Not needed to boot the scaffold; required once AI features land.
   ANTHROPIC_API_KEY: z.string().optional(),
+  /**
+   * Embeddings. Which of these three is required depends on
+   * EMBEDDING_PROVIDER (voyage | cohere | gemini) — apps/api/src/embedding.ts
+   * resolves it, and the chat route's 503 names the one that is missing. All
+   * optional here so the app still boots with none of them configured.
+   * GEMINI_API_KEY doubles as the chat/summary key when those run on Gemini.
+   */
   VOYAGE_API_KEY: z.string().optional(),
+  COHERE_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 
   /**
    * Outbound email (password resets, support tickets). Entirely optional: with

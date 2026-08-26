@@ -69,7 +69,7 @@ appear unless a user presses a button, so waiting for it is wasted work.
 ### The one exception
 
 `POST /projects/:id/chat` is **synchronous**. `apps/api/src/routes/chat.ts`
-returns only after the Voyage embedding, the Qdrant search, and the complete
+returns only after the query embedding, the Qdrant search, and the complete
 Sonnet answer — typically 5–20 seconds with the connection held open, and the
 answer arrives all at once.
 
@@ -202,8 +202,8 @@ is missing the worker still runs, unpooled, and logs why.
 
 ### Before raising any of these
 
-Raise provider tiers first. Concurrency multiplies the Voyage and Anthropic
-request rate directly. On a free Voyage tier (~3 req/min) more workers simply
+Raise provider tiers first. Concurrency multiplies the embedding and Anthropic
+request rate directly. On a free tier (Voyage's is ~3 req/min) more workers simply
 convert queueing into 429 retries.
 
 ---
@@ -228,7 +228,7 @@ job — is comfortable on one API and one worker at the defaults.
 
 1. **Provider rate limits**, not infrastructure. This is now the real ceiling.
 2. **Cost**, well before capacity. At ~30K embedding tokens per dense sheet, ten
-   users each loading a 500-sheet set is ~150M Voyage tokens. The system survives
+   users each loading a 500-sheet set is ~150M embedding tokens. The system survives
    it; the bill is the constraint.
 3. **No API rate limiting.** Nothing stops one account from queuing fifty
    scrapes. Fine for a trusted team, not for open signup.
@@ -256,7 +256,7 @@ which is why a project can show 29K tokens after a single one-page upload.
 | Stage | Model | Tokens | Notes |
 | --- | --- | --- | --- |
 | Region classification | Haiku | **286 in / 32 out per page**, measured before batching | Only the scraped box text plus a cached instruction block. Most pages now cost nothing at all (rules-first pre-pass), and the rest share a request — the per-page token figure barely moves, the request count collapses |
-| Embedding | voyage-3 | **~30K per dense sheet** | The whole page's text, chunked. Dominates everything |
+| Embedding | `EMBEDDING_PROVIDER` (voyage-3 by default) | **~30K per dense sheet** | The whole page's text, chunked. Dominates everything. Deduped per run and cached in Redis; `EMBED_USE_BATCH` halves what is left where the provider offers a batch API |
 | Page summary | Sonnet | ~3.9K in / ~1.35K out | The page's chunks |
 | Section rollup | Sonnet | ~1.7K in / ~1.35K out | Reads the level below |
 | Portion rollup | Sonnet | ~1.7K in / ~1.35K out | Reads the level below |
@@ -265,7 +265,7 @@ Each tier's input is roughly the previous tier's *output* — visible directly i
 the numbers.
 
 **Embedding is the dominant cost by a wide margin**, and it runs at upload time,
-before any region or summary work. A 1000-sheet set is roughly 30M Voyage tokens.
+before any region or summary work. A 1000-sheet set is roughly 30M embedding tokens.
 
 ### Summaries are user-approved
 

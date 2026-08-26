@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Phases 1–5 done: project CRUD, direct-to-storage resumable multipart upload, worker pipeline
 (per-page text/PNG/thumb + OCR fallback + status flow + resume), virtual page manifest, lazy
 combined react-pdf viewer, portion detection (rule classifier + Haiku fallback), hybrid
-chunking with bbox metadata, Voyage embeddings → Qdrant (payload-partitioned by project,
+chunking with bbox metadata, embeddings → Qdrant (payload-partitioned by project,
 payloads refreshed after portion rebuilds), RAG chat with chunk-ID citations mapped to
 document/page/bbox, portion filter, Redis retrieval cache, FR-23 persistence, and hierarchical
 summaries (page → section → portion → project; page level is incremental and can use the
@@ -47,9 +47,11 @@ compose); README covers DO App Platform/DOKS deployment. Worker logs every pipel
 purges all stores — Postgres cascade + Spaces prefix + Qdrant points + Redis caches
 (apps/api/src/cleanup.ts, each stage logged, failures non-blocking).
 
-Chat and embedding need `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`; without them the worker skips
+Chat and embedding need `ANTHROPIC_API_KEY` and the active embedding provider's key
+(`VOYAGE_API_KEY`/`COHERE_API_KEY`/`GEMINI_API_KEY`); without them the worker skips
 embedding (chunks wait with NULL embeddingId) and the chat endpoint returns 503. For offline
-E2E, both APIs can be pointed at a stub via `ANTHROPIC_BASE_URL`/`VOYAGE_BASE_URL`.
+E2E, both APIs can be pointed at a stub via `ANTHROPIC_BASE_URL` and the embedding
+provider's `{VOYAGE,COHERE,GEMINI}_BASE_URL`.
 
 Common commands (see README.md for full setup, including the two `.env` copies and the Python
 worker venv):
@@ -76,6 +78,10 @@ cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src
 defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
 summaries, `apps/api/src/llm.ts` resolves the same env vars only to quote what they will cost
 (`summaryEstimate.ts`), so a drift shows a user one model's price for another model's work.
+The embedding provider is the sharpest of these duplications — `workers/src/embedllm.py`
+embeds the documents and `apps/api/src/embedding.ts` embeds the question they are searched
+with, off the same env vars. A drift there does not degrade retrieval, it destroys it: a
+cosine distance between two embedding spaces is noise, and nothing raises.
 
 No lint config yet.
 
@@ -106,7 +112,18 @@ embeddings → summaries.
 - Object storage: DigitalOcean Spaces (S3-compatible; use AWS S3 SDK with endpoint override,
   e.g. blr1.digitaloceanspaces.com)
 - OCR: PaddleOCR
-- Embeddings: Voyage AI (voyage-3 / voyage-3-large)
+- Embeddings: Voyage AI (voyage-3 / voyage-3-large) by default, with Cohere (`embed-v4.0`)
+  and Gemini (`gemini-embedding-001`) as ALTERNATIVES behind one switch:
+  `EMBEDDING_PROVIDER=voyage|cohere|gemini`, transports in `workers/src/embedllm.py`
+  (documents) and `apps/api/src/embedding.ts` (the chat question). Unlike the LLM switches,
+  this one is not transport-only in its consequences: two providers embed into different
+  SPACES, so the two sides must always agree, and a switch means a re-index into a new
+  `QDRANT_COLLECTION` rather than a restart. `EMBEDDING_DIM` must match the collection —
+  `ensure_collection` refuses to index otherwise. Cost control lives in `embeddings.py`:
+  revision reuse, in-run dedup of identical chunk text, a Redis vector cache keyed on
+  (provider, model, width, text), and `EMBED_USE_BATCH` for the provider's async batch API
+  at 50% (Gemini only today; a logged no-op on the other two). Batched runs record usage
+  under `<model>-batch` so the dashboard prices them at what they cost.
 - LLM: Claude via Anthropic API (Sonnet for chat/summaries/reasoning; Haiku for cheap per-page
   classification). Use prompt caching for repeated context and the Batch API for bulk
   summarization. Gemini is a supported ALTERNATIVE at every model call site, switched per
@@ -326,7 +343,7 @@ its summary `stale` and keeps the text rather than deleting work the user paid f
 
 ## RAG chat flow
 
-question → Voyage embedding → Qdrant search (filter: project, optional portion; top ~15–20
+question → embedding (`EMBEDDING_PROVIDER`) → Qdrant search (filter: project, optional portion; top ~15–20
 chunks) → Claude prompt (chunks + inline metadata + chat history) → answer with cited chunk IDs
 → map to clickable page links. Claude only ever sees retrieved chunks, never raw PDFs. Cache
 frequent retrievals in Redis. Persist the full exchange to PostgreSQL.
@@ -420,14 +437,14 @@ replicas; Postgres frees it if a worker dies. Different projects never contend.
 
 `db.connect()` borrows from a `psycopg_pool` (`DB_POOL_SIZE`, default `2 × WORKER_CONCURRENCY`) —
 keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. Raising concurrency
-multiplies the Voyage/Anthropic request rate directly, so raise provider tiers first.
+multiplies the embedding/Anthropic request rate directly, so raise provider tiers first.
 
 ## Non-functional rules
 
 - Async processing via BullMQ workers only; separate API from workers, scale workers on queue
   length; partition Qdrant by project/tenant.
 - Thumbnails generated once, served via Spaces CDN.
-- Batch Voyage embedding calls; reuse embeddings for unchanged revisions.
+- Batch embedding calls; reuse embeddings for unchanged revisions.
 - Presigned URLs for all PDF/image access; TLS; encryption at rest; project-level RBAC;
   malware-scan uploads; sanitize input.
 - Treat extracted document text as UNTRUSTED input (prompt-injection defense).
@@ -437,6 +454,7 @@ multiplies the Voyage/Anthropic request rate directly, so raise provider tiers f
 - TypeScript strict mode across `/apps/web` and `/apps/api`. Zod validation on all API inputs.
 - Every phase must end with the app runnable via `docker compose up`, with commands documented
   in README.md.
-- All secrets from `.env` (keep `.env.example` current): `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`,
+- All secrets from `.env` (keep `.env.example` current): `ANTHROPIC_API_KEY`,
+  `VOYAGE_API_KEY`/`COHERE_API_KEY`/`GEMINI_API_KEY` (whichever `EMBEDDING_PROVIDER` selects),
   `SPACES_KEY`/`SPACES_SECRET`/`SPACES_ENDPOINT`/`SPACES_BUCKET`, `DATABASE_URL`, `REDIS_URL`,
   `QDRANT_URL`.

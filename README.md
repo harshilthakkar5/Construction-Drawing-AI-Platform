@@ -103,8 +103,9 @@ Connections are pooled (`DB_POOL_SIZE`, default `2 x WORKER_CONCURRENCY`). Keep
 to 100).
 
 **Before raising these numbers**, raise your provider tiers. Concurrency
-multiplies the request rate at Voyage and Anthropic directly; on a free Voyage
-tier (~3 req/min) more workers just convert queueing into 429 retries.
+multiplies the request rate at the embedding provider and Anthropic directly;
+on a free tier (Voyage's is ~3 req/min) more workers just convert queueing into
+429 retries.
 
 ## Common commands
 
@@ -212,11 +213,11 @@ traceback before BullMQ retries, e.g.
 ## Testing the chat and summary flows separately
 
 The two AI flows can be switched off independently on the worker — useful when
-a free Voyage tier keeps hitting its rate limit:
+a free embedding tier keeps hitting its rate limit:
 
 | Variable | Effect |
 | --- | --- |
-| `EMBEDDINGS_ENABLED=false` | Skips Voyage + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
+| `EMBEDDINGS_ENABLED=false` | Skips the embedding provider + Qdrant entirely. Pages, chunks and portions still build; chunks keep a NULL `embeddingId`. Chat retrieval finds nothing until you re-enable. |
 | `SUMMARIES_ENABLED=false` | Refuses summary jobs. Processing, region scraping, embedding and **chat still run**. (Summaries never run unasked anyway — see below.) |
 | `SUMMARY_USE_BATCH=true` | Bulk page summaries via the active provider's batch API (Anthropic Message Batches / Gemini inline batch jobs) — 50% cheaper on both, recommended for large sets. The wait is bounded by `BATCH_TIMEOUT_SECONDS` (default 1h); a timeout fails the job rather than silently dropping pages. |
 | `SHEET_EXTRACTION=rules` | Skips the model sheet-number read (pattern matching on the scraped region only, no API calls). |
@@ -238,6 +239,9 @@ a vendor:
 | Sheet-number read (discipline detection) | `SHEET_PROVIDER` | `CLASSIFIER_MODEL` | `GEMINI_MODEL` |
 | Summaries (worker) | `SUMMARY_PROVIDER` | `SUMMARY_MODEL` | `SUMMARY_GEMINI_MODEL` |
 | Chat (API) | `CHAT_PROVIDER` | `CHAT_MODEL` | `CHAT_GEMINI_MODEL` |
+
+Embeddings switch separately and differently — see
+[Choosing an embedding provider](#choosing-an-embedding-provider).
 
 Each takes `claude` (default) or `gemini`, and needs the matching key —
 `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`. An unrecognised value falls back to
@@ -279,6 +283,59 @@ burning the embedding quota, then set it back to `true` and run
 `POST /projects/:projectId/documents/reindex` — every completed document is
 re-queued, already-processed pages are skipped, and only the missing vectors
 are created.
+
+## Choosing an embedding provider
+
+The chunks → vectors step is its own switch, `EMBEDDING_PROVIDER`, read by both
+the worker (documents) and the API (the chat question):
+
+| Provider | Default model | Dimensions | Key |
+| --- | --- | --- | --- |
+| `voyage` (default) | `voyage-3` | 1024 fixed (`voyage-3.5`/`-3-large` are configurable) | `VOYAGE_API_KEY` |
+| `cohere` | `embed-v4.0` | 256–1536, 1024 here | `COHERE_API_KEY` |
+| `gemini` | `gemini-embedding-001` | 768/1536/3072, 1024 here | `GEMINI_API_KEY` |
+
+Override the model with `EMBEDDING_MODEL` and the width with `EMBEDDING_DIM`.
+Unlike the chat/summary/sheet switches, **this one is not a restart — it is a
+re-index**:
+
+> Two providers embed into different spaces, and so do two models of one
+> provider. A cosine distance between spaces is noise, not a worse score, and
+> nothing errors: retrieval just quietly returns the wrong chunks. So point
+> `QDRANT_COLLECTION` at a new name, restart, and run
+> `POST /projects/:projectId/documents/reindex`. The old collection stays where
+> it is until you delete it, which makes the switch reversible.
+
+The worker refuses to index when `EMBEDDING_DIM` disagrees with the
+collection's width, naming both sides — Qdrant's own rejection names neither.
+A width *match* proves nothing about the space (`voyage-3` and `embed-v4.0` are
+both 1024), which is why the collection name is the thing to change.
+
+### What the embedding step costs, and what it doesn't pay twice
+
+Four layers, each of which removes work before it becomes a bill:
+
+| Layer | Switch | What it saves |
+| --- | --- | --- |
+| Revision reuse | always on | A chunk whose text is unchanged from the revision it replaces copies its vector out of Qdrant. |
+| In-run dedup | always on | A sheet set repeats its general notes on hundreds of pages; each distinct string is embedded once per call. |
+| Redis vector cache | `EMBED_CACHE_ENABLED` (on) | The same dedup across runs — what makes a re-index after a portion rebuild or a chunker change nearly free. Keyed on (provider, model, width, text), ~4 KB per distinct chunk, expiring after `EMBED_CACHE_TTL_SECONDS` (14 days). |
+| Async Batch API | `EMBED_USE_BATCH` (off) | 50% of the remaining bill. Gemini is the only provider offering one for embeddings today; for Voyage and Cohere the switch logs once and stays on the synchronous path. |
+
+Request batching is separate and always on: `EMBED_BATCH_SIZE` inputs per call,
+capped at each provider's ceiling (voyage 128, cohere 96, gemini 100) and split
+again when a batch would exceed the provider's token limit. Round trips, not
+tokens, are what a 1000-page project spends its wall clock and its rate limit
+on — `EMBED_BATCH_DELAY` spaces them out on a rate-limited free tier.
+
+`EMBED_USE_BATCH` trades latency for money: stage 5/6 waits for the batch
+(bounded by `BATCH_TIMEOUT_SECONDS`), so it is worth it for a large upload and
+not for a small one — hence `EMBED_BATCH_MIN` (200), below which a run embeds
+synchronously regardless. A batch that comes back short or failed is discarded
+rather than trusted: its results are matched by position, so a gap would shift
+every later vector onto the wrong chunk. Batched runs are recorded under
+`<model>-batch` in `usage_events` so the dashboard prices them at the half rate
+they were actually billed at.
 
 ## After pulling schema changes
 
@@ -405,7 +462,7 @@ Click **New revision** on a completed document (or POST `/documents` with
 finishes processing, the old one is marked superseded: it leaves the combined viewer,
 the page numbering, retrieval (its Qdrant points are deleted), and the summary
 rollups, but its rows are kept for history. Chunks whose text is unchanged **reuse
-the previous revision's embeddings** (no Voyage call).
+the previous revision's embeddings** (no provider call).
 
 ## Demo flow
 
@@ -424,7 +481,7 @@ With infra, API, web, and the Python worker all running:
 6. The categories (Architectural, Structural, …) appear in the sidebar with their page
    range and sheet count; clicking one jumps the viewer and switches the summary panel to
    it. Editing the region re-scans and rebuilds the categories.
-7. With `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY` set (API + worker), chat in the middle
+7. With `ANTHROPIC_API_KEY` + the embedding provider's key set (API + worker), chat in the middle
    pane. Clicking a citation, source chip, or summary item jumps the viewer to the page
    **and highlights the cited bounding box** (FR-19).
 8. Press **Generate summary** on a category. A dialog shows what the run will cost
@@ -448,7 +505,7 @@ With infra, API, web, and the Python worker all running:
 | **Account** | Profile (first/last/company/email) via `PATCH /auth/me` and password change via `POST /auth/password`. Reached from the user card at the bottom of the sidebar. |
 
 Token accounting powers the dashboard's spend figures: every model call — chat, summaries
-(including the Batch path), Haiku sheet-number reads, and Voyage embeddings — writes a row to
+(including the Batch path), Haiku sheet-number reads, and embeddings — writes a row to
 `usage_events` with its input/output/cache token counts. The dollar figure is an estimate from
 the published per-million rates in `apps/api/src/usage.ts`; deleting a project keeps its usage
 history (the FK is `SET NULL`).
@@ -473,7 +530,8 @@ Zoom, both pane widths, and the chat-hidden state persist in `localStorage` per 
 - **Redis**: chat retrievals (`retrieval:*`, 1h TTL) and per-project summary lists
   (`cache:summaries:*`, invalidated by the worker after each summarize run).
 - **Embeddings**: unchanged chunks across document revisions reuse stored Qdrant
-  vectors.
+  vectors; identical chunk text is embedded once per run and cached in Redis
+  (`cache:embedding:*`, keyed per provider/model/width) across runs.
 
 ## Monitoring
 
@@ -540,8 +598,10 @@ Create one app with three components from this repo:
    `apps/web/dist`; set `VITE_API_URL` to the api component's public URL.
 
 Environment (api + worker): `DATABASE_URL`, `REDIS_URL`, `QDRANT_URL`, the `SPACES_*`
-vars above, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, and optionally
-`MALWARE_SCAN_URL`, `SUMMARY_USE_BATCH`, `CHAT_MODEL`, `SUMMARY_MODEL`. Use App
+vars above, `ANTHROPIC_API_KEY`, `EMBEDDING_PROVIDER` + its key
+(`VOYAGE_API_KEY` / `COHERE_API_KEY` / `GEMINI_API_KEY`), and optionally
+`MALWARE_SCAN_URL`, `SUMMARY_USE_BATCH`, `EMBED_USE_BATCH`, `CHAT_MODEL`,
+`SUMMARY_MODEL`. Use App
 Platform encrypted env vars for all secrets; TLS is terminated by the platform and
 managed databases encrypt at rest.
 
