@@ -195,8 +195,26 @@ def _thinking_config(model: str) -> dict | None:
 
 
 def _is_thinking_refusal(exc: Exception) -> bool:
+    """Whether this error is worth one retry without the thinking budget.
+
+    Some models say so plainly ("thinking_config is not supported"). The
+    Gemini 3 family does not: it replaced thinking_budget with a different
+    field and rejects the old one as a bare 400 INVALID_ARGUMENT — "Request
+    contains an invalid argument", naming nothing. Matching only the polite
+    wording left SHEET_PROVIDER=gemini failing every call on those models and
+    falling silently down to the rules ladder, which looks like a working
+    scrape with worse results.
+
+    So an invalid-argument error also earns the retry. It is safe to be
+    generous here because the retry only DROPS an optional field, is bounded
+    to one attempt, and — unlike before — only latches the model when it
+    actually succeeds. An unrelated 400 therefore costs one extra call and
+    still surfaces its original error.
+    """
     text = str(exc).lower()
-    return any(word in text for word in _THINKING_REFUSALS)
+    if any(word in text for word in _THINKING_REFUSALS):
+        return True
+    return "invalid_argument" in text or "invalid argument" in text
 
 
 def gemini_client():
@@ -298,16 +316,19 @@ def _complete_gemini(system, user, *, model, max_tokens, kind, project_id, json_
     except Exception as exc:
         if not _is_thinking_refusal(exc) or model in _no_thinking_config:
             raise
-        # This model will not take a thinking budget. Latch it so the rest of
-        # the project's pages skip straight to the working shape.
-        log.warning(
-            "%s rejected the thinking budget (%s) — retrying without it, and "
-            "omitting it for this model from now on",
-            model,
-            exc,
-        )
+        log.warning("%s rejected the request (%s) — retrying without the thinking budget", model, exc)
+        try:
+            response = call(thinking=False)
+        except Exception:
+            # The budget was not the problem. Report the ORIGINAL failure —
+            # the retry's is a symptom of the same cause — and do NOT latch,
+            # or one unrelated 400 would change how this model is called for
+            # the rest of the process's life.
+            raise exc from None
+        # It worked without the budget: latch the model so the rest of the
+        # project's pages skip straight to the shape that works.
         _no_thinking_config.add(model)
-        response = call(thinking=False)
+        log.warning("%s will be called without a thinking budget from now on", model)
 
     _record_gemini_usage(
         getattr(response, "usage_metadata", None),

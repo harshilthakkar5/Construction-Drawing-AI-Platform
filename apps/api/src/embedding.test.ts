@@ -98,10 +98,10 @@ describe("embedQuery", () => {
     const calls = stubFetch({ data: [{ embedding: [0.1, 0.2] }], usage: { total_tokens: 6 } });
 
     expect(await embedQuery("where are the shear walls?")).toEqual([0.1, 0.2]);
-    expect(calls[0].url).toContain("/v1/embeddings");
-    expect(calls[0].body.input_type).toBe("query");
+    expect(calls[0]!.url).toContain("/v1/embeddings");
+    expect(calls[0]!.body.input_type).toBe("query");
     // voyage-3 rejects output_dimension outright.
-    expect(calls[0].body).not.toHaveProperty("output_dimension");
+    expect(calls[0]!.body).not.toHaveProperty("output_dimension");
   });
 
   it("sends output_dimension once EMBED_SEND_DIMENSION is on", async () => {
@@ -110,7 +110,7 @@ describe("embedQuery", () => {
     const calls = stubFetch({ data: [{ embedding: [0.1] }] });
 
     await embedQuery("q");
-    expect(calls[0].body.output_dimension).toBe(512);
+    expect(calls[0]!.body.output_dimension).toBe(512);
   });
 
   it("reads Cohere's float key and uses its query input type", async () => {
@@ -121,9 +121,9 @@ describe("embedQuery", () => {
     });
 
     expect(await embedQuery("q")).toEqual([0.3, 0.4]);
-    expect(calls[0].url).toContain("/v2/embed");
-    expect(calls[0].body.input_type).toBe("search_query");
-    expect(calls[0].body.output_dimension).toBe(1024);
+    expect(calls[0]!.url).toContain("/v2/embed");
+    expect(calls[0]!.body.input_type).toBe("search_query");
+    expect(calls[0]!.body.output_dimension).toBe(1024);
   });
 
   it("normalizes Gemini vectors, as the worker does for documents", async () => {
@@ -132,9 +132,9 @@ describe("embedQuery", () => {
 
     // A Matryoshka truncation comes back unnormalized; (3,4) has length 5.
     expect(await embedQuery("q")).toEqual([0.6, 0.8]);
-    expect(calls[0].url).toContain("gemini-embedding-001:embedContent");
-    expect(calls[0].body.taskType).toBe("RETRIEVAL_QUERY");
-    expect(calls[0].headers["x-goog-api-key"]).toBe("gemini-key");
+    expect(calls[0]!.url).toContain("gemini-embedding-001:embedContent");
+    expect(calls[0]!.body.taskType).toBe("RETRIEVAL_QUERY");
+    expect(calls[0]!.headers["x-goog-api-key"]).toBe("gemini-key");
   });
 
   it("respects a base-URL override so an offline run can stub the provider", async () => {
@@ -142,7 +142,7 @@ describe("embedQuery", () => {
     const calls = stubFetch({ data: [{ embedding: [1] }] });
 
     await embedQuery("q");
-    expect(calls[0].url).toBe("http://localhost:9999/v1/embeddings");
+    expect(calls[0]!.url).toBe("http://localhost:9999/v1/embeddings");
   });
 
   it("throws on a provider error rather than returning an empty vector", async () => {

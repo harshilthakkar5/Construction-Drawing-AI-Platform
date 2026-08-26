@@ -202,9 +202,33 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
  * flipping a worker switch — e.g. documents processed with
  * EMBEDDINGS_ENABLED=false have chunks but no vectors; re-running indexes them
  * (already-processed pages are skipped, so this is cheap).
+ *
+ * `{"reembed": true}` additionally clears every chunk's embeddingId first.
+ * That is what a change of EMBEDDING_PROVIDER, EMBEDDING_MODEL or
+ * EMBEDDING_DIM needs: the worker embeds chunks whose embeddingId is NULL, so
+ * without this the run queues every document and embeds nothing, leaving the
+ * new collection empty and chat answering from nowhere. It re-embeds the whole
+ * project from scratch — the one call in this app that knowingly spends the
+ * full index cost, so it is opt-in rather than the default.
  */
+const reindexSchema = z.object({ reembed: z.boolean().optional().default(false) });
+
 documentsRouter.post("/reindex", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
+  const { reembed } = reindexSchema.parse(req.body ?? {});
+
+  let cleared = 0;
+  if (reembed) {
+    // Point ID == chunk ID, so the old vectors are simply overwritten when the
+    // collection is unchanged, and left untouched in the previous collection
+    // when QDRANT_COLLECTION moved — which is what makes a provider switch
+    // reversible.
+    ({ count: cleared } = await prisma.chunk.updateMany({
+      where: { page: { document: { projectId } }, embeddingId: { not: null } },
+      data: { embeddingId: null },
+    }));
+    console.log(`[reindex] cleared ${cleared} embedding ids for project ${projectId}`);
+  }
   const documents = await prisma.document.findMany({
     where: { projectId, supersededAt: null, status: { in: ["completed", "failed"] } },
     select: { id: true, spacesKey: true },
@@ -221,7 +245,7 @@ documentsRouter.post("/reindex", async (req, res) => {
     queued++;
   }
   console.log(`[reindex] re-queued ${queued}/${documents.length} documents for project ${projectId}`);
-  res.json({ queued, total: documents.length });
+  res.json({ queued, total: documents.length, cleared });
 });
 
 /** Delete one document everywhere: DB rows (cascade to pages/chunks), its

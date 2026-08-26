@@ -255,3 +255,64 @@ def test_a_matching_width_passes(monkeypatch):
     monkeypatch.setenv("EMBEDDING_DIM", "1024")
     monkeypatch.setattr(embeddings.httpx, "Client", lambda **kw: FakeQdrant(1024))
     embeddings.ensure_collection()
+
+
+def test_losing_the_create_race_is_not_a_failure(monkeypatch):
+    """Two documents embedding at once both find the collection missing.
+
+    Observed on the first run after a provider switch: both PUT, one gets a
+    409, and the loser used to fail the whole job and spend a BullMQ retry.
+    """
+    monkeypatch.setenv("EMBEDDING_DIM", "1024")
+
+    class RacingQdrant(FakeQdrant):
+        def __init__(self):
+            super().__init__(1024)
+            self.puts: list[str] = []
+
+        def get(self, url):
+            if url.endswith("/exists"):  # the check that loses the race
+                return types.SimpleNamespace(json=lambda: {"result": {"exists": False}})
+            return super().get(url)
+
+        def put(self, url, json=None):
+            self.puts.append(url)
+            return types.SimpleNamespace(
+                status_code=409,
+                raise_for_status=lambda: (_ for _ in ()).throw(
+                    AssertionError("409 must not be raised")
+                ),
+            )
+
+    qdrant = RacingQdrant()
+    monkeypatch.setattr(embeddings.httpx, "Client", lambda **kw: qdrant)
+
+    embeddings.ensure_collection()  # does not raise
+
+    # ...and it does not go on to create the payload indexes it did not create.
+    assert qdrant.puts == [f"{embeddings.QDRANT_URL}/collections/{embeddings.COLLECTION}"]
+
+
+def test_a_concurrent_creation_at_the_wrong_width_still_fails(monkeypatch):
+    """Losing the race is fine; losing it to a 1024 collection when this
+    worker wants 3072 is not — that is the mismatch the guard exists for."""
+    monkeypatch.setenv("EMBEDDING_DIM", "3072")
+
+    class RacingQdrant(FakeQdrant):
+        def __init__(self):
+            super().__init__(1024)
+
+        def get(self, url):
+            if url.endswith("/exists"):
+                return types.SimpleNamespace(json=lambda: {"result": {"exists": False}})
+            return super().get(url)
+
+        def put(self, url, json=None):
+            return types.SimpleNamespace(status_code=409, raise_for_status=lambda: None)
+
+    monkeypatch.setattr(embeddings.httpx, "Client", lambda **kw: RacingQdrant())
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="1024-dimension vectors"):
+        embeddings.ensure_collection()

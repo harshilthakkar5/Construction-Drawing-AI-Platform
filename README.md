@@ -303,8 +303,15 @@ re-index**:
 > provider. A cosine distance between spaces is noise, not a worse score, and
 > nothing errors: retrieval just quietly returns the wrong chunks. So point
 > `QDRANT_COLLECTION` at a new name, restart, and run
-> `POST /projects/:projectId/documents/reindex`. The old collection stays where
-> it is until you delete it, which makes the switch reversible.
+> `POST /projects/:projectId/documents/reindex` **with `{"reembed": true}`**.
+> The old collection stays where it is until you delete it, which makes the
+> switch reversible.
+
+`reembed` is what makes that re-index actually re-embed. The worker only
+embeds chunks whose `embeddingId` is NULL, so without the flag the run
+re-queues every document, finds nothing to do, and leaves the new collection
+empty — with chat answering from nowhere and no error to read. It is opt-in
+because it knowingly spends the project's full index cost.
 
 The worker refuses to index when `EMBEDDING_DIM` disagrees with the
 collection's width, naming both sides — Qdrant's own rejection names neither.
