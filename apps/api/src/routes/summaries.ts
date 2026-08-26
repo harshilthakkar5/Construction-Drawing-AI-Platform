@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { summaryLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { summarizeProjectQueue } from "../queues.js";
 import { redis } from "../redis.js";
@@ -115,7 +116,7 @@ summariesRouter.get("/project/estimate", async (req, res) => {
  * summarized — otherwise it would silently trigger the whole-project run this
  * change exists to avoid.
  */
-summariesRouter.post("/project", async (req, res) => {
+summariesRouter.post("/project", summaryLimiter, async (req, res) => {
   const { projectId } = paramsSchema.parse(req.params);
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
 
@@ -139,7 +140,7 @@ summariesRouter.post("/project", async (req, res) => {
  * plus the project rollup). This is the expensive path — normal use is the
  * per-discipline button.
  */
-summariesRouter.post("/rebuild", async (req, res) => {
+summariesRouter.post("/rebuild", summaryLimiter, async (req, res) => {
   const { projectId } = paramsSchema.parse(req.params);
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
   await redis.del(summariesCacheKey(projectId)).catch(() => {});

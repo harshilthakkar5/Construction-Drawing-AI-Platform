@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildPageManifest, findManifestEntry, orderDocuments } from "./manifest.js";
+
+const __dirnameShim = dirname(fileURLToPath(import.meta.url));
 
 const doc = (id: string, pages: number, createdAt: string, filename = `${id}.pdf`) => ({
   id,
@@ -98,5 +103,52 @@ describe("findManifestEntry", () => {
     expect(findManifestEntry(docs, -1)).toBeUndefined();
     expect(findManifestEntry(docs, 2.5)).toBeUndefined();
     expect(findManifestEntry([], 1)).toBeUndefined();
+  });
+});
+
+// --- The shared fixture (see packages/shared/fixtures/combined-numbering.json) ---
+
+interface FixtureDoc {
+  id: string;
+  createdAt: string;
+  pages: number;
+  superseded?: boolean;
+}
+
+const fixture = JSON.parse(
+  readFileSync(
+    join(__dirnameShim, "..", "..", "..", "packages", "shared", "fixtures", "combined-numbering.json"),
+    "utf8",
+  ),
+) as { cases: { name: string; documents: FixtureDoc[]; expected: [string, number, number][] }[] };
+
+/**
+ * The numbering rule decides which page a citation resolves to, and it exists
+ * twice: here, and as the recompute SQL in workers/src/db.py (mirrored for
+ * testing in workers/src/numbering.py). Both read THIS fixture, so changing
+ * the rule in one language fails the other language's tests.
+ */
+describe("combined numbering — shared fixture", () => {
+  for (const testCase of fixture.cases) {
+    it(testCase.name, () => {
+      // The API filters superseded documents before building the manifest,
+      // exactly as routes/pages.ts does with `supersededAt: null`.
+      const docs = testCase.documents
+        .filter((d) => !d.superseded)
+        .map((d) => ({
+          id: d.id,
+          filename: `${d.id}.pdf`,
+          pages: d.pages,
+          createdAt: new Date(d.createdAt),
+        }));
+      const actual = buildPageManifest(docs).map(
+        (e) => [e.documentId, e.pageNumber, e.combinedPageNumber] as const,
+      );
+      expect(actual).toEqual(testCase.expected);
+    });
+  }
+
+  it("loaded a real fixture, so the cases above are not vacuous", () => {
+    expect(fixture.cases.length).toBeGreaterThanOrEqual(5);
   });
 });

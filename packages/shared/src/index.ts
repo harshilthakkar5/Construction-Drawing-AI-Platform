@@ -85,17 +85,42 @@ export interface PageManifestEntry {
   combinedPageNumber: number;
 }
 
-// --- Spaces/MinIO bucket layout (mirrored in workers/src/storage.py) ---
+// --- Spaces/MinIO bucket layout ---
+
+/**
+ * The bucket layout, as templates rather than functions, because the Python
+ * worker needs the same paths and this is the ONE place they are written.
+ * `workers/src/generated.py` is emitted from these by packages/shared/codegen.mjs;
+ * the TypeScript `objectKeys` below is derived from them too, so neither side
+ * is a copy of the other.
+ */
+export const OBJECT_KEY_TEMPLATES = {
+  originalPdf: "projects/{projectId}/pdfs/{documentId}/original.pdf",
+  pageImage: "projects/{projectId}/pdfs/{documentId}/pages/{page}.png",
+  pageThumb: "projects/{projectId}/pdfs/{documentId}/thumbs/{page}.jpg",
+  pageText: "projects/{projectId}/pdfs/{documentId}/text/{page}.txt",
+} as const;
+
+function fillTemplate(
+  template: string,
+  vars: Record<string, string | number>,
+): string {
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+    const value = vars[key];
+    if (value === undefined) throw new Error(`object key template needs ${key}`);
+    return String(value);
+  });
+}
 
 export const objectKeys = {
   originalPdf: (projectId: string, documentId: string) =>
-    `projects/${projectId}/pdfs/${documentId}/original.pdf`,
+    fillTemplate(OBJECT_KEY_TEMPLATES.originalPdf, { projectId, documentId }),
   pageImage: (projectId: string, documentId: string, page: number) =>
-    `projects/${projectId}/pdfs/${documentId}/pages/${page}.png`,
+    fillTemplate(OBJECT_KEY_TEMPLATES.pageImage, { projectId, documentId, page }),
   pageThumb: (projectId: string, documentId: string, page: number) =>
-    `projects/${projectId}/pdfs/${documentId}/thumbs/${page}.jpg`,
+    fillTemplate(OBJECT_KEY_TEMPLATES.pageThumb, { projectId, documentId, page }),
   pageText: (projectId: string, documentId: string, page: number) =>
-    `projects/${projectId}/pdfs/${documentId}/text/${page}.txt`,
+    fillTemplate(OBJECT_KEY_TEMPLATES.pageText, { projectId, documentId, page }),
 } as const;
 
 // --- API DTOs ---
@@ -324,6 +349,61 @@ export interface SummarizePortionJob {
 export interface SummarizeProjectJob {
   projectId: string;
 }
+
+/**
+ * The wire shape of each job, as data — because the Python worker parses these
+ * payloads and TypeScript interfaces do not survive to runtime.
+ * `workers/src/generated.py` is emitted from this.
+ *
+ * `jobFields<T>()` makes drift a COMPILE error rather than a production one: it
+ * rejects a name that is not a key of the interface (catching a rename or a
+ * deletion), and its return type collapses to `never` if any key of the
+ * interface is missing from the list (catching a field added on the TypeScript
+ * side that the worker would then silently never read).
+ */
+/**
+ * `unknown` (harmless) when F covers every key of T, otherwise a shape a plain
+ * array literal cannot satisfy — so the error names the field that was left
+ * out. It has to constrain the ARGUMENT: as a return type the resulting
+ * `never` is assigned to nothing and TypeScript stays quiet.
+ */
+type Complete<F extends readonly string[], T> = [
+  Exclude<keyof T & string, F[number]>,
+] extends [never]
+  ? unknown
+  : { __missingFromJobFields: Exclude<keyof T & string, F[number]> };
+
+function jobFields<T>() {
+  return <F extends readonly (keyof T & string)[]>(
+    fields: F & Complete<F, T>,
+    optional: readonly F[number][] = [],
+  ): { fields: readonly string[]; optional: readonly string[] } => ({
+    fields,
+    optional,
+  });
+}
+
+export const JOB_FIELDS = {
+  processDocument: jobFields<ProcessDocumentJob>()([
+    "projectId",
+    "documentId",
+    "spacesKey",
+  ]),
+  scrapeRegion: jobFields<ScrapeRegionJob>()(
+    ["projectId", "regionVersion", "documentId"],
+    ["documentId"],
+  ),
+  summarizePortion: jobFields<SummarizePortionJob>()(
+    ["projectId", "portionId", "requestedById"],
+    ["requestedById"],
+  ),
+  summarizeProject: jobFields<SummarizeProjectJob>()(["projectId"]),
+} as const;
+
+/** Field types the generator needs to emit a correct Python cast. */
+export const JOB_FIELD_TYPES: Record<string, "str" | "int"> = {
+  regionVersion: "int",
+};
 
 // --- Summaries (FR-10..13) ---
 
