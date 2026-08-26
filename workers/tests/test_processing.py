@@ -13,6 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import os  # noqa: E402
+import pathlib  # noqa: E402
+import db  # noqa: E402
 import time  # noqa: E402
 import tables  # noqa: E402
 import fitz  # noqa: E402
@@ -310,3 +313,113 @@ class TestTableDetectionSerialization:
         live, peak, lock = [0], [0], threading.Lock()
         assert tables.find_page_tables(self._SlowPage(0.0, live, peak, lock), "doc") == []
         assert peak[0] == 1, "the next page was never scanned — the lock leaked"
+
+
+class TestPageHandlesAreClosed:
+    """Each pool thread opens its own fitz.Document (PyMuPDF is not thread-safe
+    across a shared one) and nothing used to close them. Windows will not delete
+    an open file, so TemporaryDirectory cleanup raised WinError 32 — which then
+    REPLACED the real outcome, failing jobs whose pages had all been extracted
+    and committed. On Linux the leak is silent: unlinking an open file is legal.
+    """
+
+    def _track(self, processing, monkeypatch, fail_on=None):
+        """Record every Document the extractor opens. Patched AFTER the fixture
+        has written its PDF — processing.fitz is the shared module, so this
+        would otherwise intercept the test's own fitz.open() too."""
+        opened = []
+        real_open = processing.fitz.open
+
+        def tracking_open(*args, **kwargs):
+            doc = real_open(*args, **kwargs)
+            opened.append(doc)
+            return doc
+
+        monkeypatch.setattr(processing.fitz, "open", tracking_open)
+
+        def fake_page(project_id, document_id, pdf, index, offset):
+            if fail_on is not None and index == fail_on:
+                raise RuntimeError("page exploded")
+            return False
+
+        monkeypatch.setattr(processing, "_process_page", fake_page)
+        return opened
+
+    def test_every_thread_handle_is_closed_on_success(
+        self, processing, pdf_path, monkeypatch
+    ):
+        opened = self._track(processing, monkeypatch)
+        processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "d")
+        assert opened, "the test never observed a Document being opened"
+        assert all(d.is_closed for d in opened)
+
+    def test_they_are_closed_when_a_page_fails_too(
+        self, processing, pdf_path, monkeypatch
+    ):
+        """The failure path is where it mattered: the caller is about to remove
+        the temp directory, and a leaked handle turns the real error into a
+        confusing PermissionError about a temp file."""
+        opened = self._track(processing, monkeypatch, fail_on=3)
+        with pytest.raises(RuntimeError):
+            processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "d")
+        assert opened
+        assert all(d.is_closed for d in opened)
+
+    def test_the_temp_directory_can_be_removed_afterwards(
+        self, processing, pdf_path, monkeypatch, tmp_path
+    ):
+        """The actual symptom, asserted directly: on Windows rmtree raises
+        PermissionError while any handle to the file is still open."""
+        import shutil
+
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        target = workdir / "original.pdf"
+        target.write_bytes(pathlib.Path(pdf_path).read_bytes())
+
+        monkeypatch.setattr(processing, "_process_page", lambda *a, **k: False)
+        processing._extract_pages("p", "d", str(target), list(range(12)), 0, 12, "d")
+
+        shutil.rmtree(workdir)  # raises if anything still holds original.pdf
+        assert not workdir.exists()
+
+
+class TestDuplicateDeliveryIsRefused:
+    """BullMQ re-delivers a job whose lock lapsed, and these run for minutes. A
+    real run had one 148-page document processed twice at once, interleaving
+    page counters and doubling uploads on the slowest link in the system."""
+
+    def test_a_second_delivery_walks_away(self, processing, monkeypatch):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def busy(_document_id):
+            yield False  # someone else holds it
+
+        monkeypatch.setattr(processing.db, "document_lock", busy)
+        ran = {"count": 0}
+        monkeypatch.setattr(
+            processing, "_process_document", lambda *a: ran.__setitem__("count", 1)
+        )
+
+        result = processing.process_document("p", "d", "key")
+        assert result == {"skipped": "already processing"}
+        assert ran["count"] == 0, "it duplicated the work anyway"
+
+    def test_the_first_delivery_runs_normally(self, processing, monkeypatch):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def free(_document_id):
+            yield True
+
+        monkeypatch.setattr(processing.db, "document_lock", free)
+        monkeypatch.setattr(processing, "_process_document", lambda *a: {"pages": 7})
+        assert processing.process_document("p", "d", "key") == {"pages": 7}
+
+
+def test_document_and_project_locks_never_collide():
+    """Same id, two different locks: a document lock must not accidentally
+    serialize the whole project it belongs to."""
+    same_id = "a52ef361-8194-42bc-bb4f-454c431bc886"
+    assert db._lock_key(same_id) != db._lock_key(f"document:{same_id}")

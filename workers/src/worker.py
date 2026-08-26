@@ -206,7 +206,18 @@ async def main() -> None:
         SUMMARIZE_PROJECT_QUEUE: (summarize_project, config.SUMMARIZE_PROJECT_CONCURRENCY),
     }
     workers = [
-        Worker(name, handler, {"connection": config.REDIS_URL, "concurrency": concurrency})
+        Worker(
+            name,
+            handler,
+            {
+                "connection": config.REDIS_URL,
+                "concurrency": concurrency,
+                # Without this the library's 30s default expires mid-document
+                # and BullMQ re-delivers the job as stalled while it is still
+                # running. See config.WORKER_LOCK_DURATION_MS.
+                "lockDuration": config.WORKER_LOCK_DURATION_MS,
+            },
+        )
         for name, (handler, concurrency) in queues.items()
     ]
     log.info(

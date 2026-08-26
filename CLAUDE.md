@@ -432,6 +432,14 @@ large PDF. Each page thread opens its OWN `fitz.Document` (a shared one is not t
 the threads genuinely overlap (PyMuPDF releases the GIL while rendering; everything else is
 network I/O).
 
+`process_document` holds a `db.document_lock` (a `pg_try_advisory_lock`) for the whole run and
+DISCARDS a delivery it cannot acquire: BullMQ re-delivers a job whose lock lapses, and with
+`lockDuration` at the library's 30s default against documents that run for minutes, one 148-page
+set really was processed by two executions at once. `WORKER_LOCK_DURATION_MS` (default 10 min)
+makes the stall rare; the document lock makes it harmless. Each pool thread's `fitz.Document` is
+closed when extraction drains — leaked handles are invisible on Linux but stop Windows deleting
+the temp directory, turning a completed job into a `WinError 32`.
+
 Three steps are project-wide rather than per-document — `recompute_combined_numbering`, the
 portion rebuild (`upsert_portions`), and `assign_chunk_portions` — so they run inside
 `db.project_lock(project_id)`, a Postgres advisory lock keyed on `sha256(projectId)[:8]`.

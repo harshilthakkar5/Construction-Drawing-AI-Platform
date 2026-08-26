@@ -72,6 +72,40 @@ def _lock_key(project_id: str) -> int:
 
 
 @contextmanager
+def document_lock(document_id: str):
+    """Refuse to process one document twice at the same time.
+
+    Yields True when this caller holds the lock and False when someone else
+    already does — `pg_try_advisory_lock`, not `pg_advisory_lock`, because the
+    right response to "already running" is to walk away, not to queue up and do
+    the same work again afterwards.
+
+    BullMQ re-delivers a job whose lock lapsed, and a document that takes half
+    an hour gives it plenty of opportunity: a real run had the same 148-page
+    document processed by two executions at once, interleaving their page
+    counters and doubling the uploads on the slowest link in the system.
+    WORKER_LOCK_DURATION_MS makes that rare; this makes it harmless.
+
+    Postgres frees the lock if the worker dies, so a genuinely crashed job is
+    still retried — which is the property a lock stored anywhere else would
+    have to reimplement.
+    """
+    key = _lock_key(f"document:{document_id}")
+    with connect() as conn:
+        acquired = conn.execute(
+            "SELECT pg_try_advisory_lock(%s)", (key,)
+        ).fetchone()[0]
+        try:
+            yield bool(acquired)
+        finally:
+            if acquired:
+                try:
+                    conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+                except Exception:
+                    pass
+
+
+@contextmanager
 def project_lock(project_id: str):
     """Serialize the project-wide steps of otherwise-parallel jobs.
 
