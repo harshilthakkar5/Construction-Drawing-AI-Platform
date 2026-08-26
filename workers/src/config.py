@@ -132,6 +132,21 @@ DB_POOL_SIZE = _int(
 # default that moves would silently undersize the pool again.
 SPACES_DOWNLOAD_CONCURRENCY = _int("SPACES_DOWNLOAD_CONCURRENCY", 10)
 
+# How long BullMQ considers a job's lock valid, in milliseconds.
+#
+# The library default is 30 SECONDS, renewed from the asyncio event loop every
+# lockDuration/2. Documents here run for minutes — a 148-page set took 29 —
+# so a single missed renewal window marks the job stalled and hands it to
+# another slot while the first is still working. That is not theoretical: a
+# real run had job 565 delivered twice and two executions of the same document
+# interleaving their page counters, doubling the uploads on the slowest link in
+# the system.
+#
+# Ten minutes gives the renewal timer a wide margin. The cost of a longer lock
+# is that a genuinely dead worker's job waits this long before another picks it
+# up, which is the right trade when a job takes half an hour.
+WORKER_LOCK_DURATION_MS = _int("WORKER_LOCK_DURATION_MS", 600_000)
+
 # HTTPS connections botocore keeps open to Spaces.
 #
 # Overflow is not an error — urllib3 DISCARDS the connection coming back to a
