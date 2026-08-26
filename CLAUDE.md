@@ -69,10 +69,16 @@ worker venv):
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
 
 Key invariant: the combined-numbering rule (documents ordered by `createdAt` then `id`, pages
-1..N within each) is implemented twice — `apps/api/src/manifest.ts` (canonical, unit-tested) and
-the recompute SQL in `workers/src/db.py`. If you change one, change both. The same duplication
-exists for object keys (`packages/shared` `objectKeys` ↔ `workers/src/storage.py`) and queue
-contracts (`packages/shared` ↔ `workers/src/contracts.py`). The citation format is another
+1..N within each) is implemented twice — `apps/api/src/manifest.ts` and the recompute SQL in
+`workers/src/db.py` (mirrored as a pure function in `workers/src/numbering.py`). Both sides read
+ONE golden fixture, `packages/shared/fixtures/combined-numbering.json`, so changing the rule in
+either language fails the other's tests. `numbering.verify_against_db` checks the SQL's actual
+output against the rule when a database is available.
+
+Object keys and queue contracts are no longer hand-synced: `workers/src/generated.py` is emitted
+from `packages/shared/src/index.ts` by `packages/shared/codegen.mjs` (`npm run codegen`), and a
+vitest test fails if the checked-in copy is stale. Adding a field to a job interface without
+declaring it in `JOB_FIELDS` is a TypeScript compile error naming the missing field. The citation format is another
 cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src/answer.ts) and
 `apps/api/src/citations.ts` (unit-tested) parses/renumbers it. The summary provider/model
 defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
@@ -82,6 +88,11 @@ The embedding provider is the sharpest of these duplications — `workers/src/em
 embeds the documents and `apps/api/src/embedding.ts` embeds the question they are searched
 with, off the same env vars. A drift there does not degrade retrieval, it destroys it: a
 cosine distance between two embedding spaces is noise, and nothing raises.
+
+The API rate-limits five tiers (flood/general/auth/chat/summary, all Redis-backed and
+env-tunable — see README) and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
+`benchmarks/` holds the two things that had never been measured: worker pages/minute + peak RSS,
+and API throughput/p95.
 
 No lint config yet.
 
@@ -279,7 +290,17 @@ groups covered pages by discipline. Portion and section summaries are therefore 
       indexed once, not twice. A region rejected as not-a-schedule (one column, prose-length
       cells) absorbs nothing and leaves its text alone. Detection is a heuristic: a page
       reporting more than `MAX_TABLES_PER_PAGE` tables has had its drawing border read as a
-      grid, and all of that page's detection is discarded.
+      grid, and all of that page's detection is discarded. It is also BOUNDED
+      (`TABLE_DETECTION_BUDGET_SECONDS`): `find_tables()` scans ruled lines for
+      intersections and a structural drawing is mostly ruled lines — measured at 32s per page
+      on a real IFC set against 0.1–0.8s on ordinary sheets, which ran ingest 4.8x slower.
+      The first page to blow the budget disables detection for the rest of that document, so
+      a drawing-heavy set pays for one slow page rather than all of them. A budget rather than
+      a page-complexity cutoff because complexity did not predict the cost. Detection is also
+      SERIALIZED process-wide: `find_tables()` is pure Python and holds the GIL, so concurrent
+      scans bought no parallelism, raced the budget (every thread was inside a scan before the
+      first returned to set it) and starved the uploads — the same run's upload fell from
+      0.3 MB/s to 0.03. A page arriving mid-scan skips its own detection rather than queueing.
    b. **Spatial clustering** (`cluster_blocks`) groups the remaining blocks by proximity
       BEFORE packing. A CAD sheet returns blocks in content-stream order, so packing in that
       order merged a top-left note with a bottom-right callout: the chunk read as two
@@ -428,6 +449,14 @@ large PDF. Each page thread opens its OWN `fitz.Document` (a shared one is not t
 the threads genuinely overlap (PyMuPDF releases the GIL while rendering; everything else is
 network I/O).
 
+`process_document` holds a `db.document_lock` (a `pg_try_advisory_lock`) for the whole run and
+DISCARDS a delivery it cannot acquire: BullMQ re-delivers a job whose lock lapses, and with
+`lockDuration` at the library's 30s default against documents that run for minutes, one 148-page
+set really was processed by two executions at once. `WORKER_LOCK_DURATION_MS` (default 10 min)
+makes the stall rare; the document lock makes it harmless. Each pool thread's `fitz.Document` is
+closed when extraction drains — leaked handles are invisible on Linux but stop Windows deleting
+the temp directory, turning a completed job into a `WinError 32`.
+
 Three steps are project-wide rather than per-document — `recompute_combined_numbering`, the
 portion rebuild (`upsert_portions`), and `assign_chunk_portions` — so they run inside
 `db.project_lock(project_id)`, a Postgres advisory lock keyed on `sha256(projectId)[:8]`.
@@ -436,8 +465,19 @@ manifest. It is a Postgres lock, not an in-process one, because the contenders a
 replicas; Postgres frees it if a worker dies. Different projects never contend.
 
 `db.connect()` borrows from a `psycopg_pool` (`DB_POOL_SIZE`, default `2 × WORKER_CONCURRENCY`) —
-keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. Raising concurrency
-multiplies the embedding/Anthropic request rate directly, so raise provider tiers first.
+keep `replicas × DB_POOL_SIZE` under the server's `max_connections`. The Spaces client is sized from the worst case
+across BOTH queues that touch storage at once (`SPACES_POOL_SIZE` → botocore
+`max_pool_connections`): `PROCESS_CONCURRENCY × max(PAGE_CONCURRENCY, SPACES_DOWNLOAD_CONCURRENCY)
++ SCRAPE_CONCURRENCY × SPACES_DOWNLOAD_CONCURRENCY`. A download is NOT one stream — boto3's
+transfer manager pulls 8 MB parts in parallel, so one large PDF can occupy the whole pool by
+itself, which is what sizing it off the page threads alone missed. An undersized pool fails
+quietly, as urllib3 discarding each returning connection and the next request re-handshaking TLS.
+
+Extraction is network-bound, not CPU-bound: each page ships a full-resolution PNG, a thumbnail
+and a text file, and a measured production run managed 6.7 pages/minute against Spaces where the
+CPU-only benchmark reported 125. `benchmarks/extract_throughput.py --upload` measures the real
+thing; without the flag it reports CPU only and says so. Raising concurrency
+multiplies the Voyage/Anthropic request rate directly, so raise provider tiers first.
 
 ## Non-functional rules
 

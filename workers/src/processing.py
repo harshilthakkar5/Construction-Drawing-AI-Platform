@@ -107,7 +107,7 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
         page.get_text("blocks"),
         page_width=page.rect.width,
         page_height=page.rect.height,
-        tables=tables.find_page_tables(page),
+        tables=tables.find_page_tables(page, document_id),
     )
     if not page_chunks and text:
         # OCR-only page: no positioned blocks, so one chunk spans the whole
@@ -157,11 +157,20 @@ def _extract_pages(
     local = threading.local()
     counters = {"processed": 0, "ocr": 0}
     lock = threading.Lock()
+    # Every Document a pool thread opens, so they can all be closed at the end.
+    # Windows will not delete a file that is still open, so leaking these made
+    # TemporaryDirectory cleanup raise WinError 32 — which then REPLACED
+    # whatever the real outcome was, failing jobs whose pages had all been
+    # extracted and committed. On Linux the same leak is silent, which is why
+    # it survived: an unlinked open file is legal there.
+    opened: list = []
 
     def handle(index: int) -> None:
         pdf = getattr(local, "pdf", None)
         if pdf is None:
             pdf = local.pdf = fitz.open(pdf_path)
+            with lock:
+                opened.append(pdf)
         used_ocr = _process_page(project_id, document_id, pdf, index, offset)
         with lock:
             counters["processed"] += 1
@@ -179,27 +188,57 @@ def _extract_pages(
             )
 
     log.info("[doc %s] stage 2/6 extract: %d threads", doc_tag, workers)
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(handle, i): i for i in indices}
-        try:
-            for future in as_completed(futures):
-                future.result()  # re-raises inside the worker thread's page
-        except Exception:
-            # Stop handing out new pages; those already running finish and
-            # commit, so nothing half-written is left behind.
-            for pending in futures:
-                pending.cancel()
-            log.exception(
-                "[doc %s] stage 2/6 extract FAILED (%d/%d pages saved; a retry resumes)",
-                doc_tag,
-                counters["processed"],
-                page_count,
-            )
-            raise
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(handle, i): i for i in indices}
+            try:
+                for future in as_completed(futures):
+                    future.result()  # re-raises inside the worker thread's page
+            except Exception:
+                # Stop handing out new pages; those already running finish and
+                # commit, so nothing half-written is left behind.
+                for pending in futures:
+                    pending.cancel()
+                log.exception(
+                    "[doc %s] stage 2/6 extract FAILED (%d/%d pages saved; a retry resumes)",
+                    doc_tag,
+                    counters["processed"],
+                    page_count,
+                )
+                raise
+    finally:
+        # After the pool has drained, so no thread is mid-page. On the failure
+        # path too: the caller is about to remove the temp directory either way,
+        # and a leaked handle there turns a real error into a confusing
+        # PermissionError about a temp file.
+        for pdf in opened:
+            try:
+                pdf.close()
+            except Exception:  # noqa: BLE001 - closing must never mask the real error
+                pass
     return counters["processed"], counters["ocr"]
 
 
 def process_document(project_id: str, document_id: str, spaces_key: str) -> dict:
+    """Entry point. Refuses to run if this document is already being processed.
+
+    BullMQ hands a job to another slot when its lock lapses, and these jobs run
+    for minutes — long enough that it happened in practice. The second delivery
+    would otherwise re-download the PDF and re-upload every page alongside the
+    first, on the link that is already the bottleneck.
+    """
+    with db.document_lock(document_id) as acquired:
+        if not acquired:
+            log.warning(
+                "[doc %s] already being processed by another job — discarding this "
+                "delivery rather than duplicating the work",
+                document_id[:8],
+            )
+            return {"skipped": "already processing"}
+        return _process_document(project_id, document_id, spaces_key)
+
+
+def _process_document(project_id: str, document_id: str, spaces_key: str) -> dict:
     started = time.monotonic()
     doc_tag = document_id[:8]
     log.info("[doc %s] processing started (project %s)", doc_tag, project_id[:8])
@@ -216,6 +255,9 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         return {"skipped": "document deleted"}
 
     db.set_document_status(document_id, "processing")
+    # A retry re-reads the whole document, so it gets a fresh table-detection
+    # budget rather than inheriting a give-up from the attempt that failed.
+    tables.reset_budget(document_id)
 
     with tempfile.TemporaryDirectory() as tmp:
         pdf_path = os.path.join(tmp, "original.pdf")

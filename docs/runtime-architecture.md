@@ -200,6 +200,21 @@ is missing the worker still runs, unpooled, and logs why.
 
 **Keep `replicas × DB_POOL_SIZE` under the server's `max_connections`.**
 
+### Spaces connection pool
+
+The same product sizes the object-storage client. Every in-flight page uploads
+three objects (PNG, thumbnail, text), so the threads contending for an HTTPS
+connection are again `PROCESS_CONCURRENCY × PAGE_CONCURRENCY` — 16 at the
+defaults, against botocore's own default pool of **10**.
+
+`SPACES_POOL_SIZE` (→ `max_pool_connections`) covers them. Undersizing it is
+not an error and will not fail a job: urllib3 discards each connection that
+comes back to a full pool and logs `Connection pool is full, discarding
+connection`, so the next upload re-negotiates TCP and TLS to the region. On a
+1000-page set that is thousands of avoidable round trips — it reads as a slow
+document, never as a failure, which is why it is worth sizing deliberately
+rather than leaving to the library default.
+
 ### Before raising any of these
 
 Raise provider tiers first. Concurrency multiplies the embedding and Anthropic

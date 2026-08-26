@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { PortionDto } from "@cdip/shared";
 import { z } from "zod";
 import { currentUser } from "../auth.js";
+import { summaryLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { summarizePortionQueue } from "../queues.js";
 import { redis } from "../redis.js";
@@ -136,7 +137,7 @@ portionsRouter.get("/:portionId/summarize/estimate", async (req, res) => {
  * The button. Summaries cost real tokens, so this is the only thing that
  * starts a summary run for a discipline — and it refuses to stack jobs.
  */
-portionsRouter.post("/:portionId/summarize", async (req, res) => {
+portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) => {
   const { projectId, portionId } = portionParams.parse(req.params);
   const portion = await prisma.portion.findUniqueOrThrow({
     where: { id: portionId, projectId },

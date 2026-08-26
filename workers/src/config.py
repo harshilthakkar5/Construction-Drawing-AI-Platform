@@ -50,6 +50,22 @@ TABLE_EXTRACTION_ENABLED = (
 # read as a grid, so the whole page's detection is discarded.
 MAX_TABLES_PER_PAGE = int(os.environ.get("MAX_TABLES_PER_PAGE", "12"))
 
+# Seconds a single page's table detection may take before the rest of THAT
+# DOCUMENT gives up on it.
+#
+# `find_tables()` scans ruled lines for intersections, and a structural drawing
+# is mostly ruled lines: measured on a real IFC set it took 32 SECONDS per page
+# (one page 150s), against 0.1-0.8s on ordinary sheets. Ingest ran 4.8x slower
+# with detection on — 1.9 pages/min versus 9.1 — to find 8 tables in 5 pages.
+#
+# A budget rather than a page-complexity threshold because complexity did not
+# predict the cost: a synthetic page with 5,500 vector paths detected in 0.8s,
+# so any path-count cutoff would be a guess. One slow page per document is the
+# most this can now cost, instead of every page.
+TABLE_DETECTION_BUDGET_SECONDS = float(
+    os.environ.get("TABLE_DETECTION_BUDGET_SECONDS", "5")
+)
+
 
 # --- Parallelism ---------------------------------------------------------
 #
@@ -107,4 +123,57 @@ SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
 # replicas x DB_POOL_SIZE well under it.
 DB_POOL_SIZE = _int(
     "DB_POOL_SIZE", max(4, PROCESS_CONCURRENCY * PAGE_CONCURRENCY, WORKER_CONCURRENCY * 2)
+)
+
+# Threads boto3 uses to fetch ONE file. Downloads are not a single stream:
+# `download_file` runs a transfer manager that pulls 8 MB parts in parallel, so
+# one 215 MB PDF can occupy this many connections by itself. Set explicitly
+# rather than inherited, because the pool below is sized from it and a library
+# default that moves would silently undersize the pool again.
+SPACES_DOWNLOAD_CONCURRENCY = _int("SPACES_DOWNLOAD_CONCURRENCY", 10)
+
+# How long BullMQ considers a job's lock valid, in milliseconds.
+#
+# The library default is 30 SECONDS, renewed from the asyncio event loop every
+# lockDuration/2. Documents here run for minutes — a 148-page set took 29 —
+# so a single missed renewal window marks the job stalled and hands it to
+# another slot while the first is still working. That is not theoretical: a
+# real run had job 565 delivered twice and two executions of the same document
+# interleaving their page counters, doubling the uploads on the slowest link in
+# the system.
+#
+# Ten minutes gives the renewal timer a wide margin. The cost of a longer lock
+# is that a genuinely dead worker's job waits this long before another picks it
+# up, which is the right trade when a job takes half an hour.
+WORKER_LOCK_DURATION_MS = _int("WORKER_LOCK_DURATION_MS", 600_000)
+
+# HTTPS connections botocore keeps open to Spaces.
+#
+# Overflow is not an error — urllib3 DISCARDS the connection coming back to a
+# full pool and logs "Connection pool is full" — so it shows up as a slow
+# upload rather than a failure: the next request pays a fresh TCP and TLS
+# handshake to a region that may be a continent away.
+#
+# The demand is the sum of BOTH queues that touch storage, because they run at
+# the same time:
+#
+#   process-document  PROCESS_CONCURRENCY documents, each either downloading
+#                     (SPACES_DOWNLOAD_CONCURRENCY connections) or extracting
+#                     (PAGE_CONCURRENCY page threads, 3 uploads per page)
+#   scrape-region     SCRAPE_CONCURRENCY jobs, each downloading a PDF
+#
+# The first version of this counted only the page threads and landed back on
+# the floor of 10 for a worker running PROCESS_CONCURRENCY=2 — which is exactly
+# the configuration whose logs showed the pool exhausted, because a single
+# download wanted all ten on its own.
+#
+# Lower SPACES_DOWNLOAD_CONCURRENCY if the resulting pool is larger than the
+# deployment wants; on a bandwidth-limited link parallel parts buy little.
+SPACES_POOL_SIZE = _int(
+    "SPACES_POOL_SIZE",
+    max(
+        10,
+        PROCESS_CONCURRENCY * max(PAGE_CONCURRENCY, SPACES_DOWNLOAD_CONCURRENCY)
+        + SCRAPE_CONCURRENCY * SPACES_DOWNLOAD_CONCURRENCY,
+    ),
 )
