@@ -237,7 +237,7 @@ def delete_document_page_summaries(project_id: str, document_id: str) -> None:
 
 def matching_embedded_chunks(old_document_id: str, hashes: list[str]) -> dict[str, str]:
     """textHash -> embedded chunk id in the previous revision. Lets the new
-    revision reuse Qdrant vectors for unchanged chunk text (no Voyage call)."""
+    revision reuse Qdrant vectors for unchanged chunk text (no provider call)."""
     if not hashes:
         return {}
     with connect() as conn:

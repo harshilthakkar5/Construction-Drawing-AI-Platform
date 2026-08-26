@@ -73,9 +73,21 @@ const RATES: Record<string, { input: number; output: number }> = {
   // Newer Gemini models you run go here. Until a real rate is added, they are
   // priced by the family fallback below — close enough to keep the dialog
   // honest, not close enough to bill from.
-  // Voyage embeddings bill input tokens only.
+  // Embeddings (EMBEDDING_PROVIDER = voyage | cohere | gemini). Input tokens
+  // only — an embedding has no output tokens to bill.
   "voyage-3": { input: 0.06, output: 0 },
+  "voyage-3.5": { input: 0.06, output: 0 },
+  "voyage-3.5-lite": { input: 0.02, output: 0 },
   "voyage-3-large": { input: 0.18, output: 0 },
+  "voyage-context-3": { input: 0.18, output: 0 },
+  "embed-v4.0": { input: 0.12, output: 0 },
+  "embed-english-v3.0": { input: 0.1, output: 0 },
+  "embed-multilingual-v3.0": { input: 0.1, output: 0 },
+  "gemini-embedding-001": { input: 0.15, output: 0 },
+  // A run through the async Batch API is billed at half, and the worker
+  // records it under this name (embedllm.batch_model_name) precisely so the
+  // dashboard prices it at what it cost rather than at the synchronous rate.
+  "gemini-embedding-001-batch": { input: 0.075, output: 0 },
 };
 const DEFAULT_RATE = { input: 3, output: 15 };
 
@@ -86,6 +98,10 @@ const DEFAULT_RATE = { input: 3, output: 15 };
  * a flash tier as a frontier one, and the warning below says which happened.
  */
 const FAMILY_RATES: ReadonlyArray<[string, { input: number; output: number }]> = [
+  // Embeddings first: "gemini-embedding-001" contains "gemini", and pricing an
+  // embedding run at Gemini Pro's $1.25/$10 is the same order-of-magnitude lie
+  // the family fallback exists to prevent.
+  ["embed", { input: 0.12, output: 0 }],
   ["flash-lite", { input: 0.1, output: 0.4 }],
   ["flash", { input: 0.3, output: 2.5 }],
   ["gemini", { input: 1.25, output: 10 }],

@@ -23,6 +23,12 @@ expensive reasoning step:
 A provider with no API key, or whose SDK is missing, returns None here rather
 than raising, so a missing key degrades to the caller's fallback (the rules
 ladder, a skipped summary) instead of failing a job.
+
+Embeddings have their own transport (`embedllm.py`, EMBEDDING_PROVIDER) because
+their providers are a different set — but they share this module's Gemini
+client and its batch poller (`await_batch`, `gemini_state`,
+GEMINI_TERMINAL_STATES), so a batch waits the same bounded way whatever it
+holds.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ class BatchTimeout(RuntimeError):
     """A batch did not finish inside BATCH_TIMEOUT_SECONDS."""
 
 
-def _await_batch(label: str, refresh, finished) -> object:
+def await_batch(label: str, refresh, finished) -> object:
     """Poll `refresh()` until `finished(job)`, with backoff and a timeout."""
     deadline = time.monotonic() + BATCH_TIMEOUT_SECONDS
     delay = BATCH_POLL_SECONDS
@@ -359,7 +365,7 @@ def _batch_claude(
         ]
     )
     log.info("anthropic batch %s submitted (%d requests)", batch.id, len(prompts))
-    _await_batch(
+    await_batch(
         f"anthropic batch {batch.id}",
         lambda: client.messages.batches.retrieve(batch.id),
         lambda job: job.processing_status == "ended",
@@ -384,7 +390,7 @@ def _batch_claude(
 
 # Terminal job states. PARTIALLY_SUCCEEDED is terminal AND has results worth
 # reading — the entries that did succeed are still summaries the user paid for.
-_GEMINI_DONE = {
+GEMINI_TERMINAL_STATES = {
     "JOB_STATE_SUCCEEDED",
     "JOB_STATE_PARTIALLY_SUCCEEDED",
     "JOB_STATE_FAILED",
@@ -393,7 +399,7 @@ _GEMINI_DONE = {
 }
 
 
-def _gemini_state(job) -> str:
+def gemini_state(job) -> str:
     state = getattr(job, "state", None)
     return (getattr(state, "name", None) or str(state or "")).upper()
 
@@ -431,13 +437,13 @@ def _batch_gemini(
         config={"display_name": f"cdip-{kind}"},
     )
     log.info("gemini batch %s submitted (%d requests)", job.name, len(prompts))
-    job = _await_batch(
+    job = await_batch(
         f"gemini batch {job.name}",
         lambda: client.batches.get(name=job.name),
-        lambda current: _gemini_state(current) in _GEMINI_DONE,
+        lambda current: gemini_state(current) in GEMINI_TERMINAL_STATES,
     )
 
-    state = _gemini_state(job)
+    state = gemini_state(job)
     responses = getattr(getattr(job, "dest", None), "inlined_responses", None) or []
     if state != "JOB_STATE_SUCCEEDED":
         log.warning(

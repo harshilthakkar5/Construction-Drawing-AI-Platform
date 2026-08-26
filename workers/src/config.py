@@ -28,8 +28,8 @@ def _flag(name: str, default: str = "true") -> bool:
 
 
 # Pipeline stage switches — test the chat (embedding→retrieval) and summary
-# flows independently, e.g. turn embeddings off while the free Voyage tier is
-# rate-limited and still exercise summaries.
+# flows independently, e.g. turn embeddings off while the embedding provider's
+# free tier is rate-limited and still exercise summaries.
 EMBEDDINGS_ENABLED = _flag("EMBEDDINGS_ENABLED")
 SUMMARIES_ENABLED = _flag("SUMMARIES_ENABLED")
 
