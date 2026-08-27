@@ -295,6 +295,30 @@ export interface ChatResponseDto {
   sources: ChatSourceDto[];
 }
 
+/** One past conversation in a project's chat history picker. */
+export interface ChatSessionDto {
+  id: string;
+  createdAt: string;
+  /** Last activity — what the history window filters on. */
+  lastMessageAt: string;
+  messageCount: number;
+  /** The session's first question, as its title in the list. */
+  preview: string;
+}
+
+/** A persisted turn (FR-23), as the history picker replays it. */
+export interface ChatMessageDto {
+  id: string;
+  role: "user" | "assistant";
+  content: Record<string, unknown>;
+  sources?: ChatSourceDto[] | null;
+  createdAt: string;
+}
+
+/** Time windows the history picker offers. "custom" takes from/to instead. */
+export const CHAT_HISTORY_WINDOWS = ["1h", "24h", "7d", "30d", "3m", "all", "custom"] as const;
+export type ChatHistoryWindow = (typeof CHAT_HISTORY_WINDOWS)[number];
+
 export interface InitiateUploadResponse {
   documentId: string;
   uploadId: string;

@@ -1,0 +1,30 @@
+-- Hybrid retrieval: the keyword half.
+--
+-- Dense embeddings are the wrong tool for the queries this app actually gets.
+-- A drawing set is full of exact tokens — sheet numbers (S102A), details
+-- (A-301), member sizes (W12x26), panel tags — and a question naming one is
+-- asking for THAT string, not for something semantically near it. Cosine
+-- similarity cannot tell S102A from S201: both are "a structural sheet
+-- number", so the sheet the user named can sit outside the top 18 while
+-- eighteen of its neighbours are returned instead.
+--
+-- Postgres full-text search covers exactly that case, and chunks.text is
+-- already here: no second store, no re-embedding, no re-index. The two result
+-- lists are fused by rank in apps/api/src/retrieval.ts.
+--
+-- 'english', not 'simple', and the choice was measured rather than assumed:
+-- 'simple' keeps stop words, so websearch_to_tsquery('simple', 'what is
+-- S102A') is 'what' & 'is' & 's102a' and matches NOTHING, because no chunk
+-- contains "what". 'english' reduces the same question to 's102a'.
+--
+-- Identifiers survive the English stemmer intact (S102A → 's102a', W18x97 →
+-- 'w18x97'). "A-301" does lose its leading letter, indexing as '-301' — but it
+-- does so on BOTH sides, so a question naming A-301 still matches a chunk
+-- containing it. Matching the two sides is what counts, not what the lexeme
+-- looks like.
+--
+-- The index must use the same configuration as the query or it is simply not
+-- used, and a sequential scan over every chunk in the project would be the
+-- silent result.
+CREATE INDEX IF NOT EXISTS chunks_text_fts_idx
+  ON chunks USING GIN (to_tsvector('english', text));

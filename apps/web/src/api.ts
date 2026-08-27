@@ -1,6 +1,9 @@
 import type {
   AuthResponseDto,
+  ChatHistoryWindow,
+  ChatMessageDto,
   ChatResponseDto,
+  ChatSessionDto,
   ChunkLocationDto,
   DashboardDto,
   DocumentDto,
@@ -286,6 +289,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** Past conversations for the history picker, newest activity first. */
+  chatSessions: (
+    projectId: string,
+    params: { window: ChatHistoryWindow; from?: string; to?: string },
+  ) => {
+    const query = new URLSearchParams({ window: params.window });
+    if (params.from) query.set("from", params.from);
+    if (params.to) query.set("to", params.to);
+    return request<ChatSessionDto[]>(`/projects/${projectId}/chat/sessions?${query}`);
+  },
+
+  /** Replay one past conversation (FR-23). */
+  chatMessages: (projectId: string, sessionId: string) =>
+    request<ChatMessageDto[]>(`/projects/${projectId}/chat/${sessionId}/messages`),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   documentFileUrl: (projectId: string, documentId: string) =>

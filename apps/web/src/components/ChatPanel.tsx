@@ -1,7 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Fragment, useRef, useState } from "react";
-import type { ChatSourceDto } from "@cdip/shared";
-import { SendHorizonalIcon, ThumbsDownIcon, ThumbsUpIcon } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { ChatHistoryWindow, ChatMessageDto, ChatSourceDto } from "@cdip/shared";
+import {
+  HistoryIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PlusIcon,
+  SendHorizonalIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+} from "lucide-react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +36,71 @@ interface ChatTurn {
 const clock = (d: Date) =>
   d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+/** Same day → time only; this year → day + month; older → include the year. */
+function whenLabel(iso: string): string {
+  const at = new Date(iso);
+  const now = new Date();
+  if (at.toDateString() === now.toDateString()) return clock(at);
+  return at.toLocaleDateString([], {
+    day: "numeric",
+    month: "short",
+    year: at.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
+
+const HISTORY_WINDOW_LABELS: Record<ChatHistoryWindow, string> = {
+  "1h": "Last hour",
+  "24h": "Last 24 hours",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "3m": "Last 3 months",
+  all: "All time",
+  custom: "Custom range…",
+};
+
+/**
+ * Which conversation a project was last on. The thread lives on the server
+ * (FR-23) but WHICH thread you were reading is a per-browser preference, so it
+ * belongs here rather than in a table — and it is what makes leaving a project
+ * and coming back resume where you were instead of on a blank panel.
+ */
+const sessionKey = (projectId: string) => `cdip-chat-session:${projectId}`;
+
+function rememberSession(projectId: string, sessionId: string | undefined) {
+  try {
+    if (sessionId) localStorage.setItem(sessionKey(projectId), sessionId);
+    else localStorage.removeItem(sessionKey(projectId));
+  } catch {
+    /* private mode, or site data blocked — the chat still works, it just
+       starts fresh next time. */
+  }
+}
+
+function recallSession(projectId: string): string | undefined {
+  try {
+    return localStorage.getItem(sessionKey(projectId)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A persisted message row → the shape the thread renders. */
+function toTurn(message: ChatMessageDto, id: number): ChatTurn | null {
+  const content = (message.content ?? {}) as Record<string, unknown>;
+  const text =
+    message.role === "user"
+      ? String(content.question ?? "")
+      : String(content.displayedAnswer ?? content.answer ?? "");
+  if (!text) return null;
+  return {
+    id,
+    role: message.role,
+    text,
+    at: new Date(message.createdAt),
+    sources: message.sources ?? undefined,
+  };
+}
+
 /**
  * Middle pane (FR-17): project-scoped chat, rendered as a message thread —
  * avatars, send times, and a delivery mark on each question (one tick while
@@ -38,11 +111,21 @@ const clock = (d: Date) =>
  * and highlights the cited region (FR-18/FR-19/FR-21). Retrieval can be
  * filtered to one portion (FR-22).
  */
-export function ChatPanel({ projectId }: { projectId: string }) {
+export function ChatPanel({
+  projectId,
+  expanded = false,
+  onToggleExpand,
+}: {
+  projectId: string;
+  /** Full-page mode: the chat is the only pane, so it gets more room. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+}) {
   const requestJump = useAppStore((s) => s.requestJump);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [question, setQuestion] = useState("");
   const [portionFilter, setPortionFilter] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const sessionRef = useRef<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(0);
@@ -51,6 +134,47 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     queryKey: ["portions", projectId],
     queryFn: () => api.listPortions(projectId),
   });
+
+  /** Load a stored conversation into the thread (history pick, or resume). */
+  const openSession = useMutation({
+    mutationFn: (sessionId: string) => api.chatMessages(projectId, sessionId),
+    onSuccess: (messages, sessionId) => {
+      const restored = messages
+        .map((m) => toTurn(m, nextId.current++))
+        .filter((t): t is ChatTurn => t !== null);
+      setTurns(restored);
+      sessionRef.current = sessionId;
+      rememberSession(projectId, sessionId);
+      setHistoryOpen(false);
+      toBottom();
+    },
+    onError: () => {
+      // The stored id is gone (project re-created, history purged). Start clean
+      // rather than showing an error for something the user never asked for.
+      rememberSession(projectId, undefined);
+      sessionRef.current = undefined;
+    },
+  });
+
+  // Switching projects unmounts this panel, so the thread is rebuilt from the
+  // server on the way back rather than kept in memory for every project.
+  useEffect(() => {
+    setTurns([]);
+    setQuestion("");
+    sessionRef.current = undefined;
+    const previous = recallSession(projectId);
+    if (previous) openSession.mutate(previous);
+    // openSession is stable enough for this purpose; re-running on identity
+    // changes would refetch the thread on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  function startNewChat() {
+    setTurns([]);
+    sessionRef.current = undefined;
+    rememberSession(projectId, undefined);
+    setHistoryOpen(false);
+  }
 
   const toBottom = () =>
     queueMicrotask(() =>
@@ -66,6 +190,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       }),
     onSuccess: (res) => {
       sessionRef.current = res.sessionId;
+      rememberSession(projectId, res.sessionId);
       setTurns((t) => [
         ...t,
         {
@@ -132,9 +257,50 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             ))}
           </SelectContent>
         </Select>
+
+        <IconAction
+          label="New chat"
+          onClick={startNewChat}
+          disabled={turns.length === 0 && !sessionRef.current}
+        >
+          <PlusIcon className="size-4" />
+        </IconAction>
+        <IconAction
+          label="Chat history"
+          onClick={() => setHistoryOpen((open) => !open)}
+          active={historyOpen}
+        >
+          <HistoryIcon className="size-4" />
+        </IconAction>
+        {onToggleExpand && (
+          <IconAction
+            label={expanded ? "Exit full page" : "Full page chat"}
+            onClick={onToggleExpand}
+          >
+            {expanded ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
+          </IconAction>
+        )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-3">
+      {historyOpen && (
+        <HistoryList
+          projectId={projectId}
+          activeSessionId={sessionRef.current}
+          loading={openSession.isPending}
+          onPick={(sessionId) => openSession.mutate(sessionId)}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
+
+      <div
+        ref={scrollRef}
+        className={cn(
+          "flex-1 space-y-4 overflow-y-auto p-3",
+          // Full page is much wider than the middle pane; an unbounded line
+          // length is hard to read, so the thread keeps a column.
+          expanded && "mx-auto w-full max-w-3xl px-6 py-6",
+        )}
+      >
         {turns.length === 0 && (
           <Row avatar={<SparkAvatar />}>
             <div className="rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground">
@@ -214,14 +380,17 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       </div>
 
       <form
-        className="flex items-center gap-2 border-t border-border bg-card p-3"
+        className={cn(
+          "flex items-center gap-2 border-t border-border bg-card p-3",
+          expanded && "justify-center",
+        )}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
         <Input
-          className="min-w-0 flex-1"
+          className={cn("min-w-0 flex-1", expanded && "max-w-2xl")}
           placeholder="Ask about the drawings…"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
@@ -372,5 +541,156 @@ function AnswerText({ text, sources }: { text: string; sources: ChatSourceDto[] 
         );
       })}
     </span>
+  );
+}
+
+/** Small square header button — the chat toolbar's shape. */
+function IconAction({
+  label,
+  onClick,
+  children,
+  active,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "text-muted-foreground hover:bg-muted hover:text-foreground grid h-8 w-8 shrink-0 place-items-center rounded-md transition",
+        active && "bg-accent text-accent-foreground",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Past conversations for this project, filtered by when they were last used.
+ *
+ * The window filters on LAST activity rather than when the session started, so
+ * a thread opened last week and continued this morning is where a reader
+ * expects it: under "last 24 hours".
+ */
+function HistoryList({
+  projectId,
+  activeSessionId,
+  loading,
+  onPick,
+  onClose,
+}: {
+  projectId: string;
+  activeSessionId?: string;
+  loading: boolean;
+  onPick: (sessionId: string) => void;
+  onClose: () => void;
+}) {
+  const [window, setWindow] = useState<ChatHistoryWindow>("30d");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const custom = window === "custom";
+  const sessions = useQuery({
+    queryKey: ["chat-sessions", projectId, window, from, to],
+    queryFn: () =>
+      api.chatSessions(projectId, {
+        window,
+        from: custom && from ? new Date(from).toISOString() : undefined,
+        // A date input means the whole of that day, so the range runs to its
+        // last moment — otherwise "to: today" excludes everything said today.
+        to: custom && to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined,
+      }),
+  });
+
+  return (
+    <div className="bg-muted/40 border-b">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+          History
+        </span>
+        <Select value={window} onValueChange={(v) => setWindow(v as ChatHistoryWindow)}>
+          <SelectTrigger size="sm" className="max-w-40 text-xs" aria-label="History range">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(HISTORY_WINDOW_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {custom && (
+          <span className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              aria-label="From date"
+              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+            />
+            <span className="text-muted-foreground text-xs">to</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              aria-label="To date"
+              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+            />
+          </span>
+        )}
+        <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+
+      <div className="max-h-56 overflow-y-auto px-2 pb-2">
+        {sessions.isPending && (
+          <p className="text-muted-foreground px-2 py-3 text-xs">Loading conversations…</p>
+        )}
+        {sessions.isError && (
+          <p className="text-destructive px-2 py-3 text-xs">
+            Could not load history: {(sessions.error as Error).message}
+          </p>
+        )}
+        {sessions.data?.length === 0 && (
+          <p className="text-muted-foreground px-2 py-3 text-xs">
+            No conversations in this range.
+          </p>
+        )}
+        {sessions.data?.map((session) => (
+          <button
+            key={session.id}
+            type="button"
+            onClick={() => onPick(session.id)}
+            disabled={loading}
+            className={cn(
+              "hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition",
+              session.id === activeSessionId && "bg-accent text-accent-foreground",
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate text-xs">
+              {session.preview || "Untitled conversation"}
+            </span>
+            <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+              {session.messageCount / 2 >= 1 ? Math.round(session.messageCount / 2) : 1} Q ·{" "}
+              {whenLabel(session.lastMessageAt)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
