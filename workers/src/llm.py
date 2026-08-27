@@ -175,7 +175,24 @@ _gemini_unavailable = False
 # JSON shape are extraction, not deliberation — the thinking is pure cost and
 # pure truncation risk. Set a positive budget to re-enable it, or -1 to let the
 # model decide.
-GEMINI_THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "0"))
+def _parse_thinking_budget(raw: str | None) -> int | None:
+    """None means OMIT the field, not "budget of zero" — and the two are
+    different requests. Gemini 3 models cannot turn thinking off at all and
+    reject `thinking_budget` outright, so "off" is the escape hatch that lets a
+    new model be used without waiting on a code change here."""
+    value = (raw or "0").strip().lower()
+    if value in ("", "off", "none", "omit"):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        log.warning(
+            "GEMINI_THINKING_BUDGET=%r is not a number or 'off' — disabling thinking", raw
+        )
+        return 0
+
+
+GEMINI_THINKING_BUDGET = _parse_thinking_budget(os.environ.get("GEMINI_THINKING_BUDGET"))
 
 # Models that reject the setting outright (some tiers cannot turn thinking off).
 # Latched per model after the first refusal so the failed call is paid once, not
@@ -189,12 +206,12 @@ _THINKING_REFUSALS = ("thinking", "thought")
 
 def _thinking_config(model: str) -> dict | None:
     """Thinking settings for this model, or None to omit the field entirely."""
-    if model in _no_thinking_config:
+    if model in _no_thinking_config or GEMINI_THINKING_BUDGET is None:
         return None
     return {"thinking_budget": GEMINI_THINKING_BUDGET}
 
 
-def _is_thinking_refusal(exc: Exception) -> bool:
+def _is_thinking_refusal(exc: object) -> bool:
     """Whether this error is worth one retry without the thinking budget.
 
     Some models say so plainly ("thinking_config is not supported"). The
@@ -428,9 +445,64 @@ def gemini_state(job) -> str:
 def _batch_gemini(
     prompts: dict[str, str], *, system, model, max_tokens, kind, project_id, json_only
 ) -> dict[str, str]:
+    """Run the batch, and re-run it once without the thinking budget if that is
+    what the whole batch was rejected for.
+
+    The single-call path learns this from the exception it catches. A batch has
+    no exception to catch: it is ACCEPTED, runs for minutes, and then reports
+    per-entry errors — so on gemini-3.1-pro-preview every entry came back
+    `code=3 Request contains an invalid argument`, the caller saw an empty
+    result, and the portion failed with "no page summaries could be generated",
+    naming nothing a user could act on.
+
+    The re-run is bounded to one attempt and only fires when NOTHING came back,
+    so it never costs a batch that partly worked; a model it rescues is latched
+    so the rest of the project's tiers skip straight to the shape that works.
+    """
+    results, rejected = _run_gemini_batch(
+        prompts, system=system, model=model, max_tokens=max_tokens,
+        kind=kind, project_id=project_id, json_only=json_only, thinking=True,
+    )
+    if results or not rejected or model in _no_thinking_config:
+        return results
+
+    log.warning(
+        "gemini batch: all %d entries were rejected as invalid arguments — "
+        "resubmitting once without the thinking budget",
+        len(prompts),
+    )
+    results, _ = _run_gemini_batch(
+        prompts, system=system, model=model, max_tokens=max_tokens,
+        kind=kind, project_id=project_id, json_only=json_only, thinking=False,
+    )
+    if results:
+        _no_thinking_config.add(model)
+        log.warning("%s will be called without a thinking budget from now on", model)
+    else:
+        log.error(
+            "gemini batch: %s rejected every entry with and without the thinking "
+            "budget — check SUMMARY_GEMINI_MODEL/GEMINI_MODEL names it a model your "
+            "key can call, or set GEMINI_THINKING_BUDGET=off",
+            model,
+        )
+    return results
+
+
+def _run_gemini_batch(
+    prompts: dict[str, str],
+    *,
+    system,
+    model,
+    max_tokens,
+    kind,
+    project_id,
+    json_only,
+    thinking: bool,
+) -> tuple[dict[str, str], bool]:
+    """One submit-and-collect pass. Returns (results, every_entry_was_rejected)."""
     client = gemini_client()
     if client is None:
-        return {}
+        return {}, False
 
     # Same builder as the single-call path: a batched page and a retried page
     # must be asked for exactly the same thing, or the retry silently changes
@@ -440,6 +512,7 @@ def _batch_gemini(
         max_tokens=max_tokens,
         system=system,
         json_only=json_only,
+        thinking=thinking,
     )
 
     order = list(prompts)
@@ -475,9 +548,15 @@ def _batch_gemini(
         )
 
     results: dict[str, str] = {}
+    rejected = 0
     for index, entry in enumerate(responses):
-        if getattr(entry, "error", None) is not None:
-            log.warning("batch entry %d failed (%s)", index, entry.error)
+        error = getattr(entry, "error", None)
+        if error is not None:
+            # Only the first few, or a 400-page batch logs 400 identical lines.
+            if rejected < 3:
+                log.warning("batch entry %d failed (%s)", index, error)
+            if _is_thinking_refusal(error):
+                rejected += 1
             continue
         response = getattr(entry, "response", None)
         if response is None:
@@ -499,7 +578,17 @@ def _batch_gemini(
             project_id=project_id,
         )
         results[custom_id] = response.text or ""
-    return results
+
+    if rejected:
+        log.warning(
+            "gemini batch: %d/%d entries rejected as invalid arguments",
+            rejected,
+            len(responses),
+        )
+    # "Every entry was rejected for its request shape" is the only case the
+    # caller re-runs on — a batch that merely returned nothing (empty, timed
+    # out, cancelled) has no reason to be resubmitted differently.
+    return results, bool(responses) and rejected == len(responses)
 
 
 def complete_batch(

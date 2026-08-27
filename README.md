@@ -264,6 +264,11 @@ Two caveats worth knowing before you switch:
 
 - **Sheet-read caches are keyed per provider**, so switching re-reads rather
   than serving the other model's answers.
+- **Gemini 3 models reject the thinking budget.** They cannot turn thinking
+  off, and say so as a bare `400 INVALID_ARGUMENT` naming nothing. Both call
+  paths recover — one retry without the budget, then the model is remembered —
+  but a batch only learns it after waiting through a full run, so set
+  `GEMINI_THINKING_BUDGET=off` up front on those models.
 - **Prompt caching differs.** Anthropic uses explicit cache breakpoints;
   Gemini caches implicitly. The prompt *content* is identical, but the
   `/dashboard` cost figure for Gemini rows applies Anthropic's cache

@@ -6,6 +6,7 @@ nothing about what the answer is allowed to be. The instructions sent, the
 parser applied to the reply, and the failure behaviour must all be identical.
 """
 
+import types
 import sys
 from pathlib import Path
 
@@ -477,3 +478,129 @@ class TestThinkingTokensAreBilled:
     def test_a_response_with_no_metadata_records_zeros(self, monkeypatch):
         row = self._recorded(monkeypatch, None)
         assert row["output_tokens"] == 0 and row["input_tokens"] == 0
+
+
+class TestBatchThinkingRecovery:
+    """A batch cannot learn from an exception: it is ACCEPTED, runs for
+    minutes, and then reports per-entry errors. On gemini-3.1-pro-preview every
+    entry came back `code=3 Request contains an invalid argument`, the caller
+    saw an empty result, and the portion failed with "no page summaries could
+    be generated" — naming nothing a user could act on."""
+
+    @staticmethod
+    def _job(entries):
+        return types.SimpleNamespace(
+            name="batches/x",
+            state="JOB_STATE_SUCCEEDED",
+            dest=types.SimpleNamespace(inlined_responses=entries),
+        )
+
+    @staticmethod
+    def _ok(custom_id, text="{}"):
+        return types.SimpleNamespace(
+            error=None,
+            metadata={"custom_id": custom_id},
+            response=types.SimpleNamespace(text=text, usage_metadata=None),
+        )
+
+    @staticmethod
+    def _rejected():
+        return types.SimpleNamespace(
+            error="details=None code=3 message='Request contains an invalid argument.'",
+            metadata=None,
+            response=None,
+        )
+
+    def _client(self, monkeypatch, reply_for):
+        """reply_for(config) -> list of entries. Records every submitted config."""
+        submitted = []
+
+        class _Batches:
+            def create(self, *, model, src, config):
+                submitted.append(src[0]["config"])
+                self._entries = reply_for(src[0]["config"], len(src))
+                return TestBatchThinkingRecovery._job(self._entries)
+
+            def get(self, *, name):
+                return TestBatchThinkingRecovery._job(self._entries)
+
+        monkeypatch.setattr(
+            llm, "gemini_client", lambda: type("C", (), {"batches": _Batches()})()
+        )
+        monkeypatch.setattr(usage, "record", lambda *a, **k: None)
+        return submitted
+
+    def test_a_wholly_rejected_batch_is_resubmitted_without_thinking(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+
+        def reply_for(config, count):
+            if "thinking_config" in config:
+                return [self._rejected() for _ in range(count)]
+            return [self._ok("page-1"), self._ok("page-2")]
+
+        submitted = self._client(monkeypatch, reply_for)
+
+        results = llm._batch_gemini(
+            {"page-1": "a", "page-2": "b"}, system="sys", model="gemini-3.1-pro-preview",
+            max_tokens=2000, kind="summary", project_id=None, json_only=True,
+        )
+
+        assert results == {"page-1": "{}", "page-2": "{}"}
+        assert len(submitted) == 2 and "thinking_config" not in submitted[1]
+        # Latched, so the section and portion tiers skip straight to what works.
+        assert "gemini-3.1-pro-preview" in llm._no_thinking_config
+
+    def test_a_partly_successful_batch_is_never_resubmitted(self, monkeypatch):
+        """Resubmitting would pay for the entries that already succeeded."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        submitted = self._client(
+            monkeypatch, lambda config, count: [self._ok("page-1"), self._rejected()]
+        )
+
+        results = llm._batch_gemini(
+            {"page-1": "a", "page-2": "b"}, system="sys", model="gemini-x",
+            max_tokens=2000, kind="summary", project_id=None, json_only=True,
+        )
+
+        assert results == {"page-1": "{}"}
+        assert len(submitted) == 1
+        assert "gemini-x" not in llm._no_thinking_config
+
+    def test_an_empty_batch_result_is_not_blamed_on_thinking(self, monkeypatch):
+        """Nothing came back at all — a different failure, and resubmitting it
+        without the budget would just wait through it twice."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        submitted = self._client(monkeypatch, lambda config, count: [])
+
+        assert llm._batch_gemini(
+            {"page-1": "a"}, system="sys", model="gemini-x", max_tokens=2000,
+            kind="summary", project_id=None, json_only=True,
+        ) == {}
+        assert len(submitted) == 1
+
+    def test_a_model_already_latched_submits_the_working_shape_first(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_thinking_config", {"gemini-3.1-pro-preview"})
+        submitted = self._client(monkeypatch, lambda config, count: [self._ok("page-1")])
+
+        llm._batch_gemini(
+            {"page-1": "a"}, system="sys", model="gemini-3.1-pro-preview",
+            max_tokens=2000, kind="summary", project_id=None, json_only=True,
+        )
+        assert len(submitted) == 1 and "thinking_config" not in submitted[0]
+
+
+class TestThinkingBudgetSetting:
+    def test_off_omits_the_field_entirely(self, monkeypatch):
+        """0 and "omitted" are different requests: a model that cannot turn
+        thinking off rejects the field at any value."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "GEMINI_THINKING_BUDGET", llm._parse_thinking_budget("off"))
+        assert "thinking_config" not in llm._gemini_config(model="gemini-x", max_tokens=100)
+
+    def test_numbers_and_junk(self):
+        assert llm._parse_thinking_budget("512") == 512
+        assert llm._parse_thinking_budget("-1") == -1
+        assert llm._parse_thinking_budget("0") == 0
+        assert llm._parse_thinking_budget(None) == 0
+        assert llm._parse_thinking_budget("none") is None
+        assert llm._parse_thinking_budget("banana") == 0  # falls back to off, not crash
