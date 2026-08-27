@@ -80,7 +80,12 @@ from `packages/shared/src/index.ts` by `packages/shared/codegen.mjs` (`npm run c
 vitest test fails if the checked-in copy is stale. Adding a field to a job interface without
 declaring it in `JOB_FIELDS` is a TypeScript compile error naming the missing field. The citation format is another
 cross-cutting contract: the model is told to emit `[chunk:<uuid>]` (apps/api/src/answer.ts) and
-`apps/api/src/citations.ts` (unit-tested) parses/renumbers it. The summary provider/model
+`apps/api/src/citations.ts` (unit-tested) parses/renumbers it. That parser must tolerate the
+shapes the model actually emits, not just the documented one: asked to cite two chunks for one
+claim it writes `[chunk:a, chunk:b]`, which an `\[chunk:<id>\]` pattern matches NEITHER half of
+— so both raw UUIDs rendered in the chat bubble. It now matches the bracket GROUP and pulls the
+ids out of it, and a final sweep deletes any `chunk:<uuid>` still standing: a reader must never
+see a UUID, whatever shape the model invents. The summary provider/model
 defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
 summaries, `apps/api/src/llm.ts` resolves the same env vars only to quote what they will cost
 (`summaryEstimate.ts`), so a drift shows a user one model's price for another model's work.
@@ -364,10 +369,32 @@ its summary `stale` and keeps the text rather than deleting work the user paid f
 
 ## RAG chat flow
 
-question → embedding (`EMBEDDING_PROVIDER`) → Qdrant search (filter: project, optional portion; top ~15–20
-chunks) → Claude prompt (chunks + inline metadata + chat history) → answer with cited chunk IDs
-→ map to clickable page links. Claude only ever sees retrieved chunks, never raw PDFs. Cache
-frequent retrievals in Redis. Persist the full exchange to PostgreSQL.
+question → HYBRID retrieval → Claude prompt (chunks + inline metadata + chat history) → answer
+with cited chunk IDs → map to clickable page links. Claude only ever sees retrieved chunks,
+never raw PDFs. Cache frequent retrievals in Redis (the key includes the retrieval mode).
+Persist the full exchange to PostgreSQL.
+
+Retrieval is two searches run CONCURRENTLY and fused by Reciprocal Rank Fusion
+(`apps/api/src/retrieval.ts`, `HYBRID_RETRIEVAL=true`): the dense embedding
+(`EMBEDDING_PROVIDER` → Qdrant, filtered by project + optional portion) and a Postgres
+full-text search over `chunks.text`. Dense alone cannot separate `S102A` from `S201` — both
+are "a structural sheet number" — so every question naming a sheet, a detail or a member size
+depended on luck. The FTS side uses the `english` configuration on BOTH the index and the
+query (`simple` keeps stop words, so "what is S102A" demands a chunk containing "what" and
+matches nothing) and OR's the question's lexemes rather than AND-ing them, building the
+tsquery from `tsvector_to_array` so it is injection-safe. A failure in either half degrades to
+the other rather than failing the question.
+
+FR-14 is amended in one direction only: a claim ABOUT THE PROJECT still comes from retrieved
+chunks and still carries a `[chunk:<id>]` citation, so FR-13's chain is intact — but a general
+construction question ("what is a column?") is answered from the model's own knowledge under an
+explicit "General construction knowledge — not from this project's drawings." line. Zero
+retrieved chunks is therefore a normal case, not a dead end.
+
+Chat history is a view of the FR-23 records: `GET /projects/:id/chat/sessions?window=` lists
+past conversations by LAST activity (1h|24h|7d|30d|3m|all|custom from/to), and the web client
+remembers the last session per project in `localStorage` so leaving a project and returning
+resumes the thread instead of showing a blank panel.
 
 ## Claude prompting pattern for grounded answers
 

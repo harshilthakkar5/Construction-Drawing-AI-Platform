@@ -349,6 +349,54 @@ every later vector onto the wrong chunk. Batched runs are recorded under
 `<model>-batch` in `usage_events` so the dashboard prices them at the half rate
 they were actually billed at.
 
+## Chat: retrieval, history and scope
+
+**Hybrid retrieval** (`HYBRID_RETRIEVAL`, on by default). Every question runs
+two searches at once and fuses their rankings:
+
+| Half | Finds | Misses |
+| --- | --- | --- |
+| Dense (Qdrant) | "what holds up the canopy" — meaning, not words | Exact tokens: cosine cannot separate `S102A` from `S201` |
+| Keyword (Postgres FTS over `chunks.text`) | `S102A`, `A-301`, `W12x26`, panel tags | Anything phrased differently from the drawing |
+
+Neither is enough alone on a drawing set, so both run **concurrently** —
+hybrid costs the slower of the two, not their sum — and the two rankings are
+merged by Reciprocal Rank Fusion, which needs no score calibration between a
+cosine distance and a `ts_rank`, only their ranks. A chunk both halves like
+beats one only either found.
+
+The keyword half needs the GIN index from the `hybrid_retrieval_fts`
+migration; run `npm run prisma:migrate`. It uses the `english` text-search
+configuration on both sides — `simple` keeps stop words, which makes "what is
+S102A" require a chunk containing the word "what" and match nothing at all —
+and OR's the question's lexemes rather than AND-ing them, so `ts_rank` orders
+by how much of the question a chunk covers. If the keyword half errors, chat
+degrades to dense-only rather than failing.
+
+**General construction questions are answered.** Asking "what is a column?" or
+"what does BIM mean?" used to hit a dead end, because retrieval found nothing
+and the route stopped there. Now the model answers from its own knowledge under
+an explicit first line:
+
+> General construction knowledge — not from this project's drawings.
+
+The grounding rule that matters is unchanged: any claim ABOUT THIS PROJECT
+still comes from retrieved chunks and still carries a `[chunk:<id>]` citation,
+so the FR-13 source-verification chain holds. What changed is that refusing to
+define an industry term was never a safety property — only an unhelpful one.
+
+**Chat history** survives leaving the project. Each project remembers its last
+conversation per browser (`cdip-chat-session:{projectId}`) and reopens it on
+return; the **History** button lists past conversations filtered by last
+activity — last hour, 24 hours, 7 days, 30 days, 3 months, all time, or a
+custom date range — and **New chat** starts a fresh thread. The threads
+themselves are the FR-23 records in `chat_sessions`/`messages`, so history is
+a view of the audit trail rather than a second copy of it.
+
+**Full-page chat**: the expand button in the chat header replaces the three
+panes with the thread alone, in a readable column. It is deliberately not
+persisted — it is a reading mode for one long answer, not a layout preference.
+
 ## After pulling schema changes
 
 `/dashboard` or `/support` returning **503 "prisma client out of date"** (or, on an older

@@ -131,6 +131,10 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const [chatHidden, setChatHidden] = useState(
     () => localStorage.getItem(CHAT_HIDDEN_KEY) === "1",
   );
+  // Deliberately NOT persisted: full page is a reading mode you enter for one
+  // long answer, not a layout preference. Coming back to a project on the
+  // drawings is the right default.
+  const [chatExpanded, setChatExpanded] = useState(false);
 
   useEffect(() => localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth)), [sidebarWidth]);
   useEffect(() => localStorage.setItem(CHAT_KEY, String(chatWidth)), [chatWidth]);
@@ -239,6 +243,20 @@ export function ProjectView({ projectId }: { projectId: string }) {
         </CardContent>
       </Card>
 
+      {/* Full-page chat replaces the three panes rather than overlaying them:
+          reading a long answer next to a 66%-zoom drawing is the problem this
+          solves, so the drawing has to actually go away. */}
+      {chatExpanded ? (
+        <div className="flex min-h-0 flex-1">
+          <Card className="h-full w-full gap-0 overflow-hidden py-0">
+            <ChatPanel
+              projectId={projectId}
+              expanded
+              onToggleExpand={() => setChatExpanded(false)}
+            />
+          </Card>
+        </div>
+      ) : (
       <div className="flex min-h-0 flex-1">
         {/* Work column: one scroll, tabs over the three panels. */}
         <aside
@@ -290,7 +308,10 @@ export function ProjectView({ projectId }: { projectId: string }) {
           <>
             <section className="min-h-0 shrink-0 pl-3" style={{ width: chatWidth }}>
               <Card className="h-full gap-0 overflow-hidden py-0">
-                <ChatPanel projectId={projectId} />
+                <ChatPanel
+                  projectId={projectId}
+                  onToggleExpand={() => setChatExpanded(true)}
+                />
               </Card>
             </section>
             <DragDivider
@@ -319,6 +340,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
           </Button>
         </section>
       </div>
+      )}
 
       {tourOpen && (
         <Tour steps={WORKSPACE_TOUR} storageKey="workspace" onClose={() => setTourOpen(false)} />

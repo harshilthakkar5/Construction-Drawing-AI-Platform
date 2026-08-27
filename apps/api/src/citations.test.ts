@@ -86,3 +86,73 @@ describe("buildSources", () => {
     expect(sources[0]!.label).toBe("A-101.pdf — page 4");
   });
 });
+
+describe("grouped citations", () => {
+  /**
+   * Regression: the model answered "S102A is the Level 2 Framing Plan
+   * [chunk:d1f5…, chunk:6514…]" and BOTH raw UUIDs rendered in the chat
+   * bubble. A pattern anchored on [chunk:<id>] matches neither half of a
+   * comma-joined pair, so the whole group survived into the UI.
+   */
+  it("numbers every id in one bracket", () => {
+    const answer = `S102A is the Level 2 Framing Plan [chunk:${ID_A}, chunk:${ID_B}].`;
+    const { text, sources } = buildSources(answer, records);
+    expect(text).toBe("S102A is the Level 2 Framing Plan [1][2].");
+    expect(sources.map((s) => s.index)).toEqual([1, 2]);
+    expect(extractCitedChunkIds(answer)).toEqual([ID_A, ID_B]);
+  });
+
+  it("handles the separators the model actually uses", () => {
+    for (const joiner of [", chunk:", "; chunk:", " chunk:", ",chunk:", ", "]) {
+      const { text } = buildSources(`Claim [chunk:${ID_A}${joiner}${ID_B}].`, records);
+      expect(text).toBe("Claim [1][2].");
+    }
+  });
+
+  it("still handles one id per bracket, and repeats", () => {
+    const { text, sources } = buildSources(
+      `A [chunk:${ID_A}]. B [chunk:${ID_B}]. C [chunk:${ID_A}].`,
+      records,
+    );
+    expect(text).toBe("A [1]. B [2]. C [1].");
+    expect(sources).toHaveLength(2);
+  });
+
+  it("keeps the known ids of a mixed group and drops the unknown one", () => {
+    const { text, sources } = buildSources(
+      `Mixed [chunk:${ID_A}, chunk:${ID_UNKNOWN}].`,
+      records,
+    );
+    expect(text).toBe("Mixed [1].");
+    expect(sources).toHaveLength(1);
+  });
+
+  it("leaves nothing behind when every id in a group is unknown", () => {
+    const { text, sources } = buildSources(`Nothing [chunk:${ID_UNKNOWN}].`, records);
+    expect(text).toBe("Nothing.");
+    expect(sources).toEqual([]);
+  });
+});
+
+describe("no raw chunk id ever reaches a reader", () => {
+  const hasUuid = (s: string) => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(s);
+
+  it.each([
+    `Parenthesised (chunk:${ID_A}) claim.`,
+    `Spaced [chunk: ${ID_A}] claim.`,
+    `Bare chunk:${ID_A} claim.`,
+    `Unclosed [chunk:${ID_A} claim.`,
+    `Doubled [chunk:${ID_A}][chunk:${ID_B}] claim.`,
+    `Upper [CHUNK:${ID_A.toUpperCase()}] claim.`,
+  ])("strips or numbers: %s", (answer) => {
+    const { text } = buildSources(answer, records);
+    expect(hasUuid(text)).toBe(false);
+    expect(text).not.toContain("chunk:");
+  });
+
+  it("numbers the well-formed ones rather than deleting them", () => {
+    const { text, sources } = buildSources(`Doubled [chunk:${ID_A}][chunk:${ID_B}].`, records);
+    expect(text).toBe("Doubled [1][2].");
+    expect(sources).toHaveLength(2);
+  });
+});
