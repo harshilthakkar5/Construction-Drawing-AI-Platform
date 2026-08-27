@@ -89,12 +89,12 @@ chatRouter.post("/", chatLimiter, async (req, res) => {
   const byId = new Map(chunkRows.map((c) => [c.id, c]));
   const ordered = chunkIds.flatMap((id) => byId.get(id) ?? []);
 
-  // Zero retrieved chunks is NOT a dead end. A general construction question
-  // ("what is a column?") matches nothing in the drawings by definition, and
-  // the model answers it from its own knowledge under an explicit "not from
-  // this project's drawings" line (see answer.ts). Only a question about THIS
-  // project gets "the drawings do not cover it" — and that answer now comes
-  // from the model, which can say WHICH part it could not find.
+  // Zero retrieved chunks is NOT a dead end. A construction-discipline
+  // question ("what is a column?") matches nothing in the drawings by
+  // definition, and answer.ts answers it under an explicit "not from this
+  // project's drawings" line — while anything outside construction gets one
+  // refusal sentence. A question about THIS project still gets "the drawings
+  // do not cover it", now from the model, which can say what it could not find.
 
   const history: HistoryTurn[] = (
     await prisma.message.findMany({
