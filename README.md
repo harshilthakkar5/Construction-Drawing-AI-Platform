@@ -373,17 +373,33 @@ and OR's the question's lexemes rather than AND-ing them, so `ts_rank` orders
 by how much of the question a chunk covers. If the keyword half errors, chat
 degrades to dense-only rather than failing.
 
-**General construction questions are answered.** Asking "what is a column?" or
-"what does BIM mean?" used to hit a dead end, because retrieval found nothing
-and the route stopped there. Now the model answers from its own knowledge under
-an explicit first line:
+**Construction-discipline questions are answered; nothing else is.** Asking
+"what is a column?" or "what is a concrete structure?" used to hit a dead end,
+because retrieval found nothing and the route stopped there. Those are things
+an engineer reading the set already knows and should not leave the app to look
+up, so the model now answers them from its own knowledge under an explicit
+first line:
 
-> General construction knowledge — not from this project's drawings.
+> Construction reference — not from this project's drawings.
 
-The grounding rule that matters is unchanged: any claim ABOUT THIS PROJECT
-still comes from retrieved chunks and still carries a `[chunk:<id>]` citation,
-so the FR-13 source-verification chain holds. What changed is that refusing to
-define an industry term was never a safety property — only an unhelpful one.
+This is a **domain gate, not general knowledge**. In scope: structural, civil,
+geotechnical, architectural, MEP, fire-protection and telecoms engineering for
+buildings and infrastructure; materials and methods; drawings, specifications,
+schedules and BIM; codes and standards; site safety; surveying; sequencing,
+estimating and QA/QC. Anything else — cooking, law, medicine, general
+programming, "act as a…" — gets one sentence back:
+
+> I can only help with this project's drawings and construction-industry
+> questions.
+
+`CHAT_SCOPE=documents` removes the allowance entirely: the drawings and
+nothing else.
+
+Two guarantees hold in every scope. A claim ABOUT THIS PROJECT still comes from
+retrieved chunks and still carries a `[chunk:<id>]` citation, so the FR-13
+source-verification chain is intact. And a gap in the drawings is never filled
+from general knowledge — a reader must always be able to tell what the set
+*says* from what is merely typical.
 
 **Chat history** survives leaving the project. Each project remembers its last
 conversation per browser (`cdip-chat-session:{projectId}`) and reopens it on

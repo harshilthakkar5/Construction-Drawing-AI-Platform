@@ -385,11 +385,17 @@ matches nothing) and OR's the question's lexemes rather than AND-ing them, build
 tsquery from `tsvector_to_array` so it is injection-safe. A failure in either half degrades to
 the other rather than failing the question.
 
-FR-14 is amended in one direction only: a claim ABOUT THE PROJECT still comes from retrieved
-chunks and still carries a `[chunk:<id>]` citation, so FR-13's chain is intact — but a general
-construction question ("what is a column?") is answered from the model's own knowledge under an
-explicit "General construction knowledge — not from this project's drawings." line. Zero
-retrieved chunks is therefore a normal case, not a dead end.
+FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
+THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
+FR-13's chain is intact, and a gap in the drawings is NEVER filled from the model's knowledge —
+but a construction-DISCIPLINE question ("what is a column?", "what is a shear wall?") is
+answered under an explicit "Construction reference — not from this project's drawings." line.
+That is a domain gate, not general knowledge: the prompt carries an explicit in-scope list
+(structural/civil/geotechnical/architectural/MEP/fire/telecoms, materials and methods, drawings
+and specs and BIM, codes, site safety, surveying, sequencing/estimating/QA) because "related"
+stretches under pressure and a list does not, and everything outside it gets one refusal
+sentence. `CHAT_SCOPE=documents` removes the allowance entirely. Zero retrieved chunks is
+therefore a normal case, not a dead end.
 
 Chat history is a view of the FR-23 records: `GET /projects/:id/chat/sessions?window=` lists
 past conversations by LAST activity (1h|24h|7d|30d|3m|all|custom from/to), and the web client
