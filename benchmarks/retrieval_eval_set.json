@@ -1,0 +1,61 @@
+[
+  {
+    "_comment": [
+      "The evaluation set. Delete this first entry and replace the rest with your own.",
+      "",
+      "Each case needs a projectId, a question, and what SHOULD come back — either",
+      "expectedPages (combined page numbers, which you can read off the viewer) or",
+      "expectedChunkIds if you have them. A case passes when any expected page or",
+      "chunk appears in the retrieved list.",
+      "",
+      "Build it with: node benchmarks/retrieval_eval.mjs --capture \"your question\" --project <id>",
+      "which runs the question and prints the top hits with their page numbers, so",
+      "you mark up what is actually right rather than typing ids by hand.",
+      "",
+      "Aim for 30-50 cases, and TAG them by class. The tag breakdown is the useful",
+      "part: an average hides that identifier lookups went from 40% to 95% while",
+      "open questions went slightly backwards, and that is exactly the trade a",
+      "retrieval change makes. The four classes below are the ones that behave",
+      "differently in this app; keep roughly ten of each.",
+      "",
+      "Include failures you have actually seen. A set of questions you already know",
+      "work measures nothing."
+    ]
+  },
+
+  {
+    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
+    "question": "what is S102A",
+    "tag": "identifier",
+    "expectedPages": [3],
+    "note": "Sheet lookup by number — the case dense embeddings cannot resolve, since S102A and S201 are equally 'a structural sheet number'."
+  },
+  {
+    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
+    "question": "where is detail A-301 referenced",
+    "tag": "identifier",
+    "expectedPages": [],
+    "note": "Detail tag with a separator — the shape Postgres FTS mangles into '-301'."
+  },
+  {
+    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
+    "question": "what size are the W18x97 beams",
+    "tag": "member-size",
+    "expectedPages": [],
+    "note": "Member designation. Fails on dense alone for the same reason sheet numbers do."
+  },
+  {
+    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
+    "question": "what is the live load on the truss lines",
+    "tag": "spec-value",
+    "expectedPages": [],
+    "note": "A number stated in a general note. Dense usually finds this; keep it in the set so a change that breaks it is visible."
+  },
+  {
+    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
+    "question": "what holds up the canopy",
+    "tag": "open",
+    "expectedPages": [],
+    "note": "Shares no vocabulary with the note that answers it — the case keyword search cannot do, and the reason dense retrieval stays in the mix."
+  }
+]

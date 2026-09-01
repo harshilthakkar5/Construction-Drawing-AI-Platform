@@ -85,6 +85,7 @@ enum UsageKind {
   summary
   classification
   embedding
+  rerank
 }
 
 model UsageEvent {
@@ -323,10 +324,31 @@ model Chunk {
   page    Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
   portion Portion? @relation(fields: [portionId], references: [id], onDelete: SetNull)
 
+  identifiers ChunkIdentifier[]
+
   @@index([pageId])
   @@index([portionId])
   @@index([textHash])
   @@map("chunks")
+}
+
+/// Exact drawing identifiers found in a chunk — sheet numbers (S102A),
+/// details (A-301), member sizes (W18x97), door and panel marks. Normalized
+/// (uppercase, separators stripped) so "A-301" and "A301" are one key.
+///
+/// Extracted by the cdip_identifiers() SQL function, which is the SINGLE
+/// definition shared by the worker's insert and the API's query side — a regex
+/// duplicated across Python and TypeScript would drift, and a drift here means
+/// a question's identifiers silently stop matching the documents'.
+model ChunkIdentifier {
+  chunkId    String
+  identifier String
+
+  chunk Chunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@id([chunkId, identifier])
+  @@index([identifier])
+  @@map("chunk_identifiers")
 }
 
 model Summary {

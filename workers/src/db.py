@@ -316,21 +316,37 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
         if page_row is None:
             raise RuntimeError(f"page row missing for {document_id} p{page_number}")
         page_id = page_row[0]
+        # chunk_identifiers rows go with the chunk (ON DELETE CASCADE).
         conn.execute('DELETE FROM chunks WHERE "pageId" = %s', (page_id,))
         for chunk in chunks:
+            chunk_id = str(uuid.uuid4())
             conn.execute(
                 """
                 INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash")
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    str(uuid.uuid4()),
+                    chunk_id,
                     page_id,
                     chunk.text,
                     json.dumps(chunk.bbox),
                     chunk.token_count,
                     text_hash(chunk.text),
                 ),
+            )
+            # Exact identifiers (S102A, A-301, W18x97) for the retrieval arm
+            # that looks them up as identifiers rather than as words. The
+            # pattern lives in the cdip_identifiers() SQL function — ONE
+            # definition, shared with the API's query side, because a regex
+            # duplicated across two languages would drift and a drift here
+            # means a question's identifiers stop matching the documents'.
+            conn.execute(
+                """
+                INSERT INTO chunk_identifiers ("chunkId", identifier)
+                SELECT %s, unnest(cdip_identifiers(%s))
+                ON CONFLICT DO NOTHING
+                """,
+                (chunk_id, chunk.text),
             )
 
 

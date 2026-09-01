@@ -365,13 +365,68 @@ merged by Reciprocal Rank Fusion, which needs no score calibration between a
 cosine distance and a `ts_rank`, only their ranks. A chunk both halves like
 beats one only either found.
 
+A **third arm** joins them for exact identifiers — sheet numbers, details,
+member sizes, door and panel marks. To FTS an identifier is just another word,
+ranked alongside "framing" and "plan"; and the `english` configuration mangles
+some of them (`A-301` indexes as the lexeme `-301`, its leading letter
+dropped). So identifiers get their own extraction and their own index, and the
+arm is weighted 3x — enough that an exact match beats a plausible neighbour
+that both similarity arms agree on, without burying the context those arms
+supply. What counts as an identifier is defined **once**, in the
+`cdip_identifiers()` SQL function: the worker calls it when writing a chunk,
+the API calls it on the question. A regex duplicated in Python and TypeScript
+would drift, and a drift there means a question's identifiers silently stop
+matching the documents'.
+
 The keyword half needs the GIN index from the `hybrid_retrieval_fts`
-migration; run `npm run prisma:migrate`. It uses the `english` text-search
+migration, and the identifier arm the `identifier_index` one; run
+`npm run prisma:migrate`. The identifier backfill is pure SQL over text the
+database already holds — no re-embedding, no Qdrant work, no provider cost. It uses the `english` text-search
 configuration on both sides — `simple` keeps stop words, which makes "what is
 S102A" require a chunk containing the word "what" and match nothing at all —
 and OR's the question's lexemes rather than AND-ing them, so `ts_rank` orders
 by how much of the question a chunk covers. If the keyword half errors, chat
 degrades to dense-only rather than failing.
+
+### Measuring retrieval before changing it
+
+`benchmarks/retrieval_eval.mjs` runs a fixed set of questions through the API's
+real retrieval path — not a copy of it — and reports **recall@k** (did the
+chunk that answers the question come back at all?) and **MRR** (how high up).
+Recall is the one that matters: a chunk that is not retrieved cannot be cited,
+so it is the ceiling on answer quality.
+
+```bash
+# draft a case: run a question, see what comes back with page numbers
+node benchmarks/retrieval_eval.mjs --capture "what is S102A" --project <projectId>
+
+# score the set
+node benchmarks/retrieval_eval.mjs
+
+# compare two configurations — the difference between runs is the point
+HYBRID_RETRIEVAL=false node benchmarks/retrieval_eval.mjs
+RERANK_PROVIDER=cohere  node benchmarks/retrieval_eval.mjs
+```
+
+Cases live in `benchmarks/retrieval_eval_set.json`; mark expected **pages**
+rather than chunk ids (you can read a page number off the viewer) and **tag**
+each case by class. The tag breakdown is the useful part — an average hides
+that identifier lookups went from 40% to 95% while open questions went
+slightly backwards, which is exactly the trade a retrieval change makes.
+
+### Reranking
+
+`RERANK_PROVIDER=cohere|voyage` adds a cross-encoder over the fused candidates:
+retrieval widens to `RERANK_CANDIDATES` (60), the reranker reads the question
+and each chunk *together*, and the top `RETRIEVAL_LIMIT` survive. That joint
+read is what an embedding cannot do — by the time a chunk is a vector the
+question is not in the room — and it is what separates a chunk mentioning
+`S102A` in a cross-reference from the chunk that *is* `S102A`.
+
+Off by default: it adds a round trip and a bill to every question. A provider
+selected without its key, a failed call, or a malformed reply all leave the
+fused order untouched — reranking improves a working system, it is never a
+dependency of one. Spend appears in the dashboard under the `rerank` stage.
 
 **Construction-discipline questions are answered; nothing else is.** Asking
 "what is a column?" or "what is a concrete structure?" used to hit a dead end,
