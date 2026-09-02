@@ -222,6 +222,34 @@ export interface RetrievalResult {
 const IDENTIFIER_WEIGHT = 3;
 
 /**
+ * Load the pool's text and let the cross-encoder decide the final order.
+ * Returns null when reranking is off, unavailable, or failed — the caller then
+ * keeps the order it already had.
+ */
+async function rerankPool(
+  projectId: string,
+  question: string,
+  pool: string[],
+  limit: number,
+): Promise<string[] | null> {
+  if (!rerankEnabled() || pool.length === 0) return null;
+
+  // The reranker needs the TEXT, which neither search returned — one query for
+  // the pool, then re-sorted into the order the pool was already in.
+  const rows = await prisma.chunk.findMany({
+    where: { id: { in: pool } },
+    select: { id: true, text: true },
+  });
+  const textById = new Map(rows.map((r) => [r.id, r.text]));
+  const documents = pool.flatMap((id) => {
+    const text = textById.get(id);
+    return text ? [{ id, text }] : [];
+  });
+
+  return rerank(question, documents, limit, projectId);
+}
+
+/**
  * Retrieve the chunk ids for one question. The arms run together; a failure in
  * any of them degrades to the others rather than failing the question, because
  * dense alone is what this app shipped with and still answers most questions.
@@ -233,16 +261,27 @@ export async function retrieveChunkIds(
 ): Promise<RetrievalResult> {
   const limit = options.limit ?? 18;
 
-  if (!hybridEnabled()) {
-    const vector = await embedQuery(question, projectId);
-    const dense = await searchChunks(projectId, vector, { ...options, limit });
-    return { chunkIds: dense, dense: dense.length, keyword: 0, identifier: 0, reranked: false };
-  }
-
-  // With a reranker, fusion's job changes: it no longer picks the final 18, it
-  // assembles the pool the cross-encoder will judge. So the pool widens.
+  // With a reranker, the searches' job changes: they no longer pick the final
+  // N, they assemble the pool a cross-encoder will judge. So the pool widens —
+  // in BOTH retrieval modes. Reranking is orthogonal to how candidates were
+  // found, and tying it to HYBRID_RETRIEVAL made `RERANK_PROVIDER=voyage
+  // HYBRID_RETRIEVAL=false` silently do nothing at all.
   const reranking = rerankEnabled();
   const poolSize = reranking ? rerankCandidates() : limit;
+
+  if (!hybridEnabled()) {
+    const vector = await embedQuery(question, projectId);
+    const dense = await searchChunks(projectId, vector, { ...options, limit: poolSize });
+    const ordered = await rerankPool(projectId, question, dense, limit);
+    return {
+      chunkIds: ordered ?? dense.slice(0, limit),
+      dense: dense.length,
+      keyword: 0,
+      identifier: 0,
+      reranked: ordered !== null,
+    };
+  }
+
   const armLimit = Math.max(CANDIDATES, poolSize);
 
   const [denseIds, keywordIds, identifierIds] = await Promise.all([
@@ -274,34 +313,12 @@ export async function retrieveChunkIds(
     poolSize,
   );
 
-  const counts = {
+  const ordered = await rerankPool(projectId, question, fused, limit);
+  return {
+    chunkIds: ordered ?? fused.slice(0, limit),
     dense: denseIds.length,
     keyword: keywordIds.length,
     identifier: identifierIds.length,
-  };
-
-  if (!reranking) {
-    return { chunkIds: fused.slice(0, limit), ...counts, reranked: false };
-  }
-
-  // The reranker needs the TEXT, which fusion never loaded — one query for the
-  // pool, in the order fusion put them.
-  const rows = await prisma.chunk.findMany({
-    where: { id: { in: fused } },
-    select: { id: true, text: true },
-  });
-  const textById = new Map(rows.map((r) => [r.id, r.text]));
-  const documents = fused.flatMap((id) => {
-    const text = textById.get(id);
-    return text ? [{ id, text }] : [];
-  });
-
-  const ordered = await rerank(question, documents, limit, projectId);
-  return {
-    // A reranker that failed or was not configured leaves the fused order,
-    // which is a working answer rather than an error.
-    chunkIds: ordered ?? fused.slice(0, limit),
-    ...counts,
     reranked: ordered !== null,
   };
 }
