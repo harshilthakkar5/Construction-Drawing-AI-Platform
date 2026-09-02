@@ -1,6 +1,7 @@
 import { prisma } from "./db.js";
 import { embedQuery } from "./embedding.js";
 import { searchChunks } from "./qdrant.js";
+import { rerank, rerankCandidates, rerankEnabled } from "./rerank.js";
 
 /**
  * Hybrid retrieval: dense embeddings + keyword search, fused by rank.
@@ -27,6 +28,15 @@ import { searchChunks } from "./qdrant.js";
  * The two searches run CONCURRENTLY, so hybrid retrieval costs the slower of
  * the two rather than their sum — in practice the embedding round trip, which
  * dense-only already paid.
+ *
+ * A third arm joins them when the question names an identifier — see
+ * `searchIdentifiers` — and it is weighted above the other two, because
+ * "what is on S102A" is a request for that sheet and very little else.
+ *
+ * Finally, when a reranker is configured (./rerank.ts), the fused list is
+ * retrieved WIDE and cut narrow by a cross-encoder that reads the question and
+ * each chunk together. Fusion decides what gets considered; the reranker
+ * decides what survives.
  *
  * HYBRID_RETRIEVAL=false falls back to dense alone.
  */
@@ -108,14 +118,74 @@ export async function searchKeyword(
 }
 
 /**
+ * Exact identifier arm. A question naming S102A, A-301 or W12x26 is asking for
+ * that thing, and neither of the other two arms treats it as more than a word:
+ * to the embedding it is "a structural sheet number", to FTS it is one lexeme
+ * among the question's others.
+ *
+ * Both sides go through the same `cdip_identifiers()` SQL function, which is
+ * the single definition of what an identifier is and how it normalizes — the
+ * worker calls it when writing a chunk, this calls it on the question. A regex
+ * duplicated in Python and TypeScript would drift, and a drift here means the
+ * question's identifiers quietly stop matching the documents'.
+ *
+ * The question is uppercased first, which is what lets someone type "what is
+ * s102a" in lower case: the extractor is deliberately case-SENSITIVE so that
+ * ordinary prose ("no.5 bars") stays out of the index, and a question is short
+ * enough that uppercasing it costs nothing.
+ *
+ * Ranked by how many of the question's identifiers a chunk carries, so a chunk
+ * mentioning both S102A and A-301 outranks one mentioning either.
+ */
+export async function searchIdentifiers(
+  projectId: string,
+  question: string,
+  options: RetrievalOptions = {},
+): Promise<string[]> {
+  const limit = options.limit ?? CANDIDATES;
+  const portionId = options.portionId ?? null;
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH q AS (SELECT cdip_identifiers(upper(${question})) AS ids)
+    SELECT c.id, count(*) AS hits
+      FROM chunks c
+      JOIN pages p ON c."pageId" = p.id
+      JOIN documents d ON p."documentId" = d.id
+      JOIN chunk_identifiers ci ON ci."chunkId" = c.id
+      CROSS JOIN q
+     WHERE d."projectId" = ${projectId}
+       AND d."supersededAt" IS NULL
+       AND (${portionId}::text IS NULL OR c."portionId" = ${portionId}::text)
+       AND ci.identifier = ANY(q.ids)
+     GROUP BY c.id
+     ORDER BY hits DESC, c.id
+     LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+/** A list to fuse, and how much its opinion counts. */
+export interface WeightedList {
+  ids: string[];
+  weight: number;
+}
+
+/**
  * Fuse ranked id lists into one. Lists are ranked best-first; the result is
  * ordered by summed reciprocal rank, best first.
+ *
+ * Weights multiply a list's contribution. They exist for one case: an exact
+ * identifier match is stronger evidence than any similarity score, so that arm
+ * counts for more. Unweighted lists (weight 1) behave exactly as before.
  */
-export function reciprocalRankFusion(lists: string[][], limit: number): string[] {
+export function reciprocalRankFusion(
+  lists: (string[] | WeightedList)[],
+  limit: number,
+): string[] {
   const scores = new Map<string, number>();
-  for (const list of lists) {
-    list.forEach((id, index) => {
-      scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + index + 1));
+  for (const entry of lists) {
+    const { ids, weight } = Array.isArray(entry) ? { ids: entry, weight: 1 } : entry;
+    ids.forEach((id, index) => {
+      scores.set(id, (scores.get(id) ?? 0) + weight / (RRF_K + index + 1));
     });
   }
   return [...scores.entries()]
@@ -126,15 +196,35 @@ export function reciprocalRankFusion(lists: string[][], limit: number): string[]
 
 export interface RetrievalResult {
   chunkIds: string[];
-  /** What each half contributed, for the log line and the metrics. */
+  /** What each arm contributed, for the log line and the eval harness. */
   dense: number;
   keyword: number;
+  identifier: number;
+  /** Whether a cross-encoder decided the final order. */
+  reranked: boolean;
 }
 
 /**
- * Retrieve the chunk ids for one question. Dense and keyword run together;
- * a failure in the keyword half degrades to dense-only rather than failing
- * the question, because dense alone is what this app shipped with.
+ * An exact identifier match is stronger evidence than any similarity score:
+ * "what is on S102A" wants that sheet, not something like it. Weighting the
+ * arm rather than short-circuiting to it keeps the other two contributing —
+ * the question usually asks something ABOUT the sheet, and that context comes
+ * from the semantic half.
+ *
+ * 3, and the number is arithmetic rather than taste. A chunk at rank 1 in BOTH
+ * similarity arms scores 2/(K+1); an identifier hit at rank 1 with weight W
+ * scores W/(K+1). At W=2 those are exactly equal, so a plausible-looking
+ * neighbour that dense and keyword agree on ties with the sheet the user named
+ * — and the tie breaks alphabetically, which is no answer at all. W=3 puts the
+ * exact match clearly ahead while a chunk that is top of the identifier arm
+ * AND top of a similarity arm still outranks it, which is the right order.
+ */
+const IDENTIFIER_WEIGHT = 3;
+
+/**
+ * Retrieve the chunk ids for one question. The arms run together; a failure in
+ * any of them degrades to the others rather than failing the question, because
+ * dense alone is what this app shipped with and still answers most questions.
  */
 export async function retrieveChunkIds(
   projectId: string,
@@ -146,27 +236,72 @@ export async function retrieveChunkIds(
   if (!hybridEnabled()) {
     const vector = await embedQuery(question, projectId);
     const dense = await searchChunks(projectId, vector, { ...options, limit });
-    return { chunkIds: dense, dense: dense.length, keyword: 0 };
+    return { chunkIds: dense, dense: dense.length, keyword: 0, identifier: 0, reranked: false };
   }
 
-  const [denseIds, keywordIds] = await Promise.all([
+  // With a reranker, fusion's job changes: it no longer picks the final 18, it
+  // assembles the pool the cross-encoder will judge. So the pool widens.
+  const reranking = rerankEnabled();
+  const poolSize = reranking ? rerankCandidates() : limit;
+  const armLimit = Math.max(CANDIDATES, poolSize);
+
+  const [denseIds, keywordIds, identifierIds] = await Promise.all([
     embedQuery(question, projectId)
-      .then((vector) => searchChunks(projectId, vector, { ...options, limit: CANDIDATES }))
+      .then((vector) => searchChunks(projectId, vector, { ...options, limit: armLimit }))
       .catch((err) => {
         // Dense failing is the serious one — without it there is no semantic
         // recall at all — but a keyword-only answer beats no answer.
         console.warn("[retrieval] dense search failed:", (err as Error).message);
         return [] as string[];
       }),
-    searchKeyword(projectId, question, { ...options, limit: CANDIDATES }).catch((err) => {
+    searchKeyword(projectId, question, { ...options, limit: armLimit }).catch((err) => {
       console.warn("[retrieval] keyword search failed:", (err as Error).message);
+      return [] as string[];
+    }),
+    searchIdentifiers(projectId, question, { ...options, limit: armLimit }).catch((err) => {
+      // Most likely cause: the identifier migration has not been run yet.
+      console.warn("[retrieval] identifier search failed:", (err as Error).message);
       return [] as string[];
     }),
   ]);
 
-  return {
-    chunkIds: reciprocalRankFusion([denseIds, keywordIds], limit),
+  const fused = reciprocalRankFusion(
+    [
+      { ids: denseIds, weight: 1 },
+      { ids: keywordIds, weight: 1 },
+      { ids: identifierIds, weight: IDENTIFIER_WEIGHT },
+    ],
+    poolSize,
+  );
+
+  const counts = {
     dense: denseIds.length,
     keyword: keywordIds.length,
+    identifier: identifierIds.length,
+  };
+
+  if (!reranking) {
+    return { chunkIds: fused.slice(0, limit), ...counts, reranked: false };
+  }
+
+  // The reranker needs the TEXT, which fusion never loaded — one query for the
+  // pool, in the order fusion put them.
+  const rows = await prisma.chunk.findMany({
+    where: { id: { in: fused } },
+    select: { id: true, text: true },
+  });
+  const textById = new Map(rows.map((r) => [r.id, r.text]));
+  const documents = fused.flatMap((id) => {
+    const text = textById.get(id);
+    return text ? [{ id, text }] : [];
+  });
+
+  const ordered = await rerank(question, documents, limit, projectId);
+  return {
+    // A reranker that failed or was not configured leaves the fused order,
+    // which is a working answer rather than an error.
+    chunkIds: ordered ?? fused.slice(0, limit),
+    ...counts,
+    reranked: ordered !== null,
   };
 }

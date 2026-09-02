@@ -7,6 +7,7 @@ import { chatProvider } from "../llm.js";
 import { chatLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { hybridEnabled, retrieveChunkIds } from "../retrieval.js";
+import { rerankModel } from "../rerank.js";
 import { redis } from "../redis.js";
 import { chatDuration, retrievalCacheCounter } from "../telemetry.js";
 import { embeddingKeyEnv, embeddingsAvailable } from "../embedding.js";
@@ -35,10 +36,11 @@ const HISTORY_TURNS = 8;
 function retrievalCacheKey(projectId: string, portionId: string | undefined, question: string) {
   const normalized = question.trim().toLowerCase().replace(/\s+/g, " ");
   const hash = createHash("sha256").update(normalized).digest("hex");
-  // The mode is part of the key: a cached dense-only result must not be served
-  // to a request that asked for hybrid, or the switch would look like it did
-  // nothing until the TTL expired.
-  const mode = hybridEnabled() ? "hybrid" : "dense";
+  // The retrieval mode is part of the key: a cached dense-only result must not
+  // be served to a request that asked for hybrid, and a cached pre-rerank
+  // ordering must not survive turning the reranker on — either way the switch
+  // would look like it did nothing until the TTL expired.
+  const mode = `${hybridEnabled() ? "hybrid" : "dense"}${rerankModel() ? `+${rerankModel()}` : ""}`;
   return `retrieval:${projectId}:${mode}:${portionId ?? "all"}:${hash}`;
 }
 
@@ -48,13 +50,16 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
   retrievalCacheCounter.add(1, { result: cached ? "hit" : "miss" });
   if (cached) return JSON.parse(cached) as string[];
 
-  const { chunkIds, dense, keyword } = await retrieveChunkIds(projectId, question, {
-    portionId,
-    limit: RETRIEVAL_LIMIT,
-  });
+  const { chunkIds, dense, keyword, identifier, reranked } = await retrieveChunkIds(
+    projectId,
+    question,
+    { portionId, limit: RETRIEVAL_LIMIT },
+  );
   if (hybridEnabled()) {
     console.log(
-      `[retrieval] ${chunkIds.length} chunks for project ${projectId} (dense ${dense}, keyword ${keyword})`,
+      `[retrieval] ${chunkIds.length} chunks for project ${projectId} ` +
+        `(dense ${dense}, keyword ${keyword}, identifier ${identifier}` +
+        `${reranked ? ", reranked" : ""})`,
     );
   }
   await redis.set(key, JSON.stringify(chunkIds), "EX", RETRIEVAL_CACHE_TTL).catch(() => {});

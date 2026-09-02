@@ -374,16 +374,39 @@ with cited chunk IDs → map to clickable page links. Claude only ever sees retr
 never raw PDFs. Cache frequent retrievals in Redis (the key includes the retrieval mode).
 Persist the full exchange to PostgreSQL.
 
-Retrieval is two searches run CONCURRENTLY and fused by Reciprocal Rank Fusion
+Retrieval is THREE searches run CONCURRENTLY and fused by weighted Reciprocal Rank Fusion
 (`apps/api/src/retrieval.ts`, `HYBRID_RETRIEVAL=true`): the dense embedding
-(`EMBEDDING_PROVIDER` → Qdrant, filtered by project + optional portion) and a Postgres
-full-text search over `chunks.text`. Dense alone cannot separate `S102A` from `S201` — both
+(`EMBEDDING_PROVIDER` → Qdrant, filtered by project + optional portion), a Postgres
+full-text search over `chunks.text`, and an EXACT identifier lookup weighted 3x. Dense alone cannot separate `S102A` from `S201` — both
 are "a structural sheet number" — so every question naming a sheet, a detail or a member size
 depended on luck. The FTS side uses the `english` configuration on BOTH the index and the
 query (`simple` keeps stop words, so "what is S102A" demands a chunk containing "what" and
 matches nothing) and OR's the question's lexemes rather than AND-ing them, building the
-tsquery from `tsvector_to_array` so it is injection-safe. A failure in either half degrades to
-the other rather than failing the question.
+tsquery from `tsvector_to_array` so it is injection-safe. A failure in any arm degrades to
+the others rather than failing the question.
+
+The identifier arm exists because FTS treats `S102A` as one more word (and `english` mangles
+`A-301` into the lexeme `-301`, dropping its leading letter). What counts as an identifier is
+defined ONCE, in the `cdip_identifiers()` SQL function — the worker calls it writing a chunk
+(`db.replace_page_chunks` → `chunk_identifiers`), the API calls it on the question. A regex
+duplicated across Python and TypeScript would drift, and a drift means a question's identifiers
+silently stop matching the documents'. The extractor is case-SENSITIVE so prose stays out of
+the index; the query side uppercases first so someone can type "what is s102a". The 3x weight
+is arithmetic: at 2x an identifier hit exactly TIES a chunk both similarity arms rank first,
+and the tie breaks alphabetically.
+
+`RERANK_PROVIDER=cohere|voyage` (`apps/api/src/rerank.ts`, off by default) then widens the
+fused pool to `RERANK_CANDIDATES` and lets a cross-encoder that reads the question and each
+chunk TOGETHER pick the final cut — the one thing an embedding cannot do, since by the time a
+chunk is a vector the question is not in the room. A missing key, a failed call or a malformed
+reply all leave the fused order: reranking improves a working system, it is never a dependency
+of one. Cohere bills per SEARCH, so `usage.ts` prices `rerank-*` per-million-searches and
+rerank.ts records one search as one unit.
+
+`benchmarks/retrieval_eval.mjs` is what makes any of this checkable: it runs a tagged question
+set (`retrieval_eval_set.json`) through the REAL `retrieveChunkIds` and reports recall@k and
+MRR, per tag. Run it before and after a retrieval change — every claim in this section is
+otherwise unfalsifiable.
 
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so

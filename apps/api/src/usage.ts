@@ -9,7 +9,7 @@ import { prisma } from "./db.js";
  * Recording must never break the request that produced it: failures are
  * logged and swallowed.
  */
-export type UsageKind = "chat" | "summary" | "classification" | "embedding";
+export type UsageKind = "chat" | "summary" | "classification" | "embedding" | "rerank";
 
 export interface TokenCounts {
   inputTokens?: number;
@@ -88,6 +88,17 @@ const RATES: Record<string, { input: number; output: number }> = {
   // records it under this name (embedllm.batch_model_name) precisely so the
   // dashboard prices it at what it cost rather than at the synchronous rate.
   "gemini-embedding-001-batch": { input: 0.075, output: 0 },
+  // Rerankers (RERANK_PROVIDER). Cohere bills PER SEARCH rather than per
+  // token, which this token-shaped table cannot say directly — so rerank.ts
+  // records one search as one "token" and the rate is its per-MILLION-searches
+  // price. $2000/M x 1 unit = $0.002, which is Cohere's actual per-search
+  // price. Voyage bills per token, so its rows carry a real token estimate and
+  // a real per-token rate.
+  "rerank-v3.5": { input: 2000, output: 0 },
+  "rerank-english-v3.0": { input: 2000, output: 0 },
+  "rerank-multilingual-v3.0": { input: 2000, output: 0 },
+  "rerank-2.5": { input: 0.05, output: 0 },
+  "rerank-2.5-lite": { input: 0.02, output: 0 },
 };
 const DEFAULT_RATE = { input: 3, output: 15 };
 
