@@ -717,7 +717,34 @@ for the viewer.
 
 ### App Platform
 
-Create one app with three components from this repo:
+**The monorepo does not need splitting.** `.do/app.yaml` in this repo defines
+all four components against the same GitHub source; each differs only in what
+it builds and where it builds from:
+
+```bash
+doctl apps create --spec .do/app.yaml            # first deploy
+doctl apps update <app-id> --spec .do/app.yaml   # every change after
+```
+
+| Component | `source_dir` | Why |
+| --- | --- | --- |
+| api | `/` | imports `@cdip/shared` as an npm workspace, which resolves from the ROOT package.json |
+| web | `/` | same |
+| worker | `/workers` | Python and self-contained; its Dockerfile's `COPY` paths are relative to that directory |
+| migrate | `/` | pre-deploy job, needs the Prisma schema and CLI |
+
+App Platform rebuilds the components whose source directory changed, so a push
+touching `workers/` redeploys only the worker. api and web share the repository
+root and therefore rebuild together — that is the cost of the shared package,
+and it is cheaper than the drift you get from duplicating it.
+
+Two details in the spec that are easy to get wrong by hand: `VITE_API_URL` must
+be `scope: BUILD_TIME`, because Vite inlines `VITE_*` at build and a run-time
+value silently produces a bundle with no API URL; and the api's build runs
+`prisma generate`, so a generation failure breaks the build rather than the
+running service.
+
+Or, by hand in the console, three components from this repo:
 
 1. **api** (service) — build: `npm install && npm run build`; run:
    `npm run prisma:generate --workspace @cdip/api && node apps/api/dist/index.js`;
