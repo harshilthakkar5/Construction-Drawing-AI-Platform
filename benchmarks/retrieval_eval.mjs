@@ -44,6 +44,11 @@ const root = resolve(here, "..");
 // The API is TypeScript; tsx compiles it on the way in. Imported lazily so
 // --help works without a database.
 async function loadApi() {
+  // A benchmark's calls are not a user's: without this every question would be
+  // billed to the project in the dashboard, and a placeholder project id would
+  // raise a foreign-key error per question on top.
+  process.env.USAGE_TRACKING = "off";
+
   const { register } = await import("tsx/esm/api");
   register();
   // env.ts validates on import and reads .env relative to the cwd, which is
@@ -219,18 +224,40 @@ async function main() {
         `  Build one with: node benchmarks/retrieval_eval.mjs --capture "a question" --project <id>`,
     );
   }
-  const unmarked = cases.filter(
-    (c) => (c.expectedPages ?? []).length === 0 && (c.expectedChunkIds ?? []).length === 0,
-  );
-  if (unmarked.length) {
-    console.warn(
-      `\n  ${unmarked.length}/${cases.length} cases have nothing expected — they can only ever fail.\n` +
-        `  Fill in expectedPages before trusting the numbers.`,
+  // A placeholder id queries a project that does not exist, which returns
+  // nothing for every question and reads as 0% recall — a number that looks
+  // like a retrieval result and is not one. Refuse rather than report it.
+  const placeholders = cases.filter((c) => /REPLACE|<.*>/i.test(c.projectId));
+  if (placeholders.length) {
+    throw new Error(
+      `${placeholders.length}/${cases.length} cases still carry the placeholder projectId.\n` +
+        `  Every question would return nothing and score 0%, which is not a retrieval result.\n` +
+        `  Put a real project id in ${args.set} first.`,
     );
   }
 
+  const unmarked = cases.filter(
+    (c) => (c.expectedPages ?? []).length === 0 && (c.expectedChunkIds ?? []).length === 0,
+  );
+  if (unmarked.length === cases.length) {
+    throw new Error(
+      `no case in ${args.set} says what it expects, so every one scores as a miss.\n` +
+        `  Build them with: node benchmarks/retrieval_eval.mjs --capture "a question" --project <id>`,
+    );
+  }
+  if (unmarked.length) {
+    console.warn(
+      `\n  ${unmarked.length}/${cases.length} cases have nothing expected and are SKIPPED.\n` +
+        `  Fill in expectedPages to include them.`,
+    );
+  }
+
+  const scorable = cases.filter(
+    (c) => (c.expectedPages ?? []).length > 0 || (c.expectedChunkIds ?? []).length > 0,
+  );
+
   const results = [];
-  for (const testCase of cases) {
+  for (const testCase of scorable) {
     const { chunkIds } = await api.retrieval.retrieveChunkIds(
       testCase.projectId,
       testCase.question,

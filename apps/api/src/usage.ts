@@ -18,12 +18,23 @@ export interface TokenCounts {
   cacheWriteTokens?: number;
 }
 
+/**
+ * Off for traffic that is not a user's: the evaluation harness and the load
+ * benchmarks run the real retrieval path, and their calls would otherwise land
+ * in the dashboard as project spend nobody incurred — and, when the project id
+ * is a placeholder, as a foreign-key error per question.
+ */
+function trackingEnabled(): boolean {
+  return (process.env.USAGE_TRACKING ?? "on").trim().toLowerCase() !== "off";
+}
+
 export async function recordUsage(
   projectId: string | null,
   kind: UsageKind,
   model: string,
   tokens: TokenCounts,
 ): Promise<void> {
+  if (!trackingEnabled()) return;
   try {
     await prisma.usageEvent.create({
       data: {

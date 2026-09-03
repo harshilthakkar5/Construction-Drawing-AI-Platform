@@ -174,3 +174,17 @@ describe("rerank pricing", () => {
     expect(rateFor("rerank-2.5").input).toBeLessThan(1);
   });
 });
+
+describe("reranking is orthogonal to how candidates were found", () => {
+  it("is enabled the same way whatever HYBRID_RETRIEVAL says", () => {
+    // Regression: retrieveChunkIds returned early on the dense-only path and
+    // never reranked, so `RERANK_PROVIDER=voyage HYBRID_RETRIEVAL=false`
+    // silently did nothing — a configured, paid-for reranker with no effect
+    // and no warning.
+    process.env.RERANK_PROVIDER = "voyage";
+    process.env.HYBRID_RETRIEVAL = "false";
+    expect(rerankEnabled()).toBe(true);
+    process.env.HYBRID_RETRIEVAL = "true";
+    expect(rerankEnabled()).toBe(true);
+  });
+});
