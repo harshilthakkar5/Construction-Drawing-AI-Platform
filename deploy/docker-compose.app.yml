@@ -1,0 +1,113 @@
+# Droplet A — api + web + qdrant.
+#
+#   cd /opt/cdip && docker compose -f deploy/docker-compose.app.yml up -d --build
+#
+# Why these three share a box: all are latency-sensitive and none is CPU-hungry.
+# Co-locating the API with Qdrant also makes every vector search a loopback call
+# instead of a network hop, on the path a user is waiting on. The worker — the
+# one bursty, memory-hungry process — lives on Droplet B precisely so an ingest
+# can never slow a chat.
+#
+# Requires deploy/.env.app (see .env.app.example).
+
+name: cdip-app
+
+services:
+  # ---------------------------------------------------------------------------
+  # caddy — TLS, the static frontend, and the /api proxy, in one image
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        # Same origin as the frontend, so the browser makes no cross-origin
+        # request at all.
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and OCSP staples. Losing this volume means re-issuing on
+      # next boot, which counts against Let's Encrypt's rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 256m
+
+  # ---------------------------------------------------------------------------
+  # api
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env.app
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Container DNS: the loopback call this co-location exists for.
+      QDRANT_URL: http://qdrant:6333
+    # No published port — Caddy reaches it on the compose network, and nothing
+    # else should. An API on 0.0.0.0:4000 is an API reachable without TLS.
+    expose:
+      - "4000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      # /health checks Postgres, Redis and Qdrant, so a healthy api means the
+      # whole dependency chain answered.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 768m
+
+  # ---------------------------------------------------------------------------
+  # qdrant
+  # ---------------------------------------------------------------------------
+  qdrant:
+    # Pin an explicit tag — check hub.docker.com/r/qdrant/qdrant for current.
+    # `latest` means a restart can silently change your database engine.
+    image: qdrant/qdrant:v1.15.1
+    restart: unless-stopped
+    ports:
+      # Bound to the PRIVATE IP only, so the worker on Droplet B can reach it
+      # over the VPC and the public internet cannot. This app sends NO
+      # authentication to Qdrant (apps/api/src/qdrant.ts and
+      # workers/src/embeddings.py both use plain HTTP), so this bind is the
+      # security control — do not replace it with 0.0.0.0 and do not set
+      # QDRANT__SERVICE__API_KEY, which would lock the app out of its own
+      # database.
+      - "${PRIVATE_IP}:6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Vectors and the HNSW graph are held in memory: about 6 KB per chunk at
+    # 1024 dimensions. Raise this as the corpus grows, and watch it — Qdrant
+    # does not degrade when it runs out of memory, it is killed.
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  qdrant_storage:
+  caddy_data:
+  caddy_config:
+  caddy_logs:

@@ -1,0 +1,21 @@
+# Keep the build context small and the image reproducible. node_modules in
+# particular must NOT be copied: the host's may be a different platform, and
+# `npm ci` inside the image is what makes the build deterministic.
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+.venv
+workers/.venv
+**/__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+apps/api/prisma/migrations/**/*.sql.bak
+monitoring
+benchmarks
+docs
+*.md
+!README.md

@@ -1,0 +1,40 @@
+# Droplet B — the worker, alone.
+#
+#   cd /opt/cdip && docker compose -f deploy/docker-compose.worker.yml up -d --build
+#
+# It gets its own machine because it is the noisy neighbour: PyMuPDF renders
+# 18-megapixel pixmaps of D-size sheets, and PROCESS_CONCURRENCY x
+# PAGE_CONCURRENCY of them are in flight at once. On a shared box that is an
+# upload making the chat crawl, or the OOM killer choosing the API.
+#
+# Requires deploy/.env.worker (see .env.worker.example).
+
+name: cdip-worker
+
+services:
+  worker:
+    build:
+      context: ../workers
+    restart: unless-stopped
+    env_file: .env.worker
+
+    # Scale by adding instances, not concurrency, once one box is saturated:
+    #   docker compose -f deploy/docker-compose.worker.yml up -d --scale worker=2
+    # Jobs are idempotent and commit per page, and process_document holds a
+    # Postgres advisory lock for the whole run, so two replicas cannot process
+    # the same document twice.
+    #
+    # Before scaling, check the arithmetic that actually binds:
+    #   replicas x DB_POOL_SIZE  <  the Postgres plan's connection limit
+    # The smallest managed Postgres allows about 22, and exhausting it surfaces
+    # as pool timeouts that read like slowness rather than like a limit.
+
+    # The memory ceiling is the point of this file. Each in-flight page holds a
+    # full-resolution pixmap; the container is bounded so a runaway ingest is
+    # killed as a container rather than taking the host with it.
+    mem_limit: 2g
+    cpus: 1.5
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }

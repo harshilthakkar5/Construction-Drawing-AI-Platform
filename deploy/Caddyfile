@@ -1,0 +1,63 @@
+# Caddy: TLS, the static frontend, and one origin for both.
+#
+# Serving the app and the API from the SAME origin is the point of this file.
+# The browser then makes same-origin requests (VITE_API_URL=/api), so there is
+# no CORS preflight on any call, no origin list to keep in step with your
+# domains, and no third-party-cookie question. The API's own cors() middleware
+# becomes a no-op rather than a thing to configure.
+#
+# Replace the domain. Caddy obtains and renews the certificate itself, provided
+# ports 80 and 443 are open and the A record points here.
+
+{$APP_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# The API, with the /api prefix removed — Express serves /projects,
+	# /auth and /health at the root, so the prefix is purely a routing
+	# device for this proxy.
+	handle_path /api/* {
+		reverse_proxy api:4000 {
+			# A 1000-page upload's completion call and a chat answer both
+			# take longer than the default. The upload BYTES do not pass
+			# through here — the browser sends those straight to Spaces
+			# with a presigned URL — but the API calls around them still
+			# need room.
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	# Everything else is the single-page app. try_files sends unknown paths
+	# to index.html so the client router owns them, rather than Caddy
+	# returning 404 for a route the app knows perfectly well.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+
+		# Vite emits content-hashed asset filenames, so those are immutable
+		# and cacheable forever; index.html must never be, or a deploy
+		# leaves browsers on the old bundle.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@html path /index.html /
+		header @html Cache-Control "no-cache"
+	}
+
+	header {
+		# Sent on every response; the app is same-origin throughout.
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}

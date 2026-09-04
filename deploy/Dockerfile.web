@@ -1,0 +1,36 @@
+# The web build, baked into the Caddy image that serves it.
+#
+#   docker build -f deploy/Dockerfile.web --build-arg VITE_API_URL=/api -t cdip-web .
+#
+# One container holds both the static files and the reverse proxy, so there is
+# no volume to keep in sync between them and a rebuild of the frontend is a
+# rebuild of one image.
+
+FROM node:22-slim AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN npm ci
+
+COPY packages/shared packages/shared
+COPY apps/web apps/web
+
+# Vite inlines VITE_* AT BUILD TIME. Passing it at run time produces a bundle
+# with no API URL and no error to explain it — the app simply cannot reach the
+# server. "/api" is the default because web and api are served from the same
+# origin behind this proxy, which also means the browser never makes a
+# cross-origin request and CORS never enters the picture.
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=$VITE_API_URL
+
+RUN npm run build --workspace @cdip/shared --workspace @cdip/web
+
+
+FROM caddy:2-alpine
+COPY --from=build /app/apps/web/dist /srv
+# The Caddyfile is mounted at run time rather than copied, so changing the
+# domain does not require rebuilding the frontend.
