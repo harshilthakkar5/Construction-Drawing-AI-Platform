@@ -820,6 +820,60 @@ change them:
 - **Every container has a `mem_limit`.** The worker's is the one that matters:
   bounded, a runaway ingest kills a container; unbounded, it takes the host.
 
+## Running it on one office PC instead
+
+`docs/local-server-deployment.md` is the full walkthrough for the other
+deployment shape: a Windows 11 PC on the office wifi running everything —
+frontend, API, worker, Postgres, Redis, Qdrant and object storage — with the
+other laptops opening it in a browser. Electricity instead of ~$60–90/month, at
+the cost of no TLS, no redundancy, and backups being yours to run.
+
+```bash
+cp deploy/.env.local.example deploy/.env.local   # edit three values
+./deploy/deploy.sh local
+```
+
+### The storage switch
+
+Object storage is the only piece that would ordinarily have to be a cloud
+service, and it is one word:
+
+```bash
+STORAGE_BACKEND=local     # a MinIO container writing to a folder on this disk
+STORAGE_BACKEND=spaces    # DigitalOcean Spaces
+```
+
+Both sets of credentials live in the env file at once, so this is a switch
+rather than a rewrite, and MinIO speaks the same S3 API — there is no second
+storage code path that could rot untested. The rule is resolved by
+`apps/api/src/storageConfig.ts` and `workers/src/storage_config.py` against one
+shared fixture (`packages/shared/fixtures/storage-backend.json`), because the
+API writes the uploaded PDF and the worker reads it back: a drift is not a
+degraded system, it is a worker unable to find any file it is handed. Check
+which one took effect with `curl -s http://localhost/api/health` — the reply
+carries `storage: {backend, bucket}`.
+
+Leaving `STORAGE_BACKEND` unset means whichever set you actually filled in
+(any of the four required `SPACES_*` variables present picks `spaces`, none of
+them picks `local`), so an existing `.env` keeps the backend it already uses.
+Setting three of the four still fails at startup naming the fourth.
+
+**It does not move anything.** Object keys are recorded in Postgres and the two
+stores hold different bytes, so a project uploaded under one backend has
+nothing under the other — its pages stop rendering and re-processing fails to
+download. Switch on an empty system, or mirror the bucket first
+(`mc mirror local/cdip-local spaces/your-bucket`); keys are identical on both
+sides, so a mirrored bucket needs no database change. That is also the
+migration path out, the day the office PC becomes the bottleneck.
+
+`LOCAL_S3_PUBLIC_ENDPOINT` is the one value with no useful default. Uploads go
+from the browser STRAIGHT to object storage with a presigned URL, and a
+presigned URL is signed against the host it will be requested on: the API
+inside Docker reaches MinIO at `http://minio:9000`, a laptop across the office
+reaches it at `http://<server-ip>:9000`, and signing the wrong one fails every
+upload with `SignatureDoesNotMatch`. `deploy.sh local` refuses to start until
+it is set.
+
 ### DOKS
 
 Deploy the api and worker as Deployments (images built from `apps/api` and

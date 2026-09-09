@@ -1,0 +1,58 @@
+# Caddy for the office server: the static frontend and the /api proxy, on one
+# origin, over plain HTTP.
+#
+# NO TLS, deliberately. This stack is reached at http://192.168.x.x — a private
+# address no certificate authority will issue for — so automatic HTTPS is off
+# and the site is bound to :80. The consequence is real and worth stating: every
+# session cookie, chat message and presigned URL crosses the office wifi
+# readable by anyone on it. That is an acceptable trade on a trusted LAN and
+# nowhere else. DO NOT port-forward this from the router. If this ever needs to
+# be reachable from outside the office, put it behind a VPN (Tailscale, or the
+# office firewall's own), which is also how it gets a real certificate.
+
+{
+	# Without this Caddy tries to obtain a certificate for whatever host it is
+	# given and fails in a loop against Let's Encrypt.
+	auto_https off
+}
+
+:80 {
+	encode zstd gzip
+
+	# Express serves /projects, /auth and /health at the root; the /api prefix
+	# is purely a routing device so the frontend and the API share an origin
+	# and the browser never makes a cross-origin request.
+	handle_path /api/* {
+		reverse_proxy api:4000 {
+			# A 1000-page upload's completion call and a chat answer both take
+			# longer than the default. The upload BYTES do not pass through
+			# here — the browser sends those straight to MinIO on port 9000
+			# with a presigned URL — but the API calls around them need room.
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+
+		# Vite emits content-hashed asset filenames, so those are immutable;
+		# index.html must never be cached or a deploy leaves browsers on the
+		# old bundle.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@html path /index.html /
+		header @html Cache-Control "no-cache"
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

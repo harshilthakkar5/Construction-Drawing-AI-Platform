@@ -7,6 +7,7 @@ import { missingPrismaModels, prisma, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
 import { authLimiter, floodLimiter, generalLimiter } from "./rateLimit.js";
 import { redis } from "./redis.js";
+import { storage } from "./storage.js";
 import { httpMetricsMiddleware } from "./telemetry.js";
 import { authRouter } from "./routes/auth.js";
 import { chatRouter } from "./routes/chat.js";
@@ -65,7 +66,15 @@ export function createApp() {
     ]);
 
     const healthy = Object.values(checks).every((s) => s === "ok");
-    res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", checks });
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? "ok" : "degraded",
+      checks,
+      // Which object store this process is writing to. Reported rather than
+      // probed: it is here to answer "did my STORAGE_BACKEND switch take?"
+      // without shelling into the container, and a store's reachability is
+      // not part of the liveness contract the deploy scripts wait on.
+      storage: { backend: storage.backend, bucket: storage.bucket },
+    });
   });
 
   // Strictest tier, by IP and counted on failures only: these are the

@@ -3,6 +3,10 @@ dist/
 build/
 .env
 .env.local
+# Filled-in deployment env files — every credential the API and worker hold.
+# The .example templates beside them are the checked-in half.
+deploy/.env.*
+!deploy/.env.*.example
 *.tsbuildinfo
 
 # Python
@@ -18,6 +22,9 @@ venv/
 
 # Local data volumes
 .data/
+# The office-server deployment's object storage: every uploaded PDF, page
+# image and thumbnail lives here (deploy/.env.local's STORAGE_DATA_DIR).
+/data/
 
 # Redis dump, e.g. from running redis-server locally for a load test
 dump.rdb

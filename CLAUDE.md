@@ -125,8 +125,26 @@ embeddings → summaries.
 - Database: PostgreSQL + Prisma ORM
 - Vector DB: Qdrant (metadata filtering by project/portion)
 - Queue: BullMQ + Redis (also used for cache/sessions)
-- Object storage: DigitalOcean Spaces (S3-compatible; use AWS S3 SDK with endpoint override,
-  e.g. blr1.digitaloceanspaces.com)
+- Object storage: S3-compatible, behind ONE switch — `STORAGE_BACKEND=local|spaces`
+  (`apps/api/src/storageConfig.ts`, `workers/src/storage_config.py`). `spaces` is
+  DigitalOcean Spaces (AWS S3 SDK with endpoint override, e.g.
+  blr1.digitaloceanspaces.com); `local` is a MinIO container writing to a folder on the
+  machine's own disk, which is what lets the whole stack run on one office PC
+  (docs/local-server-deployment.md). Both sets of credentials live in the env file at
+  once, so it is a restart and not a rewrite — and because MinIO speaks the same API,
+  there is no second storage code path to rot untested. Unset means whichever set you
+  filled in: any of the four required `SPACES_*` present picks `spaces`, none picks
+  `local`; three of the four still fails at startup naming the fourth. The two sides
+  resolve it from ONE golden fixture, `packages/shared/fixtures/storage-backend.json`,
+  because the API writes the uploaded PDF and the worker reads it back — a drift is not
+  a degraded system, it is a worker that cannot find any file it is handed. The switch
+  MOVES NOTHING: keys live in Postgres and the two stores hold different bytes, so it is
+  for an empty system or after `mc mirror`. `LOCAL_S3_PUBLIC_ENDPOINT` /
+  `SPACES_PUBLIC_ENDPOINT` exist because a presigned URL is signed against the host it
+  will be REQUESTED on: the API reaches MinIO at `http://minio:9000` and a laptop across
+  the office reaches it at `http://<server-ip>:9000`, so `s3.ts` keeps a second client
+  for the URLs that leave the process. Server-to-server presigns (the malware scanner)
+  use `presignGetObjectInternal` instead.
 - OCR: PaddleOCR
 - Embeddings: Voyage AI (voyage-3 / voyage-3-large) by default, with Cohere (`embed-v4.0`)
   and Gemini (`gemini-embedding-001`) as ALTERNATIVES behind one switch:
@@ -156,7 +174,12 @@ embeddings → summaries.
   on — and they bill as output, so they are recorded as output. Adding a call site means
   adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
-- Deployment target: DigitalOcean App Platform / DOKS. API and workers scale independently.
+- Deployment target: DigitalOcean App Platform / DOKS, or the two Droplets in
+  `deploy/docker-compose.{app,worker}.yml`. API and workers scale independently. A third
+  shape is one Windows PC on an office LAN running everything
+  (`deploy/docker-compose.local.yml`, `./deploy/deploy.sh local`): plain HTTP, since a
+  LAN address has no certificate anyone can issue, so it is for a trusted network and
+  must never be port-forwarded.
 
 ## Monorepo layout
 
@@ -552,5 +575,7 @@ multiplies the Voyage/Anthropic request rate directly, so raise provider tiers f
   in README.md.
 - All secrets from `.env` (keep `.env.example` current): `ANTHROPIC_API_KEY`,
   `VOYAGE_API_KEY`/`COHERE_API_KEY`/`GEMINI_API_KEY` (whichever `EMBEDDING_PROVIDER` selects),
-  `SPACES_KEY`/`SPACES_SECRET`/`SPACES_ENDPOINT`/`SPACES_BUCKET`, `DATABASE_URL`, `REDIS_URL`,
-  `QDRANT_URL`.
+  the object-storage credentials `STORAGE_BACKEND` selects
+  (`SPACES_KEY`/`SPACES_SECRET`/`SPACES_ENDPOINT`/`SPACES_BUCKET`, or the `LOCAL_S3_*` set),
+  `DATABASE_URL`, `REDIS_URL`, `QDRANT_URL`. The filled-in `deploy/.env.*` files are
+  gitignored; only their `.example` templates are checked in.

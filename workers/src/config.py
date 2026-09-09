@@ -5,18 +5,29 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import storage_config
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 load_dotenv()  # also allow a workers-local .env to override
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/cdip")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-SPACES_KEY = os.environ.get("SPACES_KEY", "minioadmin")
-SPACES_SECRET = os.environ.get("SPACES_SECRET", "minioadmin")
+# Object storage. STORAGE_BACKEND=local|spaces picks between two sets of
+# credentials that both live in the env file, so moving this deployment
+# between the office server's own disk and DigitalOcean Spaces is one word.
+# The rule is shared with the API (apps/api/src/storageConfig.ts) through
+# packages/shared/fixtures/storage-backend.json: the API writes the uploaded
+# PDF and this worker reads it back, so the two must resolve the same way.
+_STORAGE = storage_config.resolve(os.environ)
+
+STORAGE_BACKEND = _STORAGE.backend
+SPACES_KEY = _STORAGE.key
+SPACES_SECRET = _STORAGE.secret
 # Region endpoint WITHOUT the bucket name (https://blr1.digitaloceanspaces.com
 # for DO Spaces, http://localhost:9000 for MinIO).
-SPACES_ENDPOINT = os.environ.get("SPACES_ENDPOINT", "http://localhost:9000")
-SPACES_BUCKET = os.environ.get("SPACES_BUCKET", "cdip-local")
-SPACES_REGION = os.environ.get("SPACES_REGION", "us-east-1")
+SPACES_ENDPOINT = _STORAGE.endpoint
+SPACES_BUCKET = _STORAGE.bucket
+SPACES_REGION = _STORAGE.region
 # Optional canned ACL for objects the worker writes (page images/thumbs/text).
 # Leave unset to keep them private (served via presigned URLs); set to
 # "public-read" only to deliberately expose them (matches the API's SPACES_ACL).

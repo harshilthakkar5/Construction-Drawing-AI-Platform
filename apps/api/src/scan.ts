@@ -1,6 +1,6 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { env } from "./env.js";
-import { presignGetObject, s3 } from "./s3.js";
+import { storage } from "./storage.js";
+import { presignGetObjectInternal, s3 } from "./s3.js";
 
 /**
  * Upload validation + malware-scan hook (Phase 5), both run server-side after
@@ -12,7 +12,7 @@ import { presignGetObject, s3 } from "./s3.js";
 /** Cheap content check: the stored object must start with the %PDF- magic. */
 export async function objectLooksLikePdf(key: string): Promise<boolean> {
   const res = await s3.send(
-    new GetObjectCommand({ Bucket: env.SPACES_BUCKET, Key: key, Range: "bytes=0-4" }),
+    new GetObjectCommand({ Bucket: storage.bucket, Key: key, Range: "bytes=0-4" }),
   );
   const head = Buffer.from(await res.Body!.transformToByteArray());
   return head.toString("latin1").startsWith("%PDF-");
@@ -32,7 +32,7 @@ export async function scanUploadedObject(key: string): Promise<ScanVerdict> {
   const res = await fetch(scannerUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, url: await presignGetObject(key, 300) }),
+    body: JSON.stringify({ key, url: await presignGetObjectInternal(key, 300) }),
   });
   if (!res.ok) throw new Error(`malware scanner returned ${res.status}`);
   const body = (await res.json()) as { status?: string };
