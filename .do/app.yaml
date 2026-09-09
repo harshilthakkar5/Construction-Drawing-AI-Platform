@@ -1,0 +1,266 @@
+# DigitalOcean App Platform spec — the whole monorepo, deployed as four
+# components from ONE repository. There is no need to split the repo: each
+# component points at the same GitHub source and differs only in what it builds
+# and where it builds it from.
+#
+#   doctl apps create --spec .do/app.yaml          # first deploy
+#   doctl apps update <app-id> --spec .do/app.yaml # every change after
+#
+# Fill in the <PLACEHOLDERS>, then keep this file in git: it is the difference
+# between a deployment you can rebuild and one that only exists as a series of
+# clicks somebody made once.
+#
+# --- Why the source_dir values differ ----------------------------------------
+#
+# api and web build from the REPOSITORY ROOT (`source_dir: /`), not from
+# apps/api and apps/web, because both import `@cdip/shared` as an npm workspace.
+# Workspaces resolve from the root package.json, and `@cdip/shared` is consumed
+# as BUILT javascript — so a build starting inside apps/api would fail to
+# resolve it, or worse, resolve a stale copy.
+#
+# The worker builds from `/workers`, because it is Python and self-contained:
+# its Dockerfile copies requirements.txt and src/ relative to that directory.
+#
+# The consequence, worth knowing before it surprises you: App Platform rebuilds
+# the components whose source directory changed. api and web share the root, so
+# a push touching either rebuilds both. The worker only rebuilds when workers/
+# changes. If you want api and web to deploy truly independently, that is an
+# argument for splitting the frontend into its own repo — not for splitting the
+# API away from the shared package it depends on.
+
+name: cdip
+region: blr   # must match the region of the VPC, databases and Qdrant Droplet
+
+# App Platform reaches the Qdrant Droplet and the managed databases over this
+# VPC, so nothing has to be exposed publicly. Note that VPC attachment and
+# dedicated egress IPs are mutually exclusive — you cannot have both.
+vpc:
+  id: <VPC_UUID>
+
+# ---------------------------------------------------------------------------
+# api — the Express service
+# ---------------------------------------------------------------------------
+services:
+  - name: api
+    github:
+      repo: <GITHUB_USER>/Construction-Drawing-AI-Platform
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /
+    environment_slug: node-js
+
+    # `npm run build` builds packages/shared FIRST, then api and web — the
+    # order matters and the root script already encodes it. prisma generate
+    # runs here rather than at boot so a slow cold start is not paying for it,
+    # and so a generation failure breaks the build instead of the service.
+    build_command: |
+      npm ci
+      npm run build
+      npx prisma generate --schema apps/api/prisma/schema.prisma
+    run_command: node apps/api/dist/index.js
+
+    http_port: 4000
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 15
+
+    # Check current slugs with: doctl apps tier instance-size list
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+
+      # --- data stores (all private addresses) ---
+      - key: DATABASE_URL
+        value: <PRIVATE_POSTGRES_URI>
+        type: SECRET
+      - key: REDIS_URL
+        value: <PRIVATE_REDIS_URI>
+        type: SECRET
+      - key: QDRANT_URL
+        value: http://<DROPLET_PRIVATE_IP>:6333
+      - key: QDRANT_COLLECTION
+        value: chunks
+
+      # --- object storage ---
+      # SPACES_ENDPOINT is the REGION endpoint. Putting the bucket in the host
+      # makes the SDK append it again, and every object lands under a doubled
+      # bucket/bucket/ prefix.
+      - key: SPACES_ENDPOINT
+        value: https://blr1.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: <BUCKET_NAME>
+      - key: SPACES_REGION
+        value: blr1
+      - key: SPACES_KEY
+        value: <SPACES_KEY>
+        type: SECRET
+      - key: SPACES_SECRET
+        value: <SPACES_SECRET>
+        type: SECRET
+
+      # --- models ---
+      # EMBEDDING_* MUST be identical on api and worker: the worker embeds the
+      # documents, this embeds the question they are searched with, and a
+      # mismatch does not error — it silently returns the wrong chunks.
+      - key: ANTHROPIC_API_KEY
+        value: <ANTHROPIC_KEY>
+        type: SECRET
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: EMBEDDING_DIM
+        value: "1024"
+      - key: GEMINI_API_KEY
+        value: <GEMINI_KEY>
+        type: SECRET
+
+      # --- retrieval ---
+      - key: HYBRID_RETRIEVAL
+        value: "true"
+      - key: RERANK_PROVIDER
+        value: none     # turn on once benchmarks/retrieval_eval.mjs says it helps
+      - key: CHAT_SCOPE
+        value: construction
+
+      - key: APP_URL
+        value: ${APP_URL}   # bindable: the app's own public URL
+
+# ---------------------------------------------------------------------------
+# worker — the Python pipeline
+# ---------------------------------------------------------------------------
+workers:
+  - name: worker
+    github:
+      repo: <GITHUB_USER>/Construction-Drawing-AI-Platform
+      branch: main
+      deploy_on_push: true
+
+    # Python, self-contained: build context is /workers, which is what the
+    # Dockerfile's relative COPY paths expect.
+    source_dir: /workers
+    dockerfile_path: workers/Dockerfile
+
+    instance_size_slug: apps-s-1vcpu-2gb
+    instance_count: 1
+
+    envs:
+      # Every store the api uses, at the same addresses.
+      - key: DATABASE_URL
+        value: <PRIVATE_POSTGRES_URI>
+        type: SECRET
+      - key: REDIS_URL
+        value: <PRIVATE_REDIS_URI>
+        type: SECRET
+      - key: QDRANT_URL
+        value: http://<DROPLET_PRIVATE_IP>:6333
+      - key: QDRANT_COLLECTION
+        value: chunks
+
+      - key: SPACES_ENDPOINT
+        value: https://blr1.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: <BUCKET_NAME>
+      - key: SPACES_REGION
+        value: blr1
+      - key: SPACES_KEY
+        value: <SPACES_KEY>
+        type: SECRET
+      - key: SPACES_SECRET
+        value: <SPACES_SECRET>
+        type: SECRET
+
+      - key: ANTHROPIC_API_KEY
+        value: <ANTHROPIC_KEY>
+        type: SECRET
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: EMBEDDING_DIM
+        value: "1024"
+      - key: GEMINI_API_KEY
+        value: <GEMINI_KEY>
+        type: SECRET
+
+      # --- sizing, and the reason for it ---
+      # PROCESS_CONCURRENCY x PAGE_CONCURRENCY is how many pages are in flight
+      # at once, each holding a full-resolution pixmap — an A1 sheet at zoom 2
+      # is ~18 megapixels. The defaults (4 x 4 = 16) OOM-kill anything under
+      # about 4 GB. Start here and raise it while watching the memory graph.
+      - key: PROCESS_CONCURRENCY
+        value: "1"
+      - key: PAGE_CONCURRENCY
+        value: "2"
+      # Keep instance_count x DB_POOL_SIZE well under the database plan's
+      # connection limit — the smallest managed Postgres allows about 22, and
+      # exhausting it surfaces as pool timeouts that read like slowness.
+      - key: DB_POOL_SIZE
+        value: "6"
+
+      # Batch APIs are half price and the latency is irrelevant to a queue.
+      - key: SUMMARY_USE_BATCH
+        value: "true"
+      - key: EMBED_USE_BATCH
+        value: "true"
+      # Gemini 3 models reject the thinking budget outright; "off" omits the
+      # field rather than asking for zero, which is a different request.
+      - key: GEMINI_THINKING_BUDGET
+        value: "off"
+
+# ---------------------------------------------------------------------------
+# web — the Vite build, served from the CDN
+# ---------------------------------------------------------------------------
+static_sites:
+  - name: web
+    github:
+      repo: <GITHUB_USER>/Construction-Drawing-AI-Platform
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /
+    environment_slug: node-js
+    build_command: |
+      npm ci
+      npm run build
+    output_dir: apps/web/dist
+
+    # Single-page app: every unknown path is the app's own router, not a 404.
+    catchall_document: index.html
+
+    envs:
+      # Vite inlines VITE_* at BUILD time, so a RUN_TIME scope would produce a
+      # bundle with the variable missing and no error to explain it.
+      # ${api.PUBLIC_URL} is bindable — no hardcoded hostname to update.
+      - key: VITE_API_URL
+        value: ${api.PUBLIC_URL}
+        scope: BUILD_TIME
+
+# ---------------------------------------------------------------------------
+# migrate — runs before every release
+# ---------------------------------------------------------------------------
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: <GITHUB_USER>/Construction-Drawing-AI-Platform
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /
+    environment_slug: node-js
+    build_command: npm ci
+    # This is what creates the full-text index, the cdip_identifiers() function
+    # and the chunk_identifiers table. Skip it and retrieval silently drops to
+    # dense-only, logging a warning per question rather than failing.
+    run_command: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+
+    instance_size_slug: apps-s-1vcpu-1gb
+
+    envs:
+      - key: DATABASE_URL
+        value: <PRIVATE_POSTGRES_URI>
+        type: SECRET
