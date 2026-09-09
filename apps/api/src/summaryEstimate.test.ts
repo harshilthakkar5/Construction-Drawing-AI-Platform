@@ -124,7 +124,7 @@ describe("the quote follows SUMMARY_PROVIDER", () => {
 
   it("names the model that will actually run", () => {
     process.env.SUMMARY_PROVIDER = "gemini";
-    expect(oneDiscipline().model).toBe("gemini-2.5-pro");
+    expect(oneDiscipline().model).toBe("models/gemini-3.1-pro-preview");
     process.env.SUMMARY_PROVIDER = "claude";
     expect(oneDiscipline().model).toBe("claude-sonnet-5");
   });
@@ -146,7 +146,7 @@ describe("the quote follows SUMMARY_PROVIDER", () => {
 
   it("the project rollup follows the provider too", () => {
     process.env.SUMMARY_PROVIDER = "gemini";
-    expect(estimateProjectRollup(3).model).toBe("gemini-2.5-pro");
+    expect(estimateProjectRollup(3).model).toBe("models/gemini-3.1-pro-preview");
   });
 
   it("a typo falls back to claude rather than quoting nothing", () => {

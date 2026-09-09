@@ -81,6 +81,9 @@ const RATES: Record<string, { input: number; output: number }> = {
   "gemini-2.5-flash": { input: 0.3, output: 2.5 },
   "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
   "gemini-2.0-flash": { input: 0.1, output: 0.4 },
+  "gemini-3.1-flash-lite": { input: 0.25, output: 1.5 },
+  "models/gemini-3.1-pro-preview": { input: 2.0, output: 12.0 },
+  "gemini-3.5-flash-lite": { input: 0.25, output: 1.5 },
   // Newer Gemini models you run go here. Until a real rate is added, they are
   // priced by the family fallback below — close enough to keep the dialog
   // honest, not close enough to bill from.

@@ -227,7 +227,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           <li className="text-muted-foreground px-2 py-1 text-sm">
             {processing
               ? "Processing…"
-              : "No categories yet — define the title-block region under Quick actions."}
+              : "No categories yet define the title-block region above."}
           </li>
         )}
       </ul>

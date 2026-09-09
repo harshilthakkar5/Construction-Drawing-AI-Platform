@@ -15,7 +15,7 @@ SPACES_SECRET = os.environ.get("SPACES_SECRET", "minioadmin")
 # Region endpoint WITHOUT the bucket name (https://blr1.digitaloceanspaces.com
 # for DO Spaces, http://localhost:9000 for MinIO).
 SPACES_ENDPOINT = os.environ.get("SPACES_ENDPOINT", "http://localhost:9000")
-SPACES_BUCKET = os.environ.get("SPACES_BUCKET", "cdip-local")
+SPACES_BUCKET = os.environ.get("SPACES_BUCKET", "mybucket")
 SPACES_REGION = os.environ.get("SPACES_REGION", "us-east-1")
 # Optional canned ACL for objects the worker writes (page images/thumbs/text).
 # Leave unset to keep them private (served via presigned URLs); set to

@@ -70,7 +70,8 @@ export function createApp() {
 
   // Strictest tier, by IP and counted on failures only: these are the
   // endpoints an attacker can reach without a session.
-  app.use("/auth", authLimiter, authRouter);
+  //  app.use("/auth", authLimiter, authRouter);
+  app.use("/auth", authRouter);
 
   // Everything below requires a session (project-level RBAC on top of it).
   // BEFORE requireAuth: a flood of invalid tokens is rejected by requireAuth

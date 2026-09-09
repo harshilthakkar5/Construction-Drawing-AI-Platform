@@ -60,7 +60,7 @@ export function BlueprintArt({ variant }: { variant: BlueprintVariant }) {
       <p className="absolute bottom-8 left-10 right-10 text-sm leading-relaxed text-white/55">
         {variant === "plan"
           ? "Every answer traced back to the sheet, page and region it came from."
-          : "Upload a full drawing set — we build the searchable knowledge base."}
+          : "Upload a full drawing set - we build the searchable knowledge base."}
       </p>
     </div>
   );

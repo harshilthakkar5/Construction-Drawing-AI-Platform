@@ -202,7 +202,7 @@ export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="summary"]',
     title: "Summary and categories",
-    body: "The project summary sits here, with every statement citing the sheet it came from — click one to jump the viewer to that page and highlight the source.",
+    body: "The project summary sits here, with every statement citing the sheet it came from click one to jump the viewer to that page and highlight the source.",
   },
   {
     target: '[data-tour="categories"]',
@@ -212,7 +212,7 @@ export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="generate-summary"]',
     title: "Summaries are yours to start",
-    body: "Nothing is summarized automatically — it costs tokens, so each category has its own button and tells you the estimated cost before it spends anything.",
+    body: "Nothing is summarized automatically  it costs tokens, so each category has its own button and tells you the estimated cost before it spends anything.",
   },
   {
     target: '[data-tour="quick-actions"]',

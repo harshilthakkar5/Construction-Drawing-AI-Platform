@@ -452,7 +452,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
             <DialogDescription>
-              A project holds one drawing set — upload its PDFs once it exists.
+              A project holds one drawing set  upload its PDFs once it exists.
             </DialogDescription>
           </DialogHeader>
           <TextField

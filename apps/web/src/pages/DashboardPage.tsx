@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAppStore } from "@/store";
-
+import {FolderBookmark} from "lucide-react"
 /** Ranges the activity chart can ask the API for (GET /dashboard?days=N). */
 const RANGES = [
   { days: 7, label: "7 days" },
@@ -115,7 +115,7 @@ export function DashboardPage() {
           title="Dashboard"
           subtitle={
             <>
-              Welcome back, {firstName}! <span aria-hidden>👋</span>
+              Welcome back, {firstName}! <span aria-hidden></span>
             </>
           }
           action={
@@ -331,8 +331,11 @@ export function DashboardPage() {
                         className="hover:bg-muted/60 -mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors"
                         onClick={() => openProject(p.id)}
                       >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-600">
+                          <FolderBookmark className="h-4 w-4" />
+                        </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{p.name}</span>
+                          <span className="block truncate text-sm font-medium font-semibold">{p.name}</span>
                           <span className="text-muted-foreground block text-xs">
                             {p.documents} document{p.documents === 1 ? "" : "s"} ·{" "}
                             {compactNumber(p.pages)} pages
@@ -420,9 +423,14 @@ function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] })
             {rows.map((p) => (
               <TableRow key={p.id}>
                 <TableCell className="pl-4">
-                  <button className="font-medium hover:underline" onClick={() => openProject(p.id)}>
+                  <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-600">
+                    <FolderBookmark className="h-4 w-4" />
+                  </span>
+                  <button className="font-medium hover:underline font-semibold" onClick={() => openProject(p.id)}>
                     {p.name}
                   </button>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <StatusPill status={p.status} />

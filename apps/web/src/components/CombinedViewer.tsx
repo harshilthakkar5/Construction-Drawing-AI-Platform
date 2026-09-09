@@ -351,7 +351,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           {manifest.isLoading && <PageLoading label="Loading pages…" />}
           {!manifest.isLoading && total === 0 && (
             <p className="text-muted-foreground text-sm">
-              No pages yet — upload a PDF and wait for processing.
+              No pages yet upload a PDF and wait for processing.
             </p>
           )}
           {!manifest.isLoading && total > 0 && shown === 0 && (
@@ -451,7 +451,7 @@ function PageImage({
   if (!entry.hasImage) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-        page {entry.combinedPageNumber} — processing…
+        page {entry.combinedPageNumber}-processing…
       </div>
     );
   }
