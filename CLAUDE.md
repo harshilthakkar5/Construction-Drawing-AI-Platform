@@ -176,10 +176,13 @@ embeddings → summaries.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS, or the two Droplets in
   `deploy/docker-compose.{app,worker}.yml`. API and workers scale independently. A third
-  shape is one Windows PC on an office LAN running everything
-  (`deploy/docker-compose.local.yml`, `./deploy/deploy.sh local`): plain HTTP, since a
-  LAN address has no certificate anyone can issue, so it is for a trusted network and
-  must never be port-forwarded.
+  shape is ONE machine running everything
+  (`deploy/docker-compose.local.yml`, `./deploy/deploy.sh local`) — an office PC on a
+  LAN (docs/local-server-deployment.md) or a single laptop at localhost
+  (docs/laptop-deployment.md), the same file sized by the env-tunable `*_MEM_LIMIT`
+  and `*_CONCURRENCY` values rather than by a second compose file. Plain HTTP either
+  way, since a LAN address has no certificate anyone can issue: fine at localhost, for
+  a trusted network otherwise, and never port-forwarded.
 
 ## Monorepo layout
 

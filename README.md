@@ -833,6 +833,13 @@ cp deploy/.env.local.example deploy/.env.local   # edit three values
 ./deploy/deploy.sh local
 ```
 
+The same compose file also runs the whole stack on **one laptop** at
+`http://localhost`, for a single user — `docs/laptop-deployment.md`. It is the
+same deployment sized down: four values differ, chiefly
+`LOCAL_S3_PUBLIC_ENDPOINT=http://localhost:9000` and a smaller memory/
+concurrency preset, and there is no LAN address, firewall rule or DHCP
+reservation to arrange.
+
 ### The storage switch
 
 Object storage is the only piece that would ordinarily have to be a cloud

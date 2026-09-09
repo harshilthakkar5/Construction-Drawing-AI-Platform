@@ -13,6 +13,13 @@
 # on a trusted office network — never port-forwarded from a router. Sessions
 # and presigned URLs cross the office wifi in the clear.
 #
+# Every mem_limit is env-tunable, because the same file has to fit a 32 GB
+# office server and a 16 GB laptop. The defaults are the server's; the laptop
+# preset is in .env.local.example, and docs/laptop-deployment.md explains what
+# the numbers buy. THEY ARE CEILINGS, NOT RESERVATIONS: a container is killed
+# at its limit rather than allowed to take the machine with it, which is the
+# whole reason they are here.
+#
 # Requires deploy/.env.local (see .env.local.example).
 
 name: cdip
@@ -29,7 +36,10 @@ services:
         VITE_API_URL: /api
     restart: unless-stopped
     ports:
-      - "80:80"
+      # Port 80 is often already taken on a laptop (IIS, another dev server).
+      # Only the LEFT side changes: Caddy still listens on 80 inside the
+      # container, so the Caddyfile needs no edit. Set APP_URL to match.
+      - "${WEB_PORT:-80}:80"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -74,7 +84,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 1g
+    mem_limit: ${API_MEM_LIMIT:-1g}
 
   # ---------------------------------------------------------------------------
   # worker — the memory-hungry one
@@ -100,7 +110,7 @@ services:
     # server PC that stops answering — raise it and the concurrency together,
     # never one alone. It is also bounded by what Docker Desktop's WSL2 VM has
     # been given in .wslconfig; see docs/local-server-deployment.md.
-    mem_limit: 8g
+    mem_limit: ${WORKER_MEM_LIMIT:-8g}
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
@@ -130,7 +140,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    mem_limit: 2g
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
 
   # ---------------------------------------------------------------------------
   # redis — queues, sessions, retrieval + embedding caches
@@ -151,7 +161,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    mem_limit: 1g
+    mem_limit: ${REDIS_MEM_LIMIT:-1g}
 
   # ---------------------------------------------------------------------------
   # qdrant — vectors
@@ -172,7 +182,7 @@ services:
     # Vectors and the HNSW graph are held in memory: roughly 6 KB per chunk at
     # 1024 dimensions, so ~170k chunks per gigabyte. Qdrant does not degrade
     # when it runs out, it is killed.
-    mem_limit: 2g
+    mem_limit: ${QDRANT_MEM_LIMIT:-2g}
 
   # ---------------------------------------------------------------------------
   # minio — the S3 API, backed by a folder on this machine
@@ -190,7 +200,12 @@ services:
       # images are fetched the same way. That is the whole point of never
       # proxying file bytes through the API, and it means this port must be
       # open on the office network — unlike Postgres and Redis above.
-      - "9000:9000"
+      #
+      # If you change it because 9000 is taken, change the port in
+      # LOCAL_S3_PUBLIC_ENDPOINT to match. They are the same port seen from
+      # two places, and a mismatch rejects every upload as
+      # SignatureDoesNotMatch rather than failing to connect.
+      - "${MINIO_PORT:-9000}:9000"
       # The MinIO console (browse/download the stored files by hand). Loopback
       # only: it is an admin surface holding the root credentials.
       - "127.0.0.1:9001:9001"
@@ -206,7 +221,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    mem_limit: 2g
+    mem_limit: ${MINIO_MEM_LIMIT:-2g}
 
   # One-shot: create the bucket. Idempotent, so it is safe on every deploy.
   minio-init:

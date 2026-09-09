@@ -5,6 +5,10 @@ an RTX 3050, a 2.75 TB drive, on the office wifi. Everything runs on it —
 frontend, API, worker, Postgres, Redis, Qdrant and object storage — and the
 other laptops in the office open it in a browser.
 
+For a single person on one laptop, with nobody else connecting, read
+`docs/laptop-deployment.md` instead — it is this same deployment reached at
+`localhost`, without the LAN address, firewall rules or DHCP reservation.
+
 Nothing about the application changes to make this work. Object storage is the
 only piece that would ordinarily be a cloud service, and MinIO speaks the same
 S3 API DigitalOcean Spaces does, so `STORAGE_BACKEND=local` swaps a set of
