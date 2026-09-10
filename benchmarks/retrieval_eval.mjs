@@ -35,7 +35,7 @@
  * measure the wrong thing.
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL  } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,8 +55,13 @@ async function loadApi() {
   // how the API itself is run.
   process.chdir(resolve(root, "apps/api"));
   try {
-    const retrieval = await import(resolve(root, "apps/api/src/retrieval.ts"));
-    const { prisma } = await import(resolve(root, "apps/api/src/db.ts"));
+    // const retrieval = await import(resolve(root, "apps/api/src/retrieval.ts"));
+    const retrieval = await import(
+  pathToFileURL(resolve(root, "apps/api/src/retrieval.ts")).href
+);
+        const { prisma } = await import(
+      pathToFileURL(resolve(root, "apps/api/src/db.ts")).href
+    );
     return { retrieval, prisma };
   } catch (err) {
     throw new Error(

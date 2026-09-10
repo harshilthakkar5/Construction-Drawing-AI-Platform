@@ -59,7 +59,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 401 && !CREDENTIAL_PATHS.some((p) => path.startsWith(p))) {
     authToken.clear();
-    throw new UnauthorizedError("session expired — sign in again");
+    throw new UnauthorizedError("session expired  sign in again");
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");

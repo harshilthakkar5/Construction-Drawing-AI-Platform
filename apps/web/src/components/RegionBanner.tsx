@@ -95,7 +95,7 @@ export function RegionBanner({
             {trailing}
           </div>
           <p className={cn("text-muted-foreground max-w-xs text-[11px]", align === "end" && "text-right")}>
-            Draw a box over one sheet&rsquo;s number; it is applied to every page to sort the
+            Draw a box over one sheet&rsquo;s number. it is applied to every page to sort the
             drawings into disciplines.
           </p>
         </>
@@ -109,7 +109,7 @@ export function RegionBanner({
               <SquareDashedIcon />
               Edit region
             </Button>
-            <Button
+            {/* <Button
               variant="outline"
               size="sm"
               onClick={() => rescrape.mutate()}
@@ -118,7 +118,7 @@ export function RegionBanner({
             >
               <ScanLineIcon />
               Re-scan
-            </Button>
+            </Button> */}
             {trailing}
           </div>
 

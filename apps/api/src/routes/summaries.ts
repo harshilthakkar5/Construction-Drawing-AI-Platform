@@ -87,13 +87,13 @@ summariesRouter.get("/status", async (req, res) => {
     pagesWithChunks,
     documents: Object.fromEntries(documents.map((d) => [d.status, d._count])),
     hint:
-      pagesWithChunks === 0
-        ? "No page has chunks yet — processing has not produced text (check document status / worker logs)."
-        : counts.page === 0
-          ? "Pages have chunks but no page summaries: the summarize job did not run or exited early (SUMMARIES_ENABLED=false, or ANTHROPIC_API_KEY missing on the worker). POST /summaries/rebuild to re-run."
-          : counts.project === 0
-            ? "Page summaries exist but the rollups are missing — re-run with POST /summaries/rebuild and check the worker log."
-            : "ok",
+    pagesWithChunks === 0
+      ? "We’re still processing this document. No text is available yet."
+      : counts.page === 0
+        ? "The document has been processed, but page summaries aren’t available yet. Please try rebuilding the summaries."
+        : counts.project === 0
+          ? "Page summaries are available, but the project summary hasn’t been created yet. Please rebuild the summaries."
+          : "Ready",
   });
 });
 

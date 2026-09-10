@@ -201,11 +201,11 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                   : selectedPortion?.summaryStatus === "failed"
                     ? (selectedPortion.summaryError ?? "The last run failed.")
                     : selectedPortionId
-                      ? `No summary for ${selectedPortion?.name ?? "this discipline"} yet — generate one when you need it.`
+                      ? `No summary for ${selectedPortion?.name ?? "this discipline"} yet  generate one when you need it.`
                       : portionsReady
-                        ? "No project summary yet — it combines the discipline summaries you have generated."
+                        ? "No project summary yet  it combines the discipline summaries you have generated."
                         : (status.data?.hint ??
-                          "No summary yet. Generate a discipline summary from the categories above, then roll them up into a project summary.")}
+                          "Generate a discipline summary from the categories above, then roll them up into a project summary.")}
             </p>
             {!summaries.isLoading && canGenerate && (
               <Button

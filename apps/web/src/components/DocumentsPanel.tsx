@@ -95,7 +95,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         <Button
           variant="outline"
           size="sm"
-          className="text-xs"
+          className="text-xs mt-1"
           onClick={() => {
             setReplaceTarget(undefined);
             fileInput.current?.click();
@@ -163,7 +163,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       {doc.pages} pages
                     </span>
                   )}
-                  {doc.status === "completed" && (
+                  {/* {doc.status === "completed" && (
                     <Button
                       variant="link"
                       className="ml-auto h-auto p-0 text-xs"
@@ -175,7 +175,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                     >
                       New revision
                     </Button>
-                  )}
+                  )} */}
                   {/* While a document is uploading or processing there is
                       nothing to retry — the worker is mid-run and a second job
                       would only race it. Show progress instead; Retry appears

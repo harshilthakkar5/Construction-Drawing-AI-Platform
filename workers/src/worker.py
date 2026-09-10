@@ -28,6 +28,7 @@ import processing
 import scrape
 import summarize
 import telemetry
+import sys
 from contracts import (
     PROCESS_DOCUMENT_QUEUE,
     SCRAPE_REGION_QUEUE,
@@ -228,8 +229,17 @@ async def main() -> None:
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    # for sig in (signal.SIGINT, signal.SIGTERM):
+    #     loop.add_signal_handler(sig, stop.set)
+
+    # await stop.wait()
+
+    if sys.platform == "win32":
+        signal.signal(signal.SIGINT, lambda s, f: stop.set())
+        # SIGTERM isn't generally supported on Windows consoles
+    else:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
 
     await stop.wait()
     log.info("shutting down…")
