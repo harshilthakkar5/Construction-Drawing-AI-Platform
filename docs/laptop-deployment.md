@@ -20,6 +20,9 @@ rather than that one, but know they are one thing.
 
 ---
 
+Installing on someone else's machine, with no source tree and no git? That is
+`docs/client-install.md` — the same stack from pre-built images.
+
 ## 1. What the laptop needs
 
 | | Minimum | Comfortable |

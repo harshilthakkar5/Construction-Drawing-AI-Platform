@@ -182,7 +182,15 @@ embeddings → summaries.
   (docs/laptop-deployment.md), the same file sized by the env-tunable `*_MEM_LIMIT`
   and `*_CONCURRENCY` values rather than by a second compose file. Plain HTTP either
   way, since a LAN address has no certificate anyone can issue: fine at localhost, for
-  a trusted network otherwise, and never port-forwarded.
+  a trusted network otherwise, and never port-forwarded. For a machine that will never
+  hold the source — a client's laptop — `deploy/release.sh` builds and publishes the
+  three images and writes `deploy/dist/`: `deploy/docker-compose.dist.yml` (every
+  `build:` replaced by an `image:`, plus a one-shot `migrate` service the api and
+  worker wait on) with a generated `.env`. The web image bakes `Caddyfile.local` as its
+  default so that bundle stands alone; every other compose file still mounts its own
+  over the top. Images PACKAGE the code, they do not hide it — the worker image ships
+  `workers/src/*.py` verbatim — so never present them as a licensing control
+  (docs/client-install.md).
 
 ## Monorepo layout
 

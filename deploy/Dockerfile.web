@@ -32,5 +32,11 @@ RUN npm run build --workspace @cdip/shared --workspace @cdip/web
 
 FROM caddy:2-alpine
 COPY --from=build /app/apps/web/dist /srv
-# The Caddyfile is mounted at run time rather than copied, so changing the
-# domain does not require rebuilding the frontend.
+
+# A DEFAULT Caddyfile is baked in — the plain-HTTP, single-machine one — so
+# this image runs with nothing but a compose file beside it. That is what lets
+# a client machine be handed images and no source tree.
+#
+# Every compose file here still mounts its own over the top, and a mount wins,
+# so the TLS configuration for a real domain is unchanged and unaffected.
+COPY deploy/Caddyfile.local /etc/caddy/Caddyfile

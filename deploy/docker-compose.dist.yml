@@ -1,0 +1,216 @@
+# The SHIPPED stack: pre-built images, no source tree, no git, no build step.
+#
+# This is docker-compose.local.yml with every `build:` replaced by an `image:`.
+# It is what goes on a client's machine — that machine needs Docker, this file,
+# and an .env beside it. Nothing else.
+#
+#   docker compose -f docker-compose.dist.yml up -d
+#
+# Build and publish the images from YOUR machine with deploy/release.sh, which
+# also writes the .env this file expects.
+#
+# WHAT THIS DOES NOT DO IS HIDE THE CODE. The worker image ships
+# workers/src/*.py as plain Python and the API image ships readable compiled
+# JavaScript; anyone with the image can `docker cp` them out. Images are a
+# packaging and installation convenience, never a licensing control.
+#
+# No TLS: a LAN or localhost address has no certificate anyone can issue, so
+# this is for a trusted machine or a trusted office network. Never
+# port-forward it from a router.
+
+name: cdip
+
+# CDIP_IMAGE_PREFIX is "" for images loaded from a tar (cdip-api:1.0.0), or a
+# registry path ENDING IN A SLASH for images pulled from a registry
+# (ghcr.io/you/cdip-api:1.0.0). release.sh writes both this and CDIP_TAG into
+# the .env, so neither is typed by hand.
+x-images:
+  api: &api-image ${CDIP_IMAGE_PREFIX-}cdip-api:${CDIP_TAG:-latest}
+
+services:
+  web:
+    image: ${CDIP_IMAGE_PREFIX-}cdip-web:${CDIP_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    # No Caddyfile mount: it is baked into the image. That is the difference
+    # that lets this file stand alone beside an .env and nothing else.
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # migrate — one-shot, before the API is allowed to start
+  # ---------------------------------------------------------------------------
+  migrate:
+    image: *api-image
+    restart: "no"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cdip}
+    # The API image keeps its dev dependencies precisely so the Prisma CLI is
+    # available here; the migrations themselves are baked in under
+    # apps/api/prisma/migrations.
+    command: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # api
+  # ---------------------------------------------------------------------------
+  api:
+    image: *api-image
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cdip}
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      STORAGE_BACKEND: local
+      LOCAL_S3_ENDPOINT: http://minio:9000
+    expose:
+      - "4000"
+    depends_on:
+      # Ordering, not just readiness: an API on an un-migrated schema fails
+      # every request in a way that reads like a broken install.
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: ${API_MEM_LIMIT:-1g}
+
+  # ---------------------------------------------------------------------------
+  # worker
+  # ---------------------------------------------------------------------------
+  worker:
+    image: ${CDIP_IMAGE_PREFIX-}cdip-worker:${CDIP_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cdip}
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      STORAGE_BACKEND: local
+      LOCAL_S3_ENDPOINT: http://minio:9000
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    mem_limit: ${WORKER_MEM_LIMIT:-8g}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ---------------------------------------------------------------------------
+  # infrastructure — stock images, pulled from Docker Hub on the client machine
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cdip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cdip}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # A named volume, not a bind mount: Postgres refuses to start on a
+      # Windows-mounted path, unable to set the ownership and 0700 it checks.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdip} -d ${POSTGRES_DB:-cdip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${REDIS_MEM_LIMIT:-1g}
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: ${QDRANT_MEM_LIMIT:-2g}
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${LOCAL_S3_KEY}
+      MINIO_ROOT_PASSWORD: ${LOCAL_S3_SECRET}
+    ports:
+      # Reached by BROWSERS, not only by the API: uploads go straight from the
+      # browser to storage with a presigned URL. If the port in
+      # LOCAL_S3_PUBLIC_ENDPOINT changes, this one changes with it.
+      - "${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      # The drawings, as ordinary files on the client's disk. A NAMED VOLUME by
+      # default so the install needs no path decision and no permission
+      # surprises; set STORAGE_DATA_DIR to a folder if they want it visible.
+      - ${STORAGE_DATA_DIR:-minio_data}:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${MINIO_MEM_LIMIT:-2g}
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      LOCAL_S3_KEY: ${LOCAL_S3_KEY}
+      LOCAL_S3_SECRET: ${LOCAL_S3_SECRET}
+      LOCAL_S3_BUCKET: ${LOCAL_S3_BUCKET:-cdip-local}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 \"$$LOCAL_S3_KEY\" \"$$LOCAL_S3_SECRET\" &&
+        mc mb --ignore-existing \"local/$$LOCAL_S3_BUCKET\"
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

@@ -13,6 +13,11 @@ workers/.venv
 .env
 .env.*
 !.env.example
+# The filled-in deployment env files hold every credential. No Dockerfile
+# copies them, but they should not even reach the build daemon — and this
+# image is built to be handed to someone else.
+deploy/.env.*
+!deploy/.env.*.example
 apps/api/prisma/migrations/**/*.sql.bak
 monitoring
 benchmarks
