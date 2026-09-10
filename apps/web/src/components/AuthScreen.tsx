@@ -482,8 +482,8 @@ function friendlyError(message: string, isRegister: boolean): string {
   if (message.includes("429")) return "Too many attempts. Wait a minute and try again.";
   if (message.includes("validation failed") || message.includes("400")) {
     return isRegister
-      ? "Check your details — a valid email and a password of 8+ characters are required."
-      : "Check your details — that does not look like a valid email address.";
+      ? "Check your details a valid email and a password of 8+ characters are required."
+      : "Check your details that does not look like a valid email address.";
   }
   if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
     return "Can't reach the server. Check your connection and try again.";

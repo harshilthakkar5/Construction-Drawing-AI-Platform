@@ -64,28 +64,53 @@ const ROLES_SHOWN = 3;
  */
 function ProjectRoles({ roles }: { roles: string[] }) {
   if (roles.length === 0) return null;
+
   const shown = roles.slice(0, ROLES_SHOWN);
   const rest = roles.slice(ROLES_SHOWN);
+
   return (
     <div className="hidden min-w-0 lg:block">
       <p className="text-muted-foreground text-xs font-medium">Roles</p>
+
       <div
         className="mt-1.5 flex max-w-xs flex-wrap items-center gap-1.5"
-        title={`Summaries lead with what matters to ${roles.map(roleLabel).join(", ")}`}
+        // title={`Summaries lead with what matters to ${roles
+        //   .map(roleLabel)
+        //   .join(", ")}`}
       >
         {shown.map((role) => (
           <Badge key={role} variant="secondary" className="font-normal">
             {roleLabel(role)}
           </Badge>
         ))}
+
         {rest.length > 0 && (
-          <Badge
-            variant="outline"
-            className="font-normal"
-            title={rest.map(roleLabel).join(", ")}
-          >
-            +{rest.length} more
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button">
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer font-normal hover:bg-muted"
+                >
+                  +{rest.length} more
+                </Badge>
+              </button>
+            </TooltipTrigger>
+
+            <TooltipContent className="max-w-xs">
+              <div className="flex flex-wrap gap-1.5">
+                {rest.map((role) => (
+                  <Badge
+                    key={role}
+                    variant="secondary"
+                    className="font-normal"
+                  >
+                    {roleLabel(role)}
+                  </Badge>
+                ))}
+              </div>
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>
@@ -236,7 +261,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
                     <CircleHelpIcon />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Show me around — replay the tour</TooltipContent>
+                <TooltipContent side="bottom">Show me around replay the tour</TooltipContent>
               </Tooltip>
             }
           />
@@ -267,13 +292,13 @@ export function ProjectView({ projectId }: { projectId: string }) {
             <Tabs defaultValue="summary">
               <div className="px-4">
                 <TabsList className="w-full">
-                  <TabsTrigger value="summary">
-                    <LayoutGridIcon />
-                    Summary &amp; categories
-                  </TabsTrigger>
                   <TabsTrigger value="documents">
                     <FilesIcon />
                     Docs
+                  </TabsTrigger>
+                  <TabsTrigger value="summary">
+                    <LayoutGridIcon />
+                    Summary &amp; categories
                   </TabsTrigger>
                 </TabsList>
               </div>

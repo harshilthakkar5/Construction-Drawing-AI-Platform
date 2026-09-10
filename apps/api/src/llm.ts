@@ -32,9 +32,9 @@ const PROVIDERS: readonly Provider[] = ["claude", "gemini"] as const;
  * drift here shows a user one model's price for another model's work.
  */
 export const DEFAULT_CHAT_MODEL = "claude-sonnet-5";
-export const DEFAULT_CHAT_GEMINI_MODEL = "gemini-2.5-pro";
+export const DEFAULT_CHAT_GEMINI_MODEL = "models/gemini-3.1-pro-preview";
 export const DEFAULT_SUMMARY_MODEL = "claude-sonnet-5";
-export const DEFAULT_SUMMARY_GEMINI_MODEL = "gemini-2.5-pro";
+export const DEFAULT_SUMMARY_GEMINI_MODEL = "models/gemini-3.1-pro-preview";
 
 /**
  * Every one of these reads its env var per call rather than capturing it at

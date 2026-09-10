@@ -69,7 +69,11 @@ export function Donut({
     // ring with a visible seam and a 358.4° arc.
     const gap = present.length === 1 ? 0 : GAP_DEGREES;
     const start = cursor + gap / 2;
-    const end = cursor + sweep - gap / 2;
+    // const end = cursor + sweep - gap / 2;
+    const end =
+  present.length === 1
+    ? 359.99
+    : Math.max(start + 0.2, cursor + sweep - gap / 2);
     cursor += sweep;
     return { slice, share, start, end: Math.max(start + 0.2, end), mid: start + (end - start) / 2 };
   });

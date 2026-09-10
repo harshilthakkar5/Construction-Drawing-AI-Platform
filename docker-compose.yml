@@ -1,19 +1,19 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: cdip
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d cdip"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: cdip
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres -d cdip"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
 
   redis:
     image: redis:7-alpine
@@ -41,22 +41,22 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # minio:
+  #   image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - minio_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "mc", "ready", "local"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
 
   # --- Phase 5 monitoring (optional locally): Prometheus scrapes the API
   # (:9464) and worker (:9465) metrics endpoints on the host; Grafana ships a
@@ -86,16 +86,16 @@ services:
       - prometheus
 
   # One-shot job: create the local bucket that stands in for the Spaces bucket.
-  minio-init:
-    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb --ignore-existing local/cdip-local
-      "
+  # minio-init:
+  #   image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+  #   depends_on:
+  #     minio:
+  #       condition: service_healthy
+  #   entrypoint: >
+  #     /bin/sh -c "
+  #       mc alias set local http://minio:9000 minioadmin minioadmin &&
+  #       mc mb --ignore-existing local/cdip-local
+  #     "
 
   # Python workers. Behind a profile so `docker compose up -d` still starts
   # infrastructure only — local development usually runs the worker from a venv
@@ -125,9 +125,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  # postgres_data:
   redis_data:
   qdrant_data:
-  minio_data:
+  # minio_data:
   prometheus_data:
   grafana_data:
