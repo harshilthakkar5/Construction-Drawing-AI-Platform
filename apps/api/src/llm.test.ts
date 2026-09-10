@@ -120,7 +120,11 @@ describe("rates for models not in the table", () => {
    * magnitude — in the dialog whose only job is saying what a run will cost.
    */
   it("prices an unknown flash-lite as a flash-lite, not a frontier model", () => {
-    expect(rateFor("gemini-3.5-flash-lite")).toEqual(rateFor("gemini-2.5-flash-lite"));
+    // The example must be a version nobody will ever add to RATES. This test
+    // previously used gemini-3.5-flash-lite and stopped testing the fallback
+    // the day that model got a real rate — it passed by exact match while the
+    // behaviour it guards went unchecked.
+    expect(rateFor("gemini-9.5-flash-lite")).toEqual(rateFor("gemini-2.5-flash-lite"));
   });
 
   it("flash-lite wins over flash — longest match first", () => {
