@@ -7,14 +7,18 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   QDRANT_URL: z.string().min(1),
-  SPACES_KEY: z.string().min(1),
-  SPACES_SECRET: z.string().min(1),
-  /** Region endpoint WITHOUT the bucket name, e.g.
-   * https://blr1.digitaloceanspaces.com (prod) or http://localhost:9000 (MinIO). */
-  SPACES_ENDPOINT: z.string().min(1),
-  SPACES_BUCKET: z.string().min(1),
-  /** Region slug used for request signing (e.g. blr1); any value works for MinIO. */
-  SPACES_REGION: z.string().min(1).default("us-east-1"),
+  /**
+   * Object storage is NOT validated here, because which variables are required
+   * depends on STORAGE_BACKEND: `spaces` needs the four SPACES_* values,
+   * `local` needs nothing at all (it defaults to the MinIO container beside
+   * this one). apps/api/src/storageConfig.ts owns that rule — and owns it
+   * jointly with the worker, through a shared fixture — and throws at startup
+   * naming the variable AND the backend that wants it. Declaring them required
+   * here as well would make STORAGE_BACKEND=local impossible to run without
+   * inventing DigitalOcean credentials to satisfy a schema.
+   *
+   * SPACES_ACL is the exception: it applies to whichever backend is active.
+   */
   /** Canned ACL applied to uploaded objects. Leave unset (default) to keep
    * objects PRIVATE — the app serves all media via presigned URLs, so private
    * is correct and secure. Set to "public-read" ONLY if you deliberately want

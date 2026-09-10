@@ -1,0 +1,306 @@
+{
+  "_comment": [
+    "STORAGE_BACKEND selects WHICH object store the app writes to, from two sets",
+    "of credentials that both live in the env file at once. It is read by the API",
+    "(apps/api/src/storageConfig.ts) and by the worker",
+    "(workers/src/storage_config.py), and the two MUST resolve identically: the",
+    "API writes the uploaded PDF and the worker reads it back, so a drift is not a",
+    "degraded system, it is a worker that cannot find any file it is asked to",
+    "process. Both sides read THIS fixture in their tests, so a change to the rule",
+    "in one language fails the other's suite.",
+    "",
+    "Leaving STORAGE_BACKEND unset means WHICHEVER SET YOU ACTUALLY FILLED IN: any",
+    "of the four required SPACES_* variables present picks spaces, an environment",
+    "with none of them picks local. That keeps every existing .env on the backend",
+    "it is already using while leaving a bare checkout runnable against the MinIO",
+    "container with no configuration at all — and a deployment that sets three of",
+    "the four still fails loudly, naming the fourth, rather than quietly falling",
+    "back to a local disk.",
+    "",
+    "Endpoint SHAPE (the bucket-in-the-hostname correction) is not resolved here —",
+    "that is normalizeSpacesEndpoint / normalize_endpoint, applied to whatever",
+    "this returns."
+  ],
+  "resolve": [
+    {
+      "name": "unset backend with Spaces credentials present: spaces",
+      "env": {
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_REGION": "blr1",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "spaces",
+        "endpoint": "https://blr1.digitaloceanspaces.com",
+        "publicEndpoint": "https://blr1.digitaloceanspaces.com",
+        "bucket": "cdip-prod",
+        "region": "blr1",
+        "key": "DO00KEY",
+        "secret": "dosecret"
+      }
+    },
+    {
+      "name": "unset backend and no Spaces credentials: local, with no other variable needed",
+      "env": {},
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://localhost:9000",
+        "publicEndpoint": "http://localhost:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "unset backend ignores modifiers: a stray region does not conjure a Spaces config",
+      "env": {
+        "SPACES_REGION": "blr1",
+        "SPACES_ACL": "private"
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://localhost:9000",
+        "publicEndpoint": "http://localhost:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "an explicit local wins over Spaces credentials that are all present",
+      "env": {
+        "STORAGE_BACKEND": "local",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://localhost:9000",
+        "publicEndpoint": "http://localhost:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "spaces: a browser-facing endpoint may differ from the internal one",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_PUBLIC_ENDPOINT": "https://cdn.example.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_REGION": "blr1",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "spaces",
+        "endpoint": "https://blr1.digitaloceanspaces.com",
+        "publicEndpoint": "https://cdn.example.com",
+        "bucket": "cdip-prod",
+        "region": "blr1",
+        "key": "DO00KEY",
+        "secret": "dosecret"
+      }
+    },
+    {
+      "name": "local: every field has a working default",
+      "env": {
+        "STORAGE_BACKEND": "local"
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://localhost:9000",
+        "publicEndpoint": "http://localhost:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "local: the public endpoint is the LAN address the browser signs against",
+      "env": {
+        "STORAGE_BACKEND": "local",
+        "LOCAL_S3_ENDPOINT": "http://minio:9000",
+        "LOCAL_S3_PUBLIC_ENDPOINT": "http://192.168.1.50:9000",
+        "LOCAL_S3_BUCKET": "cdip-office",
+        "LOCAL_S3_KEY": "cdip",
+        "LOCAL_S3_SECRET": "cdip-secret"
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://minio:9000",
+        "publicEndpoint": "http://192.168.1.50:9000",
+        "bucket": "cdip-office",
+        "region": "us-east-1",
+        "key": "cdip",
+        "secret": "cdip-secret"
+      }
+    },
+    {
+      "name": "local ignores the Spaces credentials sitting next to it",
+      "env": {
+        "STORAGE_BACKEND": "local",
+        "LOCAL_S3_ENDPOINT": "http://minio:9000",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_REGION": "blr1",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://minio:9000",
+        "publicEndpoint": "http://minio:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "spaces ignores the local credentials sitting next to it",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "LOCAL_S3_ENDPOINT": "http://minio:9000",
+        "LOCAL_S3_BUCKET": "cdip-office",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_REGION": "blr1",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "spaces",
+        "endpoint": "https://blr1.digitaloceanspaces.com",
+        "publicEndpoint": "https://blr1.digitaloceanspaces.com",
+        "bucket": "cdip-prod",
+        "region": "blr1",
+        "key": "DO00KEY",
+        "secret": "dosecret"
+      }
+    },
+    {
+      "name": "the switch tolerates the whitespace and case a hand-edited .env carries",
+      "env": {
+        "STORAGE_BACKEND": "  Local  "
+      },
+      "expect": {
+        "backend": "local",
+        "endpoint": "http://localhost:9000",
+        "publicEndpoint": "http://localhost:9000",
+        "bucket": "cdip-local",
+        "region": "us-east-1",
+        "key": "minioadmin",
+        "secret": "minioadmin"
+      }
+    },
+    {
+      "name": "an empty value is an unset value, not an empty backend name",
+      "env": {
+        "STORAGE_BACKEND": "",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_PUBLIC_ENDPOINT": "",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_REGION": "",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "expect": {
+        "backend": "spaces",
+        "endpoint": "https://blr1.digitaloceanspaces.com",
+        "publicEndpoint": "https://blr1.digitaloceanspaces.com",
+        "bucket": "cdip-prod",
+        "region": "us-east-1",
+        "key": "DO00KEY",
+        "secret": "dosecret"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "name": "an unknown backend name is refused rather than guessed at",
+      "env": {
+        "STORAGE_BACKEND": "s3"
+      },
+      "messageContains": [
+        "STORAGE_BACKEND",
+        "s3",
+        "local",
+        "spaces"
+      ]
+    },
+    {
+      "name": "spaces without a key names the variable and the backend that wants it",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_SECRET": "dosecret"
+      },
+      "messageContains": [
+        "SPACES_KEY",
+        "spaces"
+      ]
+    },
+    {
+      "name": "spaces without an endpoint",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "messageContains": [
+        "SPACES_ENDPOINT",
+        "spaces"
+      ]
+    },
+    {
+      "name": "spaces without a bucket",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_KEY": "DO00KEY",
+        "SPACES_SECRET": "dosecret"
+      },
+      "messageContains": [
+        "SPACES_BUCKET",
+        "spaces"
+      ]
+    },
+    {
+      "name": "spaces without a secret",
+      "env": {
+        "STORAGE_BACKEND": "spaces",
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_KEY": "DO00KEY"
+      },
+      "messageContains": [
+        "SPACES_SECRET",
+        "spaces"
+      ]
+    },
+    {
+      "name": "three of the four Spaces variables is a misconfiguration, not a request for local",
+      "env": {
+        "SPACES_ENDPOINT": "https://blr1.digitaloceanspaces.com",
+        "SPACES_BUCKET": "cdip-prod",
+        "SPACES_KEY": "DO00KEY"
+      },
+      "messageContains": [
+        "SPACES_SECRET",
+        "spaces"
+      ]
+    }
+  ]
+}

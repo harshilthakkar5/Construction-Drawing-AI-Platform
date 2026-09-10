@@ -1,0 +1,247 @@
+# ONE machine, everything on it — the office server PC.
+#
+#   ./deploy/deploy.sh local
+#
+# Postgres, Redis, Qdrant and MinIO come UP HERE rather than being managed
+# services, and object storage is a folder on this machine's disk instead of
+# DigitalOcean Spaces. Nothing about the application changes to make that work:
+# MinIO speaks the same S3 API, so STORAGE_BACKEND=local is a credentials
+# switch, not a second code path that could rot untested.
+#
+# What is deliberately NOT here: TLS. A LAN address has no certificate anyone
+# can issue, so Caddy serves plain HTTP on port 80 and this stack is safe only
+# on a trusted office network — never port-forwarded from a router. Sessions
+# and presigned URLs cross the office wifi in the clear.
+#
+# Every mem_limit is env-tunable, because the same file has to fit a 32 GB
+# office server and a 16 GB laptop. The defaults are the server's; the laptop
+# preset is in .env.local.example, and docs/laptop-deployment.md explains what
+# the numbers buy. THEY ARE CEILINGS, NOT RESERVATIONS: a container is killed
+# at its limit rather than allowed to take the machine with it, which is the
+# whole reason they are here.
+#
+# Requires deploy/.env.local (see .env.local.example).
+
+name: cdip
+
+services:
+  # ---------------------------------------------------------------------------
+  # caddy — the static frontend and the /api proxy, one origin for both
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      # Port 80 is often already taken on a laptop (IIS, another dev server).
+      # Only the LEFT side changes: Caddy still listens on 80 inside the
+      # container, so the Caddyfile needs no edit. Set APP_URL to match.
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # api
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Container DNS — the API's own route to each service. The BROWSER's
+      # route to MinIO is a different value (LOCAL_S3_PUBLIC_ENDPOINT in
+      # .env.local), because a laptop across the office cannot resolve "minio".
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cdip}
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      STORAGE_BACKEND: local
+      LOCAL_S3_ENDPOINT: http://minio:9000
+    expose:
+      - "4000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      # Not just "minio is up" — the BUCKET has to exist. Nothing in the app
+      # creates it, so starting before minio-init finishes is a first upload
+      # that fails with NoSuchBucket.
+      minio-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: ${API_MEM_LIMIT:-1g}
+
+  # ---------------------------------------------------------------------------
+  # worker — the memory-hungry one
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: ../workers
+    restart: unless-stopped
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cdip}
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      STORAGE_BACKEND: local
+      LOCAL_S3_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    # PROCESS_CONCURRENCY x PAGE_CONCURRENCY full-resolution pixmaps are in
+    # flight at once and a D-size sheet is ~18 megapixels. This is the ceiling
+    # that turns a runaway ingest into a restarted container rather than a
+    # server PC that stops answering — raise it and the concurrency together,
+    # never one alone. It is also bounded by what Docker Desktop's WSL2 VM has
+    # been given in .wslconfig; see docs/local-server-deployment.md.
+    mem_limit: ${WORKER_MEM_LIMIT:-8g}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ---------------------------------------------------------------------------
+  # postgres
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cdip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cdip}
+    ports:
+      # Loopback ONLY: psql from this PC, never from the office network. A
+      # 0.0.0.0 bind here would put the whole database behind one password on
+      # a wifi network.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # A NAMED VOLUME, not a bind mount. Postgres refuses to start on a
+      # Windows-mounted path (/mnt/c/...) because it cannot set the ownership
+      # and 0700 permissions it checks for on the data directory.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdip} -d ${POSTGRES_DB:-cdip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+
+  # ---------------------------------------------------------------------------
+  # redis — queues, sessions, retrieval + embedding caches
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Sessions and BullMQ job state live here, so it is persisted rather than
+    # treated as a pure cache: losing it mid-ingest loses queued jobs and signs
+    # everyone out.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${REDIS_MEM_LIMIT:-1g}
+
+  # ---------------------------------------------------------------------------
+  # qdrant — vectors
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Vectors and the HNSW graph are held in memory: roughly 6 KB per chunk at
+    # 1024 dimensions, so ~170k chunks per gigabyte. Qdrant does not degrade
+    # when it runs out, it is killed.
+    mem_limit: ${QDRANT_MEM_LIMIT:-2g}
+
+  # ---------------------------------------------------------------------------
+  # minio — the S3 API, backed by a folder on this machine
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${LOCAL_S3_KEY}
+      MINIO_ROOT_PASSWORD: ${LOCAL_S3_SECRET}
+    ports:
+      # 9000 IS REACHED BY BROWSERS, not just by the API: uploads go straight
+      # from the laptop to object storage with a presigned URL, and page
+      # images are fetched the same way. That is the whole point of never
+      # proxying file bytes through the API, and it means this port must be
+      # open on the office network — unlike Postgres and Redis above.
+      #
+      # If you change it because 9000 is taken, change the port in
+      # LOCAL_S3_PUBLIC_ENDPOINT to match. They are the same port seen from
+      # two places, and a mismatch rejects every upload as
+      # SignatureDoesNotMatch rather than failing to connect.
+      - "${MINIO_PORT:-9000}:9000"
+      # The MinIO console (browse/download the stored files by hand). Loopback
+      # only: it is an admin surface holding the root credentials.
+      - "127.0.0.1:9001:9001"
+    volumes:
+      # THE DRAWINGS. A bind mount so the PDFs, page images and thumbnails are
+      # ordinary files you can back up, copy to a NAS, or point antivirus at.
+      # Keep this path on the Linux side of WSL2: a /mnt/c or /mnt/d path goes
+      # through the Windows filesystem bridge, which costs several times the
+      # throughput on the 1 GB PDFs this exists to hold.
+      - ${STORAGE_DATA_DIR:-../data/storage}:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${MINIO_MEM_LIMIT:-2g}
+
+  # One-shot: create the bucket. Idempotent, so it is safe on every deploy.
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      LOCAL_S3_KEY: ${LOCAL_S3_KEY}
+      LOCAL_S3_SECRET: ${LOCAL_S3_SECRET}
+      LOCAL_S3_BUCKET: ${LOCAL_S3_BUCKET:-cdip-local}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 \"$$LOCAL_S3_KEY\" \"$$LOCAL_S3_SECRET\" &&
+        mc mb --ignore-existing \"local/$$LOCAL_S3_BUCKET\"
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  caddy_data:
+  caddy_config:

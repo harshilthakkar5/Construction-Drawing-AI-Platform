@@ -14,38 +14,63 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env.js";
 import { normalizeSpacesEndpoint } from "./spacesEndpoint.js";
+import { storage } from "./storage.js";
 
-const { endpoint: spacesEndpoint, corrected } = normalizeSpacesEndpoint(
-  env.SPACES_ENDPOINT,
-  env.SPACES_BUCKET,
+/** Applies the bucket-in-the-hostname correction and says so once. */
+function endpointFor(raw: string, label: string): string {
+  const { endpoint, corrected } = normalizeSpacesEndpoint(raw, storage.bucket);
+  if (corrected) {
+    console.warn(
+      `[s3] ${label} included the bucket name — using ${endpoint} instead. ` +
+        `Set ${label}=${endpoint} in .env. Objects uploaded before this ` +
+        `correction were stored under a "${storage.bucket}/" key prefix and will not be found.`,
+    );
+  }
+  return endpoint;
+}
+
+const internalEndpoint = endpointFor(
+  storage.endpoint,
+  storage.backend === "local" ? "LOCAL_S3_ENDPOINT" : "SPACES_ENDPOINT",
 );
-if (corrected) {
-  console.warn(
-    `[s3] SPACES_ENDPOINT included the bucket name — using ${spacesEndpoint} instead. ` +
-      `Set SPACES_ENDPOINT=${spacesEndpoint} in .env. Objects uploaded before this ` +
-      `correction were stored under a "${env.SPACES_BUCKET}/" key prefix and will not be found.`,
-  );
+const publicEndpoint = endpointFor(
+  storage.publicEndpoint,
+  storage.backend === "local" ? "LOCAL_S3_PUBLIC_ENDPOINT" : "SPACES_PUBLIC_ENDPOINT",
+);
+
+function client(endpoint: string) {
+  return new S3Client({
+    endpoint,
+    region: storage.region,
+    credentials: { accessKeyId: storage.key, secretAccessKey: storage.secret },
+    // Path-style URLs (endpoint.com/bucket/key) work for both MinIO (required)
+    // and DO Spaces; the endpoint must therefore be the REGION host
+    // (e.g. https://blr1.digitaloceanspaces.com), never the bucket subdomain.
+    forcePathStyle: true,
+  });
 }
 
 /**
- * DigitalOcean Spaces in prod, MinIO locally — S3 API with endpoint override.
- * Path-style addressing is required for MinIO; see spacesEndpoint.ts for why
- * the endpoint must be the region host.
+ * The store as the SERVER reaches it: DigitalOcean Spaces, or the MinIO
+ * container beside this one. Every request the API makes itself goes here.
  */
-export const s3 = new S3Client({
-  endpoint: spacesEndpoint,
-  region: env.SPACES_REGION,
-  credentials: {
-    accessKeyId: env.SPACES_KEY,
-    secretAccessKey: env.SPACES_SECRET,
-  },
-  // Path-style URLs (endpoint.com/bucket/key) work for both MinIO (required)
-  // and DO Spaces; SPACES_ENDPOINT must therefore be the REGION endpoint
-  // (e.g. https://blr1.digitaloceanspaces.com), never the bucket subdomain.
-  forcePathStyle: true,
-});
+export const s3 = client(internalEndpoint);
 
-const BUCKET = env.SPACES_BUCKET;
+/**
+ * The store as a BROWSER reaches it, used ONLY to sign URLs that leave this
+ * process. The two differ whenever the server's route to storage is a name
+ * only the server can resolve — `http://minio:9000` is the whole storage layer
+ * for this container and nothing at all for a laptop across the office.
+ *
+ * It has to be a separate client rather than a string substitution afterwards:
+ * SigV4 signs the Host header, so a URL signed for `minio:9000` and requested
+ * at `192.168.1.50:9000` is rejected as SignatureDoesNotMatch. When the two
+ * endpoints are the same — the ordinary Spaces deployment — this IS the same
+ * client, so nothing is signed twice.
+ */
+const s3Public = publicEndpoint === internalEndpoint ? s3 : client(publicEndpoint);
+
+const BUCKET = storage.bucket;
 
 /** Optional canned ACL (off by default — objects stay private and are served
  * via presigned URLs). Applied at multipart initiation; the ACL set there
@@ -68,9 +93,11 @@ export async function createMultipartUpload(key: string, contentType: string) {
   return res.UploadId;
 }
 
+/** Handed to the browser, which PUTs the bytes straight at object storage —
+ * so it is signed against the PUBLIC endpoint. */
 export function presignUploadPart(key: string, uploadId: string, partNumber: number) {
   return getSignedUrl(
-    s3,
+    s3Public,
     new UploadPartCommand({ Bucket: BUCKET, Key: key, UploadId: uploadId, PartNumber: partNumber }),
     { expiresIn: 3600 },
   );
@@ -113,7 +140,15 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
   await s3.send(new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: key, UploadId: uploadId }));
 }
 
+/** A URL for the BROWSER: page images, thumbnails, the original PDF. */
 export function presignGetObject(key: string, expiresIn = 3600) {
+  return getSignedUrl(s3Public, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });
+}
+
+/** A URL for another SERVER-side service (the malware scanner), which sits on
+ * this deployment's own network and must not be sent a LAN address that only
+ * means something to a browser. */
+export function presignGetObjectInternal(key: string, expiresIn = 3600) {
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });
 }
 
