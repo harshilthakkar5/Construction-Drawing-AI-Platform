@@ -209,6 +209,39 @@ Postgres is the one that matters. The PDFs can be re-uploaded and the vectors
 re-computed; the portion structure, the approved summaries and the chat history
 cannot.
 
+## After changing `deploy/.env.local`, recreate EVERY container
+
+```bash
+./deploy/deploy.sh local
+# or, without the rebuild:
+docker compose -f deploy/docker-compose.local.yml up -d --force-recreate
+```
+
+**Never name a single service.** `up -d --force-recreate api` recreates only
+the API, and the worker keeps running with the environment it started with —
+the worker is not one of the API's `depends_on`, so nothing pulls it along.
+
+This fails in the most confusing way possible, because the API and the worker
+do different halves of the same feature. The summary cost dialog is computed
+by the API (`apps/api/src/summaryEstimate.ts`); the summary itself is run by
+the worker (`workers/src/summarize.py`). Recreate only the API after switching
+`SUMMARY_PROVIDER` to gemini and the dialog correctly quotes the Gemini model
+while the run still fails asking for `ANTHROPIC_API_KEY` — two components
+answering from two different versions of one file.
+
+The same split hides a worse one silently: if `EMBEDDING_PROVIDER`,
+`EMBEDDING_DIM` or `QDRANT_COLLECTION` differ between the two, nothing errors
+at all. The worker embeds into one collection and the API searches another, so
+chat simply returns nothing useful.
+
+To see what a running container actually has, ask it rather than reading the
+file:
+
+```bash
+docker compose -f deploy/docker-compose.local.yml exec worker \
+  env | grep -E "SUMMARY_PROVIDER|EMBEDDING_|QDRANT_COLLECTION|GEMINI_API_KEY"
+```
+
 ## 7. Putting the drawings on the big Windows drive
 
 `STORAGE_DATA_DIR=/mnt/d/cdip-storage` works, and it is slower — every read and
