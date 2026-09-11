@@ -8,23 +8,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Two checks, and the split matters: one is allowed to fail and one is not.
+# What "installed correctly" means, in one place so the check and its retry
+# cannot disagree. Every native or heavy dependency is named — those are the
+# ones that break — plus requests, which nothing here imports directly but
+# paddleocr and google-genai both need.
+ARG PY_IMPORT_CHECK="import requests, paddleocr, paddle, cv2, fitz, pdfplumber, boto3, psycopg, psycopg_pool, PIL, anthropic, httpx, dotenv, bullmq, redis, prometheus_client; import google.genai"
+
+# Install AND verify in ONE layer, with one self-healing retry.
 #
-# FIRST, that paddleocr IMPORTS. A build that gets this far has already run
-# `pip install`, so a failure here is a corrupt install — a truncated wheel, a
-# bad layer in the build cache, a full disk — not a missing package. Left
-# tolerated, it ships an image whose OCR is dead: workers/src/ocr.py catches
-# the error per page and carries on, so nothing crashes and nothing is loud,
-# while every scanned sheet silently yields no text AND no sheet number. That
-# is worse than a failed build, so this one exits.
-RUN python -c "import paddleocr" \
- || { echo "paddleocr could not be imported. The install in this image is corrupt, not merely absent." >&2; \
-      echo "Rebuild clean: docker builder prune -f && docker build --no-cache ./workers" >&2; \
-      exit 1; }
+# THE SINGLE LAYER IS THE POINT. A flaky network or a bad disk can leave a
+# package installed but unreadable — the symptom is an import dying inside a
+# dependency, e.g.
+#   zlib.error: Error -2 while decompressing data: inconsistent stream state
+# from `import requests` by way of charset_normalizer. Verifying that in a
+# LATER RUN cannot fix it: this layer succeeded, so Docker caches it, and every
+# rebuild replays the same corrupt layer and fails the check again without pip
+# ever running. The check has to live where pip lives, so that a failure
+# invalidates the install itself and a rebuild genuinely re-downloads.
+#
+# The retry is `--force-reinstall`, not a bare repeat: pip considers an already
+# present package satisfied and would do nothing at all.
+RUN pip install --no-cache-dir -r requirements.txt \
+ && ( python -c "$PY_IMPORT_CHECK" \
+      || ( echo "a package installed but does not import — reinstalling once" >&2 \
+           && pip install --no-cache-dir --force-reinstall -r requirements.txt \
+           && python -c "$PY_IMPORT_CHECK" ) )
 
-# SECOND, bake the OCR models in (~15 MB). Without this the first page that
+# Bake the OCR models in (~15 MB). Without this the first page that
 # needs OCR downloads them from a CDN that is slow and drop-prone from some
 # regions — mid-job, inside a queue worker, the worst possible moment. THIS one
 # is best-effort: a failure is someone else's CDN having a bad minute, and the
