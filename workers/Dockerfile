@@ -10,11 +10,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Bake the OCR models into the image (~15 MB). Without this the first page
-# that needs OCR downloads them from a CDN that is slow and drop-prone from
-# some regions — mid-job, inside a queue worker, which is the worst possible
-# moment. Best-effort: a failure here leaves the runtime download as the
-# fallback rather than breaking the build over someone else's CDN.
+# Two checks, and the split matters: one is allowed to fail and one is not.
+#
+# FIRST, that paddleocr IMPORTS. A build that gets this far has already run
+# `pip install`, so a failure here is a corrupt install — a truncated wheel, a
+# bad layer in the build cache, a full disk — not a missing package. Left
+# tolerated, it ships an image whose OCR is dead: workers/src/ocr.py catches
+# the error per page and carries on, so nothing crashes and nothing is loud,
+# while every scanned sheet silently yields no text AND no sheet number. That
+# is worse than a failed build, so this one exits.
+RUN python -c "import paddleocr" \
+ || { echo "paddleocr could not be imported. The install in this image is corrupt, not merely absent." >&2; \
+      echo "Rebuild clean: docker builder prune -f && docker build --no-cache ./workers" >&2; \
+      exit 1; }
+
+# SECOND, bake the OCR models in (~15 MB). Without this the first page that
+# needs OCR downloads them from a CDN that is slow and drop-prone from some
+# regions — mid-job, inside a queue worker, the worst possible moment. THIS one
+# is best-effort: a failure is someone else's CDN having a bad minute, and the
+# runtime download remains as the fallback.
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en', show_log=False)" \
     || echo "WARNING: OCR model pre-download failed; the worker will fetch them at first use"
 
