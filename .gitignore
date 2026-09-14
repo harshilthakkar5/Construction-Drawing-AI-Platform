@@ -20,6 +20,10 @@ venv/
 .idea/
 .vscode/
 
+# The handover bundle deploy/release.sh writes: a generated compose file, a
+# generated .env, and with --save several GB of image tarballs.
+deploy/dist/
+
 # Local data volumes
 .data/
 # The office-server deployment's object storage: every uploaded PDF, page

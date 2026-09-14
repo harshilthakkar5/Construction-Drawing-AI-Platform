@@ -833,6 +833,13 @@ cp deploy/.env.local.example deploy/.env.local   # edit three values
 ./deploy/deploy.sh local
 ```
 
+To install on a machine that will never have the source — a client's laptop,
+set up over AnyDesk — build images with `./deploy/release.sh <version> --push
+<registry>` (or `--save` for tarballs) and hand over the `deploy/dist/` bundle
+it writes: an image-only compose file, a generated `.env`, and nothing else.
+`docs/client-install.md` is the runbook, including the honest note that images
+package the code, they do not hide it.
+
 The same compose file also runs the whole stack on **one laptop** at
 `http://localhost`, for a single user — `docs/laptop-deployment.md`. It is the
 same deployment sized down: four values differ, chiefly

@@ -23,6 +23,13 @@
  *   node benchmarks/retrieval_eval.mjs --capture "question" --project <id>
  *                                                          # draft a new case
  *
+ * A case says what SHOULD come back, as expectedText (a short phrase quoted
+ * off the sheet — preferred), expectedPages, or expectedChunkIds. Prefer text:
+ * page numbers are derived from document order and silently repoint at the
+ * wrong sheet when a set is re-uploaded. Expectations are checked against the
+ * corpus before the run, so one that can never match is an error rather than a
+ * reported miss.
+ *
  * To compare two configurations, run it twice with different env — the point
  * of the numbers is the difference between runs:
  *
@@ -87,20 +94,58 @@ function parseArgs(argv) {
 }
 
 /**
- * A case passes if any EXPECTED chunk or page came back. Pages are the
- * practical unit: a person marking up an evaluation set can read a page number
- * off the viewer, but cannot see chunk ids without going to the database — and
- * an answer citing any chunk on the right page is a correct answer.
+ * Normalize for text matching: collapse whitespace, upper-case.
+ *
+ * Extracted drawing text carries the PDF's own line breaks, so a phrase a
+ * person reads as one line ("IT-2 STEEL CONSTRUCTION") can hold a newline in
+ * the middle of it. Matching on the raw string would fail for reasons that
+ * have nothing to do with retrieval.
+ */
+function normalizeText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+/** expectedText accepts one string or several; any one matching is a pass. */
+function expectedTexts(testCase) {
+  const raw = testCase.expectedText ?? [];
+  return (Array.isArray(raw) ? raw : [raw]).map(String).filter((s) => s.trim());
+}
+
+/** Whether a case says anything at all about what should come back. */
+function isMarked(testCase) {
+  return (
+    (testCase.expectedPages ?? []).length > 0 ||
+    (testCase.expectedChunkIds ?? []).length > 0 ||
+    expectedTexts(testCase).length > 0
+  );
+}
+
+/**
+ * A case passes if any EXPECTED chunk, page or TEXT came back.
+ *
+ * expectedText is the anchor to prefer, and the reason is that the other two
+ * are DERIVED. A combined page number depends on document order, so
+ * re-uploading the same set in a different order silently repoints every case
+ * in the file at the wrong sheet — and the run still reports a number, which
+ * is the dangerous part: a broken expectation is indistinguishable from a
+ * retrieval failure. The words on the sheet do not move. Anchor on those and
+ * the set survives re-uploads, renumbering and re-chunking.
+ *
+ * Pages remain supported because they are easy to read off the viewer, and an
+ * answer citing any chunk on the right page is a correct answer.
  */
 function scoreCase(testCase, retrieved) {
   const wantChunks = new Set(testCase.expectedChunkIds ?? []);
   const wantPages = new Set(testCase.expectedPages ?? []);
+  const wantText = expectedTexts(testCase).map(normalizeText);
 
   for (let rank = 0; rank < retrieved.length; rank++) {
     const hit = retrieved[rank];
-    if (wantChunks.has(hit.chunkId) || wantPages.has(hit.combinedPageNumber)) {
-      return { found: true, rank: rank + 1, reciprocal: 1 / (rank + 1) };
-    }
+    const matched =
+      wantChunks.has(hit.chunkId) ||
+      wantPages.has(hit.combinedPageNumber) ||
+      wantText.some((needle) => hit.normalizedText.includes(needle));
+    if (matched) return { found: true, rank: rank + 1, reciprocal: 1 / (rank + 1) };
   }
   return { found: false, rank: null, reciprocal: 0 };
 }
@@ -127,6 +172,7 @@ async function locate(prisma, chunkIds) {
             combinedPageNumber: row.page.combinedPageNumber,
             filename: row.page.document.filename,
             preview: row.text.replace(/\s+/g, " ").slice(0, 90),
+            normalizedText: normalizeText(row.text),
           },
         ]
       : [];
@@ -145,15 +191,101 @@ async function capture(api, question, projectId, k) {
         `${hit.filename.slice(0, 34).padEnd(34)} ${hit.preview}`,
     );
   });
+  // Deliberately NOT pre-filled with the top hit's page. Doing that made the
+  // skeleton assert "whatever retrieval already ranked first is correct",
+  // which is circular: the set then measures agreement with the behaviour it
+  // was captured from, and every later change looks like a regression. The
+  // field is left empty so it has to be answered from the drawing.
   console.log(
-    `\nMark the pages that actually answer it, then add:\n\n` +
-      JSON.stringify(
-        { projectId, question, expectedPages: [hits[0]?.combinedPageNumber ?? 0], note: "" },
-        null,
-        2,
-      ) +
+    `\nFind the text on the sheet that actually answers it and quote a short,\n` +
+      `distinctive phrase of it below — not a page number, which moves when\n` +
+      `documents are re-uploaded:\n\n` +
+      JSON.stringify({ projectId, question, tag: "", expectedText: "", note: "" }, null, 2) +
       "\n",
   );
+}
+
+/**
+ * The combined page numbers this project actually has.
+ *
+ * Used to reject an expectation that can never be met. An expectedPages value
+ * outside this range is not a hard case, it is a broken one — and scoring it
+ * as a miss reports a retrieval failure that never happened.
+ */
+async function pageRange(prisma, projectId) {
+  const agg = await prisma.page.aggregate({
+    where: { document: { projectId, supersededAt: null } },
+    _min: { combinedPageNumber: true },
+    _max: { combinedPageNumber: true },
+  });
+  return { min: agg._min.combinedPageNumber, max: agg._max.combinedPageNumber };
+}
+
+/**
+ * How many chunks of this project contain `needle`.
+ *
+ * Normalized in SQL the same way scoreCase normalizes in JS, so the preflight
+ * and the scoring agree about what "contains" means. strpos rather than ILIKE
+ * because a needle holding % or _ is a literal here, not a pattern.
+ */
+async function textHits(prisma, projectId, needle) {
+  const rows = await prisma.$queryRaw`
+    SELECT count(*)::int AS hits
+      FROM chunks c
+      JOIN pages p ON c."pageId" = p.id
+      JOIN documents d ON p."documentId" = d.id
+     WHERE d."projectId" = ${projectId}
+       AND d."supersededAt" IS NULL
+       AND strpos(upper(regexp_replace(c.text, '\\s+', ' ', 'g')), ${needle}) > 0
+  `;
+  return Number(rows[0]?.hits ?? 0);
+}
+
+/**
+ * Preflight: check every expectation against the corpus BEFORE measuring.
+ *
+ * This exists because of a real failure. An evaluation set was marked up with
+ * page numbers taken from the source PDFs' own filenames rather than the
+ * app's combined numbering, so most cases pointed at pages the project did not
+ * have. Two full runs reported recall of 40% and 20% and were used to compare
+ * two retrieval configurations — while the retriever had in fact been
+ * returning the right chunk at rank 1. Nothing in the harness objected,
+ * because a wrong expectation and a missed chunk score identically.
+ *
+ * So an expectation that CANNOT match is now an error rather than a zero. A
+ * benchmark is allowed to report bad news; it is not allowed to invent it.
+ */
+async function preflight(prisma, cases) {
+  const ranges = new Map();
+  for (const projectId of new Set(cases.map((c) => c.projectId))) {
+    ranges.set(projectId, await pageRange(prisma, projectId));
+  }
+
+  const checked = [];
+  for (const testCase of cases) {
+    const range = ranges.get(testCase.projectId);
+    const pages = testCase.expectedPages ?? [];
+    const strayPages =
+      range.max === null ? pages : pages.filter((n) => n < range.min || n > range.max);
+
+    const missingText = [];
+    for (const needle of expectedTexts(testCase)) {
+      if ((await textHits(prisma, testCase.projectId, normalizeText(needle))) === 0) {
+        missingText.push(needle);
+      }
+    }
+
+    // expectedChunkIds are taken on trust: an id is not guessable, so one that
+    // is present was read out of this database.
+    const reachable =
+      pages.length -
+      strayPages.length +
+      (expectedTexts(testCase).length - missingText.length) +
+      (testCase.expectedChunkIds ?? []).length;
+
+    checked.push({ testCase, strayPages, missingText, reachable, range });
+  }
+  return checked;
 }
 
 function summarize(results, k) {
@@ -241,9 +373,7 @@ async function main() {
     );
   }
 
-  const unmarked = cases.filter(
-    (c) => (c.expectedPages ?? []).length === 0 && (c.expectedChunkIds ?? []).length === 0,
-  );
+  const unmarked = cases.filter((c) => !isMarked(c));
   if (unmarked.length === cases.length) {
     throw new Error(
       `no case in ${args.set} says what it expects, so every one scores as a miss.\n` +
@@ -253,13 +383,48 @@ async function main() {
   if (unmarked.length) {
     console.warn(
       `\n  ${unmarked.length}/${cases.length} cases have nothing expected and are SKIPPED.\n` +
-        `  Fill in expectedPages to include them.`,
+        `  Fill in expectedText to include them.`,
     );
   }
 
-  const scorable = cases.filter(
-    (c) => (c.expectedPages ?? []).length > 0 || (c.expectedChunkIds ?? []).length > 0,
-  );
+  const marked = cases.filter(isMarked);
+
+  // Verify the expectations against the corpus before measuring anything.
+  const checked = await preflight(api.prisma, marked);
+  const impossible = checked.filter((c) => c.reachable === 0);
+  if (impossible.length) {
+    const detail = impossible
+      .map(({ testCase, strayPages, missingText, range }) => {
+        const why = [
+          strayPages.length
+            ? `expectedPages ${strayPages.join(", ")} (project has pages ${range.min}-${range.max})`
+            : null,
+          missingText.length
+            ? `expectedText ${missingText.map((t) => JSON.stringify(t)).join(", ")} appears in no chunk`
+            : null,
+        ].filter(Boolean);
+        return `    - ${testCase.question.slice(0, 62)}\n        ${why.join("; ")}`;
+      })
+      .join("\n");
+    throw new Error(
+      `${impossible.length}/${marked.length} cases in ${args.set} expect something this project\n` +
+        `  cannot return, so they would score as retrieval failures that never happened:\n\n` +
+        `${detail}\n\n` +
+        `  Fix the expectations — quote text off the sheet with expectedText, which does\n` +
+        `  not move when documents are re-uploaded — then run again.`,
+    );
+  }
+  const partial = checked.filter((c) => c.reachable > 0 && (c.strayPages.length || c.missingText.length));
+  for (const { testCase, strayPages, missingText, range } of partial) {
+    console.warn(
+      `\n  Unreachable expectation on "${testCase.question.slice(0, 50)}":\n` +
+        (strayPages.length ? `    pages ${strayPages.join(", ")} — project has ${range.min}-${range.max}\n` : "") +
+        (missingText.length ? `    text ${missingText.map((t) => JSON.stringify(t)).join(", ")} — in no chunk\n` : "") +
+        `    The case can still pass on its other expectations.`,
+    );
+  }
+
+  const scorable = marked;
 
   const results = [];
   for (const testCase of scorable) {

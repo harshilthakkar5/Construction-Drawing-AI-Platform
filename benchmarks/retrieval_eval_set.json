@@ -1,22 +1,33 @@
 [
   {
     "_comment": [
-      "The evaluation set. Delete this first entry and replace the rest with your own.",
+      "The evaluation set. Replace these cases with your own.",
       "",
-      "Each case needs a projectId, a question, and what SHOULD come back — either",
-      "expectedPages (combined page numbers, which you can read off the viewer) or",
-      "expectedChunkIds if you have them. A case passes when any expected page or",
-      "chunk appears in the retrieved list.",
+      "Each case needs a projectId, a question, and what SHOULD come back.",
       "",
-      "Build it with: node benchmarks/retrieval_eval.mjs --capture \"your question\" --project <id>",
-      "which runs the question and prints the top hits with their page numbers, so",
-      "you mark up what is actually right rather than typing ids by hand.",
+      "Say it with expectedText: a short, distinctive phrase quoted off the sheet",
+      "that answers the question. A case passes when a retrieved chunk contains it.",
+      "Matching ignores case and collapses whitespace, so a phrase broken across a",
+      "line in the PDF still matches. Give an array to accept any of several.",
       "",
-      "Aim for 30-50 cases, and TAG them by class. The tag breakdown is the useful",
+      "Prefer text over expectedPages. A combined page number is DERIVED from",
+      "document order: re-upload the same PDFs in another order and every page",
+      "number in this file quietly points at a different sheet, while the run still",
+      "prints a number. That is how this set previously reported recall of 40% and",
+      "20% for two retrieval configurations that were both returning the right",
+      "chunk at rank 1 — the page numbers had been written from the source PDFs'",
+      "filenames rather than the app's combined numbering. The words on a sheet do",
+      "not move. Expectations are now checked against the corpus before the run,",
+      "so one that can never match stops the run instead of scoring as a miss.",
+      "",
+      "Build a case with:",
+      "  node benchmarks/retrieval_eval.mjs --capture \"your question\" --project <id>",
+      "It prints the top hits with their text, so you quote what is really there.",
+      "",
+      "Aim for 30-50 cases and TAG them by class. The tag breakdown is the useful",
       "part: an average hides that identifier lookups went from 40% to 95% while",
       "open questions went slightly backwards, and that is exactly the trade a",
-      "retrieval change makes. The four classes below are the ones that behave",
-      "differently in this app; keep roughly ten of each.",
+      "retrieval change makes. Keep roughly ten of each.",
       "",
       "Include failures you have actually seen. A set of questions you already know",
       "work measures nothing."
@@ -24,38 +35,73 @@
   },
 
   {
-    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
-    "question": "what is S102A",
-    "tag": "identifier",
-    "expectedPages": [3],
-    "note": "Sheet lookup by number — the case dense embeddings cannot resolve, since S102A and S201 are equally 'a structural sheet number'."
-  },
-  {
-    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
-    "question": "where is detail A-301 referenced",
-    "tag": "identifier",
-    "expectedPages": [],
-    "note": "Detail tag with a separator — the shape Postgres FTS mangles into '-301'."
-  },
-  {
-    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
-    "question": "what size are the W18x97 beams",
-    "tag": "member-size",
-    "expectedPages": [],
-    "note": "Member designation. Fails on dense alone for the same reason sheet numbers do."
-  },
-  {
-    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
-    "question": "what is the live load on the truss lines",
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What building code is specified for this project, and what should be followed when the drawings reference the latest edition or other standards?",
     "tag": "spec-value",
-    "expectedPages": [],
-    "note": "A number stated in a general note. Dense usually finds this; keep it in the set so a change that breaks it is visible."
+    "expectedText": ["2018 North Carolina Building Code", "North Carolina Building Code"],
+    "note": "General structural notes: the governing code and the requirement to follow referenced standards / latest applicable editions."
   },
   {
-    "projectId": "REPLACE-WITH-A-REAL-PROJECT-UUID",
-    "question": "what holds up the canopy",
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What is the typical top of footing elevation shown on the foundation plan?",
+    "tag": "spec-value",
+    "expectedText": ["top of footing"],
+    "note": "Foundation plan elevation lookup. Typical top of footing is -13'-4\", UNO."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What are the thickness and reinforcement requirements for the typical slab-on-grade?",
+    "tag": "spec-value",
+    "expectedText": ["4x4-W2.9xW2.9", "W2.9"],
+    "note": "Foundation plan slab-on-grade note: 4-inch slab with 4x4-W2.9xW2.9 WWR at mid-depth on vapor retarder over prepared subgrade. The WWR designation is the distinctive token; the word 'slab' is everywhere."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "At what maximum spacing are control joints required in the slab-on-grade?",
+    "tag": "spec-value",
+    "expectedText": ["control joint"],
+    "note": "Maximum spacing is 10'-8\" OC, with joints at each column grid. Anchored on the phrase rather than the dimension because feet-and-inches marks vary between straight and typographic quotes in extracted text."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What is the specified floor construction at Level 1, including concrete thickness, steel deck size, total depth, and reinforcement location?",
+    "tag": "spec-value",
+    "expectedText": ["6x6-W2.1xW2.1", "W2.1"],
+    "note": "Level 1 framing plan: 3 1/2-inch normal-weight concrete on 3-inch 20GA composite steel deck, total depth 6 1/2 inches, 6x6-W2.1xW2.1 WWR 1 1/2 inches below top of slab."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What is the maximum permitted deck span at Level 1?",
+    "tag": "spec-value",
+    "expectedText": ["deck span"],
+    "note": "Level 1 framing plan specifies a maximum deck span of 11'-0\"."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What temporary bracing is required for the steel columns at Level 2 before the wood stud walls are erected?",
     "tag": "open",
-    "expectedPages": [],
-    "note": "Shares no vocabulary with the note that answers it — the case keyword search cannot do, and the reason dense retrieval stays in the mix."
+    "expectedText": ["temporary bracing"],
+    "note": "Level 2 framing notes: steel columns are unstable without the wood stud walls, so the contractor provides temporary bracing before those walls are erected."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "What does the abbreviation \"HSS\" mean in the structural drawings?",
+    "tag": "identifier",
+    "expectedText": ["Hollow Structural"],
+    "note": "Abbreviation lookup in the general notes. Anchored on the expansion, not on 'HSS', which appears in member callouts all over the set and would pass on any sheet."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "For Special Inspections, what items are included under IT-2 Steel Construction?",
+    "tag": "identifier",
+    "expectedText": ["IT-2 STEEL CONSTRUCTION"],
+    "note": "Special inspections schedule. This anchor is verbatim — confirmed present in the retrieved chunk text. Previously marked expectedPages [8], which is a filename number; the content is on combined pages 4 and 5."
+  },
+  {
+    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "question": "For IT-3 Concrete Construction, what inspections are required for reinforcement, cast-in anchors, and post-installed anchors?",
+    "tag": "identifier",
+    "expectedText": ["IT-3 CONCRETE CONSTRUCTION", "IT-3"],
+    "note": "IT-3 covers reinforcement/prestressing, rebar welding, cast-in anchors and post-installed adhesive/mechanical anchors. The bare 'IT-3' fallback is looser than the heading and will also match a cross-reference."
   }
 ]
