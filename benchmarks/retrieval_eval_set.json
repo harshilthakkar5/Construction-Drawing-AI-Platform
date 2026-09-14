@@ -35,70 +35,70 @@
   },
 
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What building code is specified for this project, and what should be followed when the drawings reference the latest edition or other standards?",
     "tag": "spec-value",
     "expectedText": ["2018 North Carolina Building Code", "North Carolina Building Code"],
     "note": "General structural notes: the governing code and the requirement to follow referenced standards / latest applicable editions."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What is the typical top of footing elevation shown on the foundation plan?",
     "tag": "spec-value",
     "expectedText": ["top of footing"],
     "note": "Foundation plan elevation lookup. Typical top of footing is -13'-4\", UNO."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What are the thickness and reinforcement requirements for the typical slab-on-grade?",
     "tag": "spec-value",
     "expectedText": ["4x4-W2.9xW2.9", "W2.9"],
     "note": "Foundation plan slab-on-grade note: 4-inch slab with 4x4-W2.9xW2.9 WWR at mid-depth on vapor retarder over prepared subgrade. The WWR designation is the distinctive token; the word 'slab' is everywhere."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "At what maximum spacing are control joints required in the slab-on-grade?",
     "tag": "spec-value",
     "expectedText": ["control joint"],
     "note": "Maximum spacing is 10'-8\" OC, with joints at each column grid. Anchored on the phrase rather than the dimension because feet-and-inches marks vary between straight and typographic quotes in extracted text."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What is the specified floor construction at Level 1, including concrete thickness, steel deck size, total depth, and reinforcement location?",
     "tag": "spec-value",
     "expectedText": ["6x6-W2.1xW2.1", "W2.1"],
     "note": "Level 1 framing plan: 3 1/2-inch normal-weight concrete on 3-inch 20GA composite steel deck, total depth 6 1/2 inches, 6x6-W2.1xW2.1 WWR 1 1/2 inches below top of slab."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What is the maximum permitted deck span at Level 1?",
     "tag": "spec-value",
     "expectedText": ["deck span"],
     "note": "Level 1 framing plan specifies a maximum deck span of 11'-0\"."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What temporary bracing is required for the steel columns at Level 2 before the wood stud walls are erected?",
     "tag": "open",
     "expectedText": ["temporary bracing"],
     "note": "Level 2 framing notes: steel columns are unstable without the wood stud walls, so the contractor provides temporary bracing before those walls are erected."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "What does the abbreviation \"HSS\" mean in the structural drawings?",
     "tag": "identifier",
     "expectedText": ["Hollow Structural"],
     "note": "Abbreviation lookup in the general notes. Anchored on the expansion, not on 'HSS', which appears in member callouts all over the set and would pass on any sheet."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "For Special Inspections, what items are included under IT-2 Steel Construction?",
     "tag": "identifier",
     "expectedText": ["IT-2 STEEL CONSTRUCTION"],
     "note": "Special inspections schedule. This anchor is verbatim — confirmed present in the retrieved chunk text. Previously marked expectedPages [8], which is a filename number; the content is on combined pages 4 and 5."
   },
   {
-    "projectId": "7937f4f7-0884-4eda-974f-bb1a84e2ba23",
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
     "question": "For IT-3 Concrete Construction, what inspections are required for reinforcement, cast-in anchors, and post-installed anchors?",
     "tag": "identifier",
     "expectedText": ["IT-3 CONCRETE CONSTRUCTION", "IT-3"],
