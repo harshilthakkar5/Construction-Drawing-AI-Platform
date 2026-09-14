@@ -440,7 +440,14 @@ rerank.ts records one search as one unit.
 `benchmarks/retrieval_eval.mjs` is what makes any of this checkable: it runs a tagged question
 set (`retrieval_eval_set.json`) through the REAL `retrieveChunkIds` and reports recall@k and
 MRR, per tag. Run it before and after a retrieval change — every claim in this section is
-otherwise unfalsifiable.
+otherwise unfalsifiable. A case says what should come back as `expectedText` (a phrase quoted
+off the sheet), `expectedPages` or `expectedChunkIds`; prefer TEXT, because a combined page
+number is derived from document order and a re-upload silently repoints every case in the file
+at a different sheet while the run still prints a number. That is not hypothetical: a set
+marked up from the source PDFs' filenames rather than the combined numbering reported 40% and
+20% recall for two configurations that were both returning the right chunk at rank 1. So every
+expectation is now checked against the corpus BEFORE the run, and one that cannot match is an
+error rather than a reported miss — a benchmark may report bad news, never invent it.
 
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
