@@ -125,6 +125,10 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
       filename: c.page.document.filename,
       combinedPageNumber: c.page.combinedPageNumber,
       text: c.text,
+      // Already loaded with the page; the model could not name a sheet without
+      // them, and a drawing set refers to itself by sheet number alone.
+      sheetNumber: c.page.sheetNumber,
+      discipline: c.page.discipline,
     })),
     history,
     projectId,
@@ -143,6 +147,9 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
         // FR-19: the viewer scales the bbox with the PDF page size.
         pageWidth: c.page.pdfWidth,
         pageHeight: c.page.pdfHeight,
+        // FR-21: the chip reads "S-004 — page 4", not "7.pdf — page 4".
+        sheetNumber: c.page.sheetNumber,
+        discipline: c.page.discipline,
       },
     ]),
   );

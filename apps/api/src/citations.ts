@@ -27,6 +27,12 @@ export interface ChunkSourceRecord {
    * processed before Phase 5 — the UI then jumps without highlighting. */
   pageWidth?: number | null;
   pageHeight?: number | null;
+  /** Sheet number read off the title block ("S-004"), when the region scrape
+   * found one. This is what FR-21's "S201 Page 17" means, and what an engineer
+   * calls the sheet — a filename is an upload artifact they never chose. */
+  sheetNumber?: string | null;
+  /** Discipline slug of the page, carried for the UI; not part of the label. */
+  discipline?: string | null;
 }
 
 export interface NumberedSource extends ChunkSourceRecord {
@@ -86,8 +92,18 @@ export function extractCitedChunkIds(answer: string): string[] {
   return ordered;
 }
 
+/**
+ * FR-21: "S201 Page 17". The sheet number is the name the drawings themselves
+ * use, so it leads when one was scraped.
+ *
+ * Falls back to the filename, which is all this had before and all that exists
+ * for a project with no title-block region marked — or for a page the scrape
+ * could not read. A blank-but-present sheetNumber falls back too: "" — page 4
+ * names nothing.
+ */
 export function sourceLabel(record: ChunkSourceRecord): string {
-  return `${record.filename} — page ${record.combinedPageNumber}`;
+  const sheet = record.sheetNumber?.trim();
+  return `${sheet || record.filename} — page ${record.combinedPageNumber}`;
 }
 
 /**

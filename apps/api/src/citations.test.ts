@@ -82,6 +82,20 @@ describe("buildSources", () => {
 
   it("builds FR-21-style clickable labels", () => {
     expect(sourceLabel(record(ID_A, 17))).toBe("S201.pdf — page 17");
+  });
+
+  it("leads with the sheet number when the scrape read one (FR-21)", () => {
+    expect(sourceLabel({ ...record(ID_A, 17, "7.pdf"), sheetNumber: "S-004" })).toBe(
+      "S-004 — page 17",
+    );
+  });
+
+  it("falls back to the filename for a page with no sheet number", () => {
+    expect(sourceLabel({ ...record(ID_A, 4, "7.pdf"), sheetNumber: null })).toBe("7.pdf — page 4");
+  });
+
+  it("treats a blank sheet number as none rather than naming nothing", () => {
+    expect(sourceLabel({ ...record(ID_A, 4, "7.pdf"), sheetNumber: "   " })).toBe("7.pdf — page 4");
     const { sources } = buildSources(`x [chunk:${ID_B}]`, records);
     expect(sources[0]!.label).toBe("A-101.pdf — page 4");
   });
