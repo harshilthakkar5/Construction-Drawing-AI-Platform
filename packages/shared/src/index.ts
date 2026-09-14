@@ -249,6 +249,12 @@ export interface ChatSourceDto {
   /** PDF page size in points for FR-19 highlight scaling (null = no highlight). */
   pageWidth?: number | null;
   pageHeight?: number | null;
+  /** Sheet number off the title block ("S-004"); null when unscraped. Already
+   * folded into `label`, and exposed separately so the UI can show it apart
+   * from the page number. */
+  sheetNumber?: string | null;
+  /** Discipline slug of the page the chunk sits on. */
+  discipline?: string | null;
 }
 
 /** FR-19: chunk → viewer location, served by /projects/:id/chunks/:chunkId/location. */

@@ -350,9 +350,12 @@ export function ChatPanel({
                         key={s.index}
                         className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground transition hover:bg-accent hover:text-accent-foreground"
                         onClick={() => requestJump(s.combinedPageNumber, s.bbox)}
-                        title={`Jump to combined page ${s.combinedPageNumber} and highlight the cited region`}
+                        title={`${s.label} — jump there and highlight the cited region`}
                       >
-                        {s.label}
+                        {/* The sheet number alone: the page already has its own
+                            badge beside this, and `label` carries it too, so
+                            rendering the label whole read "S-004 — page 4 p.4". */}
+                        {s.sheetNumber?.trim() || s.filename}
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground group-hover:bg-card">
                           p.{s.combinedPageNumber}
                         </span>
