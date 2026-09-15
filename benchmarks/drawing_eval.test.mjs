@@ -240,7 +240,7 @@ test("the override copies rather than mutating the set in place", () => {
 
 // ---------------------------------------------------------------------------
 // A label the model made up. One description of the sheet answered nearly every
-// column question with HSS9X9X3/8 -- not a rolled section, on no drawing here --
+// column question with HSS9X9X3/8 -- a real AISC section, on no drawing here --
 // and a closed-vocabulary scorer read all 21 as refusals.
 // ---------------------------------------------------------------------------
 

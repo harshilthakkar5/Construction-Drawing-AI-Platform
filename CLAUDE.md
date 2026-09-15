@@ -538,9 +538,10 @@ that kind but written nowhere on the drawing), `hedged` (named the truth and the
 `abstained` (named no label at all). `invented` needs the label's SHAPE, which no vocabulary
 built from the sheet can supply, so `drawing_truth.py` emits a `labelPattern` per case — defined
 once, travelling with the cases, never rewritten in JavaScript. It exists because one description
-of this sheet answered nearly every column question with `HSS9X9X3/8`, which is not a rolled
-section and appears on no drawing here: matching neither the truth nor the distractor nor
-anything else on the sheet, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
+of this sheet answered nearly every column question with `HSS9X9X3/8` — a real AISC square
+section, which is what makes it plausible, and one that appears nowhere on THIS sheet, whose
+columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the distractor nor
+anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
 refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
 as many words that it cannot tell an invented label from a refusal. A model that declines is not a model that is wrong — on
 drawings "the sheet does not show this" sends someone to look, while a confident wrong footing

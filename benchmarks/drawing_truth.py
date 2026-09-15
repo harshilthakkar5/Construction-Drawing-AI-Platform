@@ -109,8 +109,9 @@ MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 # match is real by construction. A scorer has the opposite problem: it sees only
 # the model's prose, where a shape is all there is to go on. And the distinction
 # matters — one description of this sheet answered nearly every column question
-# with HSS9X9X3/8, a size that is not a rolled HSS section and appears nowhere on
-# the drawing. Scored against the sheet's vocabulary alone that is not a label at
+# with HSS9X9X3/8 — a real AISC square section, which is what makes it plausible,
+# and one that appears nowhere on THIS drawing, whose columns are HSS8X8, HSS6X6
+# and HSS10X10. Scored against the sheet's own vocabulary that is not a label at
 # all, so all 21 cases counted as ABSTAINED: the most dangerous answer a model
 # can give about a column, filed as the safest.
 #
