@@ -359,7 +359,7 @@ chunk may contain lives in `chunker.py`, unit-tested without a PDF.
 ## Vision pass — the geometry the text layer cannot hold
 
 `VLM_ENABLED` (default OFF, `workers/src/vlm.py`) describes each page with a vision model and
-stores the result as a `kind="description"` chunk. It exists because a sheet carries two kinds
+stores the result as `kind="description"` chunks. It exists because a sheet carries two kinds
 of fact and the pipeline only had one. The VOCABULARY — every footing mark, every member size,
 every schedule row — is in the text layer, and retrieval finds all of it. The GEOMETRY is not
 there at all: `page.get_text()` returns every member size in one run and every footing mark in
@@ -376,6 +376,24 @@ chain and FR-13 starts lying: a reader clicks a citation and finds none of its w
 Descriptions are deliberately kept OUT of `chunk_identifiers` — that arm is exact-match and
 weighted 3x, so a member size the model misread would outrank the chunk carrying the real one.
 They are still reachable by dense search and FTS.
+
+A description is PACKED to chunk size like everything else (`chunker.split_description`), because
+its length is whatever `VLM_MAX_TOKENS` allowed and it was being stored whole. At 1500 that is
+merely large; at 10000 it is one chunk 12-25x the size of every other chunk in the corpus. A long
+text embeds toward the centroid of its own content and loses the sharpness a question matches on,
+it spends one of k retrieval slots on twenty times the payload of the chunks it displaces from
+the prompt, and `embedllm.batch_texts` does not protect it: that splits on TOTAL request tokens,
+so a single oversized INPUT goes straight to a provider that may truncate it (Voyage, Cohere) or
+reject it (gemini-embedding-001 caps at 2048 tokens per input). The split follows LINE boundaries
+and only falls back to word windows for one line that is itself too long — the pairing of a grid
+label with a member size is the one fact this pass exists to carry, it lives on a single line,
+and a word-count split lands in the middle of one about as often as not. There is no overlap
+between line groups, since nothing is severed; the word-window fallback keeps its overlap, since
+something is. Every piece keeps the whole-page bbox: splitting the prose gives no piece of it a
+narrower claim on the drawing. Watch the reverse failure — thirteen description chunks now
+compete for k=18 where one used to, so a query can fill its prompt with them. That is at least an
+honest competition through the same RRF as everything else, and `drawing_eval.mjs` records how
+many description chunks reached each case so it is measurable rather than guessed at.
 
 Images reach the provider through `llm.complete(..., images=[png])`, which builds base64 blocks
 for Anthropic and `inline_data` parts for Gemini. A call that passes no image sends the exact

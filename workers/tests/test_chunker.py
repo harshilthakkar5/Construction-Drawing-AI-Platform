@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chunker import (  # noqa: E402
     MAX_TOKENS,
+    split_description,
     MIN_TOKENS,
     OVERLAP_TOKENS,
     Block,
@@ -285,3 +286,79 @@ class TestChunkPageWithTables:
     def test_page_size_is_optional(self):
         raw = [(0, 0, 100, 20, "NOTES", 0, 0)]
         assert len(chunk_page(raw)) == 1
+
+
+# --- Vision descriptions ---------------------------------------------------
+#
+# A description is one string whose length VLM_MAX_TOKENS decides. Stored whole
+# it became a chunk 12-25x the size of every other chunk in the corpus, which
+# distorts dense similarity, spends a retrieval slot on twenty times the
+# payload, and can exceed a provider's per-input embedding limit — the batcher
+# splits on total REQUEST tokens, so one oversized input passes straight
+# through.
+
+PAGE_BBOX = {"x": 0, "y": 0, "width": 3024.0, "height": 2160.0}
+
+
+def _description(lines: int, words_per_line: int = 40) -> str:
+    return "\n".join(
+        f"Grid line {i}: " + " ".join(f"word{j}" for j in range(words_per_line))
+        for i in range(lines)
+    )
+
+
+def test_short_description_stays_one_chunk():
+    chunks = split_description("The drawing shows a single footing at grid 7/C.", PAGE_BBOX)
+    assert len(chunks) == 1
+    assert chunks[0].kind == "description"
+
+
+def test_long_description_is_split_to_chunk_size():
+    chunks = split_description(_description(100), PAGE_BBOX)
+    assert len(chunks) > 1
+    # Every piece is packed to the same budget as an ordinary text chunk.
+    assert all(c.token_count <= MAX_TOKENS for c in chunks)
+
+
+def test_every_piece_is_marked_a_description():
+    # The kind is what keeps FR-13 honest downstream: it selects the prompt
+    # rule that says write "the drawing shows", never quote, and let the
+    # sheet's own text win a disagreement. A piece that lost it would be read
+    # as words lifted off the drawing.
+    chunks = split_description(_description(100), PAGE_BBOX)
+    assert {c.kind for c in chunks} == {"description"}
+
+
+def test_every_piece_keeps_the_whole_page_bbox():
+    chunks = split_description(_description(100), PAGE_BBOX)
+    assert all(c.bbox == PAGE_BBOX for c in chunks)
+    # Copied, not shared: a later edit to one citation's bbox must not move
+    # every other citation on the page.
+    chunks[0].bbox["x"] = 999
+    assert chunks[1].bbox["x"] == 0
+
+
+def test_splits_between_lines_not_through_them():
+    # The pairing of a grid label with a member size is the one fact this pass
+    # exists to carry, and it lives on a single line. A word-count split lands
+    # in the middle of one about as often as not.
+    text = "\n".join(f"Grid {i}/B carries HSS8X8X3-{i} on footing F{i}" for i in range(400))
+    chunks = split_description(text, PAGE_BBOX)
+    assert len(chunks) > 1
+    for line in text.splitlines():
+        assert any(line in c.text for c in chunks), f"{line!r} was cut across a boundary"
+
+
+def test_a_single_overlong_line_falls_back_to_word_windows():
+    # No boundary to respect, so the split is arbitrary and the overlap is what
+    # keeps a severed sentence reachable from both sides.
+    one_line = " ".join(f"word{i}" for i in range(4000))
+    chunks = split_description(one_line, PAGE_BBOX)
+    assert len(chunks) > 1
+    assert all(c.token_count <= MAX_TOKENS for c in chunks)
+    assert {c.kind for c in chunks} == {"description"}
+
+
+def test_blank_description_produces_no_chunks():
+    assert split_description("", PAGE_BBOX) == []
+    assert split_description("   \n\n  \n", PAGE_BBOX) == []
