@@ -83,8 +83,45 @@ def test_describe_sends_the_image_and_the_geometry_instruction(fake_transport):
     assert "S-100.0" in fake_transport["user"]
     # The instruction that makes this pass worth running at all: pairings, not
     # a second reading of text the extractor already has exactly.
-    assert "WHICH LABEL GOES WITH WHICH THING" in fake_transport["system"]
+    assert "WRITE THE PAIRINGS" in fake_transport["system"]
     assert "already been extracted and indexed" in fake_transport["system"]
+
+
+def test_prompt_demands_a_full_grid_coordinate_on_every_pairing(fake_transport):
+    """The single measured difference between a description worth 84% on grid
+    questions and one worth 47%.
+
+    The weaker one named row B's intersections and then gave rows C and F as
+    ordered lists of marks under a heading — which is precisely the shape the
+    TEXT LAYER already has, and the shape this whole pass exists to replace.
+    Row B scored 6/7; the two listed rows scored 3/12.
+    """
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    assert "<column line>/<row line>" in system
+    assert "The coordinate is not optional" in system
+    # The three shapes measured to fail, quoted at the model as counter-examples.
+    assert "no coordinates at all" in system
+    assert "not an intersection" in system
+    assert "two grid lines, one entry" in system
+
+
+def test_prompt_forbids_transcribing_what_the_text_layer_holds(fake_transport):
+    """Two thirds of one description's budget went on schedules, the title
+    block, the seal and loose dimension strings — all indexed word for word
+    already, all of it displacing the pairings nothing else can supply."""
+    vlm.describe_page(b"png")
+    assert "DO NOT TRANSCRIBE" in fake_transport["system"]
+
+
+def test_prompt_forbids_carrying_an_unreadable_value_forward(fake_transport):
+    """Both measured descriptions answered nearly every column with one size.
+    Neither ever said it could not read one; each picked a value and repeated
+    it, which is the failure that reads most like an answer."""
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    assert "illegible" in system
+    assert "Do NOT repeat the last value" in system
 
 
 def test_describe_discards_a_reply_too_short_to_be_a_description(fake_transport):

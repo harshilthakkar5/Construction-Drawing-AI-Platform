@@ -367,7 +367,20 @@ another, because what joins them is a diagonal LEADER LINE. Nothing a chunker do
 fact that was never written.
 
 So the prompt asks for pairings, positions and connections, and says outright that the text is
-already indexed and a description which merely lists labels is worthless. What comes back is the
+already indexed and a description which merely lists labels is worthless. It demands a FULL GRID
+COORDINATE on every pairing, because that one habit is the whole measured difference between a
+useful description and a useless one: two descriptions of the same sheet scored 84% and 47% on
+grid questions, and the weaker one had written its first row as "At 8/B: ..." and the other two
+as ordered lists under a heading ("Middle row, around grid C: F9 ... F8 ... F12"). The coordinated
+row scored 6/7; the two listed rows scored 3/12 — a list of marks in reading order is EXACTLY what
+the text layer already holds. The three failing shapes (no coordinate, an approximate one like
+"near grid 9/8", and two grid lines merged into one entry) are quoted back at the model as
+counter-examples. Two prohibitions come from the same comparison: do not transcribe the schedules,
+notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
+them, all already indexed, all displacing pairings), and never carry an unreadable value forward
+(both descriptions answered nearly every column with one repeated size rather than once saying a
+mark was illegible). `VLM_MAX_TOKENS` is not the lever — raised from 1500 to 10000 the model wrote
+1285 and 2231 tokens, stopping on its own. What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the
