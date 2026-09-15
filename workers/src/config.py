@@ -44,6 +44,15 @@ def _flag(name: str, default: str = "true") -> bool:
 EMBEDDINGS_ENABLED = _flag("EMBEDDINGS_ENABLED")
 SUMMARIES_ENABLED = _flag("SUMMARIES_ENABLED")
 
+# Describe each page's GEOMETRY with a vision model (workers/src/vlm.py) and
+# store it as a kind="description" chunk. OFF by default because it is the one
+# stage that costs a model call per page whether or not anything asks for it —
+# and because what it buys is measurable rather than assumed: run
+# benchmarks/drawing_eval.mjs before and after. Descriptions are the model's
+# words about the drawing, never a quotation from it, which is why they are a
+# separate chunk kind all the way through to the prompt.
+VLM_ENABLED = _flag("VLM_ENABLED", "false")
+
 # Rendering: 2x zoom ≈ 144 dpi page PNGs; thumbnails resized to this width.
 PAGE_RENDER_ZOOM = float(os.environ.get("PAGE_RENDER_ZOOM", "2"))
 THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))

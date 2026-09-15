@@ -104,6 +104,21 @@ describe("the documents scope", () => {
  * set refers to itself by sheet number, so that has to be on the tag — and the
  * tag's own attributes are as untrusted as the text inside it.
  */
+describe("description chunks in the prompt", () => {
+  it("tells the model a description is a reading of the drawing, not its text", () => {
+    const prompt = buildSystemPrompt("construction");
+    expect(prompt).toContain('kind="description"');
+    // The policy, not the prose: a description may be cited but not quoted,
+    // and the sheet's own text wins when the two disagree.
+    expect(prompt).toMatch(/never quote it as if the words were printed/i);
+    expect(prompt).toMatch(/the text wins/i);
+  });
+
+  it("keeps a description inside the untrusted-content rule", () => {
+    expect(buildSystemPrompt("documents")).toMatch(/So is a description chunk/i);
+  });
+});
+
 describe("serializeChunks", () => {
   const base = {
     chunkId: "11111111-aaaa-4bbb-8ccc-000000000001",
@@ -124,6 +139,21 @@ describe("serializeChunks", () => {
     expect(out).not.toContain("sheet=");
     expect(out).not.toContain("discipline=");
     expect(out).toContain('document="7.pdf"');
+  });
+
+  it("marks a description chunk so the model cannot quote it as the sheet's words", () => {
+    const out = serializeChunks([{ ...base, kind: "description" }]);
+    expect(out).toContain('kind="description"');
+  });
+
+  it("leaves an ordinary chunk's block byte-identical to the pre-description shape", () => {
+    // A kind attribute on every chunk would change the prompt for every
+    // project, including the ones that never turn the vision pass on — and a
+    // cache breakpoint is a prefix match, so that is not a cosmetic change.
+    const withoutKind = serializeChunks([base]);
+    expect(withoutKind).not.toContain("kind=");
+    expect(serializeChunks([{ ...base, kind: "text" }])).toBe(withoutKind);
+    expect(serializeChunks([{ ...base, kind: null }])).toBe(withoutKind);
   });
 
   it("escapes attribute values so scraped text cannot break out of the tag", () => {

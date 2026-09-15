@@ -1,0 +1,11 @@
+-- A chunk is either words lifted off the sheet or a vision model's account of
+-- the drawing. Existing rows are all the former, hence the default: the column
+-- backfills without a rewrite and without a moment where the two are
+-- indistinguishable.
+--
+-- The distinction is not cosmetic. Retrieval, the answer prompt and the
+-- citation chip all have to know which they are holding, because FR-13's
+-- promise is that clicking a citation lands on the thing that was cited — and
+-- a reader who clicks through to a description must not find sentences that
+-- appear nowhere on the page.
+ALTER TABLE "chunks" ADD COLUMN "kind" TEXT NOT NULL DEFAULT 'text';

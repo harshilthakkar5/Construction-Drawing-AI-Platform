@@ -33,6 +33,7 @@ holds.
 
 from __future__ import annotations
 
+import base64
 import os
 import time
 from dataclasses import dataclass
@@ -139,8 +140,36 @@ def _system_blocks(system: str | list[dict], cache: bool) -> list[dict]:
     return [block]
 
 
+def _user_content_claude(user: str, images: list[bytes] | None) -> str | list[dict]:
+    """A plain string when there are no images, so every existing caller's
+    request is byte-identical to what it sent before — a prompt cache is a
+    prefix match, and reshaping the user turn for callers that never pass an
+    image would cost every one of them their cached prefix.
+
+    Images go BEFORE the text. Anthropic's guidance for a single image is to
+    put it first and ask the question after it, and the describe pass reads
+    better that way too: the instruction lands with the drawing already in
+    view rather than in front of an empty frame.
+    """
+    if not images:
+        return user
+    blocks: list[dict] = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": base64.b64encode(png).decode("ascii"),
+            },
+        }
+        for png in images
+    ]
+    blocks.append({"type": "text", "text": user})
+    return blocks
+
+
 def _complete_claude(
-    system, user, *, model, max_tokens, kind, project_id, cache_system
+    system, user, *, model, max_tokens, kind, project_id, cache_system, images=None
 ) -> Reply:
     client = anthropic_client()
     if client is None:
@@ -149,7 +178,7 @@ def _complete_claude(
         model=model,
         max_tokens=max_tokens,
         system=_system_blocks(system, cache_system),
-        messages=[{"role": "user", "content": user}],
+        messages=[{"role": "user", "content": _user_content_claude(user, images)}],
     )
     import usage
 
@@ -310,7 +339,25 @@ def _record_gemini_usage(meta, *, kind, model, project_id) -> None:
     )
 
 
-def _complete_gemini(system, user, *, model, max_tokens, kind, project_id, json_only) -> Reply:
+def _user_content_gemini(user: str, images: list[bytes] | None):
+    """Gemini takes `contents` as a string or a list of parts. Same rule as the
+    Claude side: no images means the exact string the caller passed, so the
+    request this module has always sent is unchanged.
+
+    An inline_data dict rather than a `types.Part` object at module scope —
+    the SDK coerces it, and it keeps llm.py importable without google-genai,
+    which is why every other SDK import here is deferred too.
+    """
+    if not images:
+        return user
+    return [
+        {"inline_data": {"mime_type": "image/png", "data": png}} for png in images
+    ] + [user]
+
+
+def _complete_gemini(
+    system, user, *, model, max_tokens, kind, project_id, json_only, images=None
+) -> Reply:
     client = gemini_client()
     if client is None:
         return Reply(text="", stop_reason="unavailable")
@@ -318,7 +365,7 @@ def _complete_gemini(system, user, *, model, max_tokens, kind, project_id, json_
     def call(thinking: bool):
         return client.models.generate_content(
             model=model,
-            contents=user,
+            contents=_user_content_gemini(user, images),
             config=_gemini_config(
                 model=model,
                 max_tokens=max_tokens,
@@ -655,8 +702,15 @@ def complete(
     project_id: str | None = None,
     json_only: bool = False,
     cache_system: bool = True,
+    images: list[bytes] | None = None,
 ) -> Reply | None:
     """Ask the given provider for a completion.
+
+    `images` are PNG bytes shown to the model alongside `user`. Every caller
+    that passes none sends exactly the request it sent before this parameter
+    existed — see `_user_content_claude`. A provider that cannot see (or a
+    model on that provider that cannot) is the caller's problem to check, not
+    this transport's: it ships what it is given.
 
     Returns None when the provider is unavailable (no key, missing SDK) or the
     call raised — the caller falls back rather than failing the job. A Reply
@@ -673,6 +727,7 @@ def complete(
                 kind=kind,
                 project_id=project_id,
                 json_only=json_only,
+                images=images,
             )
         else:
             reply = _complete_claude(
@@ -683,6 +738,7 @@ def complete(
                 kind=kind,
                 project_id=project_id,
                 cache_system=cache_system,
+                images=images,
             )
     except Exception as exc:
         log.warning("%s %s call failed: %s", provider, kind, exc)

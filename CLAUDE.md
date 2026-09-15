@@ -161,8 +161,8 @@ embeddings → summaries.
 - LLM: Claude via Anthropic API (Sonnet for chat/summaries/reasoning; Haiku for cheap per-page
   classification). Use prompt caching for repeated context and the Batch API for bulk
   summarization. Gemini is a supported ALTERNATIVE at every model call site, switched per
-  stage: `SHEET_PROVIDER` / `SUMMARY_PROVIDER` / `CHAT_PROVIDER` = `claude` (default) |
-  `gemini`, with transports in `workers/src/llm.py` and `apps/api/src/llm.ts`. The provider is
+  stage: `SHEET_PROVIDER` / `SUMMARY_PROVIDER` / `CHAT_PROVIDER` / `VLM_PROVIDER` = `claude`
+  (default) | `gemini`, with transports in `workers/src/llm.py` and `apps/api/src/llm.ts`. The provider is
   a TRANSPORT detail: both get the same instructions and the same untrusted document text, and
   both replies go through the same strict parser (`parse_sheet_response`, `parse_summary_json`,
   the `[chunk:<id>]` citation parser), so a swap changes WHO answers and never what an answer
@@ -356,6 +356,46 @@ groups covered pages by discipline. Portion and section summaries are therefore 
 Purity split: everything needing a `fitz` page lives in `tables.py`; every rule about what a
 chunk may contain lives in `chunker.py`, unit-tested without a PDF.
 
+## Vision pass — the geometry the text layer cannot hold
+
+`VLM_ENABLED` (default OFF, `workers/src/vlm.py`) describes each page with a vision model and
+stores the result as a `kind="description"` chunk. It exists because a sheet carries two kinds
+of fact and the pipeline only had one. The VOCABULARY — every footing mark, every member size,
+every schedule row — is in the text layer, and retrieval finds all of it. The GEOMETRY is not
+there at all: `page.get_text()` returns every member size in one run and every footing mark in
+another, because what joins them is a diagonal LEADER LINE. Nothing a chunker does recovers a
+fact that was never written.
+
+So the prompt asks for pairings, positions and connections, and says outright that the text is
+already indexed and a description which merely lists labels is worthless. What comes back is the
+model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
+way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
+telling the model to write "the drawing shows…" rather than "the note says…" and to let the
+sheet's own text win any disagreement, and a "described" marker on the citation chip. Break that
+chain and FR-13 starts lying: a reader clicks a citation and finds none of its words on the page.
+Descriptions are deliberately kept OUT of `chunk_identifiers` — that arm is exact-match and
+weighted 3x, so a member size the model misread would outrank the chunk carrying the real one.
+They are still reachable by dense search and FTS.
+
+Images reach the provider through `llm.complete(..., images=[png])`, which builds base64 blocks
+for Anthropic and `inline_data` parts for Gemini. A call that passes no image sends the exact
+string it always sent — a cache breakpoint is a prefix match, so reshaping the user turn for
+every existing call site would have cost them all their cached prefix on the day this shipped.
+
+Resolution is the constraint, not cost. These sheets are ARCH E1 (42x30in): at the 2576px long
+edge Claude's high-resolution models accept, that is 61 DPI and 8.2px of text, which reads —
+verified against the text layer, including `HSS6.875X0.375`. Haiku 4.5 and every pre-4.7 model
+cap at 1568px, which on that sheet is 5px and cannot be read at all, so the cheap model is not
+an option here. Gemini tiles at 768px (258 tokens each) with no hard cap, making resolution a
+cost knob there rather than a wall. `vlm.render` never scales UP: extra pixels carry no extra
+information and are billed the same.
+
+A failure is never a failed page. An unavailable provider, a refusal, an empty or too-short
+reply all return None and the page keeps everything else it produced — a page without a
+description is exactly as good as it was before this existed. A reply under
+`MIN_DESCRIPTION_CHARS` is discarded rather than stored, because "I cannot see the image"
+written into a chunk would be retrieved and cited as though it described a drawing.
+
 ## Source verification chain (never break it)
 
 Answer → chunk_id → page → bounding box → original PDF. Summaries and chat answers reference
@@ -510,7 +550,7 @@ pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, ...)   // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
-chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId)  // embeddingId = Qdrant point ID
+chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind)  // embeddingId = Qdrant point ID; kind = text|description
 summaries(id, projectId, portionId, level[page|section|portion|project], summary JSON, sources)
 chat_sessions(id, projectId, createdAt)
 messages(id, sessionId, role, content JSON incl. citations, sources, createdAt)

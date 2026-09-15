@@ -255,6 +255,11 @@ export interface ChatSourceDto {
   sheetNumber?: string | null;
   /** Discipline slug of the page the chunk sits on. */
   discipline?: string | null;
+  /** "description" when the cited chunk is a vision model's account of the
+   * drawing's geometry rather than text lifted off the sheet. The UI marks
+   * those, because clicking through to a highlight whose words are nowhere on
+   * the page would otherwise read as a broken citation. */
+  kind?: string | null;
 }
 
 /** FR-19: chunk → viewer location, served by /projects/:id/chunks/:chunkId/location. */

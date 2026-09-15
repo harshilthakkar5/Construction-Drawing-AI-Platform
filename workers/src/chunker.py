@@ -110,6 +110,12 @@ class Chunk:
     text: str
     bbox: dict  # {x, y, width, height} in PDF points
     token_count: int
+    # "text" is words lifted off the sheet; "description" is a vision model's
+    # account of the drawing (workers/src/vlm.py). The distinction has to
+    # survive all the way to the answer prompt: FR-13's chain promises that a
+    # citation leads to the thing it cites, and a reader who clicks through to
+    # a description must not find sentences that are nowhere on the page.
+    kind: str = "text"
 
 
 def _bbox_union(blocks: list[Block]) -> dict:

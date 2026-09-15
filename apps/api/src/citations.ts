@@ -33,6 +33,12 @@ export interface ChunkSourceRecord {
   sheetNumber?: string | null;
   /** Discipline slug of the page, carried for the UI; not part of the label. */
   discipline?: string | null;
+  /** "description" when this chunk is a vision model's account of the drawing
+   * rather than text off it. Carried so the UI can say so on the chip: a
+   * reader who clicks a citation and finds none of its words on the sheet has
+   * been misled by FR-13's own promise. Not part of the label — the sheet and
+   * page are the same either way. */
+  kind?: string | null;
 }
 
 export interface NumberedSource extends ChunkSourceRecord {
