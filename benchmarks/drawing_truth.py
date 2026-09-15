@@ -100,6 +100,32 @@ JITTER_PT = 20.0
 FOOTING_MARK = re.compile(r"F\d{1,2}")
 MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 
+# The SHAPE a label of each kind takes, as an anchored token, emitted into every
+# case so the scorer can recognise a label the model INVENTED — one formed like
+# a real mark but written nowhere on this sheet.
+#
+# It is separate from the two patterns above, which are extraction patterns run
+# against the PDF's own text and are deliberately loose because whatever they
+# match is real by construction. A scorer has the opposite problem: it sees only
+# the model's prose, where a shape is all there is to go on. And the distinction
+# matters — one description of this sheet answered nearly every column question
+# with HSS9X9X3/8, a size that is not a rolled HSS section and appears nowhere on
+# the drawing. Scored against the sheet's vocabulary alone that is not a label at
+# all, so all 21 cases counted as ABSTAINED: the most dangerous answer a model
+# can give about a column, filed as the safest.
+#
+# The pattern travels WITH the cases rather than being written again in
+# JavaScript, so the two languages cannot drift; `\s*` is there because a model
+# writes "HSS 8x8x3/8" for a sheet that says "HSS8X8X3/8". Both forms are valid
+# in Python's `re` and in JavaScript's RegExp.
+LABEL_PATTERN = {
+    "grid-footing": r"F\d{1,2}",
+    "grid-column": (
+        r"HSS\s*\d+(?:\.\d+)?\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?"
+        r"(?:\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?)?"
+    ),
+}
+
 
 def _centre(rect: fitz.Rect) -> tuple[float, float]:
     return ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
@@ -254,6 +280,7 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
                             "question": question,
                             "expected": label,
                             "distractor": runner_up(labels, cx, cy, label),
+                            "labelPattern": LABEL_PATTERN[kind],
                             "derivation": {
                                 "sheet": sheet_name,
                                 "gridColumn": col,

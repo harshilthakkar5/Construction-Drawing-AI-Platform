@@ -531,10 +531,18 @@ vision. Cases are GENERATED, never hand-written and never captured from the app,
 bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
 frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
 at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
-survives jittering the intersection 20pt in eight directions. Scoring is FIVE-way, not pass/fail:
+survives jittering the intersection 20pt in eight directions. Scoring is SIX-way, not pass/fail:
 `correct`, `wrong` (named the nearest neighbouring label), `off-target` (named some other label
-of that kind, from elsewhere on the sheet), `hedged` (named the truth and the distractor), and
-`abstained` (named no label at all). A model that declines is not a model that is wrong — on
+of that kind, from elsewhere on the sheet), `invented` (named something SHAPED like a mark of
+that kind but written nowhere on the drawing), `hedged` (named the truth and the distractor), and
+`abstained` (named no label at all). `invented` needs the label's SHAPE, which no vocabulary
+built from the sheet can supply, so `drawing_truth.py` emits a `labelPattern` per case — defined
+once, travelling with the cases, never rewritten in JavaScript. It exists because one description
+of this sheet answered nearly every column question with `HSS9X9X3/8`, which is not a rolled
+section and appears on no drawing here: matching neither the truth nor the distractor nor
+anything else on the sheet, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
+refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
+as many words that it cannot tell an invented label from a refusal. A model that declines is not a model that is wrong — on
 drawings "the sheet does not show this" sends someone to look, while a confident wrong footing
 mark gets poured — and collapsing the two would hide the only failure that is dangerous while
 punishing the behaviour FR-14 asks for. But `off-target` has to be its own outcome for that line
