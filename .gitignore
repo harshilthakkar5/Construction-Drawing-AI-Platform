@@ -32,3 +32,8 @@ deploy/dist/
 
 # Redis dump, e.g. from running redis-server locally for a load test
 dump.rdb
+
+# Every drawing-eval run writes its answers here (benchmarks/drawing_eval.mjs).
+# Kept out of git: they are a record of one machine's corpus at one moment, and
+# they carry the model's prose verbatim.
+benchmarks/runs/

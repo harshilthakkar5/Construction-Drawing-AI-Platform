@@ -356,21 +356,100 @@ def _covered_by_table(block: Block, tables: list[Table]) -> bool:
     return False
 
 
-def _split_oversized_block(block: Block) -> list[Chunk]:
-    """A single block above MAX_TOKENS becomes word windows with overlap.
-    Word positions within a block aren't tracked, so each window keeps the
-    whole block's bbox — the highlight region stays truthful, just coarser."""
-    words = block.text.split()
+def _word_windows(text: str) -> list[str]:
+    """Overlapping word windows of about MAX_TOKENS.
+
+    For text with no natural boundary to split on. The overlap is the whole
+    point here: the cut lands wherever the word count runs out, so a severed
+    sentence has to stay reachable from both sides of it.
+    """
+    words = text.split()
     window = int(MAX_TOKENS / TOKENS_PER_WORD)
     step = window - int(OVERLAP_TOKENS / TOKENS_PER_WORD)
-    chunks = []
+    pieces = []
     for start in range(0, len(words), step):
         piece = " ".join(words[start : start + window])
         if not piece:
             continue
-        chunks.append(Chunk(text=piece, bbox=_block_bbox(block), token_count=estimate_tokens(piece)))
+        pieces.append(piece)
         if start + window >= len(words):
             break
+    return pieces
+
+
+def _split_oversized_block(block: Block) -> list[Chunk]:
+    """A single block above MAX_TOKENS becomes word windows with overlap.
+    Word positions within a block aren't tracked, so each window keeps the
+    whole block's bbox — the highlight region stays truthful, just coarser."""
+    return [
+        Chunk(text=piece, bbox=_block_bbox(block), token_count=estimate_tokens(piece))
+        for piece in _word_windows(block.text)
+    ]
+
+
+def split_description(text: str, bbox: dict) -> list[Chunk]:
+    """A vision description, packed to the size of every other chunk.
+
+    The description arrives as one string whose length is whatever
+    VLM_MAX_TOKENS allowed, and it was being stored as ONE chunk. At 1500 that
+    is merely large; at 10000 it is a single chunk 12-25x the size of
+    everything around it, which is not just untidy:
+
+      - a long text embeds toward the centroid of its own content, losing the
+        sharpness a question matches against;
+      - it takes one of k retrieval slots while carrying twenty times the
+        payload of the chunks it displaces from the answer prompt;
+      - and the embedding batcher does not guard against it. `batch_texts`
+        splits on TOTAL request tokens, so one oversized INPUT passes straight
+        through to a provider that may truncate it (Voyage, Cohere) or reject
+        it outright (gemini-embedding-001 caps at 2048 tokens per input).
+
+    Split on line boundaries first, and only fall back to word windows for a
+    single line that is itself too long. The pairing between a grid label and
+    a member size is the one fact this whole pass exists to carry, and a
+    word-count split lands in the middle of one about as often as not —
+    whereas the model has already put its own boundaries between them. There
+    is no overlap between line groups for the same reason: the boundary is
+    real, so nothing is severed and a duplicated line would only be one more
+    copy of a fact competing with itself in the index.
+    """
+    chunks: list[Chunk] = []
+    current: list[str] = []
+    current_tokens = 0
+
+    def flush() -> None:
+        nonlocal current, current_tokens
+        joined = "\n".join(current).strip()
+        if joined:
+            chunks.append(
+                Chunk(
+                    text=joined,
+                    bbox=dict(bbox),
+                    token_count=estimate_tokens(joined),
+                    kind="description",
+                )
+            )
+        current, current_tokens = [], 0
+
+    for line in text.splitlines():
+        tokens = estimate_tokens(line)
+        if tokens > MAX_TOKENS:
+            flush()
+            for piece in _word_windows(line):
+                chunks.append(
+                    Chunk(
+                        text=piece,
+                        bbox=dict(bbox),
+                        token_count=estimate_tokens(piece),
+                        kind="description",
+                    )
+                )
+            continue
+        if current and current_tokens + tokens > MAX_TOKENS:
+            flush()
+        current.append(line)
+        current_tokens += tokens
+    flush()
     return chunks
 
 

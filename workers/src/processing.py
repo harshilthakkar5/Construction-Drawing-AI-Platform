@@ -125,16 +125,14 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
     if description:
         # Whole-page bbox: the description is about the whole sheet, so
         # clicking its citation should land on the sheet rather than on some
-        # arbitrary rectangle the description never confined itself to.
+        # arbitrary rectangle the description never confined itself to. Every
+        # piece keeps that same rectangle — splitting the prose does not give
+        # any piece of it a narrower claim on the drawing.
         rect = page.rect
-        page_chunks = page_chunks + [
-            chunker.Chunk(
-                text=description,
-                bbox={"x": 0, "y": 0, "width": rect.width, "height": rect.height},
-                token_count=chunker.estimate_tokens(description),
-                kind="description",
-            )
-        ]
+        page_chunks = page_chunks + chunker.split_description(
+            description,
+            {"x": 0, "y": 0, "width": rect.width, "height": rect.height},
+        )
 
     db.replace_page_chunks(document_id, page_number, page_chunks)
     log.debug("page %d done: %d chars, %d chunks", page_number, len(text), len(page_chunks))
