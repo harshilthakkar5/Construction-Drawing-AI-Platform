@@ -11,7 +11,15 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { labelVocabulary, mentions, namedLabels, score, tally } from "./drawing_eval.mjs";
+import {
+  applyProjectOverride,
+  labelVocabulary,
+  mentions,
+  namedLabels,
+  oneProjectOrThrow,
+  score,
+  tally,
+} from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
   assert.equal(mentions("The footing at that grid is F12.", "F12"), true);
@@ -183,4 +191,48 @@ test("two runs can tie on correctness and differ entirely underneath", () => {
   assert.equal(tally(guesser).correct, tally(reader).correct);
   assert.equal(tally(guesser).minorityHits, 0);
   assert.equal(tally(reader).minorityHits, 2);
+});
+
+// ---------------------------------------------------------------------------
+// Which corpus was asked. A set generated against one project, run while the
+// work happens in another, answers from the wrong ingest and says nothing --
+// three runs in a row reported identical numbers for a project whose chunks
+// nobody had touched.
+// ---------------------------------------------------------------------------
+
+const P1 = "c14a2d6b-b0e8-448d-8897-10f89279f42a";
+const P2 = "03d9b557-e7ad-4ceb-908b-99361d7fb10b";
+
+test("a set asking one project is accepted and names it", () => {
+  assert.equal(oneProjectOrThrow([{ projectId: P1 }, { projectId: P1 }]), P1);
+});
+
+test("a set spanning two projects is refused, naming both", () => {
+  assert.throws(
+    () => oneProjectOrThrow([{ projectId: P1 }, { projectId: P2 }]),
+    (err) => err.message.includes(P1) && err.message.includes(P2),
+  );
+});
+
+test("--project repoints every case, including ones already agreeing", () => {
+  const cases = [{ projectId: P1, tag: "grid-footing" }, { projectId: P2, tag: "grid-column" }];
+  const moved = applyProjectOverride(cases, P2);
+  assert.deepEqual(moved.map((c) => c.projectId), [P2, P2]);
+  // The override is what makes a mixed set runnable, so it must satisfy the
+  // check that would otherwise have rejected it.
+  assert.equal(oneProjectOrThrow(moved), P2);
+});
+
+test("--project leaves the cases untouched when not given", () => {
+  const cases = [{ projectId: P1 }];
+  assert.equal(applyProjectOverride(cases, null), cases);
+  assert.equal(applyProjectOverride(cases, "")[0].projectId, P1);
+});
+
+test("the override copies rather than mutating the set in place", () => {
+  // The set is re-read to build the label vocabulary; mutating it here would
+  // scope a --limit run's vocabulary differently from a full one.
+  const cases = [{ projectId: P1 }];
+  applyProjectOverride(cases, P2);
+  assert.equal(cases[0].projectId, P1);
 });
