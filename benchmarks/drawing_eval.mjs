@@ -142,8 +142,10 @@ const squash = (text) => text.replace(/\s+/g, "").toUpperCase();
  * The vocabulary is every label the PDF actually carries, so a closed-vocabulary
  * scorer cannot see this at all — and the gap is not theoretical. One
  * description of this sheet answered nearly every column question with
- * HSS9X9X3/8, which is not a rolled section and appears on no drawing here. It
- * matched neither the truth, nor the distractor, nor anything else on the sheet,
+ * HSS9X9X3/8. That is a real AISC square section, which is exactly why it reads
+ * as plausible — and it appears nowhere on THIS sheet, whose columns are HSS8X8,
+ * HSS6X6 and HSS10X10. It matched neither the truth, nor the distractor, nor
+ * anything else on the drawing,
  * so all 21 cases scored ABSTAINED: a size nobody specified, reported as a
  * refusal to guess. That is the most dangerous answer this benchmark can
  * receive and it was being counted as the safest.
