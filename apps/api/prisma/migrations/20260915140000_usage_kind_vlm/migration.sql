@@ -1,0 +1,13 @@
+-- The vision pass records its spend like every other model call, so its kind
+-- has to exist before it can write a row.
+--
+-- It did not, and the cost of that was not a missing dashboard row. usage.record
+-- raised on an unrecognised kind, from inside the model call, AFTER the request
+-- had gone to the API and come back: 200 OK, 26 seconds, then a discarded
+-- description. The raise is now a log line (workers/src/usage.py) so accounting
+-- can never again throw away something already paid for — but the kind still
+-- belongs here, or the row silently never lands.
+--
+-- ADD VALUE is transaction-safe on PostgreSQL 12+ as long as the new value is
+-- not used in the same transaction. Nothing below uses it.
+ALTER TYPE "UsageKind" ADD VALUE IF NOT EXISTS 'vlm';

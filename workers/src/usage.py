@@ -16,7 +16,13 @@ import logutil
 
 log = logutil.get("usage")
 
-KINDS = ("chat", "summary", "classification", "embedding")
+# Must match the UsageKind enum in apps/api/prisma/schema.prisma. A kind that
+# is missing here is not a missing dashboard row — it is a raised ValueError in
+# the middle of a model call, thrown AFTER the request was paid for. That is how
+# the first vision pass lost a description it had already bought: 200 OK from
+# the API, 26 seconds of latency, then "unknown usage kind 'vlm'" and a
+# discarded answer.
+KINDS = ("chat", "summary", "classification", "embedding", "rerank", "vlm")
 
 
 def record(
@@ -29,7 +35,18 @@ def record(
     cache_write_tokens: int = 0,
 ) -> None:
     if kind not in KINDS:
-        raise ValueError(f"unknown usage kind {kind!r}")
+        # Logged, not raised. This module's contract is that accounting never
+        # breaks the pipeline, and every OTHER failure here already honours it
+        # by sitting inside the try below — a dead database loses the row and
+        # keeps the answer. An unknown kind was the one exception, and it threw
+        # away a completed model call to report a typo in a constant. Now the
+        # caller keeps what it paid for and the gap is loud in the log.
+        log.error(
+            "unknown usage kind %r — spend for this call is NOT recorded; "
+            "add it to usage.KINDS and to the UsageKind enum",
+            kind,
+        )
+        return
     try:
         import db
 

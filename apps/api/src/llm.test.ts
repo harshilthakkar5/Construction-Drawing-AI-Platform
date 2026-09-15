@@ -79,16 +79,37 @@ describe("chatAvailable", () => {
 
 describe("cost estimation covers both vendors", () => {
   it("prices a Gemini model from its own rate, not the Sonnet fallback", () => {
+    // Asserted on the RATE, not on a cost computed with outputTokens: 0. That
+    // older form compared input rates alone and called them "different
+    // pricing" — so it went red the day Sonnet 5 was corrected to its real $2
+    // and happened to meet gemini-3.1-pro-preview's $2 input. The models are
+    // still priced from different rows; only the input halves coincide, which
+    // is exactly what a cost at zero output tokens cannot tell apart.
+    const gemini = rateFor(DEFAULT_CHAT_GEMINI_MODEL);
+    const sonnet = rateFor("claude-sonnet-5");
+    expect(gemini.input).toBeGreaterThan(0);
+    expect(gemini).not.toEqual(sonnet);
+
     const row = {
       inputTokens: 1_000_000,
-      outputTokens: 0,
+      outputTokens: 1_000_000,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     };
-    const gemini = estimateCostUsd({ ...row, model: DEFAULT_CHAT_GEMINI_MODEL });
-    const sonnet = estimateCostUsd({ ...row, model: "claude-sonnet-5" });
-    expect(gemini).toBeGreaterThan(0);
-    expect(gemini).not.toBe(sonnet);
+    expect(estimateCostUsd({ ...row, model: DEFAULT_CHAT_GEMINI_MODEL })).not.toBe(
+      estimateCostUsd({ ...row, model: "claude-sonnet-5" }),
+    );
+  });
+
+  it("prices Sonnet 5 at its published rate, not Sonnet 4.6's", () => {
+    // The regression this file now guards: claude-sonnet-5 sat at $3/$15 —
+    // Sonnet 4.6's price — so every chat answer, summary and drawing
+    // description the dashboard priced was overstated by half.
+    expect(rateFor("claude-sonnet-5")).toEqual({ input: 2, output: 10 });
+  });
+
+  it("falls back on the sonnet family rather than the $3/$15 default", () => {
+    expect(rateFor("claude-sonnet-9-unreleased")).toEqual({ input: 2, output: 10 });
   });
 
   it("a cache hit is never dearer than a miss", () => {

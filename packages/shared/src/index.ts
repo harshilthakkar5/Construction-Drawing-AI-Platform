@@ -510,8 +510,18 @@ export interface TokenTotals {
   costUsd: number;
 }
 
-/** Stage that produced the tokens — matches the UsageKind enum. */
-export type UsageKind = "chat" | "summary" | "classification" | "embedding";
+/** Stage that produced the tokens — matches the UsageKind enum in
+ * apps/api/prisma/schema.prisma. This copy had drifted: "rerank" has been a
+ * value of that enum for as long as rerank.ts has recorded one, and its
+ * absence here meant reranker spend reached the dashboard with no label to
+ * render it under. */
+export type UsageKind =
+  | "chat"
+  | "summary"
+  | "classification"
+  | "embedding"
+  | "rerank"
+  | "vlm";
 
 export interface DashboardProjectRow {
   id: string;

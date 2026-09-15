@@ -390,6 +390,18 @@ an option here. Gemini tiles at 768px (258 tokens each) with no hard cap, making
 cost knob there rather than a wall. `vlm.render` never scales UP: extra pixels carry no extra
 information and are billed the same.
 
+Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
+looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
+dashboard labels from. It did not, first run — and the cost was not a missing dashboard row.
+`usage.record` raised on an unrecognised kind from INSIDE the model call, after the request had
+gone to the API and come back 200 OK twenty-six seconds later, so `complete()` caught it and
+returned None: a description bought and discarded to report a typo in a constant. That guard is
+now a log line, because this module's own contract is that accounting never breaks the pipeline
+and every other failure in it already honoured that. `workers/tests/test_usage.py` asserts both
+halves — an unknown kind does not raise, and `KINDS` is checked against the enum text itself so
+the vocabulary cannot drift again. (It already had: `rerank` was in the enum and missing from
+the shared union, so reranker spend reached the dashboard with no label.)
+
 A failure is never a failed page. An unavailable provider, a refusal, an empty or too-short
 reply all return None and the page keeps everything else it produced — a page without a
 description is exactly as good as it was before this existed. A reply under
