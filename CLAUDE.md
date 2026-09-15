@@ -467,7 +467,13 @@ declines is not a model that is wrong — on drawings "the sheet does not show t
 to look, while a confident wrong footing mark gets poured — and collapsing the two would hide the
 only failure that is dangerous while punishing the behaviour FR-14 asks for. The scorer has its
 own tests (`node --test benchmarks/drawing_eval.test.mjs`), because a matcher that finds "F9"
-inside "F90" reports a wrong answer as right.
+inside "F90" reports a wrong answer as right. Every tag also reports its MAJORITY-CLASS
+BASELINE, because a bare percentage invites the wrong reading: a sheet reuses a handful of
+marks, so "always answer HSS8X8X3/8" scores 52% on the column tag while reading nothing. The
+first measured run (CHAT_PROVIDER=gemini, k=18) scored 23% correct / 10% wrong / 68% abstained
+and was BELOW that baseline on both tags — 21% against 32%, 24% against 52% — with all four
+wrong answers naming a high-frequency label. That is zero comprehension plus a frequency prior,
+not partial success, and the run now says so in as many words.
 
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
