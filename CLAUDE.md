@@ -558,6 +558,21 @@ how many retrieved chunks were descriptions, MEASURED rather than inferred from 
 are read by the worker at ingest, so the benchmark process's environment says nothing about what
 is in the chunks it is scoring.
 
+WHICH CORPUS was asked is recorded too, and had to be. The natural way to test a VLM change is
+to ingest the same PDF into a FRESH project per configuration, but a generated set carries the
+`projectId` it was generated against, so the harness kept asking a project nobody had touched and
+returning a stale answer instead of an error. `--project <uuid>` repoints every case; the run
+file and the report name the project and, more usefully, the DESCRIPTION CHUNK IDS that reached
+the answers. Those ids are the experiment's identity: `db.replace_page_chunks` deletes a page's
+chunks and reinserts them with fresh `uuid4`, so an unchanged id PROVES the descriptions were
+never regenerated — three consecutive runs reported byte-identical tallies before anyone noticed,
+and `temperature: 0` in `apps/api/src/llm.ts` means that identity is evidence rather than
+coincidence: same chunks in, same answer out, always. The preflight refuses two shapes this
+workflow produces — a set naming more than one project (it would score two corpora and report one
+number), and a sheet living on more than one live page of the target project (a re-upload is a
+NEW document; only `replacesDocumentId` makes it a revision, so retrieval draws on both ingests
+at once and whichever description wins the fusion decides the answer).
+
 Every tag reports its MAJORITY-CLASS BASELINE, because a bare percentage invites the wrong
 reading: a sheet reuses a handful of marks, so "always answer HSS8X8X3/8" scores 52% on the
 column tag while reading nothing. Across tags that baseline is each tag's OWN majority summed,

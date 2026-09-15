@@ -74,13 +74,20 @@ async function loadApi() {
 }
 
 function parseArgs(argv) {
-  const args = { set: resolve(here, "drawing_eval_set.json"), json: false, limit: 0, out: null };
+  const args = {
+    set: resolve(here, "drawing_eval_set.json"),
+    json: false,
+    limit: 0,
+    out: null,
+    project: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") args.json = true;
     else if (arg === "--set") args.set = resolve(process.cwd(), argv[++i]);
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--out") args.out = resolve(process.cwd(), argv[++i]);
+    else if (arg === "--project") args.project = argv[++i];
     else if (arg === "--help") args.help = true;
   }
   return args;
@@ -167,8 +174,39 @@ export function score(answer, testCase, vocabulary = []) {
 
 /** The corpus must be able to answer at all before a run means anything: a set
  *  pointed at a deleted or re-uploaded project would report confident zeros. */
-async function preflight(prisma, cases) {
+/**
+ * Point every case at one project, for the workflow this harness kept losing
+ * track of: the same PDF ingested into a FRESH project per configuration.
+ * Without the override the set keeps naming whichever project it was generated
+ * against, and the run returns a stale answer rather than an error.
+ */
+export function applyProjectOverride(cases, projectId) {
+  if (!projectId) return cases;
+  return cases.map((c) => ({ ...c, projectId }));
+}
+
+/**
+ * The one project every case must ask.
+ *
+ * A set spanning two projects scores two corpora and reports one number, and
+ * nothing in the output says so — some questions are answered from one ingest
+ * and the rest from another. It arrives by regenerating a set against a new
+ * project while some cases still carry the old id.
+ */
+export function oneProjectOrThrow(cases) {
   const ids = [...new Set(cases.map((c) => c.projectId))];
+  if (ids.length > 1) {
+    throw new Error(
+      `the set names ${ids.length} different projects (${ids.join(", ")}). Every case must ask ` +
+        "the same corpus, or the score mixes two of them — regenerate the set, or pass " +
+        "--project <uuid> to point every case at one.",
+    );
+  }
+  return ids[0];
+}
+
+async function preflight(prisma, cases) {
+  const ids = [oneProjectOrThrow(cases)];
   for (const id of ids) {
     if (!id || id === "TEST") {
       throw new Error(
@@ -208,6 +246,20 @@ async function preflight(prisma, cases) {
           "drawing this project does not contain, so every answer would be a correct refusal " +
           "scored as a failure. Upload the sheet, or regenerate the set from a PDF that is in " +
           "this project.",
+      );
+    }
+    // The same sheet on several live pages means the PDF was uploaded more than
+    // once rather than reindexed. Retrieval then draws on two ingests at once
+    // and whichever description wins the fusion decides the answer, so the
+    // score is a blend of them with no way to say which. Delete the extra
+    // documents, or reindex in place — a re-upload is a new document, only
+    // replacesDocumentId makes it a revision.
+    if (found > 1) {
+      throw new Error(
+        `project ${projectId} has sheetNumber "${sheet}" on ${found} live pages — the same ` +
+          "drawing is in it more than once. Retrieval would mix both ingests into one score. " +
+          "Delete the duplicate documents (DELETE /projects/:id/documents/:documentId) and " +
+          "re-run, or point --project at a project holding one copy.",
       );
     }
   }
@@ -366,10 +418,16 @@ export function report(rows, json) {
     );
   }
 
+  // The descriptions are named, not counted. A configuration change that did
+  // not reach the corpus leaves these ids untouched, and that is the first
+  // thing to check before reading any number above as a result.
+  const descriptions = [...new Set(rows.flatMap((r) => r.descriptionChunkIds ?? []))].sort();
   console.log(
     `\n  Config: CHAT_PROVIDER=${process.env.CHAT_PROVIDER ?? "claude"} ` +
       `HYBRID_RETRIEVAL=${process.env.HYBRID_RETRIEVAL ?? "true"} ` +
-      `k=${RETRIEVAL_LIMIT}\n`,
+      `k=${RETRIEVAL_LIMIT}` +
+      `\n  Project: ${rows[0]?.projectId ?? "?"}` +
+      `\n  Descriptions scored: ${descriptions.length ? descriptions.join(", ") : "NONE"}\n`,
   );
 }
 
@@ -381,6 +439,12 @@ async function main() {
   }
 
   let cases = JSON.parse(readFileSync(args.set, "utf8"));
+  // Applied before the preflight and before the vocabulary, so one generated
+  // set can score any project holding the sheet. The workflow this exists for
+  // is ingesting the same PDF into a fresh project per configuration; without
+  // it the harness keeps asking whichever project the set was generated
+  // against and returns a stale answer rather than an error.
+  cases = applyProjectOverride(cases, args.project);
   if (args.limit > 0) cases = cases.slice(0, args.limit);
   if (!cases.length) throw new Error(`${args.set} has no cases`);
 
@@ -391,6 +455,7 @@ async function main() {
   // smoke run must score against the same vocabulary as the full one, or its
   // outcomes are not comparable to anything.
   const vocabularies = labelVocabulary(JSON.parse(readFileSync(args.set, "utf8")));
+  const projectId = cases[0].projectId;
 
   const rows = [];
   for (const [index, testCase] of cases.entries()) {
@@ -432,6 +497,7 @@ async function main() {
     const outcome = score(text, testCase, vocabulary);
     rows.push({
       grid: `${testCase.derivation.gridColumn}/${testCase.derivation.gridRow}`,
+      projectId: testCase.projectId,
       tag: testCase.tag,
       expected: testCase.expected,
       distractor: testCase.distractor,
@@ -441,6 +507,12 @@ async function main() {
       said: namedLabels(text, vocabulary).join(", "),
       retrieved: ordered.length,
       descriptionChunks: ordered.filter((c) => c.kind === "description").length,
+      // The ids, not just the count. Two runs citing the same description ids
+      // are the same experiment however different their configuration looked:
+      // chunk ids are uuid4 assigned per ingest (db.replace_page_chunks deletes
+      // and reinserts), so an unchanged id proves the descriptions were never
+      // regenerated. Three runs in a row went unnoticed for want of this.
+      descriptionChunkIds: ordered.filter((c) => c.kind === "description").map((c) => c.id),
       answer: text,
     });
     if (!args.json) {
@@ -462,6 +534,8 @@ async function main() {
       {
         ranAt: new Date().toISOString(),
         set: args.set,
+        projectId,
+        descriptionChunkIds: [...new Set(rows.flatMap((r) => r.descriptionChunkIds))].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
         hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
