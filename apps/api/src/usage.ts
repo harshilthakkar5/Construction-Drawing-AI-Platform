@@ -75,11 +75,18 @@ export async function recordUsage(
  * guardrail, not a substitute.
  */
 const RATES: Record<string, { input: number; output: number }> = {
-  // Anthropic (models used here: chat/summaries on Sonnet, sheet reads on Haiku)
-  "claude-sonnet-5": { input: 3, output: 15 },
+  // Anthropic. Stages that land here: chat and summaries on Sonnet, sheet
+  // reads on Haiku, the vision pass on whatever VLM_CLAUDE_MODEL names.
+  // Verified 2026-09-15 against platform.claude.com/docs/en/models/overview.
+  //
+  // claude-sonnet-5 was $3/$15 here, which is Sonnet 4.6's price. Sonnet 5
+  // costs $2/$10, so every chat answer, summary and drawing description this
+  // dashboard had ever priced was overstated by half.
+  "claude-sonnet-5": { input: 2, output: 10 },
   "claude-opus-5": { input: 5, output: 25 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "claude-haiku-4-5-20251001": { input: 1, output: 5 },
+  "claude-fable-5-1": { input: 10, output: 50 },
   // Google (any stage running on Gemini: SHEET_PROVIDER / SUMMARY_PROVIDER /
   // CHAT_PROVIDER). Published list rates — check them against your own billing
   // tier before trusting the dashboard's spend figure for these.
@@ -137,6 +144,9 @@ const FAMILY_RATES: ReadonlyArray<[string, { input: number; output: number }]> =
   ["flash", { input: 0.3, output: 2.5 }],
   ["gemini", { input: 1.25, output: 10 }],
   ["haiku", { input: 1, output: 5 }],
+  // Without this, an unrecognised sonnet-* fell through to DEFAULT_RATE, which
+  // is $3/$15 — the same wrong number that was on claude-sonnet-5 itself.
+  ["sonnet", { input: 2, output: 10 }],
   ["opus", { input: 5, output: 25 }],
   ["voyage", { input: 0.06, output: 0 }],
 ];

@@ -7,6 +7,7 @@ import {
   estimateProjectRollup,
   estimateSummaryRun,
 } from "./summaryEstimate.js";
+import { rateFor } from "./usage.js";
 
 const savedEnv = { ...process.env };
 afterEach(() => {
@@ -80,11 +81,17 @@ describe("estimateSummaryRun — tokens and cost", () => {
     expect(TYPICAL_OUTPUT_TOKENS).toBeLessThan(MAX_OUTPUT_TOKENS);
   });
 
-  it("prices at the Sonnet rate ($3/M in, $15/M out) by default", () => {
-    // One page call (1000 chunk tokens + scaffolding) + one portion rollup.
+  it("prices at the rate of the model it says will run", () => {
+    // The rate is READ from RATES rather than restated here. It used to be
+    // written out as $3/$15, which was Sonnet 4.6's price on a row labelled
+    // claude-sonnet-5 — so the test agreed with the bug and kept agreeing with
+    // it. A duplicated constant cannot catch its own original drifting.
     const result = estimateSummaryRun({ pageTokens: [page(1000)], reusedPages: 0 });
-    const expected = (result.inputTokens * 3 + result.outputTokens * 15) / 1_000_000;
+    const rate = rateFor(result.model);
+    const expected =
+      (result.inputTokens * rate.input + result.outputTokens * rate.output) / 1_000_000;
     expect(result.costUsd).toBeCloseTo(expected, 10);
+    expect(result.costUsd).toBeGreaterThan(0);
   });
 
   it("scales roughly linearly with page count", () => {
