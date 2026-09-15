@@ -133,6 +133,38 @@ export function namedLabels(answer, vocabulary) {
   return (vocabulary ?? []).filter((label) => mentions(answer, label));
 }
 
+const squash = (text) => text.replace(/\s+/g, "").toUpperCase();
+
+/**
+ * A label the model INVENTED: shaped like a real mark of this kind, but written
+ * nowhere on the sheet.
+ *
+ * The vocabulary is every label the PDF actually carries, so a closed-vocabulary
+ * scorer cannot see this at all — and the gap is not theoretical. One
+ * description of this sheet answered nearly every column question with
+ * HSS9X9X3/8. That is a real AISC square section, which is exactly why it reads
+ * as plausible — and it appears nowhere on THIS sheet, whose columns are HSS8X8,
+ * HSS6X6 and HSS10X10. It matched neither the truth, nor the distractor, nor
+ * anything else on the drawing,
+ * so all 21 cases scored ABSTAINED: a size nobody specified, reported as a
+ * refusal to guess. That is the most dangerous answer this benchmark can
+ * receive and it was being counted as the safest.
+ *
+ * `labelPattern` is emitted per case by drawing_truth.py, so the shape of a
+ * footing mark is defined once and travels with the cases rather than being
+ * written again here. A set generated before it existed simply has none, and
+ * the report says so rather than quietly returning to the blind behaviour.
+ */
+export function inventedLabel(answer, testCase, vocabulary) {
+  if (!testCase.labelPattern) return null;
+  const re = new RegExp(`(?<![a-z0-9])(?:${testCase.labelPattern})(?![a-z0-9])`, "gi");
+  const known = new Set((vocabulary ?? []).map(squash));
+  for (const [token] of answer.matchAll(re)) {
+    if (!known.has(squash(token))) return token;
+  }
+  return null;
+}
+
 /**
  * Five outcomes, not two — and the fifth is why this file has tests.
  *
@@ -169,6 +201,8 @@ export function score(answer, testCase, vocabulary = []) {
   // Neither the truth nor its neighbour. Any other mark of this kind means the
   // model did answer, and answered somewhere else entirely.
   if (namedLabels(answer, vocabulary).length) return "off-target";
+  // Shaped like a mark of this kind, but on no part of this drawing.
+  if (inventedLabel(answer, testCase, vocabulary)) return "invented";
   return "abstained";
 }
 
@@ -340,6 +374,7 @@ export function tally(subset) {
     correct,
     wrong: count("wrong"),
     offTarget: count("off-target"),
+    invented: count("invented"),
     hedged: count("hedged"),
     abstained: count("abstained"),
     pct: (correct / n) * 100,
@@ -372,6 +407,7 @@ export function report(rows, json) {
     `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
     `correct ${String(t.correct).padStart(3)} (${t.pct.toFixed(0).padStart(3)}%)   ` +
     `wrong ${String(t.wrong).padStart(2)}   off-target ${String(t.offTarget).padStart(2)}   ` +
+    `invented ${String(t.invented).padStart(2)}   ` +
     `hedged ${String(t.hedged).padStart(2)}   abstained ${String(t.abstained).padStart(3)}\n` +
     `  ${"".padEnd(14)}     baseline ${t.base.describe} ${t.base.pct.toFixed(0)}%` +
     ` ${t.beatsBase ? "beaten" : "NOT BEATEN"}` +
@@ -388,16 +424,27 @@ export function report(rows, json) {
 
   // "wrong" and "off-target" are both answers, and both get poured. They are
   // reported together and separated only by how far the miss landed.
-  const missed = rows.filter((r) => r.outcome === "wrong" || r.outcome === "off-target");
+  const missed = rows.filter((r) => ["wrong", "off-target", "invented"].includes(r.outcome));
   if (missed.length) {
     console.log("\n  Answered, but not with the truth:");
     for (const r of missed) {
       console.log(
         `    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} expected ${String(r.expected).padEnd(13)}` +
           ` said ${r.said || "(no label)"}` +
-          (r.outcome === "off-target" ? "   [off-target]" : ""),
+          (r.outcome === "correct" ? "" : `   [${r.outcome}]`),
       );
     }
+  }
+
+  // Without it, a mark the model made up is indistinguishable from a refusal,
+  // and the report would be reading one as the other in silence.
+  const blind = rows.filter((r) => !r.labelPattern).length;
+  if (blind) {
+    console.log(
+      `\n  ${blind}/${rows.length} cases carry no labelPattern, so a label the model INVENTED ` +
+        "cannot be told apart from a refusal — both land in \"abstained\". Regenerate the set " +
+        "with drawing_truth.py to score them.",
+    );
   }
 
   const overall = tally(rows);
@@ -504,7 +551,11 @@ async function main() {
       outcome,
       // Every label of this kind the answer named. For a miss it is the whole
       // point — "said F11" and "said nothing" are different failures.
-      said: namedLabels(text, vocabulary).join(", "),
+      said:
+        namedLabels(text, vocabulary).join(", ") ||
+        inventedLabel(text, testCase, vocabulary) ||
+        "",
+      labelPattern: testCase.labelPattern ?? null,
       retrieved: ordered.length,
       descriptionChunks: ordered.filter((c) => c.kind === "description").length,
       // The ids, not just the count. Two runs citing the same description ids

@@ -367,7 +367,20 @@ another, because what joins them is a diagonal LEADER LINE. Nothing a chunker do
 fact that was never written.
 
 So the prompt asks for pairings, positions and connections, and says outright that the text is
-already indexed and a description which merely lists labels is worthless. What comes back is the
+already indexed and a description which merely lists labels is worthless. It demands a FULL GRID
+COORDINATE on every pairing, because that one habit is the whole measured difference between a
+useful description and a useless one: two descriptions of the same sheet scored 84% and 47% on
+grid questions, and the weaker one had written its first row as "At 8/B: ..." and the other two
+as ordered lists under a heading ("Middle row, around grid C: F9 ... F8 ... F12"). The coordinated
+row scored 6/7; the two listed rows scored 3/12 — a list of marks in reading order is EXACTLY what
+the text layer already holds. The three failing shapes (no coordinate, an approximate one like
+"near grid 9/8", and two grid lines merged into one entry) are quoted back at the model as
+counter-examples. Two prohibitions come from the same comparison: do not transcribe the schedules,
+notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
+them, all already indexed, all displacing pairings), and never carry an unreadable value forward
+(both descriptions answered nearly every column with one repeated size rather than once saying a
+mark was illegible). `VLM_MAX_TOKENS` is not the lever — raised from 1500 to 10000 the model wrote
+1285 and 2231 tokens, stopping on its own. What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the
@@ -531,10 +544,19 @@ vision. Cases are GENERATED, never hand-written and never captured from the app,
 bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
 frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
 at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
-survives jittering the intersection 20pt in eight directions. Scoring is FIVE-way, not pass/fail:
+survives jittering the intersection 20pt in eight directions. Scoring is SIX-way, not pass/fail:
 `correct`, `wrong` (named the nearest neighbouring label), `off-target` (named some other label
-of that kind, from elsewhere on the sheet), `hedged` (named the truth and the distractor), and
-`abstained` (named no label at all). A model that declines is not a model that is wrong — on
+of that kind, from elsewhere on the sheet), `invented` (named something SHAPED like a mark of
+that kind but written nowhere on the drawing), `hedged` (named the truth and the distractor), and
+`abstained` (named no label at all). `invented` needs the label's SHAPE, which no vocabulary
+built from the sheet can supply, so `drawing_truth.py` emits a `labelPattern` per case — defined
+once, travelling with the cases, never rewritten in JavaScript. It exists because one description
+of this sheet answered nearly every column question with `HSS9X9X3/8` — a real AISC square
+section, which is what makes it plausible, and one that appears nowhere on THIS sheet, whose
+columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the distractor nor
+anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
+refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
+as many words that it cannot tell an invented label from a refusal. A model that declines is not a model that is wrong — on
 drawings "the sheet does not show this" sends someone to look, while a confident wrong footing
 mark gets poured — and collapsing the two would hide the only failure that is dangerous while
 punishing the behaviour FR-14 asks for. But `off-target` has to be its own outcome for that line

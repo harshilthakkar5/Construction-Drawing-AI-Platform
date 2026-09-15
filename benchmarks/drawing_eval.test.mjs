@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyProjectOverride,
+  inventedLabel,
   labelVocabulary,
   mentions,
   namedLabels,
@@ -235,4 +236,59 @@ test("the override copies rather than mutating the set in place", () => {
   const cases = [{ projectId: P1 }];
   applyProjectOverride(cases, P2);
   assert.equal(cases[0].projectId, P1);
+});
+
+// ---------------------------------------------------------------------------
+// A label the model made up. One description of the sheet answered nearly every
+// column question with HSS9X9X3/8 -- a real AISC section, on no drawing here --
+// and a closed-vocabulary scorer read all 21 as refusals.
+// ---------------------------------------------------------------------------
+
+const COLUMN_PATTERN =
+  "HSS\\s*\\d+(?:\\.\\d+)?\\s*X\\s*\\d+(?:\\.\\d+)?(?:\\s*/\\s*\\d+)?" +
+  "(?:\\s*X\\s*\\d+(?:\\.\\d+)?(?:\\s*/\\s*\\d+)?)?";
+const SIZES = ["HSS8X8X3/8", "HSS8X8X5/8", "HSS10X10X1/2", "HSS6X6X3/8"];
+const columnCase = {
+  expected: "HSS8X8X3/8",
+  distractor: "HSS6X6X3/8",
+  labelPattern: COLUMN_PATTERN,
+};
+
+test("a size that is on no drawing scores invented, not abstained", () => {
+  assert.equal(score("The column there is an HSS9X9X3/8.", columnCase, SIZES), "invented");
+});
+
+test("a size the sheet does carry is off-target, never invented", () => {
+  assert.equal(score("The column there is an HSS10X10X1/2.", columnCase, SIZES), "off-target");
+  assert.equal(inventedLabel("an HSS10X10X1/2 column", columnCase, SIZES), null);
+});
+
+test("invented never displaces an answer that named the truth", () => {
+  // An answer can mention both; naming the right one still decides the outcome.
+  assert.equal(score("HSS8X8X3/8, not HSS9X9X3/8.", columnCase, SIZES), "correct");
+});
+
+test("a real refusal stays abstained even with a pattern", () => {
+  assert.equal(
+    score("The drawing does not call out a column at that intersection.", columnCase, SIZES),
+    "abstained",
+  );
+});
+
+test("the model's spacing does not hide an invented size", () => {
+  // It writes "HSS 9x9x3/8" for a sheet that would print "HSS9X9X3/8".
+  assert.equal(inventedLabel("an HSS 9x9x3/8 column", columnCase, SIZES), "HSS 9x9x3/8");
+});
+
+test("a footing mark nowhere on the sheet is invented", () => {
+  const footingCase = { expected: "F9", distractor: "F7", labelPattern: "F\\d{1,2}" };
+  assert.equal(score("That grid carries footing F42.", footingCase, FOOTINGS), "invented");
+  // F11 IS on this sheet, so it is a real mark in the wrong place.
+  assert.equal(score("That grid carries footing F11.", footingCase, FOOTINGS), "off-target");
+});
+
+test("without a labelPattern the scorer cannot see an invented label", () => {
+  // The old blindness, kept explicit: a set generated before labelPattern
+  // existed scores these as refusals, and the report says so out loud.
+  assert.equal(score("The column there is an HSS9X9X3/8.", { ...columnCase, labelPattern: undefined }, SIZES), "abstained");
 });
