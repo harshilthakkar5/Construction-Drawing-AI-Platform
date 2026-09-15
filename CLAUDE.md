@@ -513,19 +513,48 @@ vision. Cases are GENERATED, never hand-written and never captured from the app,
 bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
 frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
 at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
-survives jittering the intersection 20pt in eight directions. Scoring is FOUR-way, not pass/fail:
-`correct`, `wrong`, `hedged` (named the truth and the distractor), and `abstained`. A model that
-declines is not a model that is wrong — on drawings "the sheet does not show this" sends someone
-to look, while a confident wrong footing mark gets poured — and collapsing the two would hide the
-only failure that is dangerous while punishing the behaviour FR-14 asks for. The scorer has its
-own tests (`node --test benchmarks/drawing_eval.test.mjs`), because a matcher that finds "F9"
-inside "F90" reports a wrong answer as right. Every tag also reports its MAJORITY-CLASS
-BASELINE, because a bare percentage invites the wrong reading: a sheet reuses a handful of
-marks, so "always answer HSS8X8X3/8" scores 52% on the column tag while reading nothing. The
-first measured run (CHAT_PROVIDER=gemini, k=18) scored 23% correct / 10% wrong / 68% abstained
-and was BELOW that baseline on both tags — 21% against 32%, 24% against 52% — with all four
-wrong answers naming a high-frequency label. That is zero comprehension plus a frequency prior,
-not partial success, and the run now says so in as many words.
+survives jittering the intersection 20pt in eight directions. Scoring is FIVE-way, not pass/fail:
+`correct`, `wrong` (named the nearest neighbouring label), `off-target` (named some other label
+of that kind, from elsewhere on the sheet), `hedged` (named the truth and the distractor), and
+`abstained` (named no label at all). A model that declines is not a model that is wrong — on
+drawings "the sheet does not show this" sends someone to look, while a confident wrong footing
+mark gets poured — and collapsing the two would hide the only failure that is dangerous while
+punishing the behaviour FR-14 asks for. But `off-target` has to be its own outcome for that line
+to hold. Knowing only the truth and its neighbour, the scorer filed every third-label answer
+under `abstained`, i.e. under SAFE: `wrong` requires naming the NEAREST neighbour, so the further
+an answer landed from the right intersection the safer it scored. A run really did go from 11
+correct / 4 wrong on the column tag to 0 / 0 with all 21 cases "abstained" — both buckets
+emptying at once, which no amount of restraint produces. So each tag's whole label vocabulary is
+built from the set and any mention of it counts as an answer; the cost is that a refusal listing
+candidates scores off-target, which is why every run now writes its answers to
+`benchmarks/runs/` (gitignored) instead of computing them and throwing them away unless asked for
+`--json`. The scorer has its own tests (`node --test benchmarks/drawing_eval.test.mjs`), because
+a matcher that finds "F9" inside "F90" reports a wrong answer as right.
+
+The harness runs the API's own `retrieveChunkIds` + `answerFromChunks`, and "the real thing" is
+load-bearing to the letter: it must pass `kind` exactly as `routes/chat.ts` does, or the
+description is serialized without `kind="description"` and the model reads a vision model's
+account as though it were words lifted off the sheet — the one confusion the whole vision pass
+exists to prevent, mis-measured in the direction that flatters the result. Each row also records
+how many retrieved chunks were descriptions, MEASURED rather than inferred from `VLM_*`: those
+are read by the worker at ingest, so the benchmark process's environment says nothing about what
+is in the chunks it is scoring.
+
+Every tag reports its MAJORITY-CLASS BASELINE, because a bare percentage invites the wrong
+reading: a sheet reuses a handful of marks, so "always answer HSS8X8X3/8" scores 52% on the
+column tag while reading nothing. Across tags that baseline is each tag's OWN majority summed,
+never the pooled mode — pooling proposes answering a member size to "which footing mark is at
+7/C", which no guesser would do, and it scored this set's null model at 28% instead of 43%. A run
+that scored exactly 43%, tying the real baseline on both tags to the case, was therefore told it
+had beaten it: the most encouraging line on the screen, produced by the report's own arithmetic.
+Alongside it each tag reports MINORITY-LABEL HITS — correct answers naming something other than
+that tag's most common label. It is the only figure here a frequency prior cannot produce, and
+the only one that separates two runs with identical scores. The first measured run
+(CHAT_PROVIDER=gemini, k=18, no descriptions) scored 23% correct / 10% wrong / 68% abstained and
+was BELOW baseline on both tags, with all four wrong answers naming a high-frequency label: zero
+comprehension plus a frequency prior, not partial success. With descriptions at
+`VLM_MAX_TOKENS=10000` the footing tag reached 53% against its 32% baseline, and at least four of
+those ten hits were minority marks — the first result here that a guesser cannot account for.
 
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so

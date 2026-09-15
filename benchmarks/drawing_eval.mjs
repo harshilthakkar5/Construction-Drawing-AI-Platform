@@ -39,7 +39,7 @@
  * and the chat provider's key) because it runs the API's own retrieval and
  * answer code rather than a copy.
  */
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -74,12 +74,13 @@ async function loadApi() {
 }
 
 function parseArgs(argv) {
-  const args = { set: resolve(here, "drawing_eval_set.json"), json: false, limit: 0 };
+  const args = { set: resolve(here, "drawing_eval_set.json"), json: false, limit: 0, out: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") args.json = true;
     else if (arg === "--set") args.set = resolve(process.cwd(), argv[++i]);
     else if (arg === "--limit") args.limit = Number(argv[++i]);
+    else if (arg === "--out") args.out = resolve(process.cwd(), argv[++i]);
     else if (arg === "--help") args.help = true;
   }
   return args;
@@ -104,7 +105,29 @@ export function mentions(haystack, needle) {
 }
 
 /**
- * Four outcomes, not two.
+ * Every label of a tag's kind that appears anywhere in the set — the sheet's own
+ * vocabulary of footing marks, or of member sizes, as derived by
+ * drawing_truth.py. `score` needs it to tell a refusal apart from an answer that
+ * named a real label from the wrong part of the drawing.
+ */
+export function labelVocabulary(cases) {
+  const byTag = new Map();
+  for (const c of cases) {
+    const labels = byTag.get(c.tag) ?? new Set();
+    if (c.expected) labels.add(c.expected);
+    if (c.distractor) labels.add(c.distractor);
+    byTag.set(c.tag, labels);
+  }
+  return new Map([...byTag].map(([tag, labels]) => [tag, [...labels]]));
+}
+
+/** Which of `vocabulary`'s labels this answer names, in the set's spelling. */
+export function namedLabels(answer, vocabulary) {
+  return (vocabulary ?? []).filter((label) => mentions(answer, label));
+}
+
+/**
+ * Five outcomes, not two — and the fifth is why this file has tests.
  *
  * A model that declines to answer is not a model that answers wrongly, and on
  * construction drawings the difference is the whole point: "the drawings do not
@@ -112,13 +135,33 @@ export function mentions(haystack, needle) {
  * footing mark gets poured. Collapsing them into one "incorrect" bucket would
  * hide the only failure that is actually dangerous, and would punish exactly
  * the behaviour FR-14 asks for.
+ *
+ * Knowing only the truth and its nearest neighbour is not enough to draw that
+ * line. An answer naming a THIRD label — a real mark, from the wrong part of
+ * the sheet — mentions neither, and the first version of this function filed
+ * every one of those under "abstained", which is to say under SAFE. That is not
+ * a cosmetic miscount. `wrong` requires naming the nearest neighbour
+ * specifically, so the further an answer landed from the right intersection the
+ * safer it scored: a run could get more dangerous and report the opposite, and
+ * one did. Raising VLM_MAX_TOKENS took the column tag from 11 correct / 4 wrong
+ * to 0 / 0 with all 21 cases in "abstained" — both buckets emptying at once,
+ * which no amount of genuine restraint produces.
+ *
+ * So the tag's whole vocabulary is passed in and naming any of it counts as an
+ * answer. This reads text, not intent: a refusal that lists candidates ("the
+ * sheet shows F7 and F9 near there, I cannot tell which") scores off-target
+ * rather than abstained. That is the trade, and it is why every run now writes
+ * its answers to disk — a surprising bucket is meant to be read, not trusted.
  */
-export function score(answer, testCase) {
+export function score(answer, testCase, vocabulary = []) {
   const hasExpected = mentions(answer, testCase.expected);
   const hasDistractor = mentions(answer, testCase.distractor);
   if (hasExpected && !hasDistractor) return "correct";
   if (hasExpected && hasDistractor) return "hedged";
   if (hasDistractor) return "wrong";
+  // Neither the truth nor its neighbour. Any other mark of this kind means the
+  // model did answer, and answered somewhere else entirely.
+  if (namedLabels(answer, vocabulary).length) return "off-target";
   return "abstained";
 }
 
@@ -170,72 +213,159 @@ async function preflight(prisma, cases) {
   }
 }
 
+/**
+ * The majority label of one tag, and how often it is the truth.
+ *
+ * A sheet reuses a handful of marks, so "always answer HSS8X8X3/8" scores 52%
+ * on the column tag while reading nothing at all. Without that number printed
+ * beside it, a bare correctness percentage invites exactly the wrong reading.
+ */
+function majorityBaseline(subset) {
+  if (!subset.length) return { label: null, hits: 0, pct: 0 };
+  const freq = new Map();
+  for (const r of subset) freq.set(r.expected, (freq.get(r.expected) ?? 0) + 1);
+  const [label, hits] = [...freq].sort((a, b) => b[1] - a[1])[0];
+  return { label, hits, pct: (hits / subset.length) * 100 };
+}
+
+/**
+ * The null model for a set spanning several tags — which is NOT the majority
+ * label pooled across all of them.
+ *
+ * Pooling takes the mode of every expected answer at once, so on this set it
+ * proposes "answer HSS8X8X3/8 to everything", including the questions that ask
+ * which FOOTING MARK is at an intersection. No guesser is that stupid: the
+ * question names the vocabulary it wants, and a guesser reading only that much
+ * scores each tag's own majority, summed.
+ *
+ * The difference is not academic. Pooled, this set's baseline is 28%; tag-aware
+ * it is 43%. So a run that scored 43% — tying the real null model on BOTH tags,
+ * to the case — was told it had beaten the baseline. The most encouraging line
+ * on the screen was produced by this function's own arithmetic rather than by
+ * the system under test, which is the one thing a benchmark may never do.
+ */
+function baseline(rows) {
+  const tags = [...new Set(rows.map((r) => r.tag))];
+  if (tags.length <= 1) {
+    const one = majorityBaseline(rows);
+    return { ...one, describe: one.label ? `always "${one.label}"` : "n/a" };
+  }
+  let hits = 0;
+  for (const tag of tags) hits += majorityBaseline(rows.filter((r) => r.tag === tag)).hits;
+  return {
+    label: null,
+    hits,
+    pct: rows.length ? (hits / rows.length) * 100 : 0,
+    describe: "each tag's own majority",
+  };
+}
+
+/**
+ * Correct answers that named something OTHER than their tag's majority label.
+ *
+ * The only figure in this report a frequency prior cannot produce, and the one
+ * that separates two runs scoring identically. A guesser's hits are ALL on the
+ * majority label, by construction; every minority hit is a label it could not
+ * have reached. Two runs tied at 17/40 here, and one of them was reading.
+ */
+function minorityHits(rows) {
+  let hits = 0;
+  for (const tag of new Set(rows.map((r) => r.tag))) {
+    const subset = rows.filter((r) => r.tag === tag);
+    const { label } = majorityBaseline(subset);
+    hits += subset.filter((r) => r.outcome === "correct" && r.expected !== label).length;
+  }
+  return hits;
+}
+
+export function tally(subset) {
+  const n = subset.length || 1;
+  const count = (k) => subset.filter((r) => r.outcome === k).length;
+  const base = baseline(subset);
+  const correct = count("correct");
+  return {
+    n: subset.length,
+    correct,
+    wrong: count("wrong"),
+    offTarget: count("off-target"),
+    hedged: count("hedged"),
+    abstained: count("abstained"),
+    pct: (correct / n) * 100,
+    base,
+    beatsBase: (correct / n) * 100 > base.pct,
+    minorityHits: minorityHits(subset),
+    // How many of these cases had a vision description in the prompt at all.
+    // Measured, not inferred from env: the VLM_* variables are read by the
+    // WORKER at ingest, so this process's environment says nothing about what
+    // is actually in the chunks being scored.
+    withDescription: subset.filter((r) => r.descriptionChunks > 0).length,
+  };
+}
+
+export function summarize(rows) {
+  const tags = [...new Set(rows.map((r) => r.tag))].sort();
+  return {
+    all: tally(rows),
+    byTag: Object.fromEntries(tags.map((t) => [t, tally(rows.filter((r) => r.tag === t))])),
+  };
+}
+
 export function report(rows, json) {
   if (json) {
-    console.log(JSON.stringify({ cases: rows }, null, 2));
+    console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
   }
-  // The score means nothing without a null model. Most-common-label is the one
-  // that matters here: a sheet reuses a handful of marks, so "always answer
-  // HSS8X8X3/8" scores 52% on this set while reading nothing at all. A run that
-  // lands under its own baseline has not partially understood the drawing — it
-  // has guessed from the frequencies in the retrieved text, which is what the
-  // chunks make easy and the geometry does not.
-  const majorityBaseline = (subset) => {
-    if (!subset.length) return { label: null, pct: 0 };
-    const freq = new Map();
-    for (const r of subset) freq.set(r.expected, (freq.get(r.expected) ?? 0) + 1);
-    const [label, hits] = [...freq].sort((a, b) => b[1] - a[1])[0];
-    return { label, pct: (hits / subset.length) * 100 };
-  };
 
-  const tally = (subset) => {
-    const n = subset.length || 1;
-    const count = (k) => subset.filter((r) => r.outcome === k).length;
-    const base = majorityBaseline(subset);
-    return {
-      n: subset.length,
-      correct: count("correct"),
-      wrong: count("wrong"),
-      hedged: count("hedged"),
-      abstained: count("abstained"),
-      pct: ((count("correct") / n) * 100).toFixed(0),
-      base,
-      beatsBase: (count("correct") / n) * 100 > base.pct,
-    };
-  };
-  const line = (label, t) =>
-    `  ${label.padEnd(16)} ${String(t.n).padStart(3)}  ` +
-    `correct ${String(t.correct).padStart(3)} (${t.pct.padStart(3)}%)  ` +
-    `wrong ${String(t.wrong).padStart(3)}  hedged ${String(t.hedged).padStart(3)}  ` +
-    `abstained ${String(t.abstained).padStart(3)}` +
-    (t.base.label
-      ? `   | guess-"${t.base.label}" ${t.base.pct.toFixed(0).padStart(3)}%` +
-        ` ${t.beatsBase ? "beaten" : "NOT BEATEN"}`
-      : "");
+  const block = (label, t) =>
+    `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
+    `correct ${String(t.correct).padStart(3)} (${t.pct.toFixed(0).padStart(3)}%)   ` +
+    `wrong ${String(t.wrong).padStart(2)}   off-target ${String(t.offTarget).padStart(2)}   ` +
+    `hedged ${String(t.hedged).padStart(2)}   abstained ${String(t.abstained).padStart(3)}\n` +
+    `  ${"".padEnd(14)}     baseline ${t.base.describe} ${t.base.pct.toFixed(0)}%` +
+    ` ${t.beatsBase ? "beaten" : "NOT BEATEN"}` +
+    `   |   minority-label hits ${t.minorityHits}/${t.correct}` +
+    `   |   description in prompt ${t.withDescription}/${t.n}`;
 
+  const tags = [...new Set(rows.map((r) => r.tag))].sort();
   console.log("\n  Drawing comprehension\n");
-  console.log(line("ALL", tally(rows)));
-  for (const tag of [...new Set(rows.map((r) => r.tag))].sort()) {
-    console.log(line(tag, tally(rows.filter((r) => r.tag === tag))));
+  console.log(block("ALL", tally(rows)));
+  for (const tag of tags) {
+    console.log("");
+    console.log(block(tag, tally(rows.filter((r) => r.tag === tag))));
   }
-  const wrong = rows.filter((r) => r.outcome === "wrong");
-  if (wrong.length) {
-    console.log("\n  Wrong answers (said the distractor, not the truth):");
-    for (const r of wrong) {
-      console.log(`    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} expected ${r.expected}, said ${r.distractor}`);
+
+  // "wrong" and "off-target" are both answers, and both get poured. They are
+  // reported together and separated only by how far the miss landed.
+  const missed = rows.filter((r) => r.outcome === "wrong" || r.outcome === "off-target");
+  if (missed.length) {
+    console.log("\n  Answered, but not with the truth:");
+    for (const r of missed) {
+      console.log(
+        `    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} expected ${String(r.expected).padEnd(13)}` +
+          ` said ${r.said || "(no label)"}` +
+          (r.outcome === "off-target" ? "   [off-target]" : ""),
+      );
     }
   }
+
   const overall = tally(rows);
-  if (!overall.beatsBase) {
+  const beaten = tags.filter((t) => tally(rows.filter((r) => r.tag === t)).beatsBase);
+  if (!beaten.length) {
     console.log(
-      `\n  Read this as ZERO comprehension, not as ${overall.pct}%. Answering ` +
-        `"${overall.base.label}" to every question, without opening a drawing, scores ` +
-        `${overall.base.pct.toFixed(0)}% on this set — better than the run above. The correct ` +
-        "answers are a frequency prior over the labels in the retrieved chunks, not the " +
-        "geometry the questions ask about.",
+      `\n  Read this as ZERO comprehension, not as ${overall.pct.toFixed(0)}%. Guessing ` +
+        `${overall.base.describe}, without opening a drawing, scores ` +
+        `${overall.base.pct.toFixed(0)}% on this set, and no tag here beat its own baseline. ` +
+        "The correct answers are a frequency prior over the labels in the retrieved chunks, " +
+        "not the geometry the questions ask about.",
+    );
+  } else {
+    console.log(
+      `\n  Beat the baseline: ${beaten.join(", ")}. Across the set ${overall.minorityHits} of ` +
+        `${overall.correct} correct answers named a label that is NOT its tag's most common one` +
+        " — the part a frequency prior cannot fake.",
     );
   }
+
   console.log(
     `\n  Config: CHAT_PROVIDER=${process.env.CHAT_PROVIDER ?? "claude"} ` +
       `HYBRID_RETRIEVAL=${process.env.HYBRID_RETRIEVAL ?? "true"} ` +
@@ -256,6 +386,11 @@ async function main() {
 
   const { retrieval, answer, prisma } = await loadApi();
   await preflight(prisma, cases);
+
+  // Built from the WHOLE set, never from the sliced --limit view: a five-case
+  // smoke run must score against the same vocabulary as the full one, or its
+  // outcomes are not comparable to anything.
+  const vocabularies = labelVocabulary(JSON.parse(readFileSync(args.set, "utf8")));
 
   const rows = [];
   for (const [index, testCase] of cases.entries()) {
@@ -280,17 +415,32 @@ async function main() {
         text: c.text,
         sheetNumber: c.page.sheetNumber,
         discipline: c.page.discipline,
+        // Without this the harness scores a prompt production never builds. The
+        // chat route passes it at both of its mapping sites, and answer.ts uses
+        // it to mark the block kind="description" and apply the rules that go
+        // with one — write "the drawing shows", never quote it, and let the
+        // sheet's own text win any disagreement. Dropping it here left the
+        // model reading a vision model's account as though it were words lifted
+        // off the drawing, which is the one confusion this whole phase exists
+        // to prevent, and it did so in the direction that flatters the result.
+        kind: c.kind,
       })),
       [],
     );
 
-    const outcome = score(text, testCase);
+    const vocabulary = vocabularies.get(testCase.tag) ?? [];
+    const outcome = score(text, testCase, vocabulary);
     rows.push({
       grid: `${testCase.derivation.gridColumn}/${testCase.derivation.gridRow}`,
       tag: testCase.tag,
       expected: testCase.expected,
       distractor: testCase.distractor,
       outcome,
+      // Every label of this kind the answer named. For a miss it is the whole
+      // point — "said F11" and "said nothing" are different failures.
+      said: namedLabels(text, vocabulary).join(", "),
+      retrieved: ordered.length,
+      descriptionChunks: ordered.filter((c) => c.kind === "description").length,
       answer: text,
     });
     if (!args.json) {
@@ -298,7 +448,33 @@ async function main() {
     }
   }
 
+  // Always, not just under --json. A run costs one completion per case, and the
+  // previous shape computed every answer and then threw it away unless asked --
+  // so the first question anyone had about a surprising bucket ("did it really
+  // decline 21 times, or did it answer with the wrong label?") could only be
+  // settled by paying for the whole set again.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outPath = args.out ?? resolve(here, "runs", `drawing-eval-${stamp}.json`);
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        ranAt: new Date().toISOString(),
+        set: args.set,
+        retrievalLimit: RETRIEVAL_LIMIT,
+        chatProvider: process.env.CHAT_PROVIDER ?? "claude",
+        hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
+        summary: summarize(rows),
+        cases: rows,
+      },
+      null,
+      2,
+    ),
+  );
+
   report(rows, args.json);
+  process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();
 }
 
