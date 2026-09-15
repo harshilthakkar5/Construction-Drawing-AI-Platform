@@ -86,6 +86,9 @@ enum UsageKind {
   classification
   embedding
   rerank
+  /// The vision pass (workers/src/vlm.py). Priced by model like any other
+  /// call, so RATES needs no vlm-specific entry.
+  vlm
 }
 
 model UsageEvent {

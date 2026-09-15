@@ -9,7 +9,13 @@ import { prisma } from "./db.js";
  * Recording must never break the request that produced it: failures are
  * logged and swallowed.
  */
-export type UsageKind = "chat" | "summary" | "classification" | "embedding" | "rerank";
+export type UsageKind =
+  | "chat"
+  | "summary"
+  | "classification"
+  | "embedding"
+  | "rerank"
+  | "vlm";
 
 export interface TokenCounts {
   inputTokens?: number;
