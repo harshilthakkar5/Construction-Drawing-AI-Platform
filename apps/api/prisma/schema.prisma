@@ -315,6 +315,13 @@ model Chunk {
   /// {x, y, width, height} in PDF page coordinates — citation-critical.
   bbox        Json
   tokenCount  Int
+  /// "text" = words lifted off the sheet. "description" = a vision model's
+  /// account of the drawing's geometry (workers/src/vlm.py), which the text
+  /// layer cannot carry. The two must never be confused downstream: FR-13
+  /// promises a citation leads to the thing it cites, so a description is
+  /// labelled as one in the answer prompt and in the UI rather than being
+  /// passed off as a quotation from the drawing.
+  kind        String  @default("text")
   /// sha256 of text — lets a new revision reuse the previous revision's
   /// embedding when the chunk text is unchanged (no Voyage call).
   textHash    String?

@@ -34,6 +34,7 @@ import logutil
 import ocr
 import storage
 import tables
+import vlm
 
 log = logutil.get("pipeline")
 
@@ -120,9 +121,53 @@ def _process_page(project_id: str, document_id: str, pdf, index: int, offset: in
                 token_count=chunker.estimate_tokens(text),
             )
         ]
+    description = _describe_page(page, project_id, page_number)
+    if description:
+        # Whole-page bbox: the description is about the whole sheet, so
+        # clicking its citation should land on the sheet rather than on some
+        # arbitrary rectangle the description never confined itself to.
+        rect = page.rect
+        page_chunks = page_chunks + [
+            chunker.Chunk(
+                text=description,
+                bbox={"x": 0, "y": 0, "width": rect.width, "height": rect.height},
+                token_count=chunker.estimate_tokens(description),
+                kind="description",
+            )
+        ]
+
     db.replace_page_chunks(document_id, page_number, page_chunks)
     log.debug("page %d done: %d chars, %d chunks", page_number, len(text), len(page_chunks))
     return used_ocr
+
+
+def _describe_page(page, project_id: str, page_number: int) -> str | None:
+    """The vision pass, or None when it is off, unconfigured, or failed.
+
+    Off by default. It costs one model call per page whether or not anyone
+    asks a geometry question, so it is opt-in and its worth is measured
+    (benchmarks/drawing_eval.mjs) rather than assumed.
+
+    A failure here is never a failed page. The description is an ADDITION to
+    what this pipeline already produced; losing it leaves the page exactly as
+    good as it was before this existed, and a raise would throw away the text,
+    the chunks and the images that did succeed.
+
+    The sheet number is not passed: `pages.sheetNumber` is written by the
+    separate scrape-region job, which has not run when this does. The prompt
+    reads slightly better with it, and nothing depends on it — moving this to
+    its own job after the scrape is a Phase 2 question, not a correctness one.
+    """
+    if not config.VLM_ENABLED:
+        return None
+    try:
+        if not vlm.available():
+            log.warning("VLM_ENABLED but %s has no key — skipping", vlm.provider())
+            return None
+        return vlm.describe_page(vlm.render(page), project_id=project_id)
+    except Exception as exc:
+        log.warning("page %d: vision pass failed: %s", page_number, exc)
+        return None
 
 
 def _extract_pages(

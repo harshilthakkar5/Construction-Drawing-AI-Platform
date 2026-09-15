@@ -320,10 +320,11 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
         conn.execute('DELETE FROM chunks WHERE "pageId" = %s', (page_id,))
         for chunk in chunks:
             chunk_id = str(uuid.uuid4())
+            kind = getattr(chunk, "kind", "text")
             conn.execute(
                 """
-                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash")
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash", kind)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     chunk_id,
@@ -332,8 +333,18 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
                     json.dumps(chunk.bbox),
                     chunk.token_count,
                     text_hash(chunk.text),
+                    kind,
                 ),
             )
+            if kind != "text":
+                # A description does NOT enter the identifier index. That arm
+                # is exact-match and weighted 3x — the heaviest signal in
+                # retrieval — and it is fed from the documents' own words. Let
+                # model-written text in and a member size the model misread
+                # outranks the chunk that carries the real one, which is the
+                # one failure mode worse than having no description at all.
+                # Descriptions are still reachable by dense search and FTS.
+                continue
             # Exact identifiers (S102A, A-301, W18x97) for the retrieval arm
             # that looks them up as identifiers rather than as words. The
             # pattern lives in the cdip_identifiers() SQL function — ONE

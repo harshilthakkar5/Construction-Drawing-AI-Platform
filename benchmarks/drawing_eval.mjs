@@ -170,14 +170,29 @@ async function preflight(prisma, cases) {
   }
 }
 
-function report(rows, json) {
+export function report(rows, json) {
   if (json) {
     console.log(JSON.stringify({ cases: rows }, null, 2));
     return;
   }
+  // The score means nothing without a null model. Most-common-label is the one
+  // that matters here: a sheet reuses a handful of marks, so "always answer
+  // HSS8X8X3/8" scores 52% on this set while reading nothing at all. A run that
+  // lands under its own baseline has not partially understood the drawing — it
+  // has guessed from the frequencies in the retrieved text, which is what the
+  // chunks make easy and the geometry does not.
+  const majorityBaseline = (subset) => {
+    if (!subset.length) return { label: null, pct: 0 };
+    const freq = new Map();
+    for (const r of subset) freq.set(r.expected, (freq.get(r.expected) ?? 0) + 1);
+    const [label, hits] = [...freq].sort((a, b) => b[1] - a[1])[0];
+    return { label, pct: (hits / subset.length) * 100 };
+  };
+
   const tally = (subset) => {
     const n = subset.length || 1;
     const count = (k) => subset.filter((r) => r.outcome === k).length;
+    const base = majorityBaseline(subset);
     return {
       n: subset.length,
       correct: count("correct"),
@@ -185,13 +200,19 @@ function report(rows, json) {
       hedged: count("hedged"),
       abstained: count("abstained"),
       pct: ((count("correct") / n) * 100).toFixed(0),
+      base,
+      beatsBase: (count("correct") / n) * 100 > base.pct,
     };
   };
   const line = (label, t) =>
     `  ${label.padEnd(16)} ${String(t.n).padStart(3)}  ` +
     `correct ${String(t.correct).padStart(3)} (${t.pct.padStart(3)}%)  ` +
     `wrong ${String(t.wrong).padStart(3)}  hedged ${String(t.hedged).padStart(3)}  ` +
-    `abstained ${String(t.abstained).padStart(3)}`;
+    `abstained ${String(t.abstained).padStart(3)}` +
+    (t.base.label
+      ? `   | guess-"${t.base.label}" ${t.base.pct.toFixed(0).padStart(3)}%` +
+        ` ${t.beatsBase ? "beaten" : "NOT BEATEN"}`
+      : "");
 
   console.log("\n  Drawing comprehension\n");
   console.log(line("ALL", tally(rows)));
@@ -204,6 +225,16 @@ function report(rows, json) {
     for (const r of wrong) {
       console.log(`    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} expected ${r.expected}, said ${r.distractor}`);
     }
+  }
+  const overall = tally(rows);
+  if (!overall.beatsBase) {
+    console.log(
+      `\n  Read this as ZERO comprehension, not as ${overall.pct}%. Answering ` +
+        `"${overall.base.label}" to every question, without opening a drawing, scores ` +
+        `${overall.base.pct.toFixed(0)}% on this set — better than the run above. The correct ` +
+        "answers are a frequency prior over the labels in the retrieved chunks, not the " +
+        "geometry the questions ask about.",
+    );
   }
   console.log(
     `\n  Config: CHAT_PROVIDER=${process.env.CHAT_PROVIDER ?? "claude"} ` +

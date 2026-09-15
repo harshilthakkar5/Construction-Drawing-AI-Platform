@@ -129,6 +129,7 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
       // them, and a drawing set refers to itself by sheet number alone.
       sheetNumber: c.page.sheetNumber,
       discipline: c.page.discipline,
+      kind: c.kind,
     })),
     history,
     projectId,
@@ -150,6 +151,7 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
         // FR-21: the chip reads "S-004 — page 4", not "7.pdf — page 4".
         sheetNumber: c.page.sheetNumber,
         discipline: c.page.discipline,
+        kind: c.kind,
       },
     ]),
   );
