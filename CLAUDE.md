@@ -449,6 +449,26 @@ marked up from the source PDFs' filenames rather than the combined numbering rep
 expectation is now checked against the corpus BEFORE the run, and one that cannot match is an
 error rather than a reported miss — a benchmark may report bad news, never invent it.
 
+Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
+GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
+reports 100% recall honestly — but it holds them in two separate runs, one of sizes and one of
+marks, because the pairing between them is drawn as a LEADER LINE and is not text at all. No
+chunker recovers a fact that was never written. `benchmarks/drawing_eval.mjs` measures that gap:
+it runs the REAL `retrieveChunkIds` + `answerFromChunks` and scores the ANSWER, and it is the
+gate the VLM work has to pass through — if the pipeline already answers these, it does not need
+vision. Cases are GENERATED, never hand-written and never captured from the app, by
+`benchmarks/drawing_truth.py`, which derives each answer from the PDF's own coordinates: grid
+bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
+frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
+at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
+survives jittering the intersection 20pt in eight directions. Scoring is FOUR-way, not pass/fail:
+`correct`, `wrong`, `hedged` (named the truth and the distractor), and `abstained`. A model that
+declines is not a model that is wrong — on drawings "the sheet does not show this" sends someone
+to look, while a confident wrong footing mark gets poured — and collapsing the two would hide the
+only failure that is dangerous while punishing the behaviour FR-14 asks for. The scorer has its
+own tests (`node --test benchmarks/drawing_eval.test.mjs`), because a matcher that finds "F9"
+inside "F90" reports a wrong answer as right.
+
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
 FR-13's chain is intact, and a gap in the drawings is NEVER filled from the model's knowledge —

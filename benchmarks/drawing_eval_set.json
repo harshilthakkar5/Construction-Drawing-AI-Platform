@@ -1,0 +1,682 @@
+[
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 2 and row line B?",
+    "expected": "F9",
+    "distractor": "F7",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "B",
+      "intersectionPt": [
+        2233.1,
+        686.2
+      ],
+      "labelDistancePt": 58.7
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 2 and row line B?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "B",
+      "intersectionPt": [
+        2233.1,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 2 and row line C?",
+    "expected": "F7",
+    "distractor": "F9",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "C",
+      "intersectionPt": [
+        2233.1,
+        920.2
+      ],
+      "labelDistancePt": 53.9
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 2 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS6X6X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "C",
+      "intersectionPt": [
+        2233.1,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 2 and row line F?",
+    "expected": "F7",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "F",
+      "intersectionPt": [
+        2233.1,
+        1057.4
+      ],
+      "labelDistancePt": 51.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 2 and row line F?",
+    "expected": "HSS6X6X3/8",
+    "distractor": "HSS8X8X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "2",
+      "gridRow": "F",
+      "intersectionPt": [
+        2233.1,
+        1057.4
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 3 and row line B?",
+    "expected": "F9",
+    "distractor": "F10",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "B",
+      "intersectionPt": [
+        2082.0,
+        686.2
+      ],
+      "labelDistancePt": 57.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 3 and row line B?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "B",
+      "intersectionPt": [
+        2082.0,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 3 and row line C?",
+    "expected": "F8",
+    "distractor": "F7",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "C",
+      "intersectionPt": [
+        2082.0,
+        920.2
+      ],
+      "labelDistancePt": 53.8
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 3 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS6X6X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "C",
+      "intersectionPt": [
+        2082.0,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 3 and row line F?",
+    "expected": "F7",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "F",
+      "intersectionPt": [
+        2082.0,
+        1057.4
+      ],
+      "labelDistancePt": 51.3
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 3 and row line F?",
+    "expected": "HSS6X6X3/8",
+    "distractor": "HSS6X6X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "3",
+      "gridRow": "F",
+      "intersectionPt": [
+        2082.0,
+        1057.4
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 4 and row line B?",
+    "expected": "F10",
+    "distractor": "F9",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "B",
+      "intersectionPt": [
+        1934.0,
+        686.2
+      ],
+      "labelDistancePt": 60.9
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4 and row line B?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "B",
+      "intersectionPt": [
+        1934.0,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 4 and row line C?",
+    "expected": "F9",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "C",
+      "intersectionPt": [
+        1934.0,
+        920.2
+      ],
+      "labelDistancePt": 60.2
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS6X6X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "C",
+      "intersectionPt": [
+        1934.0,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 4 and row line F?",
+    "expected": "F9",
+    "distractor": "F7",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "F",
+      "intersectionPt": [
+        1934.0,
+        1057.4
+      ],
+      "labelDistancePt": 60.3
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4 and row line F?",
+    "expected": "HSS6X6X5/8",
+    "distractor": "HSS6X6X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4",
+      "gridRow": "F",
+      "intersectionPt": [
+        1934.0,
+        1057.4
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 4.6 and row line B?",
+    "expected": "F11",
+    "distractor": "F10",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4.6",
+      "gridRow": "B",
+      "intersectionPt": [
+        1804.1,
+        686.2
+      ],
+      "labelDistancePt": 68.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4.6 and row line B?",
+    "expected": "HSS8X8X5/8",
+    "distractor": "HSS8X8X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4.6",
+      "gridRow": "B",
+      "intersectionPt": [
+        1804.1,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4.6 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS6X6X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4.6",
+      "gridRow": "C",
+      "intersectionPt": [
+        1804.1,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 4.6 and row line F?",
+    "expected": "HSS6X6X3/8",
+    "distractor": "HSS8X8X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "4.6",
+      "gridRow": "F",
+      "intersectionPt": [
+        1804.1,
+        1057.4
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 6 and row line B?",
+    "expected": "F13",
+    "distractor": "F11",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "B",
+      "intersectionPt": [
+        1610.0,
+        686.2
+      ],
+      "labelDistancePt": 81.2
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 6 and row line B?",
+    "expected": "HSS8X8X5/8",
+    "distractor": "HSS10X10X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "B",
+      "intersectionPt": [
+        1610.0,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 6 and row line C?",
+    "expected": "F9",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "C",
+      "intersectionPt": [
+        1610.0,
+        920.2
+      ],
+      "labelDistancePt": 59.7
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 6 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "C",
+      "intersectionPt": [
+        1610.0,
+        920.2
+      ],
+      "labelDistancePt": 47.3
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 6 and row line F?",
+    "expected": "F8",
+    "distractor": "F9",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "F",
+      "intersectionPt": [
+        1610.0,
+        1057.4
+      ],
+      "labelDistancePt": 53.8
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 6 and row line F?",
+    "expected": "HSS8X8X1/2",
+    "distractor": "HSS6X6X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "6",
+      "gridRow": "F",
+      "intersectionPt": [
+        1610.0,
+        1057.4
+      ],
+      "labelDistancePt": 47.3
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 7 and row line B?",
+    "expected": "F13",
+    "distractor": "F12",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "7",
+      "gridRow": "B",
+      "intersectionPt": [
+        1454.0,
+        686.2
+      ],
+      "labelDistancePt": 83.7
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 7 and row line B?",
+    "expected": "HSS10X10X1/2",
+    "distractor": "HSS8X8X3/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "7",
+      "gridRow": "B",
+      "intersectionPt": [
+        1454.0,
+        686.2
+      ],
+      "labelDistancePt": 43.1
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 7 and row line C?",
+    "expected": "HSS8X8X1/2",
+    "distractor": "HSS6X6X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "7",
+      "gridRow": "C",
+      "intersectionPt": [
+        1454.0,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 7 and row line F?",
+    "expected": "F10",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "7",
+      "gridRow": "F",
+      "intersectionPt": [
+        1454.0,
+        1057.4
+      ],
+      "labelDistancePt": 66.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 7 and row line F?",
+    "expected": "HSS6X6X1/2",
+    "distractor": "HSS8X8X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "7",
+      "gridRow": "F",
+      "intersectionPt": [
+        1454.0,
+        1057.4
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 8 and row line B?",
+    "expected": "F12",
+    "distractor": "F13",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "8",
+      "gridRow": "B",
+      "intersectionPt": [
+        1236.0,
+        686.2
+      ],
+      "labelDistancePt": 78.3
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 8 and row line B?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "8",
+      "gridRow": "B",
+      "intersectionPt": [
+        1236.0,
+        686.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 8 and row line C?",
+    "expected": "F8",
+    "distractor": "F12",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "8",
+      "gridRow": "C",
+      "intersectionPt": [
+        1236.0,
+        920.2
+      ],
+      "labelDistancePt": 57.7
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 8 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X1/2",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "8",
+      "gridRow": "C",
+      "intersectionPt": [
+        1236.0,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 9 and row line C?",
+    "expected": "F9",
+    "distractor": "F8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "9",
+      "gridRow": "C",
+      "intersectionPt": [
+        1074.0,
+        920.2
+      ],
+      "labelDistancePt": 57.7
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-column",
+    "question": "On sheet S-100.0, what column section is called out at the intersection of column line 9 and row line C?",
+    "expected": "HSS8X8X3/8",
+    "distractor": "HSS8X8X5/8",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "9",
+      "gridRow": "C",
+      "intersectionPt": [
+        1074.0,
+        920.2
+      ],
+      "labelDistancePt": 47.4
+    }
+  },
+  {
+    "projectId": "c14a2d6b-b0e8-448d-8897-10f89279f42a",
+    "tag": "grid-footing",
+    "question": "On sheet S-100.0, which footing mark is at the intersection of column line 9 and row line F?",
+    "expected": "F11",
+    "distractor": "F9",
+    "derivation": {
+      "sheet": "S-100.0",
+      "gridColumn": "9",
+      "gridRow": "F",
+      "intersectionPt": [
+        1074.0,
+        1057.4
+      ],
+      "labelDistancePt": 68.2
+    }
+  }
+]
