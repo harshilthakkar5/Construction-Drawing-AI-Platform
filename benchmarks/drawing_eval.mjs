@@ -438,6 +438,63 @@ function minorityHits(rows) {
   return hits;
 }
 
+/**
+ * Which label a tag's ANSWERS actually reached for, and how often — against how
+ * often that label is the truth.
+ *
+ * Minority hits measure the same instinct from the other end, but only among
+ * CORRECT answers, so a tag can look clean there while its misses are all one
+ * word. This run is exactly that shape: the column tag scored 52%, tying its
+ * baseline to the case, and said "HSS8X8X3/8" on 15 of the 18 cases it answered
+ * — 83% of its answers on a label that is the truth 52% of the time. The
+ * footing tag on the same sheet named its majority mark at 33% against a 32%
+ * truth rate, and scored 74%. Same description, same run: one tag reading the
+ * drawing and one tag guessing the common answer, and the only number that
+ * separated them had to be worked out by hand from the miss list.
+ *
+ * Over-naming is not the same claim as being wrong. A tag can over-name and
+ * still beat its baseline, and that is worth seeing: it means the hits are
+ * riding on the sheet's own frequencies rather than on what is drawn at the
+ * intersection asked about.
+ */
+const OVER_NAMING_POINTS = 15;
+
+function tagConcentration(subset, tag) {
+  const answered = subset.filter((r) => r.outcome !== "abstained");
+  if (!answered.length) return null;
+  const freq = new Map();
+  // `said` is every label of this kind the answer named, so a hedged answer
+  // counts toward both. That is the right reading: this measures what the model
+  // REACHED FOR, not what it settled on.
+  for (const r of answered) {
+    for (const label of String(r.said ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+      freq.set(label, (freq.get(label) ?? 0) + 1);
+    }
+  }
+  if (!freq.size) return null;
+  const [label, named] = [...freq].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0];
+  const namedPct = (named / answered.length) * 100;
+  const truthPct = (subset.filter((r) => r.expected === label).length / subset.length) * 100;
+  return { tag, label, named, answered: answered.length, namedPct, truthPct, gap: namedPct - truthPct };
+}
+
+/**
+ * Concentration is a PER-TAG measurement, for the same reason the baseline is:
+ * pooled across tags it compares a column size against footing questions that
+ * could never have been answered with one, and dilutes the very number it
+ * exists to expose. Across a multi-tag set this reports the worst offender and
+ * names which tag it was.
+ */
+export function answerConcentration(rows) {
+  const tags = [...new Set(rows.map((r) => r.tag))];
+  if (tags.length <= 1) return tagConcentration(rows, tags[0] ?? null);
+  const each = tags
+    .map((t) => tagConcentration(rows.filter((r) => r.tag === t), t))
+    .filter(Boolean);
+  if (!each.length) return null;
+  return each.sort((a, b) => b.gap - a.gap)[0];
+}
+
 export function tally(subset) {
   const n = subset.length || 1;
   const count = (k) => subset.filter((r) => r.outcome === k).length;
@@ -467,6 +524,7 @@ export function tally(subset) {
       ? (correct / (subset.length - count("abstained"))) * 100
       : 0,
     minorityHits: minorityHits(subset),
+    concentration: answerConcentration(subset),
     // How many of these cases had a vision description in the prompt at all.
     // Measured, not inferred from env: the VLM_* variables are read by the
     // WORKER at ingest, so this process's environment says nothing about what
@@ -489,6 +547,14 @@ export function report(rows, json, onSheet) {
     return;
   }
 
+  const describeConcentration = (c, label) =>
+    `named "${c.label}" on ${c.named} of ${c.answered}` +
+    (label === c.tag ? "" : ` ${c.tag}`) +
+    ` answers (${c.namedPct.toFixed(0)}%) where it is the truth on ${c.truthPct.toFixed(0)}%` +
+    (c.gap >= OVER_NAMING_POINTS
+      ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
+      : " — in step with the sheet");
+
   const block = (label, t) =>
     `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
     `correct ${String(t.correct).padStart(3)} (${t.pct.toFixed(0).padStart(3)}%)   ` +
@@ -503,7 +569,8 @@ export function report(rows, json, onSheet) {
       ? `\n  ${"".padEnd(14)}     answered ${t.answered}/${t.n}` +
         ` (${t.coverage.toFixed(0)}% coverage), and of those ${t.selective.toFixed(0)}% correct` +
         ` — the baseline answers all ${t.n}`
-      : "");
+      : "") +
+    (t.concentration ? `\n  ${"".padEnd(14)}     ${describeConcentration(t.concentration, label)}` : "");
 
   const tags = [...new Set(rows.map((r) => r.tag))].sort();
   console.log("\n  Drawing comprehension\n");
@@ -590,6 +657,22 @@ export function report(rows, json, onSheet) {
       `\n  Beat the baseline: ${beaten.join(", ")}. Across the set ${overall.minorityHits} of ` +
         `${overall.correct} correct answers named a label that is NOT its tag's most common one` +
         " — the part a frequency prior cannot fake.",
+    );
+  }
+
+  // A set-wide verdict hides a tag running on a prior: this set beat its
+  // baseline overall (63% against 43%) on a run whose column tag tied its own
+  // baseline to the case and said one word to 83% of the questions it answered.
+  // "Beat the baseline" was true and was the wrong thing to take away.
+  const worst = overall.concentration;
+  if (worst && worst.gap >= OVER_NAMING_POINTS) {
+    console.log(
+      `\n  Watch ${worst.tag}: it answered "${worst.label}" ${worst.named} times in ` +
+        `${worst.answered} (${worst.namedPct.toFixed(0)}%), where that is what the sheet shows ` +
+        `${worst.truthPct.toFixed(0)}% of the time. Whatever that tag scored, it is reaching for ` +
+        "one label far more often than the drawing offers it, so those hits ride on the sheet's " +
+        "own frequencies rather than on the intersection each question names. Read its correct " +
+        "answers against its minority-hit count before crediting them.",
     );
   }
 
