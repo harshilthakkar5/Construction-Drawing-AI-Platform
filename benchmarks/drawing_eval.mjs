@@ -475,7 +475,27 @@ function tagConcentration(subset, tag) {
   const [label, named] = [...freq].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0];
   const namedPct = (named / answered.length) * 100;
   const truthPct = (subset.filter((r) => r.expected === label).length / subset.length) * 100;
-  return { tag, label, named, answered: answered.length, namedPct, truthPct, gap: namedPct - truthPct };
+  // Carried alongside, because over-naming on its own does not establish
+  // guessing and this report has already printed one verdict its own evidence
+  // contradicted. A tag can lean on a label AND read the sheet: the footing tag
+  // reached for F8 18pt more often than the drawing offers it while 10 of its
+  // 12 hits were minority marks, which a prior produces at a rate of zero.
+  const correct = subset.filter((r) => r.outcome === "correct").length;
+  const minority = minorityHits(subset);
+  return {
+    tag,
+    label,
+    named,
+    answered: answered.length,
+    namedPct,
+    truthPct,
+    gap: namedPct - truthPct,
+    correct,
+    minorityHits: minority,
+    minorityPct: correct ? (minority / correct) * 100 : 0,
+    // The same gate the set-wide verdict uses, so the two cannot disagree.
+    prior: (correct ? (minority / correct) * 100 : 0) < 25,
+  };
 }
 
 /**
@@ -492,7 +512,10 @@ export function answerConcentration(rows) {
     .map((t) => tagConcentration(rows.filter((r) => r.tag === t), t))
     .filter(Boolean);
   if (!each.length) return null;
-  return each.sort((a, b) => b.gap - a.gap)[0];
+  // Prior-shaped tags first, THEN widest gap: a tag whose hits are mostly
+  // minority labels is reading the sheet and leaning on a label, and naming it
+  // as the set's worst offender would bury the tag that is only guessing.
+  return each.sort((a, b) => Number(b.prior) - Number(a.prior) || b.gap - a.gap)[0];
 }
 
 export function tally(subset) {
@@ -551,9 +574,12 @@ export function report(rows, json, onSheet) {
     `named "${c.label}" on ${c.named} of ${c.answered}` +
     (label === c.tag ? "" : ` ${c.tag}`) +
     ` answers (${c.namedPct.toFixed(0)}%) where it is the truth on ${c.truthPct.toFixed(0)}%` +
-    (c.gap >= OVER_NAMING_POINTS
-      ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
-      : " — in step with the sheet");
+    (c.gap < OVER_NAMING_POINTS
+      ? " — in step with the sheet"
+      : c.prior
+        ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
+        : ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.minorityHits} of its ${c.correct} ` +
+          "hits are minority labels, which guessing does not produce");
 
   const block = (label, t) =>
     `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
@@ -670,9 +696,15 @@ export function report(rows, json, onSheet) {
       `\n  Watch ${worst.tag}: it answered "${worst.label}" ${worst.named} times in ` +
         `${worst.answered} (${worst.namedPct.toFixed(0)}%), where that is what the sheet shows ` +
         `${worst.truthPct.toFixed(0)}% of the time. Whatever that tag scored, it is reaching for ` +
-        "one label far more often than the drawing offers it, so those hits ride on the sheet's " +
-        "own frequencies rather than on the intersection each question names. Read its correct " +
-        "answers against its minority-hit count before crediting them.",
+        "one label far more often than the drawing offers it" +
+        (worst.prior
+          ? ", and only " +
+            `${worst.minorityHits} of its ${worst.correct} correct answers named a minority ` +
+            "label — so those hits ride on the sheet's own frequencies rather than on the " +
+            "intersection each question names."
+          : `, though ${worst.minorityHits} of its ${worst.correct} correct answers named a ` +
+            "minority label, which a frequency prior produces at a rate of zero. It is leaning " +
+            "on one label and still reading the rest."),
     );
   }
 

@@ -440,6 +440,16 @@ with the room left over" listed dimensions as permitted, so a third of the budge
 grid-to-grid spacings, every one already indexed, while a whole grid row went undescribed.
 Intersections come first; everything else is what is left.
 
+The vision provider was then measured against those rules rather than argued about, once the
+Gemini thinking control worked at all. `GEMINI_THINKING_LEVEL` is the whole experiment on that
+side: at `minimal` the same sheet scored 20% correct with 17 off-target and answered one member
+size to 75% of the column questions it attempted — a size the sheet shows on 14% of them, so not
+even the majority guess — while at `low` it scored 60% and beat the baseline on BOTH tags for the
+first time, 12 of 24 hits on minority labels. The floor of the scale is not a cheap version of the
+next rung; on this task it is a different model. Against Claude's best run on the same sheet (63%,
+footings 74%, columns tying their baseline) `low` trades: worse on footings, better on columns —
+the one configuration so far whose column tag beats its baseline at all.
+
 Those four rules were then measured, on a fresh ingest of the same sheet: 28% correct with 15
 abstentions became 63% correct with 4, and the footing tag went from guesswork to 74% against its
 32% baseline with 9 of its 14 hits on minority marks. Naming the grid first is what bought most
@@ -767,8 +777,14 @@ like half a result, and the 31-point gap had to be worked out by hand from the m
 measured PER TAG for the same reason the baseline is — a footing question could never be answered
 with a column size, and pooling dilutes the concentration it exists to expose. Over-naming is not
 the same claim as being wrong: a tag can over-name and still beat its baseline, and that is
-exactly what is worth seeing, because it means the hits are riding on the sheet's own frequencies
-rather than on the intersection each question names.
+exactly what is worth seeing, because it means the hits may be riding on the sheet's own
+frequencies rather than on the intersection each question names. MAY, and the line had to say so
+after one run, because "the shape of a guess" is the same claim the set-wide verdict already had
+to be gated on: the footing tag reached for one mark 18 points more often than the drawing offers
+it while 10 of its 12 hits were minority marks. Both are true — it leaned on a label and read the
+rest — so the wording is gated on the same minority fraction, and the set-wide "watch this tag"
+line picks the tag that looks like a PRIOR before the tag with the widest gap. A reading tag can
+lean harder than a guessing one, and naming it there would bury the tag that is only guessing.
 
 That baseline ANSWERS EVERY CASE, which makes raw accuracy the wrong comparison for a run that
 declines: it has forfeited the cases it abstained on, so it cannot win on the total however well
