@@ -541,3 +541,52 @@ test("a tag that answered nothing reports no concentration rather than zero", ()
   // And the report must not print a line about it.
   assert.doesNotMatch(verdict(rows), /over-naming|in step with the sheet/);
 });
+
+test("over-naming is not called a guess when the tag's hits are minority labels", () => {
+  // The measured case. With GEMINI_THINKING_LEVEL=low the footing tag reached
+  // for F8 far more often than the sheet shows it — past the threshold — and
+  // still scored 12/19 with 10 of those hits on minority marks, which a
+  // frequency prior produces at a rate of zero. Printing "the shape of a guess"
+  // over that is the report contradicting its own evidence, the same failure
+  // the set-wide verdict already had to be gated against.
+  const rows = [
+    // F9 is the tag's majority truth; four are read correctly, two are answered F8.
+    ...Array.from({ length: 4 }, () => namedRow("grid-footing", "F9", "correct")),
+    ...Array.from({ length: 2 }, () => namedRow("grid-footing", "F9", "off-target", "F8")),
+    // F8 is the truth three times: read twice, declined once.
+    ...Array.from({ length: 2 }, () => namedRow("grid-footing", "F8", "correct")),
+    namedRow("grid-footing", "F8", "abstained"),
+    // Ten minority marks: six read, four answered F8.
+    ...Array.from({ length: 6 }, (_, i) => namedRow("grid-footing", `F1${i}`, "correct")),
+    ...Array.from({ length: 4 }, (_, i) => namedRow("grid-footing", `F2${i}`, "off-target", "F8")),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "F8");
+  assert.ok(c.gap >= 15, `expected over-naming, got ${c.gap}pt`);
+  assert.equal(c.prior, false);
+  const said = verdict(rows);
+  assert.doesNotMatch(said, /shape of a guess/);
+  assert.match(said, /minority label/);
+});
+
+test("the set-wide warning names the guessing tag, not the widest gap", () => {
+  // A reading tag can lean harder on one label than a guessing tag does. Sorted
+  // by gap alone the report would put the wrong tag on the line that decides
+  // how the whole run is read.
+  const rows = [
+    // Guessing: every hit is the majority label.
+    ...Array.from({ length: 5 }, () => namedRow("grid-column", "HSS8X8X3/8", "correct")),
+    ...Array.from({ length: 2 }, () => namedRow("grid-column", "HSS8X8X3/8", "abstained")),
+    ...Array.from({ length: 3 }, () => namedRow("grid-column", "HSS6X6X3/8", "off-target", "HSS8X8X3/8")),
+    // Reading: a WIDER gap, but on labels a prior cannot reach.
+    ...Array.from({ length: 8 }, (_, i) => namedRow("grid-footing", `F${i + 2}`, "correct")),
+    ...Array.from({ length: 6 }, (_, i) => namedRow("grid-footing", `F2${i}`, "off-target", "F2")),
+  ];
+  const footing = answerConcentration(rows.filter((r) => r.tag === "grid-footing"));
+  const column = answerConcentration(rows.filter((r) => r.tag === "grid-column"));
+  assert.ok(footing.gap > column.gap, `footing ${footing.gap}pt should exceed column ${column.gap}pt`);
+  assert.equal(footing.prior, false);
+  assert.equal(column.prior, true);
+  assert.equal(answerConcentration(rows).tag, "grid-column");
+  assert.match(verdict(rows), /Watch grid-column/);
+});
