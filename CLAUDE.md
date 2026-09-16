@@ -639,8 +639,19 @@ columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the dist
 anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
 refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
 as many words that it cannot tell an invented label from a refusal.
-`drawing_truth.py --backfill <set.json>` adds the field to such a set WITHOUT re-deriving any
-answer, which is sound only because the pattern is a function of the TAG alone — it depends on
+`invented` needs one more thing the set cannot supply: the sheet's WHOLE label vocabulary.
+`off-target` means "another mark of this kind, from elsewhere on the drawing", and the scorer
+was building that vocabulary out of the cases' own `expected` and `distractor` — i.e. only the
+intersections the set asks about. A mark that is really on the sheet, at an intersection no case
+covers, therefore scored INVENTED: the one outcome that accuses the model of fabricating. It
+happened on the first run to produce any, where two of three were `F6` and `HSS5X5X3/8`, both of
+which the description places at 9/C. `drawing_truth.py` already reads every footing mark and
+member callout on the page to find the nearest one, so it now emits that inventory as
+`sheetLabels` per case and `labelVocabulary` prefers it. A set without the field still runs on
+the old vocabulary, and the report says in as many words that `invented` is overstated until it
+is regenerated.
+`drawing_truth.py --backfill <set.json>` adds the labelPattern field to such a set WITHOUT
+re-deriving any answer, which is sound only because the pattern is a function of the TAG alone — it depends on
 no geometry, so the result is byte-identical to what a full regeneration would write for that
 field. Regenerating from the PDF is still the real fix, since it re-derives the truth too. How
 much this matters scales with ABSTENTIONS: at zero or one it is nearly harmless, and the first

@@ -15,6 +15,7 @@ import {
   applyProjectOverride,
   describeCoverage,
   report,
+  vocabularySource,
   inventedLabel,
   labelVocabulary,
   mentions,
@@ -412,4 +413,47 @@ test("the below-baseline verdict still says plainly that the baseline was not be
     ...Array.from({ length: 9 }, () => verdictRow("grid-footing", "F9", "abstained")),
   ];
   assert.match(verdict(rows), /Below baseline/);
+});
+
+test("a mark from elsewhere on the sheet is off-target, not invented", () => {
+  // The measured false positive. The set asks about seven footing marks; the
+  // sheet also carries F6, at an intersection no case covers. Scored against a
+  // vocabulary built from the SET, naming F6 means "the model made this up" —
+  // the one outcome that accuses it of fabrication.
+  const cases = [
+    { tag: "grid-footing", expected: "F9", distractor: "F8", sheetLabels: ["F6", "F8", "F9"] },
+  ];
+  const vocab = labelVocabulary(cases).get("grid-footing");
+  assert.ok(vocab.includes("F6"));
+  assert.equal(
+    score("The footing there is F6.", { expected: "F9", distractor: "F8", labelPattern: "F\\d{1,2}" }, vocab),
+    "off-target",
+  );
+});
+
+test("a mark on no part of the drawing is still invented", () => {
+  const cases = [
+    { tag: "grid-footing", expected: "F9", distractor: "F8", sheetLabels: ["F6", "F8", "F9"] },
+  ];
+  const vocab = labelVocabulary(cases).get("grid-footing");
+  assert.equal(
+    score("The footing there is F44.", { expected: "F9", distractor: "F8", labelPattern: "F\\d{1,2}" }, vocab),
+    "invented",
+  );
+});
+
+test("a set with no sheetLabels still builds a vocabulary, and says which one it is", () => {
+  const withSheet = [{ tag: "t", expected: "A", distractor: "B", sheetLabels: ["A", "B", "C"] }];
+  const withoutSheet = [{ tag: "t", expected: "A", distractor: "B" }];
+  assert.equal(vocabularySource(withSheet), "sheet");
+  assert.equal(vocabularySource(withoutSheet), "set");
+  // The fallback must still work — an old set runs, it just over-reports invented.
+  assert.deepEqual(labelVocabulary(withoutSheet).get("t").sort(), ["A", "B"]);
+});
+
+test("the report says outright when the vocabulary is only the set's", () => {
+  const rows = [verdictRow("grid-footing", "F9", "correct")];
+  const said = verdict(rows);
+  assert.match(said, /No case carries sheetLabels/);
+  assert.match(said, /scores INVENTED rather than off-target/);
 });
