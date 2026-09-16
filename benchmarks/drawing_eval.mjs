@@ -239,6 +239,67 @@ export function oneProjectOrThrow(cases) {
   return ids[0];
 }
 
+/**
+ * How much of the sheet's description retrieval can actually reach.
+ *
+ * `descriptionChunkIds` says which description chunks REACHED an answer. It
+ * cannot say how many exist, and the difference is the whole diagnosis. A run
+ * where all 40 cases retrieved a description looks like full coverage and
+ * reported exactly ONE distinct chunk id — which means one of two entirely
+ * different things:
+ *
+ *   one chunk exists   the description was stored whole, so `split_description`
+ *                      did not run on this ingest (or the description was short
+ *                      enough not to need it)
+ *   several exist      the split worked and retrieval surfaces the SAME piece
+ *                      for every question, so the rest of the sheet is written
+ *                      into the corpus and never read
+ *
+ * They have opposite fixes, and only the second makes raising VLM_MAX_TOKENS
+ * actively counter-productive: a longer description then means more of the
+ * sheet sitting in pieces nothing retrieves. So count what is on the page.
+ */
+export function describeCoverage(onSheet, reached) {
+  const total = onSheet.length;
+  if (total === 0) {
+    return "Description chunks on the sheet: NONE — the vision pass stored nothing for this ingest.";
+  }
+  const present = new Set(onSheet);
+  const used = new Set([...new Set(reached)].filter((id) => present.has(id)));
+  const head = `Description chunks on the sheet: ${total}, of which ${used.size} reached an answer`;
+  if (total === 1) {
+    return `${head}. One chunk means the description was stored whole — check it against the chunker's cap.`;
+  }
+  if (used.size === total) return `${head} — every piece is reachable.`;
+  return (
+    `${head}. The other ${total - used.size} are in the corpus and retrieval never surfaces them, ` +
+    "so whatever part of the sheet they describe cannot be answered from. Raising VLM_MAX_TOKENS " +
+    "writes MORE description into pieces nothing retrieves — fix the reach first."
+  );
+}
+
+/** Every description chunk living on the sheets this set asks about. */
+async function descriptionChunksOnSheets(prisma, cases) {
+  const sheets = new Map(
+    cases.map((c) => [`${c.projectId}:${c.derivation.sheet}`, {
+      projectId: c.projectId,
+      sheet: c.derivation.sheet,
+    }]),
+  );
+  const ids = [];
+  for (const { projectId, sheet } of sheets.values()) {
+    const found = await prisma.chunk.findMany({
+      where: {
+        kind: "description",
+        page: { sheetNumber: sheet, document: { projectId, supersededAt: null } },
+      },
+      select: { id: true },
+    });
+    ids.push(...found.map((c) => c.id));
+  }
+  return ids;
+}
+
 async function preflight(prisma, cases) {
   const ids = [oneProjectOrThrow(cases)];
   for (const id of ids) {
@@ -397,7 +458,7 @@ export function summarize(rows) {
   };
 }
 
-export function report(rows, json) {
+export function report(rows, json, onSheet) {
   if (json) {
     console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
@@ -474,7 +535,8 @@ export function report(rows, json) {
       `HYBRID_RETRIEVAL=${process.env.HYBRID_RETRIEVAL ?? "true"} ` +
       `k=${RETRIEVAL_LIMIT}` +
       `\n  Project: ${rows[0]?.projectId ?? "?"}` +
-      `\n  Descriptions scored: ${descriptions.length ? descriptions.join(", ") : "NONE"}\n`,
+      `\n  Descriptions scored: ${descriptions.length ? descriptions.join(", ") : "NONE"}` +
+      `\n  ${describeCoverage(onSheet ?? [], descriptions)}\n`,
   );
 }
 
@@ -497,6 +559,7 @@ async function main() {
 
   const { retrieval, answer, prisma } = await loadApi();
   await preflight(prisma, cases);
+  const descriptionsOnSheet = await descriptionChunksOnSheets(prisma, cases);
 
   // Built from the WHOLE set, never from the sliced --limit view: a five-case
   // smoke run must score against the same vocabulary as the full one, or its
@@ -587,6 +650,9 @@ async function main() {
         set: args.set,
         projectId,
         descriptionChunkIds: [...new Set(rows.flatMap((r) => r.descriptionChunkIds))].sort(),
+        // What EXISTS, against what was reached above. A run that retrieved a
+        // description for every one of its cases still only ever surfaced one.
+        descriptionChunksOnSheet: [...descriptionsOnSheet].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
         hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
@@ -598,7 +664,7 @@ async function main() {
     ),
   );
 
-  report(rows, args.json);
+  report(rows, args.json, descriptionsOnSheet);
   process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();
 }

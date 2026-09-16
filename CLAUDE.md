@@ -625,6 +625,15 @@ number), and a sheet living on more than one live page of the target project (a 
 NEW document; only `replacesDocumentId` makes it a revision, so retrieval draws on both ingests
 at once and whichever description wins the fusion decides the answer).
 
+How many description chunks EXIST on the sheet is reported next to how many were reached
+(`describeCoverage`), because the per-case count cannot tell the two apart and they have
+opposite fixes. A run reported `description in prompt 40/40` — every case saw one, which reads
+as full coverage — while naming exactly ONE distinct chunk id. Either the description was stored
+whole (so `split_description` never ran on that ingest) or the split worked and retrieval
+surfaces the same piece for every question, leaving the rest of the sheet indexed and
+unreachable. In the second case the obvious next move is the wrong one: raising
+`VLM_MAX_TOKENS` writes more of the drawing into pieces nothing retrieves.
+
 Every tag reports its MAJORITY-CLASS BASELINE, because a bare percentage invites the wrong
 reading: a sheet reuses a handful of marks, so "always answer HSS8X8X3/8" scores 52% on the
 column tag while reading nothing. Across tags that baseline is each tag's OWN majority summed,
