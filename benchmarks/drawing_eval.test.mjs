@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import {
   applyProjectOverride,
   describeCoverage,
+  report,
   inventedLabel,
   labelVocabulary,
   mentions,
@@ -130,14 +131,14 @@ test("labelVocabulary keeps each tag's labels apart", () => {
 // to a question about footing marks, and scored a tied run as a win.
 // ---------------------------------------------------------------------------
 
-const row = (tag, expected, outcome) => ({ tag, expected, outcome, descriptionChunks: 0 });
+const caseRow = (tag, expected, outcome) => ({ tag, expected, outcome, descriptionChunks: 0 });
 
 test("the baseline for one tag is that tag's majority label", () => {
   const t = tally([
-    row("grid-footing", "F9", "correct"),
-    row("grid-footing", "F9", "abstained"),
-    row("grid-footing", "F7", "correct"),
-    row("grid-footing", "F8", "wrong"),
+    caseRow("grid-footing", "F9", "correct"),
+    caseRow("grid-footing", "F9", "abstained"),
+    caseRow("grid-footing", "F7", "correct"),
+    caseRow("grid-footing", "F8", "wrong"),
   ]);
   assert.equal(t.base.label, "F9");
   assert.equal(t.base.pct, 50);
@@ -148,14 +149,14 @@ test("the baseline across tags is each tag's own majority, not the pooled mode",
   // 38%, which proposes answering a member size to "which footing mark". The
   // honest guesser knows the vocabulary the question asked for: 3 + 2 = 5/8.
   const rows = [
-    row("grid-column", "HSS8X8X3/8", "correct"),
-    row("grid-column", "HSS8X8X3/8", "correct"),
-    row("grid-column", "HSS8X8X3/8", "correct"),
-    row("grid-column", "HSS6X6X3/8", "abstained"),
-    row("grid-column", "HSS10X10X1/2", "abstained"),
-    row("grid-footing", "F9", "correct"),
-    row("grid-footing", "F9", "abstained"),
-    row("grid-footing", "F7", "abstained"),
+    caseRow("grid-column", "HSS8X8X3/8", "correct"),
+    caseRow("grid-column", "HSS8X8X3/8", "correct"),
+    caseRow("grid-column", "HSS8X8X3/8", "correct"),
+    caseRow("grid-column", "HSS6X6X3/8", "abstained"),
+    caseRow("grid-column", "HSS10X10X1/2", "abstained"),
+    caseRow("grid-footing", "F9", "correct"),
+    caseRow("grid-footing", "F9", "abstained"),
+    caseRow("grid-footing", "F7", "abstained"),
   ];
   const t = tally(rows);
   assert.equal(t.base.hits, 5);
@@ -167,10 +168,10 @@ test("the baseline across tags is each tag's own majority, not the pooled mode",
 
 test("minority-label hits count only correct answers off the majority label", () => {
   const t = tally([
-    row("grid-footing", "F9", "correct"), // the majority label: a guesser gets this
-    row("grid-footing", "F9", "abstained"),
-    row("grid-footing", "F13", "correct"), // a guesser cannot reach this one
-    row("grid-footing", "F7", "wrong"),
+    caseRow("grid-footing", "F9", "correct"), // the majority label: a guesser gets this
+    caseRow("grid-footing", "F9", "abstained"),
+    caseRow("grid-footing", "F13", "correct"), // a guesser cannot reach this one
+    caseRow("grid-footing", "F7", "wrong"),
   ]);
   assert.equal(t.correct, 2);
   assert.equal(t.minorityHits, 1);
@@ -179,16 +180,16 @@ test("minority-label hits count only correct answers off the majority label", ()
 test("two runs can tie on correctness and differ entirely underneath", () => {
   // The case this number exists for. Both score 2/4; only one read anything.
   const guesser = [
-    row("grid-footing", "F9", "correct"),
-    row("grid-footing", "F9", "correct"),
-    row("grid-footing", "F13", "wrong"),
-    row("grid-footing", "F7", "wrong"),
+    caseRow("grid-footing", "F9", "correct"),
+    caseRow("grid-footing", "F9", "correct"),
+    caseRow("grid-footing", "F13", "wrong"),
+    caseRow("grid-footing", "F7", "wrong"),
   ];
   const reader = [
-    row("grid-footing", "F9", "wrong"),
-    row("grid-footing", "F9", "abstained"),
-    row("grid-footing", "F13", "correct"),
-    row("grid-footing", "F7", "correct"),
+    caseRow("grid-footing", "F9", "wrong"),
+    caseRow("grid-footing", "F9", "abstained"),
+    caseRow("grid-footing", "F13", "correct"),
+    caseRow("grid-footing", "F7", "correct"),
   ];
   assert.equal(tally(guesser).correct, tally(reader).correct);
   assert.equal(tally(guesser).minorityHits, 0);
@@ -328,4 +329,87 @@ test("full reach says so plainly rather than proposing a fix", () => {
   const said = describeCoverage(["a", "b"], ["b", "a"]);
   assert.match(said, /every piece is reachable/);
   assert.doesNotMatch(said, /VLM_MAX_TOKENS/);
+});
+
+const verdictRow = (tag, expected, outcome) => ({
+  tag,
+  expected,
+  outcome,
+  grid: "1/A",
+  said: "",
+  labelPattern: "F\\d{1,2}",
+  descriptionChunks: 1,
+  descriptionChunkIds: ["d1"],
+  projectId: "p",
+});
+
+test("a run that declines reports coverage and how it did on what it answered", () => {
+  // The baseline answers all four. This run answers two and gets both right —
+  // 50% raw, which loses to a 50% baseline, and 100% on what it attempted.
+  const t = tally([
+    verdictRow("grid-footing", "F9", "correct"),
+    verdictRow("grid-footing", "F7", "correct"),
+    verdictRow("grid-footing", "F9", "abstained"),
+    verdictRow("grid-footing", "F9", "abstained"),
+  ]);
+  assert.equal(t.answered, 2);
+  assert.equal(t.coverage, 50);
+  assert.equal(t.selective, 100);
+  assert.equal(t.pct, 50);
+});
+
+test("with nothing declined, coverage is total and selective accuracy is the raw rate", () => {
+  const t = tally([verdictRow("grid-footing", "F9", "correct"), verdictRow("grid-footing", "F7", "wrong")]);
+  assert.equal(t.coverage, 100);
+  assert.equal(t.selective, t.pct);
+});
+
+function verdict(rows) {
+  const said = [];
+  const real = console.log;
+  console.log = (...args) => said.push(args.join(" "));
+  try {
+    report(rows, false, []);
+  } finally {
+    console.log = real;
+  }
+  return said.join("\n");
+}
+
+test("a below-baseline run whose hits are mostly the majority label is called what it is", () => {
+  // Four correct, all on F9, the majority. Nothing here a guesser could not do.
+  const rows = [
+    ...Array.from({ length: 4 }, () => verdictRow("grid-footing", "F9", "correct")),
+    ...Array.from({ length: 8 }, () => verdictRow("grid-footing", "F9", "wrong")),
+  ];
+  assert.match(verdict(rows), /ZERO comprehension/);
+});
+
+test("a below-baseline run is NOT called zero comprehension when its hits are minority labels", () => {
+  // The report's own minority-hit column is a measurement of the very claim
+  // "the correct answers are a frequency prior". Printing that verdict over
+  // 4-of-5 minority hits is the report contradicting its own evidence — the
+  // same failure as the pooled baseline, on the most decisive line it prints.
+  const rows = [
+    verdictRow("grid-footing", "F9", "correct"),
+    verdictRow("grid-footing", "F7", "correct"),
+    verdictRow("grid-footing", "F8", "correct"),
+    verdictRow("grid-footing", "F10", "correct"),
+    verdictRow("grid-footing", "F11", "correct"),
+    ...Array.from({ length: 8 }, () => verdictRow("grid-footing", "F9", "wrong")),
+    ...Array.from({ length: 7 }, () => verdictRow("grid-footing", "F9", "abstained")),
+  ];
+  const said = verdict(rows);
+  assert.doesNotMatch(said, /ZERO comprehension/);
+  assert.match(said, /Below baseline/);
+  assert.match(said, /a frequency prior produces at a rate of zero/);
+  assert.match(said, /declined 7\/20/);
+});
+
+test("the below-baseline verdict still says plainly that the baseline was not beaten", () => {
+  const rows = [
+    verdictRow("grid-footing", "F7", "correct"),
+    ...Array.from({ length: 9 }, () => verdictRow("grid-footing", "F9", "abstained")),
+  ];
+  assert.match(verdict(rows), /Below baseline/);
 });

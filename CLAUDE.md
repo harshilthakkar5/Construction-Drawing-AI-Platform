@@ -679,6 +679,18 @@ comprehension plus a frequency prior, not partial success. With descriptions at
 `VLM_MAX_TOKENS=10000` the footing tag reached 53% against its 32% baseline, and at least four of
 those ten hits were minority marks — the first result here that a guesser cannot account for.
 
+That baseline ANSWERS EVERY CASE, which makes raw accuracy the wrong comparison for a run that
+declines: it has forfeited the cases it abstained on, so it cannot win on the total however well
+it reads the rest. Each tag therefore also reports COVERAGE (how many it was willing to answer)
+and SELECTIVE ACCURACY (how it did on those). Random abstention leaves selective accuracy at the
+raw rate; abstaining where it is unsure raises it, and that gap is the claim. The report's own
+verdict needed the same correction. "The correct answers are a frequency prior" is a claim about
+WHICH labels were named, and minority hits measure exactly that — a prior produces them at a rate
+of zero — so printing ZERO COMPREHENSION over a run whose hits were 45% minority labels was the
+report contradicting its own evidence, on the most decisive line it prints. It is the pooled
+baseline mistake again: the strongest sentence on the screen produced by the report's arithmetic
+rather than by the system under test. The verdict is now gated on that fraction and states it.
+
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
 FR-13's chain is intact, and a gap in the drawings is NEVER filled from the model's knowledge —
