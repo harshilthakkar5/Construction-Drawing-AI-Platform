@@ -149,8 +149,24 @@ carries: which label belongs to which object, and where on the grid that object
 sits. In the text layer every footing mark is in one run and every member size
 in another, because what joins them is a diagonal leader line.
 
-WRITE THE PAIRINGS, ONE PER LINE, EACH BEGINNING WITH ITS FULL GRID COORDINATE
-in the form <column line>/<row line>:
+FIRST, NAME THE GRID. Before any pairing, read the grid bubbles around the
+drawing and write exactly two lines:
+
+    Column lines, left to right: 1, 3, 5, 5.5, 8, 12
+    Row lines, top to bottom: J, K, L, N
+
+Every coordinate below must use ONLY those names, column line first. This step
+exists because the pairing can be right while the row name is wrong, and that
+failure is invisible in the finished description: one reading of this sheet got
+the footing mark AND the member size right at three intersections in a row and
+labelled the whole row with its neighbour's letter. Nothing in it looked wrong,
+and every question about that row had nothing to answer from.
+
+If you cannot read a grid bubble, say so in those two lines rather than
+inventing a letter or borrowing one from the row above.
+
+THEN WRITE THE PAIRINGS, ONE PER LINE, EACH BEGINNING WITH ITS FULL GRID
+COORDINATE in the form <column line>/<row line>:
 
     At 12/K: footing F42, column HSS4X4X1/4.
     At 12/L: footing F42, column HSS4X4X1/4, detail 9/S-999.9 pointing at the column.
@@ -159,25 +175,42 @@ The coordinate is not optional and not approximate. Every one of these is
 worthless, because each is exactly what the text layer already holds and what
 this pass exists to replace:
 
-    Middle row, left to right: F9, F8, F12, F9, F8, F7   <- no coordinates at all
-    Near grid 9/8: F9                                    <- not an intersection
-    Grid 6/4.6: F11                                      <- two grid lines, one entry
+    Middle row, left to right: F42, F31, F42, F31, F42   <- no coordinates at all
+    Near grid 12/8: F42                                  <- not an intersection
+    Grid 5/5.5: F31                                      <- two grid lines, one entry
 
 Never list marks in the order you see them, never group them under a row
 heading, and never merge two grid lines into one entry. If you cannot tell which
 of two lines an object sits on, give it its own line and name both.
 
+ONE ENTRY PER INTERSECTION. A coordinate appears at most once in the whole
+description. Two rows of columns sitting close together, or an unlabelled
+interior line, is a grid line you have not named yet — it is not a second entry
+for one you already used. Go back to the two grid lines at the top, name the
+line you missed, and use it. This is what it looks like when you do not:
+
+    At 12/K: footing F42, column HSS4X4X1/4.
+    At 12/K: footing F31, column HSS3X3X1/4 (second column line row)
+
+That says outright that you found two rows and gave them one name, and it makes
+BOTH entries unusable — a reader asking what sits at 12/K cannot tell which one
+answers the question. The same applies to the coordinate's ORDER: "K/12" is not
+a coordinate, because the column line comes first. Write "12/K", or say the
+object is not on a grid intersection.
+
 If the sheet carries no grid — a detail sheet, a schedule sheet, an elevation —
 locate each thing by the detail number, section mark or title it belongs to
 instead, and say at the start that the sheet has no grid.
 
-Then, and only with the room left over:
+ONLY once every grid intersection on the sheet has a line of its own, and with
+whatever room is left:
 - WHAT CONNECTS TO WHAT: members framing into a joint, a detail bubble and the
   thing its cut passes through, a section mark and the direction it looks.
-- SYMBOLS AND HATCHING, and what the legend says they mean.
-- DIMENSIONS, written as the value AND the two things it measures between:
-  "16'-9 3/8\" between grid 3 and grid 2". A bare list of numbers is text-layer
-  content and does not belong here.
+- SYMBOLS AND HATCHING, but only where reading the drawing DEPENDS on them —
+  not a transcript of the legend, which is text.
+- A DIMENSION only where it is the one thing locating an object you could not
+  place on the grid, written as the value AND the two things it measures
+  between. A run of grid-to-grid spacings is NOT that. It is the text layer.
 
 DO NOT TRANSCRIBE. The schedules, the general notes, the plan-note list, the
 title block, the revision block, the seal, and every loose dimension and
@@ -185,6 +218,20 @@ elevation callout are already indexed word for word. Copying them spends the
 room you need for pairings and puts a less reliable copy of an exact thing into
 retrieval. A description that restates them has failed even if every word of it
 is right.
+
+This rule gets broken at the END, once the pairings are flowing and it feels
+like there is room to spare. There is no room to spare for this material. One
+description of this sheet closed with
+
+    Dimensions of note:
+    - 999'-9 7/8\" spans the full building width along the top, between grid 12 and grid 1.
+    - 99'-0\" between grid 12 and grid 8 (top chord).
+
+— nine lines of it, every one already indexed word for word — having never
+described one of that sheet's grid rows at all. Room left over is for
+intersections you have not covered. When they are all covered, STOP: a short
+description that named every intersection beats a long one that ran out of
+space before it got to a row.
 
 Uncertainty is per item and never carried forward:
 - If a mark or a size is too small to read at this resolution, write the

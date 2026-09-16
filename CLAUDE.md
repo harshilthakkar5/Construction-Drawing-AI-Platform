@@ -403,9 +403,32 @@ useful description and a useless one: two descriptions of the same sheet scored 
 grid questions, and the weaker one had written its first row as "At 8/B: ..." and the other two
 as ordered lists under a heading ("Middle row, around grid C: F9 ... F8 ... F12"). The coordinated
 row scored 6/7; the two listed rows scored 3/12 — a list of marks in reading order is EXACTLY what
-the text layer already holds. The three failing shapes (no coordinate, an approximate one like
-"near grid 9/8", and two grid lines merged into one entry) are quoted back at the model as
-counter-examples. Two prohibitions come from the same comparison: do not transcribe the schedules,
+the text layer already holds. The failing shapes (no coordinate, an approximate one like
+"near grid 9/8", two grid lines merged into one entry, and the coordinate written row-first) are
+quoted back at the model as counter-examples.
+
+Naming the GRID comes before any pairing — two lines listing the column lines left to right and
+the row lines top to bottom, and every coordinate must then use only those names. That step
+exists because the pairing can be RIGHT while the row name is WRONG, which is the one failure
+here that leaves nothing to see. The first description good enough to score got the footing mark
+AND the member size right at three consecutive intersections and labelled that whole row with
+its neighbour's letter; 14 of the eval's 40 questions ask about that row, and they had nothing
+to answer from. It reported as 15 abstentions, which reads like a model that could not see
+rather than one that mislabelled. A coordinate may also appear only ONCE: the same description
+wrote one intersection twice with different footings, flagging it itself as a "second column
+line row", which is the merged-grid-line failure in a third costume — one label over two
+physical rows, both entries unusable. And the ordering had to change with it. "Then, and only
+with the room left over" listed dimensions as permitted, so a third of the budget went to nine
+grid-to-grid spacings, every one already indexed, while a whole grid row went undescribed.
+Intersections come first; everything else is what is left.
+
+Every example value in the prompt is SYNTHETIC on purpose, and that is load-bearing rather than
+tidy. The counter-examples carried this sheet's real footing marks for a while — `F9` among
+them, which is exactly the label the majority-class baseline guesses and scores 32% with. A
+model falling back on the prompt's own examples would produce the frequency prior the benchmark
+exists to punish, and the run would be scoring the prompt rather than the drawing.
+`test_the_prompt_never_seeds_an_answer_from_the_sheet_under_test` asserts that no mark, member
+size or detail number from this sheet appears in it. Two prohibitions come from the same comparison: do not transcribe the schedules,
 notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
 them, all already indexed, all displacing pairings), and never carry an unreadable value forward
 (both descriptions answered nearly every column with one repeated size rather than once saying a

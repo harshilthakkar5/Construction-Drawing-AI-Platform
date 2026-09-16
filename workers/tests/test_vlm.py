@@ -12,6 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import re  # noqa: E402
+
 import fitz  # noqa: E402
 import pytest  # noqa: E402
 
@@ -104,6 +106,63 @@ def test_prompt_demands_a_full_grid_coordinate_on_every_pairing(fake_transport):
     assert "no coordinates at all" in system
     assert "not an intersection" in system
     assert "two grid lines, one entry" in system
+
+
+def test_prompt_makes_it_name_the_grid_before_pairing_anything(fake_transport):
+    """The pairing can be right while the row name is wrong, and that failure
+    is invisible: one reading of this sheet got the footing mark AND the member
+    size right at 2, 3 and 7 and labelled the whole row D where the bubbles say
+    B. Fourteen of the eval's forty questions ask about that row, and they had
+    nothing to answer from — reported as fifteen abstentions, which reads like
+    a model that could not see rather than one that mislabelled."""
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    assert "FIRST, NAME THE GRID" in system
+    assert "Column lines, left to right" in system and "Row lines, top to bottom" in system
+    # The escape hatch matters as much as the rule: a guessed letter is worse
+    # than an admitted gap, because a guess still answers questions.
+    assert "rather than inventing a letter" in " ".join(system.split())
+
+
+def test_prompt_forbids_using_one_coordinate_twice(fake_transport):
+    """The merged-grid-line failure in its third costume. Not two lines in one
+    entry this time — one label over two physical rows, which the model itself
+    flagged as a "second column line row" while writing 8/C twice with
+    different footings. Both entries are then unusable."""
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    assert "ONE ENTRY PER INTERSECTION" in system
+    assert "the column line comes first" in " ".join(system.split())
+
+
+def test_prompt_puts_every_intersection_before_anything_optional(fake_transport):
+    """The old wording said "only with the room left over" and then listed
+    dimensions as permitted — so a description spent its last third on nine
+    grid-to-grid spacings, every one already in the text layer, having never
+    described one of the sheet's grid rows. Room left over is for the
+    intersections, and the ordering has to say so."""
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    assert "ONLY once every grid intersection on the sheet has a line of its own" in system
+    assert "Room left over is for intersections you have not covered" in " ".join(system.split())
+
+
+def test_the_prompt_never_seeds_an_answer_from_the_sheet_under_test(fake_transport):
+    """Every example value is synthetic ON PURPOSE. A counter-example is still
+    text in the prompt: the shapes it quotes carried this sheet's real footing
+    marks for a while — including F9, which is exactly the label a frequency
+    prior guesses and the one the majority-class baseline scores 32% with. A
+    model falling back on the prompt's own examples would then produce the
+    behaviour the benchmark exists to punish, and the run would be scoring the
+    prompt rather than the drawing."""
+    vlm.describe_page(b"png")
+    system = fake_transport["system"]
+    for mark in ("F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13"):
+        assert re.search(rf"(?<![A-Z0-9]){mark}(?![0-9])", system) is None, mark
+    for size in ("HSS8X8", "HSS6X6", "HSS10X10", "HSS5X5", "HSS7X5"):
+        assert size not in system, size
+    for detail in ("S-300.0", "S-301.0", "S-302.0", "S-100.0"):
+        assert detail not in system, detail
 
 
 def test_prompt_forbids_transcribing_what_the_text_layer_holds(fake_transport):
