@@ -340,6 +340,76 @@ class TestThinkingBudget:
         monkeypatch.setattr(llm, "_no_thinking_config", {"gemini-x"})
         assert "thinking_config" not in llm._gemini_config(model="gemini-x", max_tokens=100)
 
+    def test_gemini_3_is_asked_for_a_level_not_a_budget(self, monkeypatch):
+        """The field changed, and the transport that kept sending the old one
+        got the model's DEFAULT — which is the top of the scale.
+
+        This is the measured failure: VLM_PROVIDER=gemini on gemini-3.6-flash
+        wrote 103 tokens of description out of a 4000-token budget and spent
+        the rest reasoning, from a transport that believed thinking was off.
+        """
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+        monkeypatch.setattr(llm, "GEMINI_THINKING_LEVEL", "minimal")
+        config = llm._gemini_config(model="gemini-3.6-flash", max_tokens=4000)
+        assert config["thinking_config"] == {"thinking_level": "minimal"}
+        # Sending BOTH fields is an error on these models.
+        assert "thinking_budget" not in config["thinking_config"]
+
+    def test_the_budget_env_cannot_silence_a_level_model(self, monkeypatch):
+        """GEMINI_THINKING_BUDGET=off means "omit the field", which is exactly
+        the wrong thing here — omission IS the maximum. A level model ignores
+        it and gets a level, so the escape hatch cannot re-create the bug."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+        monkeypatch.setattr(llm, "GEMINI_THINKING_BUDGET", None)
+        monkeypatch.setattr(llm, "GEMINI_THINKING_LEVEL", "minimal")
+        config = llm._gemini_config(model="gemini-3.6-flash", max_tokens=4000)
+        assert config["thinking_config"] == {"thinking_level": "minimal"}
+
+    def test_the_split_is_a_version_sniff_not_a_model_list(self, monkeypatch):
+        """A model NAME expires on a schedule this repo does not control, and
+        this file has already paid for one hard-coded list of them. Gemini 4
+        has to work without a code change; every pre-3 model keeps the budget."""
+        assert llm._takes_thinking_level("gemini-3.6-flash")
+        assert llm._takes_thinking_level("models/gemini-3.1-pro-preview")
+        assert llm._takes_thinking_level("gemini-4-flash")
+        assert not llm._takes_thinking_level("gemini-2.5-flash")
+        assert not llm._takes_thinking_level("gemini-1.5-pro")
+
+    def test_the_ladder_tries_a_level_before_giving_up(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+        monkeypatch.setattr(llm, "GEMINI_THINKING_LEVEL", "minimal")
+        assert llm._thinking_ladder("gemini-3.6-flash") == [
+            {"thinking_level": "minimal"},
+            {"thinking_level": "low"},
+            None,
+        ]
+        # A budget model has one rung and then omission, which there is OFF.
+        monkeypatch.setattr(llm, "GEMINI_THINKING_BUDGET", 0)
+        assert llm._thinking_ladder("gemini-2.5-flash") == [{"thinking_budget": 0}, None]
+
+    def test_surrendering_on_a_level_model_is_reported_as_configuration(
+        self, monkeypatch, caplog
+    ):
+        """Omission is a defeat here, not a fallback: it leaves the model
+        thinking at its default for the rest of the run. Logged at ERROR for
+        the same reason a retired model name is — it will never fix itself."""
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+        with caplog.at_level("WARNING"):
+            llm._latch_thinking("gemini-3.6-flash", None)
+        assert "gemini-3.6-flash" in llm._no_thinking_config
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        assert "MAXIMUM" in caplog.text and "GEMINI_THINKING_LEVEL" in caplog.text
+
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            llm._latch_thinking("gemini-2.5-flash", None)
+        # A budget model really is off when the field is dropped — a warning.
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
     def test_automatic_function_calling_is_off_on_every_request(self, monkeypatch):
         """Nothing here declares a tool to Gemini, so AFC can never do anything
         — but the SDK routes each generate_content through its agentic wrapper
@@ -423,7 +493,12 @@ class TestThinkingBudget:
             kind="classification", project_id=None, json_only=True,
         )
         assert reply.text == "ok"
-        assert len(calls) == 2 and "thinking_config" not in calls[1]
+        # Three calls, not two: omission is the LAST rung. On a Gemini 3 model
+        # dropping the field asks for the model's default, which is the top of
+        # the scale — so a real setting is tried before surrendering to it.
+        assert len(calls) == 3
+        assert calls[1]["thinking_config"] == {"thinking_level": "low"}
+        assert "thinking_config" not in calls[2]
         assert "gemini-3.5-flash-lite" in llm._no_thinking_config
 
     def test_a_failed_retry_reports_the_original_error_and_does_not_latch(self, monkeypatch):
@@ -553,10 +628,42 @@ class TestBatchThinkingRecovery:
         return submitted
 
     def test_a_wholly_rejected_batch_is_resubmitted_without_thinking(self, monkeypatch):
+        """A model that takes a BUDGET recovers by dropping the field, because
+        there the field is the only thing asking for thinking."""
         monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
 
         def reply_for(config, count):
             if "thinking_config" in config:
+                return [self._rejected() for _ in range(count)]
+            return [self._ok("page-1"), self._ok("page-2")]
+
+        submitted = self._client(monkeypatch, reply_for)
+
+        results = llm._batch_gemini(
+            {"page-1": "a", "page-2": "b"}, system="sys", model="gemini-2.5-pro",
+            max_tokens=2000, kind="summary", project_id=None, json_only=True,
+        )
+
+        assert results == {"page-1": "{}", "page-2": "{}"}
+        assert len(submitted) == 2 and "thinking_config" not in submitted[1]
+        # Latched, so the section and portion tiers skip straight to what works.
+        assert "gemini-2.5-pro" in llm._no_thinking_config
+
+    def test_a_rejected_batch_on_a_level_model_steps_up_rather_than_off(self, monkeypatch):
+        """The resubmit for a Gemini 3 model is the next LEVEL, never omission.
+
+        Omitting asks for the model's default, which is the most thinking it
+        offers — and thinking is billed from the same max_output_tokens as the
+        JSON, so "recovering" that way returns a batch of truncated summaries
+        instead of an error anyone can act on. The likely cause is the floor
+        itself: `minimal` is not accepted by every model in the family.
+        """
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+
+        def reply_for(config, count):
+            if config.get("thinking_config") == {"thinking_level": "minimal"}:
                 return [self._rejected() for _ in range(count)]
             return [self._ok("page-1"), self._ok("page-2")]
 
@@ -568,9 +675,11 @@ class TestBatchThinkingRecovery:
         )
 
         assert results == {"page-1": "{}", "page-2": "{}"}
-        assert len(submitted) == 2 and "thinking_config" not in submitted[1]
-        # Latched, so the section and portion tiers skip straight to what works.
-        assert "gemini-3.1-pro-preview" in llm._no_thinking_config
+        assert len(submitted) == 2
+        assert submitted[1]["thinking_config"] == {"thinking_level": "low"}
+        # Latched to what worked, not to "no thinking field".
+        assert llm._thinking_latched["gemini-3.1-pro-preview"] == {"thinking_level": "low"}
+        assert "gemini-3.1-pro-preview" not in llm._no_thinking_config
 
     def test_a_partly_successful_batch_is_never_resubmitted(self, monkeypatch):
         """Resubmitting would pay for the entries that already succeeded."""

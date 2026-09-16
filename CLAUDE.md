@@ -181,7 +181,25 @@ embeddings → summaries.
   what a textless reply was MADE of (`1x thinking`), because a model that said nothing and a
   model that spent the budget before it could speak are the same empty string to every caller.
   A model that rejects the field (older tiers take `budget_tokens`) is retried once without it
-  and latched, mirroring the Gemini path, which learns the opposite lesson the same way. Automatic Function Calling is
+  and latched, mirroring the Gemini path, which learns the opposite lesson the same way.
+  And then learned it AGAIN, from the other vendor: from Gemini 3 on, `thinking_budget` is not
+  the control — the field is `thinking_level` (`minimal|low|medium|high`, `GEMINI_THINKING_LEVEL`,
+  default `minimal`), sending both is an error, and an UNSPECIFIED level is the TOP of the scale.
+  So the old fallback — drop the field this model rejected and carry on — did not disable
+  thinking on those models, it asked for the most of it, and said "retrying without the thinking
+  budget" while doing so. `VLM_PROVIDER=gemini` on `gemini-3.6-flash` therefore spent 3900 of a
+  4000-token budget reasoning and wrote 103 tokens of an ARCH E1 drawing, from a transport that
+  believed it had turned thinking off — the identical shape to the Sonnet 5 failure above, at the
+  identical cost, because a transport that does not send the CURRENT field gets the model's
+  default and the default had moved. Omission is now the LAST rung of a ladder rather than the
+  first fallback: a refused level steps UP one (`minimal` is not accepted by every model in the
+  family), whatever works is latched, and surrendering to omission on a level-taking model is an
+  ERROR naming the env var, because there it is a defeat and not a fallback. Which field a model
+  takes is a VERSION SNIFF (`gemini-<N>`, N≥3) rather than a list of model names: this file has
+  already paid for one of those, and Gemini 4 has to work without a code change. The switch a log
+  line recommends had to be corrected with it — `vlm.describe_page` was telling whoever read it
+  to set `GEMINI_THINKING_BUDGET=off`, which on the model in front of them was the instruction
+  that caused the failure. Automatic Function Calling is
   off too (`_gemini_config`): no call here declares a tool, so AFC can never act, but the SDK
   still routes every `generate_content` through its agentic wrapper and logs two lines — one at
   WARNING — per call. That noise sat directly above the line reporting the vision pass had
