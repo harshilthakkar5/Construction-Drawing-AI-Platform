@@ -470,3 +470,54 @@ class TestTheCountDoesNotForceAValue:
         system = " ".join(vlm.SYSTEM.split())
         assert "the same size five times in a row" in system
         assert "you are filling the count, not reading the drawing" in system
+
+
+class TestResolutionIsReported:
+    """The number that decides what can be read, which nothing printed.
+
+    61 DPI resolves a footing mark in a bubble and does not reliably resolve a
+    member size with a fraction — a footing tag at 79-95% beside a column tag
+    at 19% on the same description, with the column callouts SITTING CLOSER to
+    their intersections than the footing marks that are read correctly.
+    """
+
+    class _Rect:
+        width, height = 42 * 72, 30 * 72
+
+    def test_it_says_the_dpi_once(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        with caplog.at_level("INFO"):
+            vlm._report_resolution(self._Rect(), 2576 / (42 * 72), 2576)
+            vlm._report_resolution(self._Rect(), 2576 / (42 * 72), 2576)
+        assert caplog.text.count("vision pass renders") == 1
+        assert "61 DPI" in caplog.text
+        assert "42x30in" in caplog.text
+
+    def test_raising_it_past_anthropics_limit_is_billed_for_nothing(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        monkeypatch.setattr(vlm, "provider", lambda: "claude")
+        with caplog.at_level("INFO"):
+            vlm._report_resolution(self._Rect(), 5000 / (42 * 72), 5000)
+        assert "downscaled on their side" in caplog.text
+        assert "gemini" in caplog.text
+
+    def test_gemini_is_not_warned_because_it_tiles(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        monkeypatch.setattr(vlm, "provider", lambda: "gemini")
+        with caplog.at_level("INFO"):
+            vlm._report_resolution(self._Rect(), 5000 / (42 * 72), 5000)
+        assert "downscaled" not in caplog.text
+        assert "119 DPI" in caplog.text
+
+
+class TestZoneMarkersAreNotGridLines:
+    def test_the_prompt_says_a_grid_line_is_circled_and_has_a_line(self):
+        """One reading named 12 column lines and 8 row lines on a sheet with 8
+        and 3 — the drawing frame's zone markers counted as grid. It is the
+        same trap drawing_truth.py documents on the generator side, where an
+        uncircled zone letter read as a grid line put the wrong footing at
+        7/C."""
+        system = " ".join(vlm.SYSTEM.split())
+        assert "ending in a CIRCLED label" in system
+        assert "zone markers" in system
+        assert "Counting them doubles your grid" in system

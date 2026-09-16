@@ -122,6 +122,15 @@ GEMINI_MODEL = os.environ.get("VLM_GEMINI_MODEL", "gemini-3.6-flash")
 # Claude ceiling; see the module docstring before lowering it.
 MAX_EDGE_PX = int(os.environ.get("VLM_MAX_EDGE", "2576"))
 
+# What this repo measured as the long edge Anthropic's high-resolution models
+# accept. Past it they downscale, so the extra pixels are billed and carry
+# nothing — the one direction in which raising VLM_MAX_EDGE actively costs.
+# Gemini has no such ceiling: it tiles, which makes resolution a COST knob
+# there rather than a wall, and therefore the one lever this pass has left for
+# text it cannot resolve.
+CLAUDE_MAX_EDGE_PX = 2576
+_resolution_reported = False
+
 # Room for a few dozen pairings written in the coordinate format the prompt
 # demands. 1500 was sized against the ORIGINAL prose prompt, which stopped on
 # its own at roughly that length — but a line like
@@ -241,6 +250,13 @@ drawing — go back and either read each one or call it illegible.
 
 If you cannot read a grid bubble, say so in those two lines rather than
 inventing a letter or borrowing one from the row above.
+
+A grid line is a line drawn ACROSS THE DRAWING ending in a CIRCLED label. The
+letters and numbers printed around the drawing's FRAME — evenly spaced, in the
+border, with no line attached and no circle around them — are zone markers for
+finding things on a printed sheet, and they are not grid lines. Counting them
+doubles your grid and every coordinate after it is measured against a grid the
+drawing does not have. If a label has no line and no circle, leave it out.
 
 THEN WRITE THE PAIRINGS, ONE PER LINE, EACH BEGINNING WITH ITS FULL GRID
 COORDINATE in the form <column line>/<row line>:
@@ -375,7 +391,43 @@ def render(page: fitz.Page, max_edge: int = MAX_EDGE_PX) -> bytes:
     # small detail sheet is not, and upscaling would add pixels carrying no
     # information while being billed for them.
     zoom = min(1.0, max_edge / longest) if longest else 1.0
+    _report_resolution(rect, zoom, max_edge)
     return page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
+
+
+def _report_resolution(rect, zoom: float, max_edge: int) -> None:
+    """Say once what DPI this pass is actually reading at.
+
+    The number nothing printed, and the one that decides what can be read at
+    all. A 42x30in sheet at a 2576px long edge is 61 DPI, which resolves a
+    footing mark in a bubble and does not reliably resolve "HSS8X8X3/8" — the
+    measured split is a footing tag at 79-95% beside a column tag at 19%,
+    answering one row's member size at every intersection on the sheet. Those
+    callouts sit 47pt from their intersection, closer than the footing marks
+    that ARE read, so it is not proximity and it is not the prompt.
+    """
+    global _resolution_reported
+    if _resolution_reported:
+        return
+    _resolution_reported = True
+    dpi = 72 * zoom
+    log.info(
+        "vision pass renders %.0fx%.0fin pages at %.0f DPI (long edge %d px, VLM_MAX_EDGE=%d)",
+        rect.width / 72,
+        rect.height / 72,
+        dpi,
+        round(max(rect.width, rect.height) * zoom),
+        max_edge,
+    )
+    if provider() == "claude" and max_edge > CLAUDE_MAX_EDGE_PX:
+        log.warning(
+            "VLM_MAX_EDGE=%d is past the %d this repo measured as Anthropic's high-resolution "
+            "limit, so the image is downscaled on their side: those pixels are billed and carry "
+            "no extra information. Raising resolution is a lever on VLM_PROVIDER=gemini, which "
+            "tiles instead of capping.",
+            max_edge,
+            CLAUDE_MAX_EDGE_PX,
+        )
 
 
 def _prompt(sheet_number: str | None) -> str:

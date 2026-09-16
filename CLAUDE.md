@@ -425,6 +425,16 @@ the text layer already holds. The failing shapes (no coordinate, an approximate 
 "near grid 9/8", two grid lines merged into one entry, and the coordinate written row-first) are
 quoted back at the model as counter-examples.
 
+The grid itself can be over-read, and that is its own failure: one description named 12 column
+lines and 8 row lines on a sheet carrying 8 and 3, having counted the letters and numbers printed
+around the drawing's FRAME. Those are zone markers for finding things on a printed sheet — evenly
+spaced, in the border, no line attached, no circle — and it is the same trap `drawing_truth.py`
+documents from the generator's side, where an uncircled zone letter read as a grid line put the
+wrong footing at 7/C. The prompt now defines a grid line by what it IS (a line drawn across the
+drawing ending in a circled label) rather than by where the label sits. It also inflates
+`grid_coverage`'s denominator, so a coverage warning should be read against the grid the sheet
+actually has before it is believed.
+
 Naming the GRID comes before any pairing — two lines listing the column lines left to right and
 the row lines top to bottom, and every coordinate must then use only those names. That step
 exists because the pairing can be RIGHT while the row name is WRONG, which is the one failure
@@ -567,9 +577,19 @@ for Anthropic and `inline_data` parts for Gemini. A call that passes no image se
 string it always sent — a cache breakpoint is a prefix match, so reshaping the user turn for
 every existing call site would have cost them all their cached prefix on the day this shipped.
 
-Resolution is the constraint, not cost. These sheets are ARCH E1 (42x30in): at the 2576px long
+Resolution is the constraint, not cost, and `vlm.render` now SAYS so once per process — the
+number that decides what can be read at all, which nothing printed until the column tag had been
+blamed on three other things. These sheets are ARCH E1 (42x30in): at the 2576px long
 edge Claude's high-resolution models accept, that is 61 DPI and 8.2px of text, which reads —
-verified against the text layer, including `HSS6.875X0.375`. Haiku 4.5 and every pre-4.7 model
+verified against the text layer, including `HSS6.875X0.375`. "Reads" turned out to mean reads a
+FOOTING MARK. The measured split is a footing tag at 79-95% beside a column tag at 19% answering
+`HSS6X6X3/8` — the size that belongs to ONE ROW of the sheet — at every intersection on it. The
+member callouts sit 47pt from their intersections, CLOSER than the footing marks that are read
+correctly, so it is not proximity, and the illegible rule has now been widened twice without
+moving it: "F9" is two characters and "HSS8X8X3/8" is ten with a fraction on the end. Raising
+`VLM_MAX_EDGE` past 2576 is billed for nothing on Anthropic, which downscales, and `render` warns
+when asked to — but Gemini TILES, so there the ceiling does not exist and resolution is the one
+lever this pass has not pulled. Haiku 4.5 and every pre-4.7 model
 cap at 1568px, which on that sheet is 5px and cannot be read at all, so the cheap model is not
 an option here. Gemini tiles at 768px (258 tokens each) with no hard cap, making resolution a
 cost knob there rather than a wall. `vlm.render` never scales UP: extra pixels carry no extra
