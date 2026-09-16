@@ -8,6 +8,8 @@ parser applied to the reply, and the failure behaviour must all be identical.
 
 import types
 import sys
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -686,3 +688,127 @@ class TestARetiredModel:
             assert self._call() is None
         assert not [r for r in caplog.records if r.levelname == "ERROR"]
         assert [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+class TestClaudeThinking:
+    """Sonnet 5 runs ADAPTIVE thinking when `thinking` is omitted, where every
+    earlier model ran none. So code that had never sent the field started
+    reasoning on the day the model id changed — and thinking bills from
+    max_tokens while `display` defaults to "omitted", so the reply arrives as
+    thinking blocks carrying no text. The vision pass posted a drawing at
+    max_tokens=4000, got 200 OK, joined zero text blocks into "", and logged
+    "description was 0 chars" — which reads like a refusal. A whole project
+    ingested with no descriptions at all.
+
+    GEMINI_THINKING_BUDGET already encoded this decision for the other
+    provider. This side had simply never had to make it."""
+
+    class _Block:
+        def __init__(self, type_, text=""):
+            self.type = type_
+            self.text = text
+
+    class _Response:
+        def __init__(self, blocks, stop_reason="end_turn"):
+            self.content = blocks
+            self.stop_reason = stop_reason
+            self.usage = types.SimpleNamespace()
+
+    def _client(self, monkeypatch, responder):
+        sent = []
+
+        def create(**kwargs):
+            sent.append(kwargs)
+            return responder(kwargs, len(sent))
+
+        monkeypatch.setattr(llm, "_no_thinking_param", set())
+        monkeypatch.setattr(usage, "record_message", lambda *a, **k: None)
+        monkeypatch.setattr(
+            llm,
+            "anthropic_client",
+            lambda: types.SimpleNamespace(messages=types.SimpleNamespace(create=create)),
+        )
+        return sent
+
+    def _ok(self):
+        return self._Response([self._Block("text", "a description")])
+
+    def _call(self, model="claude-sonnet-5"):
+        return llm._complete_claude(
+            "sys", "user", model=model, max_tokens=4000, kind="vlm",
+            project_id=None, cache_system=False,
+        )
+
+    def test_thinking_is_disabled_by_default(self, monkeypatch):
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "off")
+        sent = self._client(monkeypatch, lambda kwargs, n: self._ok())
+        assert self._call().text == "a description"
+        assert sent[0]["thinking"] == {"type": "disabled"}
+
+    def test_it_can_be_turned_back_on(self, monkeypatch):
+        """Omitting the field is how you get the model's own default — which is
+        adaptive on Sonnet 5. The escape hatch has to omit, not send a value."""
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "adaptive")
+        sent = self._client(monkeypatch, lambda kwargs, n: self._ok())
+        self._call()
+        assert "thinking" not in sent[0]
+
+    def test_a_model_that_rejects_the_field_is_retried_without_it_and_latched(
+        self, monkeypatch, caplog
+    ):
+        """Older tiers take budget_tokens and may not accept "disabled" at all.
+        One failed call per model, not one per page of a 400-page project."""
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "off")
+
+        def responder(kwargs, n):
+            if "thinking" in kwargs:
+                raise RuntimeError("thinking is not supported for this model")
+            return self._ok()
+
+        sent = self._client(monkeypatch, responder)
+        with caplog.at_level("WARNING"):
+            assert self._call(model="claude-haiku-4-5").text == "a description"
+        assert len(sent) == 2 and "thinking" not in sent[1]
+        assert "claude-haiku-4-5" in llm._no_thinking_param
+
+        sent.clear()
+        self._call(model="claude-haiku-4-5")
+        assert len(sent) == 1 and "thinking" not in sent[0]
+
+    def test_an_unrelated_failure_is_not_retried(self, monkeypatch):
+        """The field's value is a constant, so a thinking complaint is the only
+        thing it can have caused. A 429 must not buy a second call."""
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "off")
+
+        def responder(kwargs, n):
+            raise RuntimeError("429 rate_limit_error")
+
+        sent = self._client(monkeypatch, responder)
+        with pytest.raises(RuntimeError):
+            self._call()
+        assert len(sent) == 1 and not llm._no_thinking_param
+
+    def test_a_reply_of_pure_thinking_says_what_it_was_made_of(self, monkeypatch, caplog):
+        """The measured failure. An empty string is what the caller sees either
+        way — so the log has to say whether the model said nothing or spent the
+        whole budget before it could."""
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "adaptive")
+        self._client(
+            monkeypatch,
+            lambda kwargs, n: self._Response(
+                [self._Block("thinking")], stop_reason="max_tokens"
+            ),
+        )
+        with caplog.at_level("WARNING"):
+            reply = self._call()
+        assert reply.text == ""
+        assert "returned no text" in caplog.text
+        assert "1x thinking" in caplog.text
+        assert "max_tokens" in caplog.text
+
+    def test_a_reply_with_text_says_nothing(self, monkeypatch, caplog):
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "off")
+        self._client(monkeypatch, lambda kwargs, n: self._ok())
+        with caplog.at_level("WARNING"):
+            self._call()
+        assert "returned no text" not in caplog.text
