@@ -304,14 +304,60 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
     return cases
 
 
+def backfill_label_patterns(cases: list[dict]) -> int:
+    """Add `labelPattern` to cases generated before it existed. Returns the count.
+
+    A set without it still RUNS, and that is the problem: the scorer cannot tell
+    a label the model INVENTED from a refusal to answer, so both land in
+    "abstained" — the most dangerous outcome filed as the safest. Regenerating
+    from the PDF is the real fix, because it re-derives the truth too. This is
+    for when the PDF is not to hand, and it is safe precisely because the
+    pattern is a function of the TAG alone: it depends on no geometry, so
+    writing it here produces byte-identical output to a full regeneration.
+
+    It still comes from LABEL_PATTERN above rather than from a second table —
+    the whole point of the field is that the shape of a mark is defined once,
+    in Python, and travels with the cases.
+    """
+    filled = 0
+    for case in cases:
+        if case.get("labelPattern"):
+            continue
+        pattern = LABEL_PATTERN.get(case.get("tag", ""))
+        if pattern:
+            case["labelPattern"] = pattern
+            filled += 1
+    return filled
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--pdf", required=True)
+    ap.add_argument("--pdf", default=None)
     ap.add_argument("--project", default="", help="projectId the questions are asked against")
     ap.add_argument("--sheet", default=None, help="sheet number, e.g. S-100.0")
     ap.add_argument("--out", default=None)
     ap.add_argument("--explain", action="store_true", help="list refused cases")
+    ap.add_argument(
+        "--backfill",
+        default=None,
+        metavar="SET.JSON",
+        help="add labelPattern to an existing set instead of deriving one from a PDF; "
+        "writes in place unless --out is given. Does NOT re-derive any answer.",
+    )
     args = ap.parse_args()
+
+    if args.backfill:
+        with open(args.backfill) as fh:
+            cases = json.load(fh)
+        filled = backfill_label_patterns(cases)
+        out = args.out or args.backfill
+        with open(out, "w") as fh:
+            fh.write(json.dumps(cases, indent=2) + "\n")
+        print(f"wrote {out}: {filled} of {len(cases)} cases gained a labelPattern", file=sys.stderr)
+        return 0
+
+    if not args.pdf:
+        ap.error("--pdf is required unless --backfill is given")
 
     cases = build(args.pdf, args.project, args.sheet, args.explain)
     text = json.dumps(cases, indent=2) + "\n"

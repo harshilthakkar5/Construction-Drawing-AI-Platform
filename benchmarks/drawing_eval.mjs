@@ -441,6 +441,18 @@ export function tally(subset) {
     pct: (correct / n) * 100,
     base,
     beatsBase: (correct / n) * 100 > base.pct,
+    // The baseline ANSWERS EVERY CASE. A run that declines cannot beat it on
+    // raw accuracy however well it reads the ones it does answer — it has
+    // forfeited the rest — so a bare "NOT BEATEN" against an abstaining run
+    // compares two different things. Coverage says how many it was willing to
+    // answer; selective accuracy says how it did on those. Random abstention
+    // leaves selective accuracy at the raw rate; abstaining where it is unsure
+    // raises it. That gap is the claim, and it needs both numbers to be read.
+    answered: subset.length - count("abstained"),
+    coverage: ((subset.length - count("abstained")) / n) * 100,
+    selective: subset.length - count("abstained")
+      ? (correct / (subset.length - count("abstained"))) * 100
+      : 0,
     minorityHits: minorityHits(subset),
     // How many of these cases had a vision description in the prompt at all.
     // Measured, not inferred from env: the VLM_* variables are read by the
@@ -473,7 +485,12 @@ export function report(rows, json, onSheet) {
     `  ${"".padEnd(14)}     baseline ${t.base.describe} ${t.base.pct.toFixed(0)}%` +
     ` ${t.beatsBase ? "beaten" : "NOT BEATEN"}` +
     `   |   minority-label hits ${t.minorityHits}/${t.correct}` +
-    `   |   description in prompt ${t.withDescription}/${t.n}`;
+    `   |   description in prompt ${t.withDescription}/${t.n}` +
+    (t.abstained
+      ? `\n  ${"".padEnd(14)}     answered ${t.answered}/${t.n}` +
+        ` (${t.coverage.toFixed(0)}% coverage), and of those ${t.selective.toFixed(0)}% correct` +
+        ` — the baseline answers all ${t.n}`
+      : "");
 
   const tags = [...new Set(rows.map((r) => r.tag))].sort();
   console.log("\n  Drawing comprehension\n");
@@ -511,12 +528,38 @@ export function report(rows, json, onSheet) {
   const overall = tally(rows);
   const beaten = tags.filter((t) => tally(rows.filter((r) => r.tag === t)).beatsBase);
   if (!beaten.length) {
+    // The verdict has to survive its own evidence. "The correct answers are a
+    // frequency prior" is a claim about WHICH labels were named, and the
+    // minority-hit column measures exactly that — so asserting it over a run
+    // whose hits are mostly minority labels is the report contradicting
+    // itself, which is the same failure as the pooled baseline above: the most
+    // decisive line on the screen produced by arithmetic rather than by the
+    // system under test. Say only what the numbers support.
+    // A pure frequency prior produces minority hits at a rate of ZERO, by
+    // construction — every one of its hits is the majority label. So the
+    // fraction of correct answers that are minority hits is the measurement
+    // that decides this verdict, and a quarter is already far outside what
+    // guessing explains.
+    const minorityPct = overall.correct ? (overall.minorityHits / overall.correct) * 100 : 0;
+    const prior = minorityPct < 25;
     console.log(
-      `\n  Read this as ZERO comprehension, not as ${overall.pct.toFixed(0)}%. Guessing ` +
-        `${overall.base.describe}, without opening a drawing, scores ` +
-        `${overall.base.pct.toFixed(0)}% on this set, and no tag here beat its own baseline. ` +
-        "The correct answers are a frequency prior over the labels in the retrieved chunks, " +
-        "not the geometry the questions ask about.",
+      `\n  Below baseline. Guessing ${overall.base.describe}, without opening a drawing, scores ` +
+        `${overall.base.pct.toFixed(0)}% on this set — it answers every case — and no tag here ` +
+        `beat that on raw accuracy.` +
+        (prior
+          ? " Read this as ZERO comprehension: only " +
+            `${overall.minorityHits} of ${overall.correct} correct answers named a label that ` +
+            "is NOT its tag's most common one, so what is left is a frequency prior over the " +
+            "retrieved chunks, not the geometry the questions ask about."
+          : ` But ${overall.minorityHits} of ${overall.correct} correct answers ` +
+            `(${minorityPct.toFixed(0)}%) named a label that is NOT its tag's most common one, ` +
+            "which a frequency prior produces at a rate of zero — and it declined " +
+            `${overall.abstained}/${overall.n} rather than guessing, scoring ` +
+            `${overall.selective.toFixed(0)}% on the ${overall.answered} it did answer against a ` +
+            `baseline of ${overall.base.pct.toFixed(0)}%. That is not zero comprehension. It is ` +
+            "a model reading part of the sheet and refusing the rest, which is the trade FR-14 " +
+            "asks for — so the question is whether it refused the RIGHT cases, and whether the " +
+            "description covers the intersections it declined."),
     );
   } else {
     console.log(

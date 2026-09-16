@@ -615,7 +615,15 @@ section, which is what makes it plausible, and one that appears nowhere on THIS 
 columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the distractor nor
 anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
 refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
-as many words that it cannot tell an invented label from a refusal. A model that declines is not a model that is wrong — on
+as many words that it cannot tell an invented label from a refusal.
+`drawing_truth.py --backfill <set.json>` adds the field to such a set WITHOUT re-deriving any
+answer, which is sound only because the pattern is a function of the TAG alone — it depends on
+no geometry, so the result is byte-identical to what a full regeneration would write for that
+field. Regenerating from the PDF is still the real fix, since it re-derives the truth too. How
+much this matters scales with ABSTENTIONS: at zero or one it is nearly harmless, and the first
+run to produce a real description declined 15 of 40, any of which could be an invented mark
+filed as a refusal. The first vision output good enough to be worth scoring is exactly the one
+that makes the blind spot expensive. A model that declines is not a model that is wrong — on
 drawings "the sheet does not show this" sends someone to look, while a confident wrong footing
 mark gets poured — and collapsing the two would hide the only failure that is dangerous while
 punishing the behaviour FR-14 asks for. But `off-target` has to be its own outcome for that line
@@ -678,6 +686,18 @@ was BELOW baseline on both tags, with all four wrong answers naming a high-frequ
 comprehension plus a frequency prior, not partial success. With descriptions at
 `VLM_MAX_TOKENS=10000` the footing tag reached 53% against its 32% baseline, and at least four of
 those ten hits were minority marks — the first result here that a guesser cannot account for.
+
+That baseline ANSWERS EVERY CASE, which makes raw accuracy the wrong comparison for a run that
+declines: it has forfeited the cases it abstained on, so it cannot win on the total however well
+it reads the rest. Each tag therefore also reports COVERAGE (how many it was willing to answer)
+and SELECTIVE ACCURACY (how it did on those). Random abstention leaves selective accuracy at the
+raw rate; abstaining where it is unsure raises it, and that gap is the claim. The report's own
+verdict needed the same correction. "The correct answers are a frequency prior" is a claim about
+WHICH labels were named, and minority hits measure exactly that — a prior produces them at a rate
+of zero — so printing ZERO COMPREHENSION over a run whose hits were 45% minority labels was the
+report contradicting its own evidence, on the most decisive line it prints. It is the pooled
+baseline mistake again: the strongest sentence on the screen produced by the report's arithmetic
+rather than by the system under test. The verdict is now gated on that fraction and states it.
 
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
