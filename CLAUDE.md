@@ -421,7 +421,15 @@ is discarded — it merely cleared `MIN_DESCRIPTION_CHARS` (120) and was therefo
 and read as an account of the whole sheet. Written tokens under half the budget now says so
 explicitly and points at the model rather than the number. Watch for the consequence in a
 benchmark: that 64-token chunk still occupied one of k=18 slots and still counted as
-"description in prompt 40/40". What comes back is the
+"description in prompt 40/40".
+
+Every line `describe_page` emits NAMES THE PROVIDER AND MODEL, and a page that worked emits one
+too. `VLM_PROVIDER` is read here, at ingest, so nothing downstream can recover it: the benchmark
+reads chunks and the chunks do not carry it. "Was that run Claude or Gemini?" therefore cost
+three separate investigations, twice on a project whose owner was sure of the answer — and the
+two ingests being compared had produced 64 tokens and zero, both from a model that reasons.
+Until a `sourceModel` column exists on `chunks`, the log is the only record of which model
+wrote a description. What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the

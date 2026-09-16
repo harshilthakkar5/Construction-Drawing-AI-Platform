@@ -269,3 +269,29 @@ def test_both_max_tokens_branches_report_how_much_was_actually_written(
         with caplog.at_level("WARNING"):
             vlm.describe_page(b"png")
         assert "~208 tokens" in caplog.text, budget
+
+
+def test_every_outcome_names_the_provider_and_model_that_produced_it(
+    fake_transport, monkeypatch, caplog
+):
+    """VLM_PROVIDER is read here, at ingest. A benchmark reading the chunks
+    afterwards cannot know it, and neither could the log — so "was that run
+    Claude or Gemini?" was unanswerable for two projects whose owner was sure
+    of the answer. Every line this function emits now carries it."""
+    monkeypatch.setattr(vlm, "MAX_TOKENS", 300)
+    monkeypatch.setenv("VLM_PROVIDER", "gemini")
+    monkeypatch.setattr(vlm, "GEMINI_MODEL", "gemini-x")
+    long_enough = "At 8/B: footing F12, column HSS8X8X3/8. " * 8
+
+    for reply, level in [
+        (llm.Reply(text="", stop_reason="max_tokens"), "WARNING"),          # budget gone
+        (llm.Reply(text="nope", stop_reason="end_turn"), "WARNING"),        # refusal
+        (llm.Reply(text=long_enough, stop_reason="max_tokens"), "WARNING"), # truncated
+        (llm.Reply(text=long_enough, stop_reason="end_turn"), "INFO"),      # it worked
+    ]:
+        caplog.clear()
+        fake_transport["_reply"] = reply
+        with caplog.at_level("INFO"):
+            vlm.describe_page(b"png")
+        assert "gemini/gemini-x" in caplog.text, reply.stop_reason
+        assert any(r.levelname == level for r in caplog.records), reply.stop_reason
