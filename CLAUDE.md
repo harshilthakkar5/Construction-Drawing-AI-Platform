@@ -488,6 +488,22 @@ named the budget, so both looked like model quality; `vlm.describe_page` now rep
 `stop_reason` on a discarded reply and says outright that a truncated description leaves the rest
 of the sheet with no description at all. The default is 4000.
 
+"Why is this description short?" has a THIRD answer, and it is the one the token count cannot
+reach at all: the model ended cleanly because it thought it had finished. `gemini-3.6-flash`
+wrote 255 tokens of an ARCH E1 foundation plan and stopped of its own accord, so `VLM_MAX_TOKENS`
+at 4000 and at 20000 buy the identical description — raising it is the obvious move and it does
+nothing. What was missing is COVERAGE, and coverage is checkable without the PDF, because the
+prompt has already made the model list the column lines and the row lines: those two lines say
+how many intersections the sheet has, and counting the `At <col>/<row>:` entries says how many it
+described. `vlm.grid_coverage` measures a description against the grid IT NAMED and warns below
+half (`MIN_GRID_COVERAGE`), saying outright that nothing was cut off and the budget is not the
+lever. The prompt earned its share of that failure: it said to STOP once every intersection was
+covered without ever saying how many that is, and praised "a short description that named every
+intersection" — written when truncation was the problem, read as permission to stop when
+incompleteness became it. It now asks for the COUNT (six column lines and four row lines is
+twenty-four lines owed, empty intersections included, one row line at a time), and short is a
+virtue only after that count is met.
+
 `stop_reason == "max_tokens"` has TWO causes and they need opposite responses, so the log reports
 how many tokens were actually WRITTEN, not just the budget. A run stored a description of 64
 tokens against a 4000-token budget and logged "it is TRUNCATED … Raise VLM_MAX_TOKENS": the model

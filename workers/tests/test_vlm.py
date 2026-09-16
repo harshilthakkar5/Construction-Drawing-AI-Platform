@@ -369,3 +369,81 @@ def test_prompt_forbids_writing_a_value_it_has_just_called_illegible(fake_transp
     assert "a value written beside the word \"illegible\" is still a value" in flat
     # And the counter-example stays synthetic, like every other one.
     assert "HSS8X8" not in fake_transport["system"]
+
+
+class TestGridCoverage:
+    """A description is measured against the grid IT NAMED.
+
+    "Why is this description short?" has two answers with opposite fixes, and
+    the token count separates neither. A reply cut off at max_tokens needs more
+    room; a reply that ended cleanly at 255 tokens decided it was done, and
+    raising VLM_MAX_TOKENS from 4000 to 20000 buys the identical description.
+    """
+
+    GRID = (
+        "Column lines, left to right: 1, 3, 5, 5.5, 8, 12\n"
+        "Row lines, top to bottom: J, K, L, N\n\n"
+    )
+
+    def test_counts_the_grid_it_named_and_the_coordinates_it_wrote(self):
+        text = self.GRID + (
+            "At 12/K: footing F42, column HSS4X4X1/4.\n"
+            "At 12/L: footing F31.\n"
+            "At 1/J: nothing at this intersection.\n"
+        )
+        assert vlm.grid_coverage(text) == (6, 4, 3)
+
+    def test_a_repeated_coordinate_is_one_intersection(self):
+        """The prompt forbids writing one twice; counting it twice would hide
+        exactly the failure that rule exists to catch."""
+        text = self.GRID + "At 12/K: footing F42.\nAt 12/k: footing F31 (second row).\n"
+        assert vlm.grid_coverage(text)[2] == 1
+
+    def test_prose_in_a_grid_line_is_not_a_grid_line(self):
+        text = (
+            "Column lines, left to right: 1, 3, the rest could not be read\n"
+            "Row lines, top to bottom: J, K\n\nAt 1/J: footing F42.\n"
+        )
+        assert vlm.grid_coverage(text) == (2, 2, 1)
+
+    def test_a_sheet_with_no_grid_is_not_measured(self):
+        """A detail or schedule sheet is explicitly allowed to have no grid, so
+        there is nothing to measure against — and nothing to warn about."""
+        assert vlm.grid_coverage("This sheet has no grid. Detail 9 shows...") is None
+
+    def test_covering_a_third_of_its_own_grid_is_reported(self, caplog):
+        text = self.GRID + "".join(f"At 12/{row}: footing F42.\n" for row in "JKL")
+        with caplog.at_level("WARNING"):
+            vlm._report_grid_coverage(text, "S-100.0", "gemini/gemini-3.6-flash")
+        assert "24 intersections" in caplog.text
+        assert "wrote 3 coordinate lines" in caplog.text
+        # The advice that would be WRONG here must not appear: nothing was cut
+        # off, so more budget buys nothing.
+        assert "VLM_MAX_TOKENS is not the lever" in caplog.text
+
+    def test_a_covered_grid_says_nothing(self, caplog):
+        rows = "JKLN"
+        text = self.GRID + "".join(
+            f"At {col}/{row}: footing F42.\n" for col in ("1", "3", "5", "5.5", "8", "12")
+            for row in rows
+        )
+        with caplog.at_level("WARNING"):
+            vlm._report_grid_coverage(text, "S-100.0", "who")
+        assert caplog.text == ""
+
+
+class TestThePromptAsksForEveryIntersection:
+    def test_it_asks_the_model_to_count_its_own_grid(self):
+        """255 tokens that ended cleanly is a model that thought it had
+        finished. The prompt had told it to STOP once the intersections were
+        covered without ever saying how many that is."""
+        system = " ".join(vlm.SYSTEM.split())
+        assert "the count is how many lines you owe" in system
+        assert "including the ones where nothing is built" in system
+
+    def test_short_is_only_a_virtue_after_the_count_is_met(self):
+        system = " ".join(vlm.SYSTEM.split())
+        assert "Short is a virtue AFTER that count is met and never before it" in system
+        # The older wording invited the failure: it praised a short description
+        # without tying "short" to having covered anything.
+        assert "a short description that named every intersection beats" not in system
