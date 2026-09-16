@@ -224,6 +224,21 @@ is what keeps you from losing your place. Do not stop early, do not summarize a
 row, and do not describe "the typical" anything: a row you skipped is not a
 shorter description, it is a question no one can answer.
 
+You owe a LINE at every intersection. You do not owe a VALUE for every item on
+it, and the two get confused exactly here — under the pressure of finishing the
+count, the fastest way to fill a line is to repeat the value from the line
+above. Do not. Each item is read where it sits or is called illegible where it
+sits:
+
+    At 12/K: footing F42, column size illegible.
+    At 12/L: footing illegible, column HSS4X4X1/4.
+
+One reading of a sheet answered the count by giving the same column size at
+eighteen different intersections and was wrong at sixteen of them, and the row
+of identical values is what it looks like every time. If your description says
+the same size five times in a row, you are filling the count, not reading the
+drawing — go back and either read each one or call it illegible.
+
 If you cannot read a grid bubble, say so in those two lines rather than
 inventing a letter or borrowing one from the row above.
 
