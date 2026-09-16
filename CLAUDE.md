@@ -168,10 +168,20 @@ embeddings → summaries.
   the `[chunk:<id>]` citation parser), so a swap changes WHO answers and never what an answer
   may claim or cite. Bulk summaries batch on both (Anthropic Message Batches / Gemini inline
   batch jobs, half price either way, bounded by `BATCH_TIMEOUT_SECONDS`); explicit cache
-  breakpoints become Gemini's implicit caching. Gemini thinking is OFF by default
-  (`GEMINI_THINKING_BUDGET`): thinking tokens are spent from `max_output_tokens` before the
-  answer is written, so on a thinking model they truncate the JSON every parser here depends
-  on — and they bill as output, so they are recorded as output. Automatic Function Calling is
+  breakpoints become Gemini's implicit caching. Thinking is OFF by default on BOTH
+  (`GEMINI_THINKING_BUDGET`, `CLAUDE_THINKING`): thinking tokens are spent from
+  `max_output_tokens` before the answer is written, so on a thinking model they truncate the
+  JSON every parser here depends on — and they bill as output, so they are recorded as output.
+  The Claude half existed only after the failure it prevents: Sonnet 5 runs ADAPTIVE thinking
+  when the `thinking` field is OMITTED, where every earlier model ran none, so a transport that
+  had never sent the field started reasoning the day the model id changed. Its text is hidden by
+  default too, so `_complete_claude` joined zero text blocks into `""` — `VLM_PROVIDER=claude`
+  at `VLM_MAX_TOKENS=4000` returned 200 OK and no description, for a whole project, reported as
+  "description was 0 chars" which reads like a refusal. `_complete_claude` therefore also logs
+  what a textless reply was MADE of (`1x thinking`), because a model that said nothing and a
+  model that spent the budget before it could speak are the same empty string to every caller.
+  A model that rejects the field (older tiers take `budget_tokens`) is retried once without it
+  and latched, mirroring the Gemini path, which learns the opposite lesson the same way. Automatic Function Calling is
   off too (`_gemini_config`): no call here declares a tool, so AFC can never act, but the SDK
   still routes every `generate_content` through its agentic wrapper and logs two lines — one at
   WARNING — per call. That noise sat directly above the line reporting the vision pass had

@@ -125,6 +125,49 @@ def anthropic_client():
     return _anthropic
 
 
+# Claude thinking, off by default — the same decision GEMINI_THINKING_BUDGET
+# already encodes for the other provider, which this side simply never made.
+#
+# It matters because the default MOVED. Sonnet 5 runs ADAPTIVE thinking when
+# `thinking` is omitted, where earlier models ran none, so code that never sent
+# the field started reasoning the day the model id changed. Thinking bills from
+# max_tokens and `display` defaults to "omitted", so the reply comes back as
+# thinking blocks carrying no text: the vision pass posted an ARCH E1 drawing
+# with VLM_MAX_TOKENS=4000, got 200 OK, and `_complete_claude` joined zero text
+# blocks into "". The log said "description was 0 chars", which reads like a
+# refusal or a broken image, and the project stored no descriptions at all.
+#
+# None of this app's Claude calls are reasoning tasks — reading a sheet number
+# out of a title block, packing facts into fixed JSON, describing what a
+# drawing shows — so the thinking is pure cost and pure truncation risk, word
+# for word the argument already written for Gemini above.
+_CLAUDE_THINKING = (os.environ.get("CLAUDE_THINKING") or "off").strip().lower()
+
+# Models that reject the `thinking` field itself rather than its value: older
+# tiers (Haiku 4.5 and back) take budget_tokens and may not accept "disabled".
+# Latched after one refusal, exactly like _no_thinking_config on the Gemini
+# side, so a 400-page project pays for the discovery once.
+_no_thinking_param: set[str] = set()
+
+
+def _claude_thinking(model: str) -> dict | None:
+    """The `thinking` field for this model, or None to omit it entirely."""
+    if model in _no_thinking_param or _CLAUDE_THINKING not in ("off", "false", "0"):
+        return None
+    return {"type": "disabled"}
+
+
+def _describe_blocks(content) -> str:
+    """What the reply was made of. Reached only when it held no text, and that
+    is the whole point: a response of one thinking block and a response the
+    model genuinely left empty are the same empty string to every caller."""
+    kinds: dict[str, int] = {}
+    for block in content or []:
+        kind = getattr(block, "type", "?")
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return ", ".join(f"{n}x {kind}" for kind, n in kinds.items()) or "no blocks"
+
+
 def _system_blocks(system: str | list[dict], cache: bool) -> list[dict]:
     """Normalize to Anthropic content blocks, adding the cache breakpoint.
 
@@ -174,16 +217,46 @@ def _complete_claude(
     client = anthropic_client()
     if client is None:
         return Reply(text="", stop_reason="unavailable")
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=_system_blocks(system, cache_system),
-        messages=[{"role": "user", "content": _user_content_claude(user, images)}],
-    )
+
+    def call(thinking: dict | None):
+        request = dict(
+            model=model,
+            max_tokens=max_tokens,
+            system=_system_blocks(system, cache_system),
+            messages=[{"role": "user", "content": _user_content_claude(user, images)}],
+        )
+        if thinking is not None:
+            request["thinking"] = thinking
+        return client.messages.create(**request)
+
+    thinking = _claude_thinking(model)
+    try:
+        response = call(thinking)
+    except Exception as exc:
+        # Only the field itself can be at fault here: its value is a constant.
+        # Drop it, and latch the model so the rest of the project skips straight
+        # to the shape that works — mirroring the Gemini path, which learns the
+        # opposite lesson the same way.
+        if thinking is None or not _is_thinking_refusal(exc):
+            raise
+        log.warning("%s rejected thinking=%s (%s) — omitting it from now on", model, thinking, exc)
+        response = call(None)
+        _no_thinking_param.add(model)
+
     import usage
 
     usage.record_message(project_id, kind, model, response.usage)
     text = "".join(b.text for b in response.content if b.type == "text")
+    if not text:
+        # Without this the caller sees "" and guesses. A reply made of thinking
+        # blocks and a reply the model left empty are the same empty string.
+        log.warning(
+            "%s returned no text (stop_reason=%s, thinking=%s): the reply was %s",
+            model,
+            getattr(response, "stop_reason", None),
+            thinking,
+            _describe_blocks(response.content),
+        )
     return Reply(text=text, stop_reason=getattr(response, "stop_reason", None))
 
 
