@@ -432,7 +432,13 @@ size or detail number from this sheet appears in it. Two prohibitions come from 
 notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
 them, all already indexed, all displacing pairings), and never carry an unreadable value forward
 (both descriptions answered nearly every column with one repeated size rather than once saying a
-mark was illegible). `VLM_MAX_TOKENS` IS a lever for this format, which is the reverse of what the prose prompt
+mark was illegible). That second rule had to be widened once it was measured: it forbade
+REPEATING the last value read, and the failure that got through was a fresh guess at the
+unreadable part — "column HSS8X8X1/8 (marking illegible beyond HSS8X8, exact thickness not
+readable)", both halves in one sentence. Only the value survives retrieval: the chat answered
+with the size and dropped the caveat, and the scorer recorded an invented member size. An
+illegible item now gets NO value at all, partial readings included, because a value written
+beside the word "illegible" is still a value. `VLM_MAX_TOKENS` IS a lever for this format, which is the reverse of what the prose prompt
 showed. Given 10000 the old prompt wrote 1285 and 2231 tokens and stopped on its own, so room
 looked irrelevant; but "At 8/B: footing F12, column HSS8X8X3/8." carries the same fact in far
 more TOKENS, since every mark and member size is one word and many tokens. At 1500 both providers

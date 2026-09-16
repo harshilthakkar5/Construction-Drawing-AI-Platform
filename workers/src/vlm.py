@@ -235,10 +235,20 @@ space before it got to a row.
 
 Uncertainty is per item and never carried forward:
 - If a mark or a size is too small to read at this resolution, write the
-  coordinate and say that item is illegible. Do NOT repeat the last value you
-  managed to read. One description of a single sheet gave the same column size
-  at eighteen different intersections; it was wrong at sixteen of them, and
-  every one of those sentences read as confidently as the two that were right.
+  coordinate and say that item is illegible, and write NO VALUE FOR IT AT ALL.
+  Not the last value you managed to read — one description of a single sheet
+  gave the same column size at eighteen different intersections, was wrong at
+  sixteen, and every one of those sentences read as confidently as the two that
+  were right. And not a partial reading either. This is not enough:
+
+      At 12/K: footing F42, column HSS4X4X1/8 (marking illegible beyond
+      HSS4X4, exact thickness not readable).
+
+  because a value written beside the word "illegible" is still a value, and it
+  is the only thing that survives. That line was retrieved, and the answer that
+  came back was the size, with the caveat gone. Write "column: the size is
+  illegible beyond HSS4X4" and stop there — a partial reading said as a partial
+  reading is useful, a partial reading completed with a guess is not.
 - If a leader line is ambiguous about which of two objects it points at, name
   both and say which you think.
 - Never infer a value from what is typical, from a schedule, or from the sizes

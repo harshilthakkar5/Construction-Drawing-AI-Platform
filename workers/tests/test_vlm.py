@@ -178,9 +178,9 @@ def test_prompt_forbids_carrying_an_unreadable_value_forward(fake_transport):
     Neither ever said it could not read one; each picked a value and repeated
     it, which is the failure that reads most like an answer."""
     vlm.describe_page(b"png")
-    system = fake_transport["system"]
-    assert "illegible" in system
-    assert "Do NOT repeat the last value" in system
+    flat = " ".join(fake_transport["system"].split())
+    assert "illegible" in flat
+    assert "Not the last value you managed to read" in flat
 
 
 def test_describe_discards_a_reply_too_short_to_be_a_description(fake_transport):
@@ -354,3 +354,18 @@ def test_every_outcome_names_the_provider_and_model_that_produced_it(
             vlm.describe_page(b"png")
         assert "gemini/gemini-x" in caplog.text, reply.stop_reason
         assert any(r.levelname == level for r in caplog.records), reply.stop_reason
+
+
+def test_prompt_forbids_writing_a_value_it_has_just_called_illegible(fake_transport):
+    """The rule used to forbid only REPEATING the last value read, and the
+    failure that got through was a fresh guess at the unreadable part: "column
+    HSS8X8X1/8 (marking illegible beyond HSS8X8, exact thickness not
+    readable)". Both halves are in one sentence, and only the value survives
+    retrieval — the chat answered with the size and dropped the caveat, which
+    the scorer then recorded as an INVENTED member size."""
+    vlm.describe_page(b"png")
+    flat = " ".join(fake_transport["system"].split())
+    assert "write NO VALUE FOR IT AT ALL" in flat
+    assert "a value written beside the word \"illegible\" is still a value" in flat
+    # And the counter-example stays synthetic, like every other one.
+    assert "HSS8X8" not in fake_transport["system"]
