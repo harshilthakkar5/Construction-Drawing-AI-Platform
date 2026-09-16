@@ -481,7 +481,22 @@ function tagConcentration(subset, tag) {
   // reached for F8 18pt more often than the drawing offers it while 10 of its
   // 12 hits were minority marks, which a prior produces at a rate of zero.
   const correct = subset.filter((r) => r.outcome === "correct").length;
-  const minority = minorityHits(subset);
+  // Minority hits alone cannot carry this defence, and one run proved it. A tag
+  // that fixates on a label which is NOT its majority scores "minority hits" by
+  // COINCIDENCE: it answered HSS6X6X3/8 to 17 of 21 questions, that size is the
+  // truth at three of those intersections, and all three landed in the minority
+  // column — a frequency prior over the WRONG frequency, credited as the one
+  // thing a prior cannot fake. So the hits that count are the ones naming
+  // neither the tag's majority label nor the label it is over-naming: those are
+  // the answers no amount of fixation produces.
+  const majority = majorityBaseline(subset).label;
+  const independent = subset.filter(
+    (r) => r.outcome === "correct" && r.expected !== majority && r.expected !== label,
+  ).length;
+  // And a tag that loses to its own baseline is not "reading the rest" in any
+  // sense worth printing. 24% where guessing scores 52% is fixation whatever
+  // the hits look like.
+  const beatsBase = (correct / subset.length) * 100 > majorityBaseline(subset).pct;
   return {
     tag,
     label,
@@ -491,10 +506,10 @@ function tagConcentration(subset, tag) {
     truthPct,
     gap: namedPct - truthPct,
     correct,
-    minorityHits: minority,
-    minorityPct: correct ? (minority / correct) * 100 : 0,
-    // The same gate the set-wide verdict uses, so the two cannot disagree.
-    prior: (correct ? (minority / correct) * 100 : 0) < 25,
+    minorityHits: minorityHits(subset),
+    independentHits: independent,
+    beatsBase,
+    prior: !beatsBase || (correct ? (independent / correct) * 100 : 0) < 25,
   };
 }
 
@@ -578,8 +593,8 @@ export function report(rows, json, onSheet) {
       ? " — in step with the sheet"
       : c.prior
         ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
-        : ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.minorityHits} of its ${c.correct} ` +
-          "hits are minority labels, which guessing does not produce");
+        : ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.independentHits} of its ${c.correct} ` +
+          "hits name neither that label nor the tag's majority, which fixation does not produce");
 
   const block = (label, t) =>
     `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
@@ -698,13 +713,19 @@ export function report(rows, json, onSheet) {
         `${worst.truthPct.toFixed(0)}% of the time. Whatever that tag scored, it is reaching for ` +
         "one label far more often than the drawing offers it" +
         (worst.prior
-          ? ", and only " +
-            `${worst.minorityHits} of its ${worst.correct} correct answers named a minority ` +
-            "label — so those hits ride on the sheet's own frequencies rather than on the " +
-            "intersection each question names."
-          : `, though ${worst.minorityHits} of its ${worst.correct} correct answers named a ` +
-            "minority label, which a frequency prior produces at a rate of zero. It is leaning " +
-            "on one label and still reading the rest."),
+          ? (worst.beatsBase
+              ? ", and only " +
+                `${worst.independentHits} of its ${worst.correct} correct answers name a label ` +
+                "that is neither that one nor the tag's majority"
+              : `, and it scored ${((worst.correct / tally(rows.filter((r) => r.tag === worst.tag)).n) * 100).toFixed(0)}% ` +
+                "where guessing this tag's most common label scores " +
+                `${tally(rows.filter((r) => r.tag === worst.tag)).base.pct.toFixed(0)}%`) +
+            " — so its hits ride on a frequency rather than on the intersection each question " +
+            "names. Where the over-named label happens to be the truth, a fixated answer is " +
+            "right by coincidence, and it counts as a minority hit while reading nothing."
+          : `, though ${worst.independentHits} of its ${worst.correct} correct answers name a ` +
+            "label that is neither that one nor the tag's majority, which fixation does not " +
+            "produce. It is leaning on one label and still reading the rest."),
     );
   }
 

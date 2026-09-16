@@ -447,3 +447,26 @@ class TestThePromptAsksForEveryIntersection:
         # The older wording invited the failure: it praised a short description
         # without tying "short" to having covered anything.
         assert "a short description that named every intersection beats" not in system
+
+
+class TestTheCountDoesNotForceAValue:
+    """The count rule and the illegible rule pull against each other, and the
+    count was winning.
+
+    Demanding a line at every intersection lifted the footing tag from 74% to
+    95% and dropped the column tag from 57% to 24%: forced to fill a line for
+    every intersection, the model supplied one member size for nearly all of
+    them — the size it could not read at this resolution — reproducing the exact
+    failure the illegible rule exists to prevent. Footing marks it CAN read, so
+    that half of every line got better while the other half got worse.
+    """
+
+    def test_a_line_is_owed_but_a_value_is_not(self):
+        system = " ".join(vlm.SYSTEM.split())
+        assert "You owe a LINE at every intersection. You do not owe a VALUE" in system
+        assert "column size illegible" in system
+
+    def test_it_names_the_repeated_value_as_the_signature(self):
+        system = " ".join(vlm.SYSTEM.split())
+        assert "the same size five times in a row" in system
+        assert "you are filling the count, not reading the drawing" in system

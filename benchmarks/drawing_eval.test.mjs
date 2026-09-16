@@ -566,7 +566,51 @@ test("over-naming is not called a guess when the tag's hits are minority labels"
   assert.equal(c.prior, false);
   const said = verdict(rows);
   assert.doesNotMatch(said, /shape of a guess/);
-  assert.match(said, /minority label/);
+  assert.match(said, /neither that one nor the tag's majority/);
+});
+
+test("fixating on a NON-majority label does not earn the reading defence", () => {
+  // The measured trap, and the one minority hits alone walked straight into.
+  // The column tag answered one size to 17 of 21 questions; that size is the
+  // truth at three intersections, so it was right there BY COINCIDENCE — and
+  // because the size is not the tag's majority, all three scored as minority
+  // hits, the one figure that is supposed to be un-fakeable. A frequency prior
+  // over the wrong frequency, credited as comprehension, on a tag scoring 24%
+  // where guessing scores 52%.
+  const rows = [
+    // The truth is the majority label 11 times; it answers the fixated one.
+    ...Array.from({ length: 11 }, () => namedRow("grid-column", "HSS8X8X3/8", "off-target", "HSS6X6X3/8")),
+    // The fixated label IS the truth three times, so those score correct.
+    ...Array.from({ length: 3 }, () => namedRow("grid-column", "HSS6X6X3/8", "correct", "HSS6X6X3/8")),
+    ...Array.from({ length: 3 }, () => namedRow("grid-column", "HSS6X6X1/2", "off-target", "HSS6X6X3/8")),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "HSS6X6X3/8");
+  // Every hit is the label it fixated on: nothing here was read.
+  assert.equal(c.correct, 3);
+  assert.equal(c.minorityHits, 3, "the old gate counted all three as un-fakeable");
+  assert.equal(c.independentHits, 0);
+  assert.equal(c.prior, true);
+  const said = verdict(rows);
+  assert.match(said, /shape of a guess/);
+  assert.match(said, /right by coincidence/);
+});
+
+test("a tag below its own baseline is never credited with reading the rest", () => {
+  // 24% where guessing scores 52% is fixation whatever the hits look like, so
+  // the defence does not apply however the correct answers are distributed.
+  const rows = [
+    ...Array.from({ length: 11 }, () => namedRow("grid-column", "HSS8X8X3/8", "off-target", "HSS6X6X3/8")),
+    ...Array.from({ length: 3 }, () => namedRow("grid-column", "HSS6X6X3/8", "correct", "HSS6X6X3/8")),
+    // Two hits that fixation could NOT produce — and it still loses to guessing.
+    namedRow("grid-column", "HSS10X10X1/2", "correct"),
+    namedRow("grid-column", "HSS6X6X1/2", "correct"),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.independentHits, 2);
+  assert.equal(c.beatsBase, false);
+  assert.equal(c.prior, true);
+  assert.match(verdict(rows), /where guessing this tag's most common label scores/);
 });
 
 test("the set-wide warning names the guessing tag, not the widest gap", () => {

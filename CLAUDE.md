@@ -488,6 +488,19 @@ named the budget, so both looked like model quality; `vlm.describe_page` now rep
 `stop_reason` on a discarded reply and says outright that a truncated description leaves the rest
 of the sheet with no description at all. The default is 4000.
 
+Demanding that count moved both tags, in opposite directions, which is the clearest statement
+yet of what limits this pass. The footing tag went to 95% — 18 of 19, no wrong answers, nothing
+declined, 12 hits on minority marks and its common mark named at exactly the rate the sheet shows
+it — while the column tag fell from 57% to 24%, answering one member size at 17 of 21
+intersections. A footing mark is large text in a bubble and READS at 61 DPI; a member size with a
+fraction on the end does not. Forced to put a line at every intersection, the model filled the
+half it could not read with the value from the line above, which is precisely the failure the
+illegible rule already forbade — the count rule simply outweighed it. So the prompt now separates
+the two in the same breath: a LINE is owed at every intersection, a VALUE is not, and the same
+size five times in a row is the signature of filling the count rather than reading the drawing.
+The resolution ceiling is the real constraint underneath, and it is why the column tag is where
+the remaining work is.
+
 "Why is this description short?" has a THIRD answer, and it is the one the token count cannot
 reach at all: the model ended cleanly because it thought it had finished. `gemini-3.6-flash`
 wrote 255 tokens of an ARCH E1 foundation plan and stopped of its own accord, so `VLM_MAX_TOKENS`
@@ -798,9 +811,20 @@ frequencies rather than on the intersection each question names. MAY, and the li
 after one run, because "the shape of a guess" is the same claim the set-wide verdict already had
 to be gated on: the footing tag reached for one mark 18 points more often than the drawing offers
 it while 10 of its 12 hits were minority marks. Both are true — it leaned on a label and read the
-rest — so the wording is gated on the same minority fraction, and the set-wide "watch this tag"
-line picks the tag that looks like a PRIOR before the tag with the widest gap. A reading tag can
-lean harder than a guessing one, and naming it there would bury the tag that is only guessing.
+rest — so the wording is gated, and the set-wide "watch this tag" line picks the tag that looks
+like a PRIOR before the tag with the widest gap. A reading tag can lean harder than a guessing
+one, and naming it there would bury the tag that is only guessing.
+
+Gated on WHAT took one more correction, because minority hits cannot carry that defence alone and
+the next run proved it within the hour. A tag that fixates on a label which is NOT its majority
+scores minority hits BY COINCIDENCE: the column tag answered `HSS6X6X3/8` to 17 of 21 questions,
+that size is the truth at three of those intersections, and all three landed in the minority
+column — a frequency prior over the WRONG frequency, credited as the one figure a prior cannot
+fake, on a tag scoring 24% where guessing scores 52%. The hits that count are therefore the
+INDEPENDENT ones, naming neither the tag's majority label nor the label it is over-naming, and
+the defence is refused outright to a tag that loses to its own baseline. Both gates come from the
+same principle as the pooled-baseline fix: the encouraging sentence must be the one the evidence
+supports, not the one the arithmetic happens to produce.
 
 That baseline ANSWERS EVERY CASE, which makes raw accuracy the wrong comparison for a run that
 declines: it has forfeited the cases it abstained on, so it cannot win on the total however well
