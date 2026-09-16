@@ -99,6 +99,7 @@ reusing the stored PNG.
 from __future__ import annotations
 
 import os
+import re
 
 import fitz
 
@@ -138,6 +139,55 @@ MAX_TOKENS = int(os.environ.get("VLM_MAX_TOKENS", "4000"))
 # Below this many characters the model has not described a drawing — it has
 # said it cannot see one, or returned a sentence of apology. Storing that as a
 # chunk would put an apology into retrieval.
+# A description is measured against the grid IT NAMED, because the two numbers
+# that matter are both in the text and neither is its length.
+#
+# "Why is this description so short?" has two answers needing opposite responses,
+# and the token count cannot tell them apart. A reply that stopped at max_tokens
+# was CUT OFF; a reply that stopped on its own decided it was finished. Gemini
+# 3.6 Flash wrote 255 tokens of an ARCH E1 foundation plan and ended cleanly, so
+# VLM_MAX_TOKENS at 4000 or at 20000 buys exactly the same description — raising
+# it is the obvious move and it does nothing. What was missing was coverage, and
+# coverage is checkable: the prompt makes the model list the column lines and the
+# row lines first, and those two lines say how many intersections the sheet has.
+_GRID_COLUMNS = re.compile(r"^[^\S\n]*column lines[^:\n]*:(.+)$", re.I | re.M)
+_GRID_ROWS = re.compile(r"^[^\S\n]*row lines[^:\n]*:(.+)$", re.I | re.M)
+# "At 12/K:" — the shape the prompt demands, which is also the shape the eval
+# scores. A label is short and has no spaces; anything else on those lines is
+# prose ("could not be read") and is not a grid line.
+_COORDINATE = re.compile(r"\bAt\s+([^\s/]{1,6})/([^\s:,]{1,6})\s*:", re.I)
+_GRID_LABEL = re.compile(r"^[A-Za-z0-9.]{1,5}$")
+
+# Below this fraction of its own grid, say so. Not every intersection carries a
+# column — a sparse grid is a real thing and the message says so — but a
+# description covering under half of what it just told us the sheet has is the
+# failure this exists to surface, not a judgement about the drawing.
+MIN_GRID_COVERAGE = 0.5
+
+
+def grid_coverage(text: str) -> tuple[int, int, int] | None:
+    """(column lines, row lines, distinct coordinates written), or None.
+
+    None means the description named no grid — a detail or schedule sheet, which
+    the prompt explicitly allows, or a reply that ignored the instruction. Either
+    way there is nothing to measure against.
+    """
+    columns = _GRID_COLUMNS.search(text or "")
+    rows = _GRID_ROWS.search(text or "")
+    if not columns or not rows:
+        return None
+
+    def labels(line: str) -> list[str]:
+        found = [part.strip() for part in line.split(",")]
+        return [part for part in found if _GRID_LABEL.match(part)]
+
+    across, down = labels(columns.group(1)), labels(rows.group(1))
+    if not across or not down:
+        return None
+    written = {(m.group(1).upper(), m.group(2).upper()) for m in _COORDINATE.finditer(text)}
+    return len(across), len(down), len(written)
+
+
 MIN_DESCRIPTION_CHARS = 120
 
 SYSTEM = """You are reading one sheet from a set of construction drawings.
@@ -161,6 +211,18 @@ failure is invisible in the finished description: one reading of this sheet got
 the footing mark AND the member size right at three intersections in a row and
 labelled the whole row with its neighbour's letter. Nothing in it looked wrong,
 and every question about that row had nothing to answer from.
+
+Then COUNT: those two lines define every intersection on this sheet, and the
+count is how many lines you owe. Six column lines and four row lines is
+twenty-four intersections, so write twenty-four lines — one for each, in order,
+including the ones where nothing is built:
+
+    At 5/L: nothing at this intersection.
+
+Working along one row line at a time and finishing it before starting the next
+is what keeps you from losing your place. Do not stop early, do not summarize a
+row, and do not describe "the typical" anything: a row you skipped is not a
+shorter description, it is a question no one can answer.
 
 If you cannot read a grid bubble, say so in those two lines rather than
 inventing a letter or borrowing one from the row above.
@@ -229,9 +291,12 @@ description of this sheet closed with
 
 — nine lines of it, every one already indexed word for word — having never
 described one of that sheet's grid rows at all. Room left over is for
-intersections you have not covered. When they are all covered, STOP: a short
-description that named every intersection beats a long one that ran out of
-space before it got to a row.
+intersections you have not covered. STOP only when the number of coordinate
+lines you have written equals the number of intersections the grid you named at
+the top defines — and then stop rather than padding. Short is a virtue AFTER
+that count is met and never before it: one reading of a sheet stopped of its own
+accord having written a third of its own grid, which is not brevity, it is the
+same missing row as a description that ran out of space.
 
 Uncertainty is per item and never carried forward:
 - If a mark or a size is too small to read at this resolution, write the
@@ -424,4 +489,36 @@ def describe_page(
             chunker.estimate_tokens(text),
             len(text),
         )
+    _report_grid_coverage(text, sheet_number, who)
     return text
+
+
+def _report_grid_coverage(text: str, sheet_number, who: str) -> None:
+    """Say how much of its OWN grid the description covered.
+
+    This is the number to act on when a description looks short, and it is the
+    one the length does not give you. A reply that ended cleanly at 255 tokens
+    has not been cut off, so VLM_MAX_TOKENS is not the lever — the prompt is.
+    """
+    measured = grid_coverage(text)
+    if measured is None:
+        return
+    across, down, written = measured
+    total = across * down
+    if not total or written >= total * MIN_GRID_COVERAGE:
+        return
+    log.warning(
+        "sheet %s: %s named %d column lines and %d row lines — %d intersections — and then "
+        "wrote %d coordinate lines. The other %d have no description at all, so a question "
+        "about any of them has nothing to answer from. If the reply did not stop at "
+        "max_tokens it was not cut off and VLM_MAX_TOKENS is not the lever; a sparse grid is "
+        "a real possibility, but the prompt asks for a line at every intersection including "
+        "the empty ones, so check the description before believing the drawing.",
+        sheet_number or "?",
+        who,
+        across,
+        down,
+        total,
+        written,
+        total - written,
+    )
