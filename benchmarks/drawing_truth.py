@@ -282,6 +282,18 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
                             "expected": label,
                             "distractor": runner_up(labels, cx, cy, label),
                             "labelPattern": LABEL_PATTERN[kind],
+                            # EVERY label of this kind on the page, not just the
+                            # two this case turns on. The scorer needs it to
+                            # separate "named another mark from this drawing"
+                            # (off-target) from "named something that is on no
+                            # part of it" (invented), and it cannot build that
+                            # from the case set: a set only names the
+                            # intersections it asks about, so a real mark
+                            # sitting at an intersection nobody asked about
+                            # scores INVENTED. That is not a harmless
+                            # mislabel — invented is the outcome that says the
+                            # model made something up.
+                            "sheetLabels": sorted({lab for lab, _, _ in labels}),
                             "derivation": {
                                 "sheet": sheet_name,
                                 "gridColumn": col,

@@ -432,7 +432,13 @@ size or detail number from this sheet appears in it. Two prohibitions come from 
 notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
 them, all already indexed, all displacing pairings), and never carry an unreadable value forward
 (both descriptions answered nearly every column with one repeated size rather than once saying a
-mark was illegible). `VLM_MAX_TOKENS` IS a lever for this format, which is the reverse of what the prose prompt
+mark was illegible). That second rule had to be widened once it was measured: it forbade
+REPEATING the last value read, and the failure that got through was a fresh guess at the
+unreadable part — "column HSS8X8X1/8 (marking illegible beyond HSS8X8, exact thickness not
+readable)", both halves in one sentence. Only the value survives retrieval: the chat answered
+with the size and dropped the caveat, and the scorer recorded an invented member size. An
+illegible item now gets NO value at all, partial readings included, because a value written
+beside the word "illegible" is still a value. `VLM_MAX_TOKENS` IS a lever for this format, which is the reverse of what the prose prompt
 showed. Given 10000 the old prompt wrote 1285 and 2231 tokens and stopped on its own, so room
 looked irrelevant; but "At 8/B: footing F12, column HSS8X8X3/8." carries the same fact in far
 more TOKENS, since every mark and member size is one word and many tokens. At 1500 both providers
@@ -639,8 +645,19 @@ columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the dist
 anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
 refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
 as many words that it cannot tell an invented label from a refusal.
-`drawing_truth.py --backfill <set.json>` adds the field to such a set WITHOUT re-deriving any
-answer, which is sound only because the pattern is a function of the TAG alone — it depends on
+`invented` needs one more thing the set cannot supply: the sheet's WHOLE label vocabulary.
+`off-target` means "another mark of this kind, from elsewhere on the drawing", and the scorer
+was building that vocabulary out of the cases' own `expected` and `distractor` — i.e. only the
+intersections the set asks about. A mark that is really on the sheet, at an intersection no case
+covers, therefore scored INVENTED: the one outcome that accuses the model of fabricating. It
+happened on the first run to produce any, where two of three were `F6` and `HSS5X5X3/8`, both of
+which the description places at 9/C. `drawing_truth.py` already reads every footing mark and
+member callout on the page to find the nearest one, so it now emits that inventory as
+`sheetLabels` per case and `labelVocabulary` prefers it. A set without the field still runs on
+the old vocabulary, and the report says in as many words that `invented` is overstated until it
+is regenerated.
+`drawing_truth.py --backfill <set.json>` adds the labelPattern field to such a set WITHOUT
+re-deriving any answer, which is sound only because the pattern is a function of the TAG alone — it depends on
 no geometry, so the result is byte-identical to what a full regeneration would write for that
 field. Regenerating from the PDF is still the real fix, since it re-derives the truth too. How
 much this matters scales with ABSTENTIONS: at zero or one it is nearly harmless, and the first

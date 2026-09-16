@@ -121,11 +121,24 @@ export function labelVocabulary(cases) {
   const byTag = new Map();
   for (const c of cases) {
     const labels = byTag.get(c.tag) ?? new Set();
+    // Every mark of this kind ON THE SHEET when the generator recorded it.
+    // Without that, the vocabulary is only the labels the SET happens to ask
+    // about — and a real mark at an intersection nobody asked about then
+    // scores INVENTED, which is the outcome that says the model made it up.
+    // Two of the three "invented" answers in the first run to produce them
+    // were F6 and HSS5X5X3/8, both of which the description places at 9/C;
+    // the set simply never asks about a case whose answer is either one.
+    for (const label of c.sheetLabels ?? []) labels.add(label);
     if (c.expected) labels.add(c.expected);
     if (c.distractor) labels.add(c.distractor);
     byTag.set(c.tag, labels);
   }
   return new Map([...byTag].map(([tag, labels]) => [tag, [...labels]]));
+}
+
+/** Whether the vocabulary came from the SHEET or only from the case set. */
+export function vocabularySource(cases) {
+  return cases.some((c) => (c.sheetLabels ?? []).length) ? "sheet" : "set";
 }
 
 /** Which of `vocabulary`'s labels this answer names, in the set's spelling. */
@@ -516,6 +529,17 @@ export function report(rows, json, onSheet) {
 
   // Without it, a mark the model made up is indistinguishable from a refusal,
   // and the report would be reading one as the other in silence.
+  // The same class of blind spot one level up: the SHAPE tells an invented
+  // label from a refusal, and the VOCABULARY tells it from a real mark
+  // elsewhere on the drawing. Missing either one inflates "invented".
+  if (rows.length && rows.every((r) => !(r.sheetLabels ?? []).length)) {
+    console.log(
+      "\n  No case carries sheetLabels, so the label vocabulary is only what this SET asks " +
+        "about — a real mark at an intersection the set skips scores INVENTED rather than " +
+        "off-target. Regenerate with drawing_truth.py to read the whole sheet's labels.",
+    );
+  }
+
   const blind = rows.filter((r) => !r.labelPattern).length;
   if (blind) {
     console.log(
@@ -662,6 +686,7 @@ async function main() {
         inventedLabel(text, testCase, vocabulary) ||
         "",
       labelPattern: testCase.labelPattern ?? null,
+      sheetLabels: testCase.sheetLabels ?? [],
       retrieved: ordered.length,
       descriptionChunks: ordered.filter((c) => c.kind === "description").length,
       // The ids, not just the count. Two runs citing the same description ids
