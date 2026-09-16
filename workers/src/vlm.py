@@ -102,6 +102,7 @@ import os
 
 import fitz
 
+import chunker
 import config
 import llm
 import logutil
@@ -303,15 +304,43 @@ def describe_page(
         # pairings it managed to write, and unlike the JSON every other caller
         # parses, prose does not stop being readable at the truncation point.
         #
-        # But say what it costs. The cut lands part-way through the sheet, so
-        # every grid intersection after it is simply absent — and an absent
-        # intersection is not a wrong answer later, it is a question the chat
-        # cannot answer at all. One run lost 8 of 19 footing questions this way
-        # and the tag read as a comprehension regression.
-        log.warning(
-            "sheet %s: description hit max_tokens (%d) — it is TRUNCATED, so any part of the "
-            "sheet after the cut has no description at all. Raise VLM_MAX_TOKENS.",
-            sheet_number or "?",
-            MAX_TOKENS,
-        )
+        # But say what it costs, and say HOW LONG it is — because "hit
+        # max_tokens" has two causes and they need opposite responses. Reported
+        # without the length, they are indistinguishable. A run stored a
+        # description of 64 tokens against a 4000-token budget and logged
+        # "it is TRUNCATED ... Raise VLM_MAX_TOKENS": the model had written
+        # forty-odd words and spent the other 98% of the budget reasoning, so
+        # raising it buys more reasoning and not one more pairing. The same
+        # thinking-model failure that returns 98 characters and is DISCARDED
+        # lands here instead the moment it clears MIN_DESCRIPTION_CHARS, and
+        # then it is kept, indexed, and read as an account of the whole sheet.
+        written = chunker.estimate_tokens(text)
+        if written * 2 < MAX_TOKENS:
+            log.warning(
+                "sheet %s: description stopped at max_tokens (%d) after writing only ~%d tokens "
+                "(%d chars). The budget did not go to the description — on a thinking model it "
+                "went to reasoning, which bills from the SAME max_output_tokens. Raising "
+                "VLM_MAX_TOKENS buys more reasoning, not more of the sheet; use a model whose "
+                "thinking can be turned off, or set GEMINI_THINKING_BUDGET=off. What was stored "
+                "describes a fraction of the drawing and will be retrieved as though it "
+                "described all of it.",
+                sheet_number or "?",
+                MAX_TOKENS,
+                written,
+                len(text),
+            )
+        else:
+            # The cut lands part-way through the sheet, so every grid
+            # intersection after it is simply absent — and an absent
+            # intersection is not a wrong answer later, it is a question the
+            # chat cannot answer at all. One run lost 8 of 19 footing questions
+            # this way and the tag read as a comprehension regression.
+            log.warning(
+                "sheet %s: description hit max_tokens (%d) after ~%d tokens — it is TRUNCATED, "
+                "so any part of the sheet after the cut has no description at all. Raise "
+                "VLM_MAX_TOKENS.",
+                sheet_number or "?",
+                MAX_TOKENS,
+                written,
+            )
     return text

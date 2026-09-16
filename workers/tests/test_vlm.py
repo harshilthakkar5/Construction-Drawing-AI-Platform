@@ -216,13 +216,56 @@ def test_a_short_reply_that_simply_ended_reports_what_was_said(fake_transport, c
     assert "VLM_MAX_TOKENS" not in caplog.text
 
 
-def test_a_truncated_description_is_kept_but_says_what_was_lost(fake_transport, caplog):
+def test_a_truncated_description_is_kept_but_says_what_was_lost(
+    fake_transport, monkeypatch, caplog
+):
     """Keeping it is right — the pairings it managed are real. But the cut
     lands part-way through the sheet, and an intersection after it is not a
     wrong answer later, it is a question the chat cannot answer at all."""
+    monkeypatch.setattr(vlm, "MAX_TOKENS", 300)
     fake_transport["_reply"] = llm.Reply(text="At 8/B: footing F12. " * 40, stop_reason="max_tokens")
     with caplog.at_level("WARNING"):
         out = vlm.describe_page(b"png")
     assert out is not None
     assert "TRUNCATED" in caplog.text
     assert "no description at all" in caplog.text
+    assert "Raise VLM_MAX_TOKENS" in caplog.text
+
+
+def test_a_short_description_that_hit_max_tokens_blames_the_reasoning_not_the_budget(
+    fake_transport, monkeypatch, caplog
+):
+    """The measured case: 64 tokens stored against a 4000-token budget, logged
+    as "it is TRUNCATED ... Raise VLM_MAX_TOKENS". Both halves of that are
+    wrong. The model wrote forty words and spent the rest of the budget
+    reasoning, so a bigger budget buys more reasoning; and what was stored
+    describes a corner of the sheet while being indexed as the description of
+    all of it. Without the LENGTH in the line, this is indistinguishable from a
+    description that genuinely ran out of room."""
+    monkeypatch.setattr(vlm, "MAX_TOKENS", 4000)
+    fake_transport["_reply"] = llm.Reply(
+        text="At 8/B: footing F12, column HSS8X8X3/8. " * 5, stop_reason="max_tokens"
+    )
+    with caplog.at_level("WARNING"):
+        out = vlm.describe_page(b"png")
+    assert out is not None  # still kept: forty real words beat none
+    assert "did not go to the description" in caplog.text
+    assert "buys more reasoning" in caplog.text
+    # The two failures must not read alike — this one is NOT a room problem.
+    assert "TRUNCATED" not in caplog.text
+
+
+def test_both_max_tokens_branches_report_how_much_was_actually_written(
+    fake_transport, monkeypatch, caplog
+):
+    """The one field that separates them. A budget figure alone says nothing:
+    4000 appears in the log whether the model wrote 3900 tokens or 64."""
+    for budget in (300, 4000):
+        caplog.clear()
+        monkeypatch.setattr(vlm, "MAX_TOKENS", budget)
+        fake_transport["_reply"] = llm.Reply(
+            text="At 8/B: footing F12. " * 40, stop_reason="max_tokens"
+        )
+        with caplog.at_level("WARNING"):
+            vlm.describe_page(b"png")
+        assert "~208 tokens" in caplog.text, budget

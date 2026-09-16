@@ -410,7 +410,18 @@ characters, discarded as too short. A thinking model bills its reasoning from th
 `max_output_tokens` as its answer, and 3.1 Pro does not let you turn it off. Neither log line
 named the budget, so both looked like model quality; `vlm.describe_page` now reports the
 `stop_reason` on a discarded reply and says outright that a truncated description leaves the rest
-of the sheet with no description at all. The default is 4000. What comes back is the
+of the sheet with no description at all. The default is 4000.
+
+`stop_reason == "max_tokens"` has TWO causes and they need opposite responses, so the log reports
+how many tokens were actually WRITTEN, not just the budget. A run stored a description of 64
+tokens against a 4000-token budget and logged "it is TRUNCATED … Raise VLM_MAX_TOKENS": the model
+had written forty-odd words and spent the other 98% reasoning, so more budget buys more reasoning
+and not one more pairing. This is the same thinking-model failure that returns 98 characters and
+is discarded — it merely cleared `MIN_DESCRIPTION_CHARS` (120) and was therefore kept, indexed,
+and read as an account of the whole sheet. Written tokens under half the budget now says so
+explicitly and points at the model rather than the number. Watch for the consequence in a
+benchmark: that 64-token chunk still occupied one of k=18 slots and still counted as
+"description in prompt 40/40". What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the
