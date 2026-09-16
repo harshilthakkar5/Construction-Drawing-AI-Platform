@@ -624,3 +624,65 @@ class TestThinkingBudgetSetting:
         assert llm._parse_thinking_budget(None) == 0
         assert llm._parse_thinking_budget("none") is None
         assert llm._parse_thinking_budget("banana") == 0  # falls back to off, not crash
+
+
+class TestARetiredModel:
+    """Google removes a retired model FOR NEW KEYS first, so the same commit
+    works for whoever set the deployment up and 404s for whoever makes a key
+    next month. Every caller here falls back rather than stopping, which means
+    the run finishes and looks fine — the log line is the only thing standing
+    between that and a 400-page scrape classified by the rules ladder."""
+
+    NOT_FOUND = (
+        "404 NOT_FOUND. This model models/gemini-2.5-flash is no longer available "
+        "to new users. Please update your code to use models/gemini-3.6-flash."
+    )
+
+    def _fails(self, monkeypatch, message):
+        monkeypatch.setattr(llm, "_missing_model_reported", set())
+
+        def boom(*args, **kwargs):
+            raise RuntimeError(message)
+
+        monkeypatch.setattr(llm, "_complete_gemini", boom)
+
+    def _call(self, kind="classification"):
+        return llm.complete(
+            "sys", "user", provider="gemini", claude_model="claude-x",
+            gemini_model="gemini-2.5-flash", max_tokens=100, kind=kind,
+        )
+
+    def test_it_is_reported_at_error_naming_the_model_and_the_stage(self, monkeypatch, caplog):
+        self._fails(monkeypatch, self.NOT_FOUND)
+        with caplog.at_level("ERROR"):
+            assert self._call() is None
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == 1
+        said = errors[0].getMessage()
+        assert "gemini-2.5-flash" in said and "classification" in said
+        # The operator's next move is an env var, so the line has to say that
+        # rather than leaving "call failed" to be read as a blip.
+        assert "configuration" in said.lower()
+
+    def test_it_is_said_once_per_model_and_stage_not_once_per_page(self, monkeypatch, caplog):
+        self._fails(monkeypatch, self.NOT_FOUND)
+        with caplog.at_level("ERROR"):
+            for _ in range(5):
+                self._call()
+        assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 1
+
+    def test_a_different_stage_on_the_same_dead_model_still_gets_told(self, monkeypatch, caplog):
+        self._fails(monkeypatch, self.NOT_FOUND)
+        with caplog.at_level("ERROR"):
+            self._call(kind="classification")
+            self._call(kind="vlm")
+        assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 2
+
+    def test_an_ordinary_failure_stays_a_warning(self, monkeypatch, caplog):
+        """A rate limit or a timeout IS transient and the fallback is the right
+        answer for it — promoting those to ERROR would bury this one again."""
+        self._fails(monkeypatch, "429 RESOURCE_EXHAUSTED: quota exceeded")
+        with caplog.at_level("DEBUG"):
+            assert self._call() is None
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+        assert [r for r in caplog.records if r.levelname == "WARNING"]

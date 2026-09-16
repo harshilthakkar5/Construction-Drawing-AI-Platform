@@ -176,7 +176,23 @@ embeddings → summaries.
   still routes every `generate_content` through its agentic wrapper and logs two lines — one at
   WARNING — per call. That noise sat directly above the line reporting the vision pass had
   returned 98 characters. Adding a call site means
-  adding its switch too.
+  adding its switch too. A Gemini model NAME also expires on a schedule this repo does not
+  control, and expires per KEY: Google removes a retired model for new users first, so the same
+  commit keeps working for whoever set a deployment up and returns `404 ... no longer available
+  to new users` for whoever creates a key the month after. Every default here was one generation
+  behind at once (`gemini-2.5-flash` for the sheet read and the vision pass, `gemini-2.5-pro`
+  for summaries). What makes that expensive rather than obvious is the fallback design: an
+  unavailable provider is SUPPOSED to degrade, so a dead model name finishes a 400-page scrape
+  with the rules ladder standing in for the sheet reader, or with no description on any page,
+  reporting one warning per call among thousands. `llm._note_missing_model` says it once per
+  model and stage at ERROR, naming the stage and saying the fix is an env var — a name the
+  provider does not know will fail identically on every remaining call, which is configuration,
+  not weather. Ordinary failures (a rate limit, a timeout) stay warnings, since the fallback
+  really is the right answer for those. Pricing degrades on its own: a model missing from
+  `RATES` is quoted at its family rate with a warning. The worker's summary defaults are
+  MIRRORED in `apps/api/src/llm.ts`, whose comment already said the two must match — and they
+  had drifted, the worker running `gemini-2.5-pro` while the "Generate summary" dialog priced
+  `gemini-3.1-pro-preview`. `test_summarize.py` now reads the TypeScript and fails on a drift.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS, or the two Droplets in
   `deploy/docker-compose.{app,worker}.yml`. API and workers scale independently. A third

@@ -28,7 +28,15 @@ import llm
 CLAUDE_MODEL = os.environ.get("CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
 # Configurable because model names move faster than this repo does; a name the
 # API rejects simply falls back to the rules path, and only this var changes.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+#
+# That is not hypothetical here. Google retires a model by removing it FOR NEW
+# KEYS first — "models/gemini-2.5-flash is no longer available to new users" —
+# so this default kept working for whoever set it up and was a 404 for everyone
+# who signed up afterwards, on the same commit. The 404 body names its own
+# replacement, which is where this value comes from; check it against your key
+# before a 400-page scrape, because a model this key cannot reach costs one
+# failed call per page and then a silent run down the rules ladder.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 # One page's answer is a dozen tokens of JSON; the cap exists to bound a
 # runaway. A batched read overrides it per call — sizing it for one entry while

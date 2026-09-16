@@ -37,7 +37,17 @@ SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "claude-sonnet-5")
 # Gemini counterpart, used when SUMMARY_PROVIDER=gemini. Summaries are the
 # reasoning step of this pipeline, so the default is the pro tier rather than
 # the flash tier the cheap per-page sheet reads use.
-SUMMARY_GEMINI_MODEL = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-2.5-pro")
+#
+# This MUST stay equal to DEFAULT_SUMMARY_GEMINI_MODEL in apps/api/src/llm.ts.
+# It did not: this said gemini-2.5-pro ($1.25/$10) while the estimate dialog
+# quoted gemini-3.1-pro-preview ($2/$12), so the one screen whose entire job is
+# telling someone what a summary run will cost was pricing a different model
+# from the one that ran it. gemini-2.5-pro is also from the generation Google
+# has now removed for new keys. test_summary_gemini_default_matches_the_api
+# reads the TypeScript and fails if the two drift again.
+SUMMARY_GEMINI_MODEL = os.environ.get(
+    "SUMMARY_GEMINI_MODEL", "models/gemini-3.1-pro-preview"
+)
 USE_BATCH = os.environ.get("SUMMARY_USE_BATCH", "false").lower() == "true"
 BATCH_MIN_PAGES = int(os.environ.get("SUMMARY_BATCH_MIN_PAGES", "4"))
 SECTION_SIZE = 10  # pages per section

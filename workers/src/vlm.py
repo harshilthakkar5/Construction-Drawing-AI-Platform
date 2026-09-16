@@ -109,7 +109,12 @@ import logutil
 log = logutil.get("vlm")
 
 CLAUDE_MODEL = os.environ.get("VLM_CLAUDE_MODEL", "claude-sonnet-5")
-GEMINI_MODEL = os.environ.get("VLM_GEMINI_MODEL", "gemini-2.5-flash")
+# gemini-2.5-flash was removed for new API keys; its 404 names this as the
+# replacement. Note that it is a Gemini 3 model and therefore THINKS, billing
+# that thinking from VLM_MAX_TOKENS below — the failure 3.1 Pro showed on this
+# exact sheet, where the whole budget went to reasoning and 98 characters came
+# back. Check the first page's description before trusting a run.
+GEMINI_MODEL = os.environ.get("VLM_GEMINI_MODEL", "gemini-3.6-flash")
 
 # Long edge in pixels of the image actually sent. 2576 is the high-resolution
 # Claude ceiling; see the module docstring before lowering it.
