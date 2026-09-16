@@ -171,7 +171,11 @@ embeddings → summaries.
   breakpoints become Gemini's implicit caching. Gemini thinking is OFF by default
   (`GEMINI_THINKING_BUDGET`): thinking tokens are spent from `max_output_tokens` before the
   answer is written, so on a thinking model they truncate the JSON every parser here depends
-  on — and they bill as output, so they are recorded as output. Adding a call site means
+  on — and they bill as output, so they are recorded as output. Automatic Function Calling is
+  off too (`_gemini_config`): no call here declares a tool, so AFC can never act, but the SDK
+  still routes every `generate_content` through its agentic wrapper and logs two lines — one at
+  WARNING — per call. That noise sat directly above the line reporting the vision pass had
+  returned 98 characters. Adding a call site means
   adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS, or the two Droplets in

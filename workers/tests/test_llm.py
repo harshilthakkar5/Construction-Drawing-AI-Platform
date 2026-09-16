@@ -338,6 +338,26 @@ class TestThinkingBudget:
         monkeypatch.setattr(llm, "_no_thinking_config", {"gemini-x"})
         assert "thinking_config" not in llm._gemini_config(model="gemini-x", max_tokens=100)
 
+    def test_automatic_function_calling_is_off_on_every_request(self, monkeypatch):
+        """Nothing here declares a tool to Gemini, so AFC can never do anything
+        — but the SDK routes each generate_content through its agentic wrapper
+        and logs two lines, one of them at WARNING, on the way. In the run that
+        caught the vision pass returning 98 characters, that warning sat
+        directly above the line that mattered.
+
+        The flag is checked against the SDK's own predicate rather than trusted
+        as a spelling: a renamed field would leave the config looking correct
+        and the noise still arriving.
+        """
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        config = llm._gemini_config(model="gemini-x", max_tokens=100)
+        assert config["automatic_function_calling"] == {"disable": True}
+        try:
+            from google.genai import _extra_utils
+        except ImportError:  # the SDK is optional for the rest of this suite
+            return
+        assert _extra_utils.should_disable_afc(config) is True
+
     def test_the_batch_and_single_paths_ask_for_the_same_thing(self, monkeypatch):
         """A page summarized in a batch and the same page retried directly must
         get an identical request, or the retry silently changes the shape."""
