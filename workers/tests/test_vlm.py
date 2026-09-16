@@ -181,3 +181,48 @@ def test_claude_images_are_base64_and_gemini_images_are_raw_bytes():
     assert base64.b64decode(claude[0]["source"]["data"]) == b"\x89PNG"
     gemini = llm._user_content_gemini("q", [b"\x89PNG"])
     assert gemini[0]["inline_data"]["data"] == b"\x89PNG"
+
+
+# --- Why a description failed, not just that it did -----------------------
+#
+# Both providers failed on the same sheet at VLM_MAX_TOKENS=1500 and neither
+# log line named the budget, so both looked like model quality: Claude
+# truncated mid-grid (8 of 19 footing questions lost), and Gemini 3.1 Pro spent
+# the whole budget reasoning and returned 98 characters.
+
+
+def test_a_short_reply_that_hit_max_tokens_says_the_budget_ran_out(fake_transport, caplog):
+    """"description was 98 chars — discarding" reads as a refusal. It was a
+    thinking model spending every token before it wrote a word, which is a
+    completely different thing to fix."""
+    fake_transport["_reply"] = llm.Reply(text="Here is the description:", stop_reason="max_tokens")
+    with caplog.at_level("WARNING"):
+        assert vlm.describe_page(b"png") is None
+    message = caplog.text
+    assert "max_tokens" in message
+    assert "VLM_MAX_TOKENS" in message
+    # The cause an operator cannot guess from a length: reasoning is billed
+    # from the same budget as the answer.
+    assert "thinking model" in message
+
+
+def test_a_short_reply_that_simply_ended_reports_what_was_said(fake_transport, caplog):
+    """A real refusal keeps the old meaning, and now shows the text so nobody
+    has to query the database to find out the model said it saw no image."""
+    fake_transport["_reply"] = llm.Reply(text="I cannot see an image.", stop_reason="end_turn")
+    with caplog.at_level("WARNING"):
+        assert vlm.describe_page(b"png") is None
+    assert "I cannot see an image." in caplog.text
+    assert "VLM_MAX_TOKENS" not in caplog.text
+
+
+def test_a_truncated_description_is_kept_but_says_what_was_lost(fake_transport, caplog):
+    """Keeping it is right — the pairings it managed are real. But the cut
+    lands part-way through the sheet, and an intersection after it is not a
+    wrong answer later, it is a question the chat cannot answer at all."""
+    fake_transport["_reply"] = llm.Reply(text="At 8/B: footing F12. " * 40, stop_reason="max_tokens")
+    with caplog.at_level("WARNING"):
+        out = vlm.describe_page(b"png")
+    assert out is not None
+    assert "TRUNCATED" in caplog.text
+    assert "no description at all" in caplog.text

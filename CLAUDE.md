@@ -171,7 +171,11 @@ embeddings → summaries.
   breakpoints become Gemini's implicit caching. Gemini thinking is OFF by default
   (`GEMINI_THINKING_BUDGET`): thinking tokens are spent from `max_output_tokens` before the
   answer is written, so on a thinking model they truncate the JSON every parser here depends
-  on — and they bill as output, so they are recorded as output. Adding a call site means
+  on — and they bill as output, so they are recorded as output. Automatic Function Calling is
+  off too (`_gemini_config`): no call here declares a tool, so AFC can never act, but the SDK
+  still routes every `generate_content` through its agentic wrapper and logs two lines — one at
+  WARNING — per call. That noise sat directly above the line reporting the vision pass had
+  returned 98 characters. Adding a call site means
   adding its switch too.
 - Monitoring: OpenTelemetry + Grafana
 - Deployment target: DigitalOcean App Platform / DOKS, or the two Droplets in
@@ -379,8 +383,18 @@ counter-examples. Two prohibitions come from the same comparison: do not transcr
 notes, title block or loose dimensions (the weaker description spent two thirds of its budget on
 them, all already indexed, all displacing pairings), and never carry an unreadable value forward
 (both descriptions answered nearly every column with one repeated size rather than once saying a
-mark was illegible). `VLM_MAX_TOKENS` is not the lever — raised from 1500 to 10000 the model wrote
-1285 and 2231 tokens, stopping on its own. What comes back is the
+mark was illegible). `VLM_MAX_TOKENS` IS a lever for this format, which is the reverse of what the prose prompt
+showed. Given 10000 the old prompt wrote 1285 and 2231 tokens and stopped on its own, so room
+looked irrelevant; but "At 8/B: footing F12, column HSS8X8X3/8." carries the same fact in far
+more TOKENS, since every mark and member size is one word and many tokens. At 1500 both providers
+failed on the same sheet from opposite ends — Claude truncated mid-grid and every intersection
+past the cut became a question the chat could not answer (8 of 19 footing cases, which read as a
+comprehension regression), while Gemini 3.1 Pro spent the whole budget reasoning and returned 98
+characters, discarded as too short. A thinking model bills its reasoning from the SAME
+`max_output_tokens` as its answer, and 3.1 Pro does not let you turn it off. Neither log line
+named the budget, so both looked like model quality; `vlm.describe_page` now reports the
+`stop_reason` on a discarded reply and says outright that a truncated description leaves the rest
+of the sheet with no description at all. The default is 4000. What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the

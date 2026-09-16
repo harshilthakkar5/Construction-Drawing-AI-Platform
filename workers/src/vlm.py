@@ -55,13 +55,28 @@ Two more findings are written into the prompt as prohibitions:
     column size and repeated it: eighteen intersections at one size, wrong at
     sixteen of them, each sentence as confident as the two that were right.
 
-VLM_MAX_TOKENS is NOT the constraint. Raised from 1500 to 10000, the model wrote
-1285 and 2231 tokens — it stops when it runs out of things it is willing to say,
-so room is not what buys more pairings. Whether the column sizes are readable at
-all is a separate question the prompt cannot settle: at 61 DPI the fraction in
-HSS8X8X3/8 is a single ~8px glyph, one description read it as 5/8 and the other
-read the section as 9X9. If coordinates land and columns stay wrong, that is the
-resolution wall below, and tiling is the answer rather than more words.
+VLM_MAX_TOKENS IS a constraint for this format, which is the opposite of what
+the prose prompt showed. Given 10000, the old prose prompt wrote 1285 and 2231
+tokens and stopped on its own — so room looked irrelevant. It is not: a line
+like "At 8/B: footing F12, column HSS8X8X3/8." carries the same fact in far more
+TOKENS, because every mark and member size is one word and many tokens. At 1500
+both providers failed on the same sheet from opposite ends. Claude truncated
+mid-grid, and every intersection past the cut became a question the chat could
+not answer — 8 of 19 footing cases, which read as a comprehension regression.
+Gemini 3.1 Pro spent the entire budget reasoning and emitted 98 characters,
+discarded as too short; a thinking model bills its reasoning from the SAME
+max_output_tokens as its answer, which is the failure GEMINI_THINKING_BUDGET
+exists for and which 3.1 Pro does not let you turn off.
+
+Neither failure named the budget in its log line, so both looked like model
+quality. They now say so explicitly, because the fix differs completely from
+the fix for a refusal.
+
+Whether the column sizes are readable at all is a separate question no budget
+settles: at 61 DPI the fraction in HSS8X8X3/8 is a single ~8px glyph, one
+description read it as 5/8 and another read the section as 9X9. If coordinates
+land and columns stay wrong, that is the resolution wall below, and tiling is
+the answer rather than more words.
 
 Resolution
 ----------
@@ -100,9 +115,19 @@ GEMINI_MODEL = os.environ.get("VLM_GEMINI_MODEL", "gemini-2.5-flash")
 # Claude ceiling; see the module docstring before lowering it.
 MAX_EDGE_PX = int(os.environ.get("VLM_MAX_EDGE", "2576"))
 
-# A description is prose about one sheet, not a document. Room to be specific
-# about a few dozen pairings and stop.
-MAX_TOKENS = int(os.environ.get("VLM_MAX_TOKENS", "1500"))
+# Room for a few dozen pairings written in the coordinate format the prompt
+# demands. 1500 was sized against the ORIGINAL prose prompt, which stopped on
+# its own at roughly that length — but a line like
+#
+#     At 8/B: footing F12, column HSS8X8X3/8.
+#
+# is far denser in TOKENS than the same fact in prose: every mark and member
+# size is one word and many tokens. At 1500 both providers failed on the same
+# sheet, from opposite ends — Claude truncated mid-grid, and every intersection
+# past the cut scored as an abstention; Gemini 3.1 Pro spent the whole budget
+# thinking and emitted 98 characters, which was then discarded as too short.
+# Neither failure named the budget, which is why both looked like model quality.
+MAX_TOKENS = int(os.environ.get("VLM_MAX_TOKENS", "4000"))
 
 # Below this many characters the model has not described a drawing — it has
 # said it cannot see one, or returned a sentence of apology. Storing that as a
@@ -244,15 +269,44 @@ def describe_page(
         return None
     text = (reply.text or "").strip()
     if len(text) < MIN_DESCRIPTION_CHARS:
-        log.warning(
-            "sheet %s: description was %d chars — discarding",
-            sheet_number or "?",
-            len(text),
-        )
+        # WHY it is short decides what to do about it, and the reason is right
+        # here in the reply. Reported as a bare length, a budget exhaustion
+        # reads exactly like a refusal: "description was 98 chars — discarding"
+        # sent us looking at the image pipeline when the model had simply spent
+        # all 1500 tokens thinking before writing a word.
+        if reply.stop_reason == "max_tokens":
+            log.warning(
+                "sheet %s: description was %d chars and stopped at max_tokens — the model "
+                "spent VLM_MAX_TOKENS (%d) before writing the description. Raise it, or use "
+                "a model that does not reason before answering; a thinking model bills its "
+                "reasoning from the SAME budget as its answer.",
+                sheet_number or "?",
+                len(text),
+                MAX_TOKENS,
+            )
+        else:
+            log.warning(
+                "sheet %s: description was %d chars (stop_reason=%s) — discarding: %r",
+                sheet_number or "?",
+                len(text),
+                reply.stop_reason,
+                text[:200],
+            )
         return None
     if reply.stop_reason == "max_tokens":
         # Keep it: a description cut off mid-sentence still carries the
         # pairings it managed to write, and unlike the JSON every other caller
         # parses, prose does not stop being readable at the truncation point.
-        log.warning("sheet %s: description hit max_tokens", sheet_number or "?")
+        #
+        # But say what it costs. The cut lands part-way through the sheet, so
+        # every grid intersection after it is simply absent — and an absent
+        # intersection is not a wrong answer later, it is a question the chat
+        # cannot answer at all. One run lost 8 of 19 footing questions this way
+        # and the tag read as a comprehension regression.
+        log.warning(
+            "sheet %s: description hit max_tokens (%d) — it is TRUNCATED, so any part of the "
+            "sheet after the cut has no description at all. Raise VLM_MAX_TOKENS.",
+            sheet_number or "?",
+            MAX_TOKENS,
+        )
     return text

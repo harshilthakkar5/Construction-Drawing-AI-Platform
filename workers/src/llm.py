@@ -303,7 +303,24 @@ def _gemini_config(
     without google-genai installed, which is the same reason every other SDK
     import here is deferred into the function that needs it.
     """
-    config: dict = {"max_output_tokens": max_tokens, "temperature": 0}
+    config: dict = {
+        "max_output_tokens": max_tokens,
+        "temperature": 0,
+        # Automatic Function Calling OFF. This app declares no tools to any
+        # Gemini call, so AFC has nothing it could ever do — but the SDK still
+        # routes every generate_content through its agentic wrapper and logs
+        #
+        #   INFO  AFC is enabled with max remote calls: 10.
+        #   WARN  Direct use of automatic function calling (AFC) in
+        #         Models.generate_content is not recommended...
+        #
+        # on the way. Two lines of vendor noise per call, at WARNING, in the
+        # log where this pipeline's own warnings have to be spotted: in the run
+        # that found the vision pass returning 98 characters, that AFC warning
+        # sat directly above the line that mattered. Disabling it also stops the
+        # SDK entering a retry loop built for a feature nothing here uses.
+        "automatic_function_calling": {"disable": True},
+    }
     if system is not None:
         config["system_instruction"] = _flatten_system(system)
     if json_only:
