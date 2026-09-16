@@ -592,8 +592,16 @@ when asked to — but Gemini TILES, so there the ceiling does not exist and reso
 lever this pass has not pulled. Haiku 4.5 and every pre-4.7 model
 cap at 1568px, which on that sheet is 5px and cannot be read at all, so the cheap model is not
 an option here. Gemini tiles at 768px (258 tokens each) with no hard cap, making resolution a
-cost knob there rather than a wall. `vlm.render` never scales UP: extra pixels carry no extra
-information and are billed the same.
+cost knob there rather than a wall. `vlm.render` scales UP only for a page that was DRAWN, and that
+distinction had to be learned the hard way. "Never scale up: extra pixels carry no extra
+information" is true of a RASTER page and false of a vector one — a PDF re-rendered above 1.0
+draws its glyphs again at a higher sampling rate. Because 42in at 72pt/in is 3024pt, a blanket
+`min(1.0, max_edge/longest)` pinned this whole pass at 72 DPI or below, so `VLM_MAX_EDGE=5000`,
+set to test whether resolution was the column tag's limit, rendered 3024px and logged `72 DPI`:
+the experiment could not run, and the only thing that revealed it was the log line added for that
+same hypothesis. Upscaling now requires a text layer (`_has_vector_text`), because a page without
+one is a scan already fixed at its own resolution and there the original rule holds exactly. The
+default is unaffected: 2576 is below 3024, so it still downscales.
 
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
