@@ -386,10 +386,12 @@ def describe_page(
                 "sheet %s: %s stopped at max_tokens (%d) after writing only ~%d tokens "
                 "(%d chars). The budget did not go to the description — on a thinking model it "
                 "went to reasoning, which bills from the SAME max_output_tokens. Raising "
-                "VLM_MAX_TOKENS buys more reasoning, not more of the sheet; use a model whose "
-                "thinking can be turned off, or set GEMINI_THINKING_BUDGET=off. What was stored "
-                "describes a fraction of the drawing and will be retrieved as though it "
-                "described all of it.",
+                "VLM_MAX_TOKENS buys more reasoning, not more of the sheet. Turn the thinking "
+                "DOWN instead, with the switch this model actually reads: GEMINI_THINKING_LEVEL "
+                "(gemini-3 and later, where the default is the TOP of the scale and "
+                "GEMINI_THINKING_BUDGET is ignored), GEMINI_THINKING_BUDGET (earlier Gemini), or "
+                "CLAUDE_THINKING (Anthropic). What was stored describes a fraction of the "
+                "drawing and will be retrieved as though it described all of it.",
                 sheet_number or "?",
                 who,
                 MAX_TOKENS,

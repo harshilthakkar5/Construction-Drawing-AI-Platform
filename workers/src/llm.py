@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -279,9 +280,9 @@ _gemini_unavailable = False
 # model decide.
 def _parse_thinking_budget(raw: str | None) -> int | None:
     """None means OMIT the field, not "budget of zero" — and the two are
-    different requests. Gemini 3 models cannot turn thinking off at all and
-    reject `thinking_budget` outright, so "off" is the escape hatch that lets a
-    new model be used without waiting on a code change here."""
+    different requests. It applies to models that take a BUDGET; from Gemini 3
+    on, the control is a LEVEL (see GEMINI_THINKING_LEVEL) and omitting the
+    field is the opposite of off."""
     value = (raw or "0").strip().lower()
     if value in ("", "off", "none", "omit"):
         return None
@@ -296,9 +297,56 @@ def _parse_thinking_budget(raw: str | None) -> int | None:
 
 GEMINI_THINKING_BUDGET = _parse_thinking_budget(os.environ.get("GEMINI_THINKING_BUDGET"))
 
-# Models that reject the setting outright (some tiers cannot turn thinking off).
-# Latched per model after the first refusal so the failed call is paid once, not
-# on every page of a 400-page project.
+# From Gemini 3 on, `thinking_budget` is not the control any more: the field is
+# `thinking_level`, and sending BOTH is an error. What makes this expensive
+# rather than obvious is the default. An unspecified thinking_level is the TOP
+# of the scale, so the old escape hatch — drop the field the model rejected and
+# carry on — did not disable thinking, it asked for the most of it. That is how
+# VLM_PROVIDER=gemini on gemini-3.6-flash spent 3900 of a 4000-token budget
+# reasoning and wrote 103 tokens of description: one sheet's geometry, from a
+# transport that believed it had turned thinking off, reported by a warning
+# whose own advice (GEMINI_THINKING_BUDGET=off) made it worse.
+#
+# It is the Sonnet 5 lesson from the other vendor, and the same shape: a
+# transport that does not send the CURRENT field gets the model's default, and
+# the default moved.
+_GEMINI_VERSION = re.compile(r"gemini-(\d+)")
+
+# Floor first. `minimal` is as close to off as Gemini 3 offers — the docs are
+# explicit that it does not guarantee zero thinking — and some models do not
+# accept it at all, so a refusal steps UP the ladder rather than off the end.
+_THINKING_LEVELS = ("minimal", "low", "medium", "high")
+
+GEMINI_THINKING_LEVEL = (os.environ.get("GEMINI_THINKING_LEVEL") or "minimal").strip().lower()
+if GEMINI_THINKING_LEVEL not in _THINKING_LEVELS:
+    log.warning(
+        "GEMINI_THINKING_LEVEL=%r is not one of %s — using %r",
+        GEMINI_THINKING_LEVEL, ", ".join(_THINKING_LEVELS), _THINKING_LEVELS[0],
+    )
+    GEMINI_THINKING_LEVEL = _THINKING_LEVELS[0]
+
+
+def _takes_thinking_level(model: str) -> bool:
+    """Whether this model is asked for a level rather than a budget.
+
+    A version sniff, because the alternative is a list of model names and this
+    repo has already paid for one of those: a name expires on a schedule
+    nothing here controls. Gemini 4 will match it without a code change; a
+    name that parses as neither keeps the older field, which is where every
+    pre-3 model lives.
+    """
+    found = _GEMINI_VERSION.search(model or "")
+    return bool(found) and int(found.group(1)) >= 3
+
+
+# Models that rejected a thinking setting. The value is what to send INSTEAD —
+# None meaning "omit the field" — latched after one refusal so the failed call
+# is paid once, not on every page of a 400-page project.
+_thinking_latched: dict[str, dict | None] = {}
+
+# Kept as the omit-latch under its old name: several call sites and tests read
+# it, and "this model is called with no thinking field" is still exactly what
+# membership means.
 _no_thinking_config: set[str] = set()
 
 # Substrings that mark "this model will not accept a thinking budget" rather
@@ -308,9 +356,57 @@ _THINKING_REFUSALS = ("thinking", "thought")
 
 def _thinking_config(model: str) -> dict | None:
     """Thinking settings for this model, or None to omit the field entirely."""
-    if model in _no_thinking_config or GEMINI_THINKING_BUDGET is None:
+    if model in _no_thinking_config:
+        return None
+    if model in _thinking_latched:
+        return _thinking_latched[model]
+    if _takes_thinking_level(model):
+        return {"thinking_level": GEMINI_THINKING_LEVEL}
+    if GEMINI_THINKING_BUDGET is None:
         return None
     return {"thinking_budget": GEMINI_THINKING_BUDGET}
+
+
+def _thinking_ladder(model: str) -> list[dict | None]:
+    """What to try, in order, when a model refuses the thinking setting.
+
+    Omission is LAST and, on a level-taking model, is a defeat rather than a
+    fallback — it means thinking at the model's default, which is the top of
+    the scale. So a refused level steps up one rung first: a model that will
+    not take `minimal` may well take `low`, and `low` still leaves most of the
+    budget for the answer.
+    """
+    first = _thinking_config(model)
+    if first is None:
+        return [None]
+    if "thinking_level" not in first:
+        return [first, None]
+    rungs = list(_THINKING_LEVELS)
+    index = rungs.index(first["thinking_level"])
+    nxt = rungs[index + 1] if index + 1 < len(rungs) else None
+    return [first, {"thinking_level": nxt}, None] if nxt else [first, None]
+
+
+def _latch_thinking(model: str, thinking: dict | None) -> None:
+    """Remember what this model actually accepted, and say what it costs."""
+    if thinking is not None:
+        _thinking_latched[model] = thinking
+        log.warning("%s will be called with thinking=%s from now on", model, thinking)
+        return
+    _no_thinking_config.add(model)
+    if not _takes_thinking_level(model):
+        log.warning("%s will be called without a thinking budget from now on", model)
+        return
+    log.error(
+        "%s refused every thinking setting this transport knows, so the field is now "
+        "OMITTED for it — and on a Gemini 3 model that is not 'off', it is the MAXIMUM: "
+        "an unspecified thinking_level defaults to the top of the scale. That reasoning "
+        "is billed from the SAME max_output_tokens as the answer, so expect short "
+        "descriptions and truncated JSON for the rest of this run. This is "
+        "configuration, not weather: set GEMINI_THINKING_LEVEL to a level this model "
+        "accepts, or point the stage at a model that takes one.",
+        model,
+    )
 
 
 def _is_thinking_refusal(exc: object) -> bool:
@@ -366,7 +462,7 @@ def _flatten_system(system: str | list[dict]) -> str:
 
 
 def _gemini_config(
-    *, model, max_tokens, system=None, json_only=False, thinking=True
+    *, model, max_tokens, system=None, json_only=False, thinking: bool | dict = True
 ) -> dict:
     """One request-config builder for the single and batched paths, so the two
     cannot drift into asking the same model for different things.
@@ -401,9 +497,13 @@ def _gemini_config(
         # removes the "here is your JSON:" preamble that would fail them.
         config["response_mime_type"] = "application/json"
     if thinking:
-        budget = _thinking_config(model)
-        if budget is not None:
-            config["thinking_config"] = budget
+        # True asks for whatever this model should get; a dict is a specific
+        # rung the caller is retrying at. False omits the field — which is off
+        # on a budget model and the MAXIMUM on a level one, so nothing chooses
+        # it lightly.
+        chosen = thinking if isinstance(thinking, dict) else _thinking_config(model)
+        if chosen is not None:
+            config["thinking_config"] = chosen
     return config
 
 
@@ -452,7 +552,7 @@ def _complete_gemini(
     if client is None:
         return Reply(text="", stop_reason="unavailable")
 
-    def call(thinking: bool):
+    def call(thinking: bool | dict):
         return client.models.generate_content(
             model=model,
             contents=_user_content_gemini(user, images),
@@ -465,24 +565,34 @@ def _complete_gemini(
             ),
         )
 
-    try:
-        response = call(thinking=True)
-    except Exception as exc:
-        if not _is_thinking_refusal(exc) or model in _no_thinking_config:
-            raise
-        log.warning("%s rejected the request (%s) — retrying without the thinking budget", model, exc)
+    # Walk the ladder rather than falling straight off it. Dropping the field
+    # used to be the whole fallback, and on a level-taking model that asks for
+    # MORE thinking than the setting it replaced — the failure this transport
+    # is supposed to prevent, reached by the code that prevents it.
+    ladder = _thinking_ladder(model)
+    first_error: Exception | None = None
+    response = None
+    for step, thinking in enumerate(ladder):
         try:
-            response = call(thinking=False)
-        except Exception:
-            # The budget was not the problem. Report the ORIGINAL failure —
-            # the retry's is a symptom of the same cause — and do NOT latch,
-            # or one unrelated 400 would change how this model is called for
-            # the rest of the process's life.
-            raise exc from None
-        # It worked without the budget: latch the model so the rest of the
-        # project's pages skip straight to the shape that works.
-        _no_thinking_config.add(model)
-        log.warning("%s will be called without a thinking budget from now on", model)
+            response = call(thinking if thinking is not None else False)
+        except Exception as exc:
+            # Report the ORIGINAL failure if this turns out not to be about
+            # thinking at all — the later ones are symptoms of the same cause —
+            # and do NOT latch, or one unrelated 400 would change how this
+            # model is called for the rest of the process's life.
+            first_error = first_error or exc
+            if step == len(ladder) - 1 or not _is_thinking_refusal(exc):
+                raise first_error from None
+            log.warning(
+                "%s rejected thinking=%s (%s) — retrying with %s",
+                model, thinking, exc, ladder[step + 1] or "the field omitted",
+            )
+            continue
+        # It worked: latch it so the rest of the project's pages skip straight
+        # to the shape that works.
+        if step:
+            _latch_thinking(model, thinking)
+        break
 
     _record_gemini_usage(
         getattr(response, "usage_metadata", None),
@@ -603,23 +713,30 @@ def _batch_gemini(
     if results or not rejected or model in _no_thinking_config:
         return results
 
+    # One rung, not off the end: a batch is expensive enough that the retry
+    # should be the setting most likely to WORK, and on a level-taking model
+    # omitting the field asks for the most thinking rather than none.
+    ladder = _thinking_ladder(model)
+    retry = ladder[1] if len(ladder) > 1 else None
     log.warning(
         "gemini batch: all %d entries were rejected as invalid arguments — "
-        "resubmitting once without the thinking budget",
+        "resubmitting once with %s",
         len(prompts),
+        retry or "the thinking field omitted",
     )
     results, _ = _run_gemini_batch(
         prompts, system=system, model=model, max_tokens=max_tokens,
-        kind=kind, project_id=project_id, json_only=json_only, thinking=False,
+        kind=kind, project_id=project_id, json_only=json_only,
+        thinking=retry if retry is not None else False,
     )
     if results:
-        _no_thinking_config.add(model)
-        log.warning("%s will be called without a thinking budget from now on", model)
+        _latch_thinking(model, retry)
     else:
         log.error(
-            "gemini batch: %s rejected every entry with and without the thinking "
-            "budget — check SUMMARY_GEMINI_MODEL/GEMINI_MODEL names it a model your "
-            "key can call, or set GEMINI_THINKING_BUDGET=off",
+            "gemini batch: %s rejected every entry with and without a thinking "
+            "setting — check SUMMARY_GEMINI_MODEL/GEMINI_MODEL names a model your "
+            "key can call, and set GEMINI_THINKING_LEVEL (Gemini 3 and later) or "
+            "GEMINI_THINKING_BUDGET (earlier) to a value it accepts",
             model,
         )
     return results
