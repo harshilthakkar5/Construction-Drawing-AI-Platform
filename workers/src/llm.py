@@ -707,6 +707,44 @@ def complete_batch(
 # --- Dispatch -------------------------------------------------------------
 
 
+# A model name the provider does not recognise is not a transient failure. It
+# will fail identically on the next page and the four hundred after it, and
+# every caller here is built to fall back rather than stop — so the run
+# FINISHES, with the rules ladder standing in for the sheet reader or with no
+# description on any page, and the only trace is one warning per call buried in
+# a log that has thousands.
+#
+# It is also not an exotic case. Google retires a model by removing it FOR NEW
+# KEYS first ("models/gemini-2.5-flash is no longer available to new users"),
+# so a default that is correct for whoever configured the deployment becomes a
+# 404 for whoever creates a key next month, with no commit in between. Say it
+# once per model and stage, at ERROR, and say that the fix is an env var:
+# nothing in this module can recover from it.
+_MISSING_MODEL_SIGNS = ("not_found", "not found", "no longer available")
+_missing_model_reported: set[tuple[str, str]] = set()
+
+
+def _note_missing_model(provider: str, model: str, kind: str, exc: object) -> None:
+    text = str(exc).lower()
+    if not any(sign in text for sign in _MISSING_MODEL_SIGNS):
+        return
+    if (model, kind) in _missing_model_reported:
+        return
+    _missing_model_reported.add((model, kind))
+    log.error(
+        "%s does not recognise the model %r. EVERY %s call will fail the same way, "
+        "and this stage will spend the rest of the run falling back instead of "
+        "stopping — so the job will look like it worked. This is configuration, "
+        "not a transient error: point the %s stage at a model your API key can "
+        "reach. The provider said: %s",
+        provider,
+        model,
+        kind,
+        kind,
+        exc,
+    )
+
+
 def complete(
     system: str | list[dict],
     user: str,
@@ -758,6 +796,7 @@ def complete(
                 images=images,
             )
     except Exception as exc:
+        _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)
         log.warning("%s %s call failed: %s", provider, kind, exc)
         return None
     return None if reply.stop_reason == "unavailable" else reply

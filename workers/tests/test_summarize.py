@@ -470,3 +470,35 @@ class TestRollupSalvage:
         result = summarize._rollup("portion", "Structural", lower, {"c1": 7})
         assert result["overview"] == "Page 1."
         assert result["items"][0]["text"] == "A note."
+
+
+class TestTheModelDefaultsAreMirroredNotDuplicated:
+    """apps/api/src/llm.ts holds the same two defaults, and its own comment
+    says they MUST match this module's. They did not: the worker summarized
+    with gemini-2.5-pro while the estimate dialog quoted gemini-3.1-pro-preview
+    — so the one screen whose entire job is telling someone what a run will
+    cost priced a model that was not going to run. Nothing fails when they
+    drift, which is why this reads the TypeScript."""
+
+    SRC = Path(__file__).resolve().parents[2] / "apps" / "api" / "src" / "llm.ts"
+
+    def _default(self, name: str) -> str:
+        import re
+
+        found = re.search(rf'{name} = "([^"]+)"', self.SRC.read_text())
+        assert found, f"{name} is gone from apps/api/src/llm.ts"
+        return found.group(1)
+
+    def test_the_gemini_summary_model(self, monkeypatch):
+        monkeypatch.delenv("SUMMARY_GEMINI_MODEL", raising=False)
+        import importlib
+
+        importlib.reload(summarize)
+        assert summarize.SUMMARY_GEMINI_MODEL == self._default("DEFAULT_SUMMARY_GEMINI_MODEL")
+
+    def test_the_claude_summary_model(self, monkeypatch):
+        monkeypatch.delenv("SUMMARY_MODEL", raising=False)
+        import importlib
+
+        importlib.reload(summarize)
+        assert summarize.SUMMARY_MODEL == self._default("DEFAULT_SUMMARY_MODEL")
