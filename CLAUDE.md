@@ -615,7 +615,15 @@ section, which is what makes it plausible, and one that appears nowhere on THIS 
 columns are HSS8X8, HSS6X6 and HSS10X10. Matching neither the truth nor the distractor nor
 anything else on the drawing, all 21 cases scored ABSTAINED. A size nobody specified, reported as a
 refusal to guess. A set generated before `labelPattern` existed still runs, and the report says in
-as many words that it cannot tell an invented label from a refusal. A model that declines is not a model that is wrong — on
+as many words that it cannot tell an invented label from a refusal.
+`drawing_truth.py --backfill <set.json>` adds the field to such a set WITHOUT re-deriving any
+answer, which is sound only because the pattern is a function of the TAG alone — it depends on
+no geometry, so the result is byte-identical to what a full regeneration would write for that
+field. Regenerating from the PDF is still the real fix, since it re-derives the truth too. How
+much this matters scales with ABSTENTIONS: at zero or one it is nearly harmless, and the first
+run to produce a real description declined 15 of 40, any of which could be an invented mark
+filed as a refusal. The first vision output good enough to be worth scoring is exactly the one
+that makes the blind spot expensive. A model that declines is not a model that is wrong — on
 drawings "the sheet does not show this" sends someone to look, while a confident wrong footing
 mark gets poured — and collapsing the two would hide the only failure that is dangerous while
 punishing the behaviour FR-14 asks for. But `off-target` has to be its own outcome for that line
