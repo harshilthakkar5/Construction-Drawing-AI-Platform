@@ -387,12 +387,32 @@ def render(page: fitz.Page, max_edge: int = MAX_EDGE_PX) -> bytes:
     """
     rect = page.rect
     longest = max(rect.width, rect.height)
-    # Never scale UP: a 42in sheet is already far larger than max_edge, but a
-    # small detail sheet is not, and upscaling would add pixels carrying no
-    # information while being billed for them.
-    zoom = min(1.0, max_edge / longest) if longest else 1.0
+    zoom = (max_edge / longest) if longest else 1.0
+    # "Never scale UP" was written for a RASTER page, where extra pixels really
+    # are empty and billed. A PDF page is VECTOR: rendering it above 1.0 draws
+    # the text again at a higher sampling rate, and 42in at 72pt/in is 3024pt,
+    # so this clamp silently held the whole vision pass at 72 DPI. Setting
+    # VLM_MAX_EDGE=5000 to test the resolution hypothesis produced 3024px and
+    # "72 DPI" — the experiment did not run, and only the log line added for
+    # that hypothesis showed it.
+    if zoom > 1.0 and not _has_vector_text(page):
+        zoom = 1.0
     _report_resolution(rect, zoom, max_edge)
     return page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
+
+
+def _has_vector_text(page) -> bool:
+    """Whether upscaling this page can add information.
+
+    A text layer means the page was DRAWN, so re-rendering it larger resolves
+    the glyphs further. A page without one is a scan already fixed at its own
+    resolution, and there the original rule holds: bigger is empty pixels at
+    full price.
+    """
+    try:
+        return bool(page.get_text("text").strip())
+    except Exception:  # a page object that cannot be read is not worth upscaling
+        return False
 
 
 def _report_resolution(rect, zoom: float, max_edge: int) -> None:

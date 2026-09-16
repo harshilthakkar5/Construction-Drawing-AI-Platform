@@ -40,12 +40,29 @@ def test_render_scales_the_long_edge_to_the_cap():
     doc.close()
 
 
-def test_render_never_upscales_a_small_sheet():
-    """Extra pixels carry no extra information and are billed all the same —
-    a Gemini tile costs 258 tokens whether or not anything is in it."""
+def test_render_upscales_a_drawn_sheet_to_the_cap():
+    """This test used to assert the opposite, and the opposite was wrong.
+
+    "Extra pixels carry no extra information" is true of a RASTER page and
+    false of a vector one: a PDF page re-rendered above 1.0 draws its glyphs
+    again at a higher sampling rate. Because 42in at 72pt/in is 3024pt, the old
+    clamp pinned every sheet in this pass at 72 DPI or below — so setting
+    VLM_MAX_EDGE=5000 to test whether resolution was the column tag's limit
+    rendered 3024px and logged "72 DPI". The experiment could not run.
+    """
     doc, page = sheet(width_in=8.5, height_in=11.0)
     pix = fitz.Pixmap(vlm.render(page, max_edge=2576))
-    # 11in at 72dpi is 792pt -> 792px unscaled, not stretched up to 2576.
+    assert max(pix.width, pix.height) == pytest.approx(2576, abs=2)
+    doc.close()
+
+
+def test_render_never_upscales_a_page_with_no_text_layer():
+    """A scan is already fixed at its own resolution, so there the original
+    rule holds: bigger is empty pixels at full price — a Gemini tile costs 258
+    tokens whether or not anything is in it."""
+    doc = fitz.open()
+    page = doc.new_page(width=8.5 * 72, height=11.0 * 72)  # nothing drawn on it
+    pix = fitz.Pixmap(vlm.render(page, max_edge=2576))
     assert max(pix.width, pix.height) == pytest.approx(792, abs=2)
     doc.close()
 
@@ -521,3 +538,57 @@ class TestZoneMarkersAreNotGridLines:
         assert "ending in a CIRCLED label" in system
         assert "zone markers" in system
         assert "Counting them doubles your grid" in system
+
+
+class TestUpscalingAVectorPage:
+    """The clamp that made the resolution experiment impossible to run.
+
+    "Never scale UP" was written for a raster page, where extra pixels are
+    empty and billed. A PDF page is VECTOR, and 42in at 72pt/in is 3024pt — so
+    min(1.0, max_edge/longest) pinned the whole vision pass at 72 DPI. Setting
+    VLM_MAX_EDGE=5000 to test whether resolution was the column tag's limit
+    rendered 3024px and logged "72 DPI": the experiment did not run, and only
+    the log line added for that same hypothesis revealed it.
+    """
+
+    class _Page:
+        text = "HSS8X8X3/8"
+
+        class rect:
+            width, height = 42 * 72, 30 * 72
+
+        def get_text(self, *_a):
+            return self.text
+
+        def get_pixmap(self, matrix=None):
+            self.zoom = matrix.a
+
+            class _Pixmap:
+                def tobytes(self, _fmt):
+                    return b""
+
+            return _Pixmap()
+
+    def _render(self, monkeypatch, page, max_edge):
+        monkeypatch.setattr(vlm, "_resolution_reported", True)
+        vlm.render(page, max_edge)
+        return page.zoom
+
+    def test_a_drawn_page_renders_above_1x(self, monkeypatch):
+        page = self._Page()
+        zoom = self._render(monkeypatch, page, 5000)
+        assert round(72 * zoom) == 119, "5000px on a 3024pt page is 119 DPI, not 72"
+
+    def test_a_scan_is_still_never_upscaled(self, monkeypatch):
+        """No text layer means the page is already fixed at its own
+        resolution, and there the original rule holds: bigger is empty pixels
+        at full price."""
+        page = self._Page()
+        page.text = "   "
+        assert self._render(monkeypatch, page, 5000) == 1.0
+
+    def test_the_default_is_unchanged(self, monkeypatch):
+        """2576 is BELOW the page's 3024pt, so the default still downscales and
+        this fix changes nothing until someone raises the setting."""
+        page = self._Page()
+        assert round(72 * self._render(monkeypatch, page, 2576)) == 61
