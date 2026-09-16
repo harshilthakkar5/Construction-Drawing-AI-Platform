@@ -410,7 +410,26 @@ characters, discarded as too short. A thinking model bills its reasoning from th
 `max_output_tokens` as its answer, and 3.1 Pro does not let you turn it off. Neither log line
 named the budget, so both looked like model quality; `vlm.describe_page` now reports the
 `stop_reason` on a discarded reply and says outright that a truncated description leaves the rest
-of the sheet with no description at all. The default is 4000. What comes back is the
+of the sheet with no description at all. The default is 4000.
+
+`stop_reason == "max_tokens"` has TWO causes and they need opposite responses, so the log reports
+how many tokens were actually WRITTEN, not just the budget. A run stored a description of 64
+tokens against a 4000-token budget and logged "it is TRUNCATED … Raise VLM_MAX_TOKENS": the model
+had written forty-odd words and spent the other 98% reasoning, so more budget buys more reasoning
+and not one more pairing. This is the same thinking-model failure that returns 98 characters and
+is discarded — it merely cleared `MIN_DESCRIPTION_CHARS` (120) and was therefore kept, indexed,
+and read as an account of the whole sheet. Written tokens under half the budget now says so
+explicitly and points at the model rather than the number. Watch for the consequence in a
+benchmark: that 64-token chunk still occupied one of k=18 slots and still counted as
+"description in prompt 40/40".
+
+Every line `describe_page` emits NAMES THE PROVIDER AND MODEL, and a page that worked emits one
+too. `VLM_PROVIDER` is read here, at ingest, so nothing downstream can recover it: the benchmark
+reads chunks and the chunks do not carry it. "Was that run Claude or Gemini?" therefore cost
+three separate investigations, twice on a project whose owner was sure of the answer — and the
+two ingests being compared had produced 64 tokens and zero, both from a model that reasons.
+Until a `sourceModel` column exists on `chunks`, the log is the only record of which model
+wrote a description. What comes back is the
 model's account of a drawing, NEVER a quotation from it, and that distinction is carried all the
 way through — `chunks.kind`, a `kind="description"` attribute on the prompt's chunk tag, a rule
 telling the model to write "the drawing shows…" rather than "the note says…" and to let the
@@ -624,6 +643,15 @@ workflow produces — a set naming more than one project (it would score two cor
 number), and a sheet living on more than one live page of the target project (a re-upload is a
 NEW document; only `replacesDocumentId` makes it a revision, so retrieval draws on both ingests
 at once and whichever description wins the fusion decides the answer).
+
+How many description chunks EXIST on the sheet is reported next to how many were reached
+(`describeCoverage`), because the per-case count cannot tell the two apart and they have
+opposite fixes. A run reported `description in prompt 40/40` — every case saw one, which reads
+as full coverage — while naming exactly ONE distinct chunk id. Either the description was stored
+whole (so `split_description` never ran on that ingest) or the split worked and retrieval
+surfaces the same piece for every question, leaving the rest of the sheet indexed and
+unreachable. In the second case the obvious next move is the wrong one: raising
+`VLM_MAX_TOKENS` writes more of the drawing into pieces nothing retrieves.
 
 Every tag reports its MAJORITY-CLASS BASELINE, because a bare percentage invites the wrong
 reading: a sheet reuses a handful of marks, so "always answer HSS8X8X3/8" scores 52% on the

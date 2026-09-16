@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyProjectOverride,
+  describeCoverage,
   inventedLabel,
   labelVocabulary,
   mentions,
@@ -291,4 +292,40 @@ test("without a labelPattern the scorer cannot see an invented label", () => {
   // The old blindness, kept explicit: a set generated before labelPattern
   // existed scores these as refusals, and the report says so out loud.
   assert.equal(score("The column there is an HSS9X9X3/8.", { ...columnCase, labelPattern: undefined }, SIZES), "abstained");
+});
+
+test("a description nothing retrieved is reported as nothing, not as coverage", () => {
+  assert.match(describeCoverage([], []), /NONE/);
+});
+
+test("one chunk on the sheet says the description was never split", () => {
+  const said = describeCoverage(["a"], ["a"]);
+  assert.match(said, /1, of which 1 reached/);
+  assert.match(said, /stored whole/);
+});
+
+test("the failure a per-case count cannot show: every case retrieved a description, and it was always the SAME one", () => {
+  // The run that prompted this reported "description in prompt 40/40" — which
+  // reads as full coverage — while naming exactly one chunk id. Five of the six
+  // pieces of that sheet's description were in the corpus and unreachable, and
+  // nothing in the report said so.
+  const said = describeCoverage(["a", "b", "c", "d", "e", "f"], ["a"]);
+  assert.match(said, /6, of which 1 reached/);
+  assert.match(said, /other 5/);
+  // The point of saying it: the obvious next move is the wrong one.
+  assert.match(said, /VLM_MAX_TOKENS/);
+});
+
+test("a chunk reached by some other page's question does not count as coverage here", () => {
+  assert.match(describeCoverage(["a", "b"], ["a", "zz"]), /2, of which 1 reached/);
+});
+
+test("repeats in the reached list are one chunk, not many", () => {
+  assert.match(describeCoverage(["a", "b"], ["a", "a", "a"]), /2, of which 1 reached/);
+});
+
+test("full reach says so plainly rather than proposing a fix", () => {
+  const said = describeCoverage(["a", "b"], ["b", "a"]);
+  assert.match(said, /every piece is reachable/);
+  assert.doesNotMatch(said, /VLM_MAX_TOKENS/);
 });
