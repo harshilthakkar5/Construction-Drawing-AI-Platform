@@ -23,6 +23,7 @@ import {
   oneProjectOrThrow,
   score,
   tally,
+  answerConcentration,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -456,4 +457,87 @@ test("the report says outright when the vocabulary is only the set's", () => {
   const said = verdict(rows);
   assert.match(said, /No case carries sheetLabels/);
   assert.match(said, /scores INVENTED rather than off-target/);
+});
+
+// A row that NAMED something, which the concentration measurement reads and
+// the verdict rows above deliberately do not.
+const namedRow = (tag, expected, outcome, said) => ({
+  ...verdictRow(tag, expected, outcome),
+  said: outcome === "abstained" ? "" : said ?? expected,
+});
+
+test("a tag that answers one label far more often than the sheet shows it is flagged", () => {
+  // The measured case: the column tag scored 52%, exactly tying its baseline,
+  // and said HSS8X8X3/8 to 15 of the 18 questions it answered. Minority hits
+  // read 1/11 and every other number on its line looked like half a result.
+  const rows = [
+    ...Array.from({ length: 10 }, () => namedRow("grid-column", "HSS8X8X3/8", "correct")),
+    ...Array.from({ length: 5 }, () => namedRow("grid-column", "HSS6X6X3/8", "off-target", "HSS8X8X3/8")),
+    namedRow("grid-column", "HSS8X8X1/2", "correct"),
+    namedRow("grid-column", "HSS8X8X3/8", "wrong", "HSS8X8X5/8"),
+    namedRow("grid-column", "HSS10X10X1/2", "invented", "HSS8X10X12"),
+    ...Array.from({ length: 3 }, () => namedRow("grid-column", "HSS6X6X5/8", "abstained")),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "HSS8X8X3/8");
+  // Abstentions are not answers and must stay out of the denominator.
+  assert.equal(c.answered, 18);
+  assert.equal(c.named, 15);
+  assert.equal(Math.round(c.namedPct), 83);
+  assert.equal(Math.round(c.truthPct), 52);
+});
+
+test("a tag naming its common label at the rate the sheet shows it is not flagged", () => {
+  // The same run's footing tag: F9 named 6 times in 18 against a 32% truth
+  // rate, and it scored 74%. The contrast is the whole point of the number.
+  const rows = [
+    ...Array.from({ length: 5 }, () => namedRow("grid-footing", "F9", "correct")),
+    namedRow("grid-footing", "F9", "wrong", "F7"),
+    namedRow("grid-footing", "F8", "wrong", "F9"),
+    ...Array.from({ length: 6 }, (_, i) => namedRow("grid-footing", `F1${i}`, "correct")),
+    ...Array.from({ length: 5 }, (_, i) => namedRow("grid-footing", `F${i + 2}`, "correct")),
+    namedRow("grid-footing", "F13", "abstained"),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "F9");
+  assert.ok(c.gap < 15, `expected no over-naming, got ${c.gap}pt`);
+});
+
+test("concentration is measured per tag, never pooled across them", () => {
+  // Pooling is the mistake the baseline already had to unlearn: a footing
+  // question could never be answered with a column size, so mixing the two
+  // dilutes the very concentration this exists to expose. Twelve calibrated
+  // footing rows must not wash out six identical column answers.
+  const rows = [
+    ...Array.from({ length: 6 }, () => namedRow("grid-column", "HSS8X8X3/8", "correct")),
+    ...Array.from({ length: 6 }, () => namedRow("grid-column", "HSS6X6X3/8", "off-target", "HSS8X8X3/8")),
+    ...Array.from({ length: 12 }, (_, i) => namedRow("grid-footing", `F${i + 1}`, "correct")),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.tag, "grid-column");
+  assert.equal(c.named, 12);
+  assert.equal(c.answered, 12);
+  assert.equal(Math.round(c.truthPct), 50);
+});
+
+test("the report names an over-naming tag even when the set beat its baseline", () => {
+  // The run this came from beat the baseline overall — 63% against 43% — while
+  // one of its two tags tied its own baseline and answered one word to 83% of
+  // what it attempted. A set-wide verdict is exactly where that hides.
+  const rows = [
+    ...Array.from({ length: 6 }, () => namedRow("grid-column", "HSS8X8X3/8", "correct")),
+    ...Array.from({ length: 4 }, () => namedRow("grid-column", "HSS6X6X3/8", "off-target", "HSS8X8X3/8")),
+    ...Array.from({ length: 10 }, (_, i) => namedRow("grid-footing", `F${i + 1}`, "correct")),
+  ];
+  const said = verdict(rows);
+  assert.match(said, /Beat the baseline/);
+  assert.match(said, /Watch grid-column/);
+  assert.match(said, /"HSS8X8X3\/8" 10 times in 10/);
+});
+
+test("a tag that answered nothing reports no concentration rather than zero", () => {
+  const rows = Array.from({ length: 4 }, () => namedRow("grid-footing", "F9", "abstained"));
+  assert.equal(answerConcentration(rows), null);
+  // And the report must not print a line about it.
+  assert.doesNotMatch(verdict(rows), /over-naming|in step with the sheet/);
 });

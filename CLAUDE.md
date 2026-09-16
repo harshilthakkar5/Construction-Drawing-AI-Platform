@@ -422,6 +422,15 @@ with the room left over" listed dimensions as permitted, so a third of the budge
 grid-to-grid spacings, every one already indexed, while a whole grid row went undescribed.
 Intersections come first; everything else is what is left.
 
+Those four rules were then measured, on a fresh ingest of the same sheet: 28% correct with 15
+abstentions became 63% correct with 4, and the footing tag went from guesswork to 74% against its
+32% baseline with 9 of its 14 hits on minority marks. Naming the grid first is what bought most
+of it — the row those 14 questions ask about now answers. The column tag did not move off its
+baseline, and the report now says why: it answered HSS8X8X3/8 to 15 of the 18 cases it attempted,
+where the sheet shows that size on 52% of them. Two of its remaining misses name the right
+section with the wrong thickness and two the reverse, which is the signature of a mark being half
+read — not of a row nobody located.
+
 Every example value in the prompt is SYNTHETIC on purpose, and that is load-bearing rather than
 tidy. The counter-examples carried this sheet's real footing marks for a while — `F9` among
 them, which is exactly the label the majority-class baseline guesses and scores 32% with. A
@@ -726,6 +735,22 @@ was BELOW baseline on both tags, with all four wrong answers naming a high-frequ
 comprehension plus a frequency prior, not partial success. With descriptions at
 `VLM_MAX_TOKENS=10000` the footing tag reached 53% against its 32% baseline, and at least four of
 those ten hits were minority marks — the first result here that a guesser cannot account for.
+
+Minority hits read that instinct from one end only — among CORRECT answers — so a tag can look
+clean there while every one of its misses is the same word. Each tag therefore also reports
+ANSWER CONCENTRATION: which label it reached for most, on how many of the cases it ANSWERED, and
+how often that label is actually the truth. The run that first made this matter beat the baseline
+overall (63% against 43%) on the strength of one tag: footings scored 74% against a 32% baseline
+with 9 of 14 hits on minority marks and named F9 on 33% of its answers where the sheet shows it
+32% of the time — calibrated, i.e. reading. The column tag on the same description scored 52%,
+tying its baseline to the case, and said HSS8X8X3/8 to 15 of the 18 questions it answered: 83% of
+its answers on a label that is the truth 52% of the time. Every other number on that line looked
+like half a result, and the 31-point gap had to be worked out by hand from the miss list. It is
+measured PER TAG for the same reason the baseline is — a footing question could never be answered
+with a column size, and pooling dilutes the concentration it exists to expose. Over-naming is not
+the same claim as being wrong: a tag can over-name and still beat its baseline, and that is
+exactly what is worth seeing, because it means the hits are riding on the sheet's own frequencies
+rather than on the intersection each question names.
 
 That baseline ANSWERS EVERY CASE, which makes raw accuracy the wrong comparison for a run that
 declines: it has forfeited the cases it abstained on, so it cannot win on the total however well
