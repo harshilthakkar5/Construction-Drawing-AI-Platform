@@ -274,6 +274,83 @@ def backfill_label_patterns(cases: list[dict]) -> int:
     return filled
 
 
+def _reach_to(point, rect) -> float:
+    """How far a label must sit from `point` before it can fall inside `rect`.
+
+    Zero if the point is already inside. A label's position is not recorded —
+    only its DISTANCE from its intersection — so this is the honest form of the
+    question: a label `d` away lies somewhere on a circle of radius `d`, and if
+    `d` reaches the neighbour's rectangle then the neighbour's crop MAY contain
+    it. That is an upper bound on contamination, which is the right direction
+    for a warning: it can rule contamination out and never in.
+    """
+    px, py = point
+    dx = max(rect.x0 - px, 0.0, px - rect.x1)
+    dy = max(rect.y0 - py, 0.0, py - rect.y1)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _report_crop_overlap(boxes_by_page, by_label) -> None:
+    """Whose OTHER labels a crop can contain — the half `--against` never asked.
+
+    The existing check asks "is my label inside my crop?" and a sheet can pass
+    it completely while every crop also contains its neighbour's labels. Those
+    are different questions with different consequences, and the second one is
+    the whole point of cropping: a crop exists to stop a model answering 2/C
+    with row F's member size, which is exactly what the 68% run did at 2/C,
+    4.6/C and 7/C.
+
+    On the sheet this was written against the answer is that it CANNOT be
+    avoided. Labels sit up to 83.7pt from their intersection, so a clean
+    separation needs every grid gap above 167.4pt, and the tightest here are
+    129.9pt (columns 4.6 to 4) and 137.2pt (rows C to F). Any crop large enough
+    to contain its own furthest label reaches into its neighbour. Sizing is not
+    the lever and `VLM_CROP_BAYS` cannot fix it.
+
+    So this REPORTS and never fails. Failing would block a run that is as good
+    as this sheet allows, and the number it prints is the one that says how much
+    weight the prompt's "a neighbour's label is not yours to report" rule is
+    carrying — on this sheet, all of it.
+    """
+    points, rects = {}, {}
+    for boxes in boxes_by_page:
+        for label, rect in boxes:
+            rects[label] = rect
+            points[label] = ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+    if not rects:
+        return
+    exposed = []
+    for label, cases in sorted(by_label.items()):
+        if label not in points:
+            continue
+        reach = max((c["derivation"].get("labelDistancePt", 0) for c in cases), default=0)
+        nearest = None
+        for other, rect in rects.items():
+            if other == label:
+                continue
+            need = _reach_to(points[label], rect)
+            if reach >= need and (nearest is None or need < nearest[1]):
+                nearest = (other, need)
+        if nearest:
+            exposed.append((label, reach, nearest))
+    if not exposed:
+        print("\n  No crop can contain another intersection's label.", file=sys.stderr)
+        return
+    tightest = min(exposed, key=lambda e: e[2][1])
+    print(
+        f"\n  {len(exposed)} of {len(by_label)} intersections have a label that can reach a "
+        f"NEIGHBOURING crop. Tightest: {tightest[0]}'s label is {tightest[1]}pt out and "
+        f"{tightest[2][0]}'s crop starts {tightest[2][1]:.1f}pt away.\n"
+        "  This is not a sizing bug and VLM_CROP_BAYS cannot fix it: a crop must be big "
+        "enough to hold its OWN furthest label, and where the grid gap is under twice that "
+        "distance the crop necessarily reaches into its neighbour. Nothing here is wrong — "
+        "it says the crop alone does not separate these intersections, so the prompt's rule "
+        "that a neighbour's label is not yours to report is what has to, and a confusion "
+        "between exactly these pairs is the first thing to look for in the run.",
+        file=sys.stderr,
+    )
+
+
 def dump_crops(pdf: str, against: str | None) -> int:
     """Print the crop the vision pass would take at each intersection.
 
@@ -306,10 +383,12 @@ def dump_crops(pdf: str, against: str | None) -> int:
 
     problems = 0
     seen = set()
+    boxes_by_page = []
     for page_index, page in enumerate(doc):
         boxes = vlm.crops(page)
         if not boxes:
             continue
+        boxes_by_page.append(boxes)
         print(f"page {page_index + 1}: {len(boxes)} crops")
         for label, rect in boxes:
             seen.add(label)
@@ -335,6 +414,7 @@ def dump_crops(pdf: str, against: str | None) -> int:
     for label in sorted(set(by_label) - seen):
         print(f"  {label:>8}  NO CROP — the set asks about it and the grid does not have it")
         problems += 1
+    _report_crop_overlap(boxes_by_page, by_label)
     doc.close()
     if against:
         print(

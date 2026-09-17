@@ -98,3 +98,116 @@ class TestTheCheckedInSet:
             for label in (case["expected"], case.get("distractor")):
                 if label:
                     assert _matches(case["labelPattern"], label), (case["tag"], label)
+
+
+class TestWhoseLabelsACropContains:
+    """The half `--against` never asked.
+
+    "Is my label inside my crop?" and "is anyone ELSE's label inside my crop?"
+    are different questions with different consequences, and a sheet can pass
+    the first completely while failing the second everywhere. The second is the
+    whole point of cropping: a crop exists to stop a model answering 2/C with
+    row F's member size, which is exactly what the run before this did at 2/C,
+    4.6/C and 7/C.
+    """
+
+    class _Rect:
+        def __init__(self, x0, y0, x1, y1):
+            self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+
+    @staticmethod
+    def _grid(gap, half, reach):
+        """Two intersections `gap` apart, crops of half-width `half`, labels
+        sitting `reach` from their own intersection."""
+        rects = {
+            "1/A": TestWhoseLabelsACropContains._Rect(-half, -half, half, half),
+            "2/A": TestWhoseLabelsACropContains._Rect(gap - half, -half, gap + half, half),
+        }
+        by_label = {
+            label: [{"derivation": {"labelDistancePt": reach}}] for label in rects
+        }
+        return rects, by_label
+
+    def test_a_label_short_of_the_neighbours_edge_cannot_reach_it(self):
+        rects, _ = self._grid(gap=400, half=100, reach=50)
+        # The neighbour's crop starts 300pt away; a 50pt label cannot get there.
+        assert drawing_truth._reach_to((0, 0), rects["2/A"]) == 300
+        assert 50 < 300
+
+    def test_a_label_further_out_than_the_gap_to_the_neighbour_can(self):
+        """The real sheet: rows C and F are 137.2pt apart with a 222.8pt crop,
+        so F's crop starts 25.8pt from C's intersection and every label is 47pt
+        or more out. Nothing about the size can fix that."""
+        rects, _ = self._grid(gap=137.2, half=111.4, reach=83.7)
+        need = drawing_truth._reach_to((0, 0), rects["2/A"])
+        assert round(need, 1) == 25.8
+        assert 83.7 >= need
+
+    def test_it_reports_rather_than_fails(self, capsys):
+        """On this sheet the condition is unsatisfiable — a crop must hold its
+        OWN furthest label — so failing would block a run that is as good as the
+        geometry allows. The number is what says how much weight the prompt's
+        neighbour rule is carrying."""
+        rects, by_label = self._grid(gap=137.2, half=111.4, reach=83.7)
+        drawing_truth._report_crop_overlap([list(rects.items())], by_label)
+        said = capsys.readouterr().err
+        assert "can reach a NEIGHBOURING crop" in said
+        assert "VLM_CROP_BAYS cannot fix it" in said
+        assert "25.8pt away" in said
+
+    def test_a_sheet_whose_crops_are_clean_says_so(self, capsys):
+        rects, by_label = self._grid(gap=400, half=100, reach=50)
+        drawing_truth._report_crop_overlap([list(rects.items())], by_label)
+        assert "No crop can contain another intersection's label." in capsys.readouterr().err
+
+    def test_the_checked_in_set_is_measured_not_assumed(self, capsys):
+        """Against the real sheet's own coordinates, read out of the set. If
+        this ever reports clean, the crop geometry changed and the prediction
+        written into CLAUDE.md for the crop run no longer applies."""
+        cases = json.loads(
+            (Path(__file__).resolve().parents[2] / "benchmarks" / "drawing_eval_set.json").read_text()
+        )
+        columns, rows = {}, {}
+        for case in cases:
+            d = case["derivation"]
+            columns[d["gridColumn"]] = d["intersectionPt"][0]
+            rows[d["gridRow"]] = d["intersectionPt"][1]
+
+        def median(values):
+            gaps = sorted(b - a for a, b in zip(sorted(values), sorted(values)[1:]))
+            mid = len(gaps) // 2
+            return gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
+
+        half_x, half_y = median(columns.values()) * 0.6, median(rows.values()) * 0.6
+        rects, by_label = {}, {}
+        for col, x in columns.items():
+            for row, y in rows.items():
+                label = f"{col}/{row}"
+                rects[label] = self._Rect(x - half_x, y - half_y, x + half_x, y + half_y)
+        for case in cases:
+            d = case["derivation"]
+            by_label.setdefault(f"{d['gridColumn']}/{d['gridRow']}", []).append(case)
+        drawing_truth._report_crop_overlap([list(rects.items())], by_label)
+        said = capsys.readouterr().err
+        assert f"{len(by_label)} of {len(by_label)} intersections" in said, (
+            "every intersection on this sheet can reach a neighbour: labels reach 83.7pt "
+            "and the tightest gaps are 129.9 and 137.2pt"
+        )
+        assert "25.8pt away" in said, "rows C and F are the tightest pair"
+
+    def test_the_neighbour_reported_is_the_nearest_one_not_the_first_found(self, capsys):
+        """Which neighbour a crop reaches first is what decides the tightest
+        pair, and the tightest pair is the confusion to look for in the run. The
+        far one is inserted first here, so taking whichever turns up first gets
+        it wrong while still reporting something that looks right."""
+        half = 111.4
+        rects = {
+            "3/A": self._Rect(400 - half, -half, 400 + half, half),  # far, seen first
+            "1/A": self._Rect(-half, -half, half, half),
+            "2/A": self._Rect(137.2 - half, -half, 137.2 + half, half),  # near
+        }
+        by_label = {"1/A": [{"derivation": {"labelDistancePt": 300.0}}]}
+        drawing_truth._report_crop_overlap([list(rects.items())], by_label)
+        said = capsys.readouterr().err
+        assert "2/A's crop starts 25.8pt away" in said
+        assert "3/A" not in said
