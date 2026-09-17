@@ -726,7 +726,16 @@ vision. Cases are GENERATED, never hand-written and never captured from the app,
 bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
 frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
 at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
-survives jittering the intersection 20pt in eight directions. Scoring is SIX-way, not pass/fail:
+survives jittering the intersection 20pt in eight directions. Finding those bubbles now lives in
+`workers/src/grid.py`, which the generator imports, because the vision pass needs the same
+coordinates to decide what to CROP and a grid detected twice is a grid that drifts — the lesson
+the identifier regex, the combined-numbering rule and the storage switch each paid for once. It
+costs something real and the module says so: while the generator was the only reader, the eval
+could falsify anything the pipeline believed about the grid, and once both sides read the same
+bubbles a misdetection is wrong in both at once — the crop labelled 4/B and the expected answer
+for 4/B agree with each other and disagree with the drawing. One definition plus a stated blind
+spot beats two definitions and a silent divergence; the blind spot is covered by `--explain`,
+read by a person once per sheet. Scoring is SIX-way, not pass/fail:
 `correct`, `wrong` (named the nearest neighbouring label), `off-target` (named some other label
 of that kind, from elsewhere on the sheet), `invented` (named something SHAPED like a mark of
 that kind but written nowhere on the drawing), `hedged` (named the truth and the distractor), and
@@ -771,6 +780,23 @@ candidates scores off-target, which is why every run now writes its answers to
 `benchmarks/runs/` (gitignored) instead of computing them and throwing them away unless asked for
 `--json`. The scorer has its own tests (`node --test benchmarks/drawing_eval.test.mjs`), because
 a matcher that finds "F9" inside "F90" reports a wrong answer as right.
+
+Six outcomes still cannot express the failure that matters most once a description is good: the
+RIGHT label at the WRONG intersection. "F10 at 3/B" scores off-target — "named some other label of
+that kind" — which reads as a model that could not read the mark. But F10 IS the truth at 4/B,
+148pt away, one grid bay across, and five of seven footing misses in one run were exactly that,
+alongside five of fourteen column misses. The mark was read correctly and placed one bay off.
+`drift` reports it: every miss naming a label whose home intersection is within 1.5 bays is
+annotated with where that label really lives and how far, and a tag with two or more says so in a
+line of its own. The bay is measured from the cases themselves (the shortest gap between two
+intersections), because no constant is right across sheets. It is REPORTED, never scored — a
+seventh outcome would silently rebase every tally in this file's history against runs that never
+measured it. The distinction decides the next move and the two are opposite: a misread glyph wants
+resolution, while a correctly-read label in the wrong place wants LOCALITY, and a
+higher-resolution whole-sheet image makes locality WORSE, since the grid bubbles are at the
+drawing's edge and the intersections are in the middle, so each tile covers less of the sheet.
+That is the lever the crop-per-grid-row idea exists for, and it is why raising DPI on the whole
+page cannot be the last word.
 
 The harness runs the API's own `retrieveChunkIds` + `answerFromChunks`, and "the real thing" is
 load-bearing to the letter: it must pass `kind` exactly as `routes/chat.ts` does, or the

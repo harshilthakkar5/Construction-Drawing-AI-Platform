@@ -24,6 +24,7 @@ import {
   score,
   tally,
   answerConcentration,
+  drift,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -633,4 +634,66 @@ test("the set-wide warning names the guessing tag, not the widest gap", () => {
   assert.equal(column.prior, true);
   assert.equal(answerConcentration(rows).tag, "grid-column");
   assert.match(verdict(rows), /Watch grid-column/);
+});
+
+
+// Three intersections on one row line, one bay (130pt) apart.
+const atPoint = (grid, x, expected, outcome, said) => ({
+  ...verdictRow("grid-footing", expected, outcome),
+  grid,
+  point: [x, 600],
+  said: outcome === "abstained" ? "" : said ?? expected,
+});
+
+test("a mark read correctly and placed one bay off is reported as drift", () => {
+  // The measured case: five of seven footing misses in one run named the mark
+  // that is the truth at the NEXT intersection, 130-156pt away. Scored
+  // off-target, which says "named some other label of that kind" and reads as
+  // a model that could not read the mark — when it read it correctly and put
+  // it in the wrong place. The two failures have opposite fixes.
+  const rows = [
+    atPoint("3/B", 1000, "F9", "wrong", "F10"),
+    atPoint("4/B", 1130, "F10", "correct"),
+    atPoint("4.6/B", 1260, "F11", "correct"),
+  ];
+  const [found] = drift(rows);
+  assert.equal(found.grid, "3/B", "the annotation belongs to the row that NAMED the label");
+  assert.equal(found.named, "F10");
+  assert.equal(found.truthAt, "4/B");
+  assert.equal(Math.round(found.away), 130);
+});
+
+test("a label from the far side of the sheet is not drift", () => {
+  // off-target already says "a label from elsewhere on the drawing", and that
+  // is what this is. Calling it drift would turn one measurement into two
+  // names for the same thing.
+  const rows = [
+    atPoint("3/B", 1000, "F9", "off-target", "F13"),
+    atPoint("4/B", 1130, "F10", "correct"),
+    atPoint("9/B", 3000, "F13", "correct"),
+  ];
+  assert.deepEqual(drift(rows), []);
+});
+
+test("the report annotates the drifted row and says how far", () => {
+  const rows = [
+    atPoint("3/B", 1000, "F9", "wrong", "F10"),
+    atPoint("4/B", 1130, "F10", "correct"),
+    atPoint("4.6/B", 1260, "F11", "off-target", "F10"),
+  ];
+  const said = verdict(rows);
+  assert.match(said, /3\/B.*said F10.*F10 is the truth at 4\/B, 130pt away/);
+  assert.match(said, /2 of 2 grid-footing misses name the truth at an ADJACENT intersection/);
+  assert.match(said, /Locality is the lever/);
+});
+
+test("drift needs at least two misses before it claims a mechanism", () => {
+  // One annotated row is a coincidence; the summary line is a claim about how
+  // the model is failing, and one case cannot support it.
+  const rows = [
+    atPoint("3/B", 1000, "F9", "wrong", "F10"),
+    atPoint("4/B", 1130, "F10", "correct"),
+  ];
+  assert.equal(drift(rows).length, 1);
+  assert.doesNotMatch(verdict(rows), /name the truth at an ADJACENT/);
 });

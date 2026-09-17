@@ -533,6 +533,64 @@ export function answerConcentration(rows) {
   return each.sort((a, b) => Number(b.prior) - Number(a.prior) || b.gap - a.gap)[0];
 }
 
+/**
+ * Misses that named the RIGHT label at the WRONG intersection.
+ *
+ * The six-way outcome cannot express this. "F10 at 3/B" scores off-target —
+ * "named some other label of that kind" — which reads as a model that could not
+ * read the mark. But F10 IS the truth at 4/B, 148pt away, one grid bay across,
+ * and six of eight footing misses in one run were exactly that. The mark was
+ * read correctly and placed one bay off.
+ *
+ * The distinction decides the next move and the two are opposite. A misread
+ * glyph wants resolution. A correctly-read label at the wrong intersection
+ * wants LOCALITY — the grid bubbles are at the sheet's edge and the
+ * intersections are in the middle, so a higher-resolution whole-sheet image
+ * makes each tile cover less of the drawing and the association harder, not
+ * easier. Raising DPI is then the wrong lever twice over.
+ *
+ * Reported rather than scored: adding a seventh outcome would silently rebase
+ * every tally in this file's history against runs that never measured it.
+ */
+function bayLength(rows) {
+  // The sheet's own spacing, from the cases: the shortest gap between two
+  // distinct intersections is one bay. No constant can be right across sheets.
+  const points = rows.map((r) => r.point).filter((p) => Array.isArray(p) && p.length === 2);
+  let shortest = Infinity;
+  for (let i = 0; i < points.length; i += 1) {
+    for (let j = i + 1; j < points.length; j += 1) {
+      const gap = Math.hypot(points[i][0] - points[j][0], points[i][1] - points[j][1]);
+      if (gap > 1 && gap < shortest) shortest = gap;
+    }
+  }
+  return Number.isFinite(shortest) ? shortest : null;
+}
+
+export function drift(rows) {
+  const bay = bayLength(rows);
+  if (!bay) return [];
+  const found = [];
+  for (const row of rows) {
+    if (!["wrong", "off-target"].includes(row.outcome) || !Array.isArray(row.point)) continue;
+    const named = String(row.said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    let best = null;
+    for (const home of rows) {
+      if (home.tag !== row.tag || !Array.isArray(home.point)) continue;
+      if (!named.includes(home.expected) || home.grid === row.grid) continue;
+      const away = Math.hypot(row.point[0] - home.point[0], row.point[1] - home.point[1]);
+      // NOT `grid` and `label`: spreading those over the row would overwrite
+      // the row's OWN grid, and the annotation would then be printed against
+      // whichever case the drifted label belongs to rather than the one that
+      // named it.
+      if (!best || away < best.away) best = { truthAt: home.grid, named: home.expected, away };
+    }
+    // Within 1.5 bays is "next door"; further away it is a label from
+    // elsewhere on the sheet, which off-target already says.
+    if (best && best.away <= bay * 1.5) found.push({ ...row, ...best, bay });
+  }
+  return found;
+}
+
 export function tally(subset) {
   const n = subset.length || 1;
   const count = (k) => subset.filter((r) => r.outcome === k).length;
@@ -626,13 +684,36 @@ export function report(rows, json, onSheet) {
   const missed = rows.filter((r) => ["wrong", "off-target", "invented"].includes(r.outcome));
   if (missed.length) {
     console.log("\n  Answered, but not with the truth:");
+    const drifted = new Map(drift(rows).map((d) => [`${d.tag}|${d.grid}`, d]));
     for (const r of missed) {
+      const nearby = drifted.get(`${r.tag}|${r.grid}`);
       console.log(
         `    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} expected ${String(r.expected).padEnd(13)}` +
           ` said ${r.said || "(no label)"}` +
-          (r.outcome === "correct" ? "" : `   [${r.outcome}]`),
+          (r.outcome === "correct" ? "" : `   [${r.outcome}]`) +
+          (nearby
+            ? `   <- ${nearby.named} is the truth at ${nearby.truthAt}, ${Math.round(nearby.away)}pt away`
+            : ""),
       );
     }
+  }
+
+  // Said once, per tag, because one annotated row reads as a coincidence and
+  // six of eight reads as a mechanism.
+  for (const tag of tags) {
+    const tagRows = rows.filter((r) => r.tag === tag);
+    const near = drift(tagRows);
+    const missed = tagRows.filter((r) => ["wrong", "off-target"].includes(r.outcome)).length;
+    if (near.length < 2 || !missed) continue;
+    const distances = near.map((d) => Math.round(d.away)).sort((a, b) => a - b);
+    console.log(
+      `\n  ${near.length} of ${missed} ${tag} misses name the truth at an ADJACENT intersection ` +
+        `(${distances[0]}-${distances[distances.length - 1]}pt, one bay is ` +
+        `${Math.round(near[0].bay)}pt). Those labels were read correctly and placed wrong, which ` +
+        "is not a reading failure: more pixels do not fix it, and on a whole-sheet image they " +
+        "make it worse, because the grid bubbles are at the edge and the intersections are in " +
+        "the middle. Locality is the lever — a crop carrying its own grid lines.",
+    );
   }
 
   // Without it, a mark the model made up is indistinguishable from a refusal,
@@ -810,6 +891,10 @@ async function main() {
     const outcome = score(text, testCase, vocabulary);
     rows.push({
       grid: `${testCase.derivation.gridColumn}/${testCase.derivation.gridRow}`,
+      // Where this intersection IS, in the PDF's own points. Carried so the
+      // report can tell a misread label from a correctly-read one placed at
+      // the wrong intersection — two failures with opposite fixes.
+      point: testCase.derivation.intersectionPt ?? null,
       projectId: testCase.projectId,
       tag: testCase.tag,
       expected: testCase.expected,
