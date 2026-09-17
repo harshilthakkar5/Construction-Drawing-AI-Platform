@@ -783,6 +783,37 @@ export function systematicOffset(rows) {
   };
 }
 
+/**
+ * Whether this set has stopped being able to tell two runs apart.
+ *
+ * A benchmark that has been beaten has to SAY so, for the same reason every
+ * other gate in this report exists: the encouraging number must be the one the
+ * evidence supports. When no answer is wrong, off-target, invented or hedged,
+ * everything left is an abstention, and the headroom is (cases left / cases)
+ * — on a 40-case set one case is 2.5 points. The run-to-run spread measured on
+ * this very set at a FIXED configuration was 43 points. A future change cannot
+ * demonstrate anything through a gap that small, in either direction: a run
+ * scoring 3 points lower is not a regression and one scoring 2 higher is not an
+ * improvement.
+ *
+ * That is not a complaint about the score. It is the point at which the next
+ * measurement needs a harder SET rather than a better pipeline, and the thing
+ * this report must not do is let someone keep quoting a number it can no longer
+ * earn. Reported, never scored — like drift, the offset and the citation check.
+ */
+export function saturation(rows) {
+  if (!rows.length) return null;
+  const missed = rows.filter((r) =>
+    ["wrong", "off-target", "invented", "hedged"].includes(r.outcome),
+  ).length;
+  if (missed) return null;
+  const left = rows.filter((r) => r.outcome !== "correct").length;
+  const points = (left / rows.length) * 100;
+  // Four cases on a forty-case set. Above that there is still something a
+  // change could move that a reader could believe.
+  return points <= 10 ? { left, points, cases: rows.length } : null;
+}
+
 export function tally(subset) {
   const n = subset.length || 1;
   const count = (k) => subset.filter((r) => r.outcome === k).length;
@@ -1327,6 +1358,20 @@ export function report(rows, json, onSheet, history = null) {
       `\n  Beat the baseline: ${beaten.join(", ")}. Across the set ${overall.minorityHits} of ` +
         `${overall.correct} correct answers named a label that is NOT its tag's most common one` +
         " — the part a frequency prior cannot fake.",
+    );
+  }
+
+  const spent = saturation(rows);
+  if (spent) {
+    console.log(
+      `\n  THIS SET IS SPENT: no answer is wrong, off-target, invented or hedged, so the only ` +
+        `headroom left is ${spent.left} of ${spent.cases} case${spent.left === 1 ? "" : "s"} — ` +
+        `${spent.points.toFixed(1)} points. Run-to-run spread at a FIXED configuration has been ` +
+        "measured on this set at 43 points, so nothing a future change does can be shown " +
+        "through a gap this small: a lower score is not a regression and a higher one is not an " +
+        "improvement. The next measurement needs a harder SET, not a better pipeline — " +
+        "regenerate against every intersection the grid has rather than the ones that survived " +
+        "the jitter test, and add a tag this pipeline is not already built to answer.",
     );
   }
 
