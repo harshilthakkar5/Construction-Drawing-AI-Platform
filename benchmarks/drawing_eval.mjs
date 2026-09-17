@@ -31,6 +31,12 @@
  *   node benchmarks/drawing_eval.mjs --set benchmarks/drawing_eval_set.json
  *   node benchmarks/drawing_eval.mjs --limit 10      # a cheap smoke run
  *   node benchmarks/drawing_eval.mjs --json
+ *   node benchmarks/drawing_eval.mjs --project <uuid> --label "minimal+4000"
+ *
+ * `--label` names the CONFIGURATION an ingest was made under, copied off
+ * `vlm._report_settings` in the worker log. Two ingests sharing a label are the
+ * same experiment repeated, and the spread between them is the only error bar
+ * this benchmark can produce — measured at 43 points set-wide, 69 on one tag.
  *
  * Every case costs one chat completion, so the full set is a real spend. Start
  * with --limit.
@@ -89,6 +95,14 @@ function parseArgs(argv) {
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--out") args.out = resolve(process.cwd(), argv[++i]);
     else if (arg === "--project") args.project = argv[++i];
+    // What CONFIGURATION this ingest was made under. The harness cannot know
+    // it: VLM_* is read by the worker at ingest and the chunks carry none of
+    // it, so this is the one thing only the person running it can supply.
+    // Copy it off `vlm._report_settings` in the worker log. Two ingests given
+    // the same label are claimed to be the SAME experiment, and that claim is
+    // what turns a list of scores into an error bar — so a wrong label is
+    // worse than none, because it manufactures a measurement.
+    else if (arg === "--label") args.label = argv[++i];
     else if (arg === "--help") args.help = true;
   }
   return args;
@@ -795,6 +809,8 @@ export function runHistory(records) {
       pct: runs[runs.length - 1].pct,
       ranAt: runs[runs.length - 1].ranAt,
       projectId: runs[runs.length - 1].projectId ?? "unknown",
+      label: runs[runs.length - 1].label ?? null,
+      byTag: runs[runs.length - 1].byTag ?? null,
     }))
     .sort((a, b) => String(a.ranAt).localeCompare(String(b.ranAt)));
   // Same chunks in, different score out. temperature: 0 says this cannot
@@ -808,6 +824,48 @@ export function runHistory(records) {
       projectId: runs[0].projectId ?? "unknown",
       scores: [...new Set(runs.map((r) => r.pct))].sort((a, b) => a - b),
     }));
+  // The measurement this whole feature was built to demand, and the first one
+  // that is an ERROR BAR rather than a history. Two ingests carrying the same
+  // --label are the same experiment repeated, so the spread between them is
+  // run-to-run variance with nothing else moving.
+  //
+  // It arrived and it was brutal. Two ingests at a byte-identical, fully
+  // logged configuration — VLM_MAX_TOKENS=4000, GEMINI_THINKING_LEVEL=minimal,
+  // GEMINI_MEDIA_RESOLUTION=ultra_high, 3072 — scored 25% and 68%. The footing
+  // tag inside them ran 26% and 95%. That is wider than every effect this
+  // repo's vision work has claimed to measure, all of which were n=1 per arm.
+  const labelled = new Map();
+  for (const i of ingests) {
+    if (!i.label) continue;
+    if (!labelled.has(i.label)) labelled.set(i.label, []);
+    labelled.get(i.label).push(i);
+  }
+  const repeats = [...labelled]
+    .filter(([, runs]) => runs.length > 1)
+    .map(([label, runs]) => {
+      const scores = runs.map((r) => r.pct);
+      const tags = new Set(runs.flatMap((r) => Object.keys(r.byTag ?? {})));
+      const perTag = [...tags]
+        .map((tag) => {
+          const at = runs.map((r) => r.byTag?.[tag]?.pct).filter((x) => typeof x === "number");
+          return at.length > 1
+            ? { tag, spread: Math.max(...at) - Math.min(...at), scores: at }
+            : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.spread - a.spread);
+      return {
+        label,
+        n: runs.length,
+        scores,
+        spread: Math.max(...scores) - Math.min(...scores),
+        // The widest tag, because a set-wide number averages the variance away:
+        // 43 points overall hid 69 on the tag underneath it.
+        worstTag: perTag[0] ?? null,
+      };
+    })
+    .sort((a, b) => b.spread - a.spread);
+
   const recent = ingests.slice(-RECENT_INGESTS);
   const scores = recent.map((i) => i.pct);
   return {
@@ -815,6 +873,7 @@ export function runHistory(records) {
     ingests,
     recent,
     rescored,
+    repeats,
     range: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
   };
 }
@@ -845,6 +904,8 @@ export function readRunHistory(dir, set) {
         ranAt: raw.ranAt ?? name,
         projectId: raw.projectId,
         descriptionChunkIds: raw.descriptionChunkIds ?? [],
+        label: raw.label ?? null,
+        byTag: raw.summary?.byTag ?? null,
         pct,
       });
     } catch {
@@ -1236,6 +1297,25 @@ export function report(rows, json, onSheet, history = null) {
     }
   }
 
+  // Printed FIRST among the history lines, because it is the only one that
+  // bounds what any other number on this screen is allowed to claim.
+  for (const r of history?.repeats ?? []) {
+    console.log(
+      `\n  ERROR BAR: "${r.label}" has been ingested ${r.n} times — ` +
+        `${r.scores.map((p) => `${p.toFixed(0)}%`).join(", ")}, a ${r.spread.toFixed(0)}-point ` +
+        "spread with NOTHING changed between them" +
+        (r.worstTag
+          ? `. The ${r.worstTag.tag} tag inside those runs ran ` +
+            `${r.worstTag.scores.map((p) => `${p.toFixed(0)}%`).join(", ")} — ` +
+            `${r.worstTag.spread.toFixed(0)} points, because a set-wide number averages the ` +
+            "variance away"
+          : "") +
+        `.\n  Read every comparison above against that: a difference smaller than ` +
+        `${r.spread.toFixed(0)} points is not evidence of anything, however well it fits the ` +
+        "story. That includes differences this report itself describes as large.",
+    );
+  }
+
   if (history && history.ingests.length > 1) {
     const line = history.recent
       .map((i) => `${i.pct.toFixed(0)}%${i.described ? "" : " (no descriptions)"}`)
@@ -1410,6 +1490,7 @@ async function main() {
         // description for every one of its cases still only ever surfaced one.
         descriptionChunksOnSheet: [...descriptionsOnSheet].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
+        label: args.label ?? null,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
         hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
         summary: summarize(rows),

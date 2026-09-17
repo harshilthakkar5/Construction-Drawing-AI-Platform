@@ -772,10 +772,12 @@ test("placement needs MOST of the over-named misses, not one", () => {
 
 // --- One run is one sample --------------------------------------------------
 
-const ran = (ranAt, projectId, ids, pct) => ({
+const ran = (ranAt, projectId, ids, pct, label = null, byTag = null) => ({
   ranAt,
   projectId,
   descriptionChunkIds: ids,
+  label,
+  byTag,
   pct,
 });
 
@@ -1145,4 +1147,66 @@ test("a neighbour past drift's own window is not counted, and that is drift's li
   const off = systematicOffset(rows);
   assert.equal(off.count, 3, "the 218pt pair is outside 1.5 bays and never reaches this");
   assert.equal(off.systematic, true, "the three that do reach it still agree");
+});
+
+// --- The only number that is an error bar ----------------------------------
+
+test("two ingests sharing a label measure run-to-run variance", () => {
+  // The measurement this feature was built to demand. Two ingests at a
+  // byte-identical, fully logged configuration scored 25% and 68% — wider than
+  // every effect the vision work had claimed, all of them n=1 per arm.
+  const tags = (col, foot) => ({
+    "grid-column": { pct: col },
+    "grid-footing": { pct: foot },
+  });
+  const h = runHistory([
+    ran("2026-09-17T10:00Z", "pA", ["a"], 25, "minimal+4000", tags(24, 26)),
+    ran("2026-09-17T11:00Z", "pB", ["b"], 68, "minimal+4000", tags(43, 95)),
+  ]);
+  assert.equal(h.repeats.length, 1);
+  const [r] = h.repeats;
+  assert.equal(r.n, 2);
+  assert.equal(r.spread, 43);
+  assert.equal(r.worstTag.tag, "grid-footing", "the widest tag, not the first");
+  assert.equal(r.worstTag.spread, 69, "a set-wide number averages the variance away");
+  const said = verdict([]);
+  assert.equal(said.includes("ERROR BAR"), false, "no history, no claim");
+});
+
+test("one ingest per label is no error bar", () => {
+  // A configuration run once measures nothing about its own variance, however
+  // many other configurations sit beside it.
+  const h = runHistory([
+    ran("2026-09-17T10:00Z", "pA", ["a"], 25, "minimal+4000"),
+    ran("2026-09-17T11:00Z", "pB", ["b"], 68, "minimal+20000"),
+  ]);
+  assert.deepEqual(h.repeats, []);
+});
+
+test("unlabelled ingests never form an error bar", () => {
+  // Every run before --label existed is unlabelled, and grouping them would
+  // invent the very measurement this exists to supply.
+  const h = runHistory([
+    ran("2026-09-17T10:00Z", "pA", ["a"], 25),
+    ran("2026-09-17T11:00Z", "pB", ["b"], 68),
+  ]);
+  assert.deepEqual(h.repeats, []);
+  assert.equal(h.ingests.length, 2);
+});
+
+test("the report leads with the error bar and says what it forbids", () => {
+  const tags = (col) => ({ "grid-column": { pct: col } });
+  const rows = [verdictRow("grid-column", "HSS8X8X3/8", "correct")];
+  const h = runHistory([
+    ran("2026-09-17T10:00Z", "pA", ["a"], 25, "minimal+4000", tags(24)),
+    ran("2026-09-17T11:00Z", "pB", ["b"], 68, "minimal+4000", tags(43)),
+  ]);
+  const said = [];
+  const real = console.log;
+  console.log = (...a) => said.push(a.join(" "));
+  try { report(rows, false, [], h); } finally { console.log = real; }
+  const out = said.join("\n");
+  assert.match(out, /ERROR BAR: "minimal\+4000" has been ingested 2 times/);
+  assert.match(out, /43-point spread with NOTHING changed/);
+  assert.match(out, /is not evidence of anything/);
 });

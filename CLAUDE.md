@@ -809,6 +809,47 @@ therefore a LOWER bound, and so is every offset built on one. Widening the thres
 every drift figure here against runs that never measured it, which is the same reason drift is
 reported and never scored.
 
+**And then the error bar arrived, and it eats most of this section.**
+
+Two ingests at a byte-identical, fully logged configuration — `VLM_MAX_TOKENS=4000`,
+`GEMINI_THINKING_LEVEL=minimal`, `GEMINI_MEDIA_RESOLUTION=ultra_high`, 3072, same model, same
+sheet, same prompt, same commit — scored **25% and 68%**. The footing tag inside those two runs
+ran **26% and 95%**. Nothing moved between them but the model being asked twice.
+
+A 43-point spread set-wide, 69 on the tag underneath it, is WIDER THAN EVERY EFFECT THIS SECTION
+CLAIMS TO HAVE MEASURED. `minimal` beating `low` was 12 points. `media_resolution` as "the largest
+single move in this file's history" was 20. The four-rules change, the count rule, the grid-naming
+rule — every one of them is a single run against a single run, and every one of them is smaller
+than the noise. They are not refuted; they are UNSUPPORTED, which is a different and more
+uncomfortable thing: the experiments were never powered to see what they reported.
+
+What survives is what was never a between-run comparison:
+
+  * The mechanical facts, which are properties of code and APIs rather than measured effects —
+    Gemini's 3072 cap and its fixed per-part image token budget, `thinking_level` replacing
+    `thinking_budget` with omission at the TOP of the scale, the prompt heading leaking into 25 of
+    40 answers, the citations that name a chunk which cannot support them.
+  * The failure SHAPES, which are observations INSIDE one description rather than differences
+    between two: thirteen of fourteen column misses carrying the right thickness and only the
+    section wrong; seven of ten footing misses sharing one column-line offset. Those are
+    structural claims about a single run's own misses, and a coin flip does not produce them.
+
+What does not survive is any sentence of the form "configuration A scores better than B" on n=1.
+
+`--label` is the repair, and it is the one thing the harness cannot work out for itself: `VLM_*`
+is read by the WORKER at ingest and the chunks carry none of it, so only the person running the
+ingest can say what configuration produced it. Copy it off `_report_settings` in the worker log,
+pass it to the benchmark, and two ingests sharing a label are the same experiment repeated.
+`runHistory` then reports the spread between them as an ERROR BAR — printed FIRST, above every
+other history line, because it bounds what all of them may claim — and names the widest TAG
+separately, since the set-wide number averages the variance away exactly where it is worst. A
+wrong label is worse than no label: it manufactures a measurement rather than merely lacking one.
+
+The size of that spread is itself the next question this pass has to answer. Forty cases against
+one description is a small sample of a stochastic generator, and the fix is more ingests per
+configuration rather than more configurations — which is the opposite of how every experiment
+above was run.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the
