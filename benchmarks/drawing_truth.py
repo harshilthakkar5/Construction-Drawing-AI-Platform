@@ -185,55 +185,56 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         members = labels_of(page, MEMBER_CALLOUT)
         sheet_name = sheet or f"page {page_index + 1}"
 
-        for col, cx in sorted(columns.items()):
-            for row, cy in sorted(rows.items()):
-                for kind, labels, question in (
-                    (
-                        "grid-footing",
-                        footings,
-                        f"On sheet {sheet_name}, which footing mark is at the intersection of "
-                        f"column line {col} and row line {row}?",
-                    ),
-                    (
-                        "grid-column",
-                        members,
-                        f"On sheet {sheet_name}, what column section is called out at the "
-                        f"intersection of column line {col} and row line {row}?",
-                    ),
-                ):
-                    label, distance, reason = stable_reading(labels, cx, cy)
-                    if label is None:
-                        refusals.append(f"{sheet_name} {col}/{row} {kind}: {reason}")
-                        continue
-                    cases.append(
-                        {
-                            "projectId": project_id,
-                            "tag": kind,
-                            "question": question,
-                            "expected": label,
-                            "distractor": runner_up(labels, cx, cy, label),
-                            "labelPattern": LABEL_PATTERN[kind],
-                            # EVERY label of this kind on the page, not just the
-                            # two this case turns on. The scorer needs it to
-                            # separate "named another mark from this drawing"
-                            # (off-target) from "named something that is on no
-                            # part of it" (invented), and it cannot build that
-                            # from the case set: a set only names the
-                            # intersections it asks about, so a real mark
-                            # sitting at an intersection nobody asked about
-                            # scores INVENTED. That is not a harmless
-                            # mislabel — invented is the outcome that says the
-                            # model made something up.
-                            "sheetLabels": sorted({lab for lab, _, _ in labels}),
-                            "derivation": {
-                                "sheet": sheet_name,
-                                "gridColumn": col,
-                                "gridRow": row,
-                                "intersectionPt": [round(cx, 1), round(cy, 1)],
-                                "labelDistancePt": round(distance, 1),
-                            },
-                        }
-                    )
+        # Via grid.intersections rather than a nested loop here, so the
+        # generator and the vision pass cannot disagree about what "4/B" means.
+        for col, row, cx, cy in grid.intersections(columns, rows):
+            for kind, labels, question in (
+                (
+                    "grid-footing",
+                    footings,
+                    f"On sheet {sheet_name}, which footing mark is at the intersection of "
+                    f"column line {col} and row line {row}?",
+                ),
+                (
+                    "grid-column",
+                    members,
+                    f"On sheet {sheet_name}, what column section is called out at the "
+                    f"intersection of column line {col} and row line {row}?",
+                ),
+            ):
+                label, distance, reason = stable_reading(labels, cx, cy)
+                if label is None:
+                    refusals.append(f"{sheet_name} {col}/{row} {kind}: {reason}")
+                    continue
+                cases.append(
+                    {
+                        "projectId": project_id,
+                        "tag": kind,
+                        "question": question,
+                        "expected": label,
+                        "distractor": runner_up(labels, cx, cy, label),
+                        "labelPattern": LABEL_PATTERN[kind],
+                        # EVERY label of this kind on the page, not just the
+                        # two this case turns on. The scorer needs it to
+                        # separate "named another mark from this drawing"
+                        # (off-target) from "named something that is on no
+                        # part of it" (invented), and it cannot build that
+                        # from the case set: a set only names the
+                        # intersections it asks about, so a real mark
+                        # sitting at an intersection nobody asked about
+                        # scores INVENTED. That is not a harmless
+                        # mislabel — invented is the outcome that says the
+                        # model made something up.
+                        "sheetLabels": sorted({lab for lab, _, _ in labels}),
+                        "derivation": {
+                            "sheet": sheet_name,
+                            "gridColumn": col,
+                            "gridRow": row,
+                            "intersectionPt": [round(cx, 1), round(cy, 1)],
+                            "labelDistancePt": round(distance, 1),
+                        },
+                    }
+                )
 
     if explain:
         print(f"refused {len(refusals)} candidate cases:", file=sys.stderr)
@@ -273,6 +274,76 @@ def backfill_label_patterns(cases: list[dict]) -> int:
     return filled
 
 
+def dump_crops(pdf: str, against: str | None) -> int:
+    """Print the crop the vision pass would take at each intersection.
+
+    No model call and no rendering — this is the geometry, on its own, so it
+    can be read by a person and checked against a set that was derived
+    independently. `--against` does that check: every case in the set names an
+    intersection and how far its label sits from it (`labelDistancePt`), so a
+    crop that does not contain its own label is a crop that cannot be answered,
+    and a case with no crop at all is a grid the two sides disagree about.
+
+    The check is worth more than it looks. Both sides now read `grid.py`, so
+    they can be wrong together — that is the blind spot the module's docstring
+    states. What this cannot verify, it deliberately does not claim: run
+    `--explain` and look at the sheet once.
+    """
+    # Deferred: generating a set must not need the worker's dependency chain
+    # (config, llm, chunker). Only the crop dump reads the vision pass.
+    import vlm
+
+    doc = fitz.open(pdf)
+    cases = []
+    if against:
+        with open(against) as fh:
+            cases = json.load(fh)
+    by_label = {}
+    for case in cases:
+        d = case.get("derivation") or {}
+        if d.get("gridColumn") and d.get("gridRow"):
+            by_label.setdefault(f"{d['gridColumn']}/{d['gridRow']}", []).append(case)
+
+    problems = 0
+    seen = set()
+    for page_index, page in enumerate(doc):
+        boxes = vlm.crops(page)
+        if not boxes:
+            continue
+        print(f"page {page_index + 1}: {len(boxes)} crops")
+        for label, rect in boxes:
+            seen.add(label)
+            cx, cy = (rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2
+            note = ""
+            for case in by_label.get(label, []):
+                d = case["derivation"]
+                want = d["intersectionPt"]
+                if abs(want[0] - cx) > 1 or abs(want[1] - cy) > 1:
+                    note = f"  <- set says ({want[0]}, {want[1]})"
+                    problems += 1
+                    break
+                reach = d["labelDistancePt"]
+                if reach > min(rect.width, rect.height) / 2:
+                    note = f"  <- label is {reach}pt away, outside this crop"
+                    problems += 1
+                    break
+            print(
+                f"  {label:>8}  ({cx:7.1f}, {cy:7.1f})  "
+                f"{rect.width:5.1f} x {rect.height:5.1f} pt{note}"
+            )
+
+    for label in sorted(set(by_label) - seen):
+        print(f"  {label:>8}  NO CROP — the set asks about it and the grid does not have it")
+        problems += 1
+    doc.close()
+    if against:
+        print(
+            f"{len(seen)} crops, {len(by_label)} intersections in the set, {problems} problems",
+            file=sys.stderr,
+        )
+    return 1 if problems else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pdf", default=None)
@@ -280,6 +351,19 @@ def main() -> int:
     ap.add_argument("--sheet", default=None, help="sheet number, e.g. S-100.0")
     ap.add_argument("--out", default=None)
     ap.add_argument("--explain", action="store_true", help="list refused cases")
+    ap.add_argument(
+        "--crops",
+        action="store_true",
+        help="print the crop the vision pass would take at each intersection and exit; "
+        "no model call, no rendering",
+    )
+    ap.add_argument(
+        "--against",
+        default=None,
+        metavar="SET.JSON",
+        help="with --crops, check each crop against a set's intersectionPt and "
+        "labelDistancePt. Exits non-zero on a disagreement.",
+    )
     ap.add_argument(
         "--backfill",
         default=None,
@@ -301,6 +385,9 @@ def main() -> int:
 
     if not args.pdf:
         ap.error("--pdf is required unless --backfill is given")
+
+    if args.crops:
+        return dump_crops(args.pdf, args.against)
 
     cases = build(args.pdf, args.project, args.sheet, args.explain)
     text = json.dumps(cases, indent=2) + "\n"

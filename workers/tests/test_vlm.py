@@ -611,3 +611,109 @@ class TestUpscalingAVectorPage:
         this fix changes nothing until someone raises the setting."""
         page = self._Page()
         assert round(72 * self._render(monkeypatch, page, 2576)) == 61
+
+
+class TestCropsAtEveryIntersection:
+    """The geometry of the crop plan, checked against the real sheet.
+
+    Not a synthetic grid invented for the test. The bubbles below are placed at
+    the coordinates the CHECKED-IN eval set derived from the PDF itself, so
+    what this asserts is that `vlm.crops` and `drawing_truth.py` name the same
+    intersections at the same points — the disagreement that would otherwise
+    be invisible, because from Phase A both read `grid.py` and could be wrong
+    together.
+
+    No model call and no rendering. Phase B is the geometry alone.
+    """
+
+    SET = Path(__file__).resolve().parents[2] / "benchmarks" / "drawing_eval_set.json"
+
+    @staticmethod
+    def _bubble(page, x, y, label):
+        page.draw_circle(fitz.Point(x, y), 18)
+        page.insert_text((x - 10, y + 4), label, fontsize=9)
+
+    @classmethod
+    def _real_sheet(cls):
+        """An ARCH E1 page carrying the real sheet's grid and nothing else."""
+        import json
+
+        cases = json.loads(cls.SET.read_text())
+        columns, rows = {}, {}
+        for case in cases:
+            d = case["derivation"]
+            columns[d["gridColumn"]] = d["intersectionPt"][0]
+            rows[d["gridRow"]] = d["intersectionPt"][1]
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        for label, x in columns.items():
+            cls._bubble(page, x, 400, label)
+        for label, y in rows.items():
+            cls._bubble(page, 950, y, label)
+        return doc, page, cases, columns, rows
+
+    def test_every_crop_is_centred_on_the_sets_own_intersection(self):
+        doc, page, cases, columns, rows = self._real_sheet()
+        boxes = dict(vlm.crops(page))
+        assert len(boxes) == len(columns) * len(rows)
+        for case in cases:
+            d = case["derivation"]
+            rect = boxes[f"{d['gridColumn']}/{d['gridRow']}"]
+            want_x, want_y = d["intersectionPt"]
+            assert abs((rect.x0 + rect.x1) / 2 - want_x) < 1
+            assert abs((rect.y0 + rect.y1) / 2 - want_y) < 1
+        doc.close()
+
+    def test_every_case_s_label_falls_inside_its_own_crop(self):
+        """The check that decides whether 0.6 bays is the right size. A crop
+        that does not contain the label it exists to carry cannot be answered,
+        and the furthest footing on this sheet sits 83.7pt out."""
+        doc, page, cases, _, _ = self._real_sheet()
+        boxes = dict(vlm.crops(page))
+        worst = max(c["derivation"]["labelDistancePt"] for c in cases)
+        for case in cases:
+            d = case["derivation"]
+            rect = boxes[f"{d['gridColumn']}/{d['gridRow']}"]
+            reach = min(rect.width, rect.height) / 2
+            assert d["labelDistancePt"] <= reach, (
+                f"{d['gridColumn']}/{d['gridRow']} label is {d['labelDistancePt']}pt "
+                f"away, crop reaches {reach:.1f}pt"
+            )
+        assert worst > 80  # the test is not passing because the sheet is easy
+        doc.close()
+
+    def test_a_crop_is_much_smaller_than_the_sheet(self):
+        """The whole point. Both providers cap what they read — 61 DPI for
+        Claude on this sheet, 73 for Gemini — so the only way to more pixels
+        per glyph is fewer points per image."""
+        doc, page, _, _, _ = self._real_sheet()
+        label, rect = vlm.crops(page)[0]
+        area = (rect.width * rect.height) / (page.rect.width * page.rect.height)
+        assert area < 0.01, f"{label} is {area:.1%} of the sheet"
+        doc.close()
+
+    def test_crops_are_display_space_so_get_pixmap_takes_them_directly(self):
+        """`get_pixmap(clip=)` is rotation-aware and `get_text(clip=)` is not —
+        the asymmetry region.py exists to document. A crop that came back in
+        unrotated space would render the wrong part of a /Rotate 90 sheet."""
+        doc, page, _, _, _ = self._real_sheet()
+        upright = dict(vlm.crops(page))
+        page.set_rotation(90)
+        turned = dict(vlm.crops(page))
+        # Same intersections, same names — `grid.orient` is what keeps "2/B"
+        # from becoming "B/2" when the page is turned.
+        assert set(upright) == set(turned)
+        for label, rect in turned.items():
+            assert rect in page.rect
+            # The crop follows the drawing: width and height swap with the page.
+            assert abs(rect.width - upright[label].height) < 1
+        doc.close()
+
+    def test_a_page_with_no_grid_gets_no_crops(self):
+        """Most pages. This is a structural-plan device, not a general one, and
+        a page it cannot place must produce nothing rather than a guess."""
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        page.insert_text((100, 100), "GENERAL NOTES", fontsize=12)
+        assert vlm.crops(page) == []
+        doc.close()

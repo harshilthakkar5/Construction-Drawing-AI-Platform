@@ -108,3 +108,91 @@ def axes(found: list[tuple[str, float, float]]) -> tuple[dict, dict]:
     columns = {b[0]: b[1] for g in col_groups for b in g}
     rows = {b[0]: b[2] for g in row_groups for b in g}
     return columns, rows
+
+
+def transposed(columns: dict[str, float], rows: dict[str, float]) -> bool:
+    """Whether the geometric axes carry each other's names.
+
+    `bubbles` reports DISPLAY coordinates, so on a /Rotate 90 sheet the grid
+    lines labelled 1, 2, 3 share a display x rather than a display y: geometry
+    files the numbered axis as the rows and the lettered axis as the columns.
+    The labels are never wrong, only the two axis NAMES swap, which is why a
+    generated case survived it — it asked about "column line B" and derived the
+    answer at the same point, self-consistently.
+
+    It stops being survivable in Phase B. A crop's label is handed to the model
+    as the one thing it does NOT have to work out, so "B/2" for an intersection
+    the drawing calls 2/B is a wrong answer supplied by us, agreed on by both
+    readers of this module at once, and invisible to every check — precisely
+    the failure the docstring above warns that sharing makes possible.
+
+    Geometry cannot break this tie, so the CONVENTION does: column lines are
+    numbered, row lines are lettered. It fires only when that is unambiguous —
+    every label on one axis numeric and every label on the other alphabetic —
+    and otherwise nothing is reordered. A sheet that letters its columns would
+    be read backwards; a rotated sheet is the far commoner case (it is the
+    whole reason `region.py` exists), and `--crops` prints the labels for a
+    person to check once per sheet.
+    """
+    if not columns or not rows:
+        return False
+    return all(label[:1].isalpha() for label in columns) and all(
+        label[:1].isdigit() for label in rows
+    )
+
+
+def intersections(
+    columns: dict[str, float], rows: dict[str, float]
+) -> list[tuple[str, str, float, float]]:
+    """Every (column, row) crossing, as (column label, row label, x, y).
+
+    The one place that decides what "4/B" MEANS in points. Both readers ask
+    here: the generator turns it into an expected answer, the vision pass turns
+    it into a crop. Written twice they could disagree about the same name, and
+    the disagreement would be invisible — the crop labelled 4/B and the truth
+    for 4/B would each be internally consistent.
+
+    Sorted by label so a dump is diffable between runs.
+
+    `columns` holds an x per label and `rows` a y — DIFFERENT coordinates, which
+    is why a sheet whose axes are transposed (see `transposed`) cannot be fixed
+    by swapping the two dicts. There the numbered lines each sit at a constant
+    y and the lettered ones at a constant x, so the point is assembled the
+    other way round. Getting this wrong does not mislabel an intersection, it
+    reflects the whole grid about its diagonal.
+    """
+    if transposed(columns, rows):
+        return [
+            (col, row, rx, cy)
+            for col, cy in sorted(rows.items())
+            for row, rx in sorted(columns.items())
+        ]
+    return [
+        (col, row, cx, cy)
+        for col, cx in sorted(columns.items())
+        for row, cy in sorted(rows.items())
+    ]
+
+
+def spacing(values: list[float]) -> float:
+    """The typical gap between adjacent grid lines on one axis — the "bay".
+
+    MEDIAN, not minimum. A bay is the natural unit for sizing a crop, and the
+    tempting definition is the smallest gap, which is what `drawing_eval.mjs`
+    uses to annotate drift. It is wrong here: this sheet's columns are 130 to
+    218pt apart, and sizing every crop off the 130 would cut the furthest
+    footing label (83.7pt from its intersection) out of the crop that is
+    supposed to contain it. The minimum is the right unit for "is this label
+    one bay away"; the median is the right unit for "how much drawing belongs
+    to one intersection".
+
+    0.0 when an axis has fewer than two lines, which is a sheet this module
+    should not be cropping at all.
+    """
+    ordered = sorted(values)
+    gaps = [b - a for a, b in zip(ordered, ordered[1:])]
+    if not gaps:
+        return 0.0
+    gaps.sort()
+    middle = len(gaps) // 2
+    return gaps[middle] if len(gaps) % 2 else (gaps[middle - 1] + gaps[middle]) / 2

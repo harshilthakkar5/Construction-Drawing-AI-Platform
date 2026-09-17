@@ -97,13 +97,55 @@ class TestAxes:
     def test_the_grid_is_read_in_display_space(self):
         """`get_text` and `get_drawings` report UNROTATED coordinates while the
         renderer and the reader both see the rotated page, so a /Rotate 90
-        sheet's columns are its unrotated rows. Getting this wrong puts every
-        crop and every derived answer on the wrong axis."""
+        sheet's columns are its unrotated rows. `axes` is deliberately left
+        that way — it reports the GEOMETRY — and the two dicts hold different
+        coordinates (an x per column, a y per row), so the naming cannot be
+        fixed by swapping them. `intersections` does it, correctly."""
         doc, page = sheet(rotation=90)
         columns, rows = grid.axes(grid.bubbles(page))
         assert sorted(columns) == ["B", "C", "D"]
         assert sorted(rows) == ["1", "2", "3", "4"]
+        assert grid.transposed(columns, rows)
         doc.close()
+
+    def test_a_rotated_sheet_still_names_its_intersections_the_same_way(self):
+        """The Phase B requirement. A crop's label is handed to the model as
+        the thing it does NOT have to work out, so "B/2" for an intersection
+        the drawing calls 2/B would be our own error — agreed on by both
+        readers of this module, and invisible to every check."""
+        for rotation in (0, 90, 180, 270):
+            doc, page = sheet(rotation=rotation)
+            found = grid.intersections(*grid.axes(grid.bubbles(page)))
+            assert len(found) == 12, f"rotation {rotation}"
+            # Numbers are column lines at every rotation; letters are rows.
+            assert sorted(c for c, _, _, _ in found) == sorted("1234" * 3)
+            assert sorted(r for _, r, _, _ in found) == sorted("BCD" * 4)
+            # Each point lands on the page as displayed, which is what
+            # get_pixmap(clip=) will be handed.
+            assert all((x, y) in page.rect for _, _, x, y in found)
+            doc.close()
+
+    def test_the_convention_only_breaks_a_tie_it_can_read(self):
+        """It fires only when one axis is entirely numeric and the other
+        entirely alphabetic. Anything else and the geometry stands: a rule that
+        guessed on an ambiguous sheet would be worse than the swap it fixes."""
+        assert grid.transposed({"A": 1.0}, {"2": 2.0})
+        assert not grid.transposed({"2": 1.0}, {"B": 2.0})
+        assert not grid.transposed({"A": 1.0, "3": 2.0}, {"2": 3.0})
+        assert not grid.transposed({}, {"2": 1.0})
+
+    def test_a_transposed_sheet_assembles_the_point_the_other_way_round(self):
+        """columns hold an x and rows a y, so a transposed grid takes its x
+        from the lettered axis and its y from the numbered one. Swapping the
+        dicts instead reflects the whole grid about its diagonal."""
+        columns = {"B": 100.0, "C": 200.0}  # lettered, so these are x values
+        rows = {"1": 700.0, "2": 800.0}  # numbered, so these are y values
+        assert grid.intersections(columns, rows) == [
+            ("1", "B", 100.0, 700.0),
+            ("1", "C", 200.0, 700.0),
+            ("2", "B", 100.0, 800.0),
+            ("2", "C", 200.0, 800.0),
+        ]
 
     def test_every_rotation_finds_the_same_seven_bubbles(self):
         for rotation in (0, 90, 180, 270):
