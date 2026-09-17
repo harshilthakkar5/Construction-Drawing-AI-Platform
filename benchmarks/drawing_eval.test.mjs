@@ -30,6 +30,7 @@ import {
   labelComponents,
   componentMisreads,
   systematicOffset,
+  componentSwap,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1147,6 +1148,142 @@ test("a neighbour past drift's own window is not counted, and that is drift's li
   const off = systematicOffset(rows);
   assert.equal(off.count, 3, "the 218pt pair is outside 1.5 bays and never reaches this");
   assert.equal(off.systematic, true, "the three that do reach it still agree");
+});
+
+// --- When the offset and the misread predict the same string ---------------
+
+// The measured run, to the case. Seven column lines and three row lines, the
+// row lines 137pt apart and the closest column pair 130 — which is the bay, so
+// drift's window is 195pt and reaches a row step but not the widest bay.
+const COL = { "2": 0, "4": 200, "4.6": 330, "6": 500, "7": 656, "8": 800, "9": 950 };
+const ROW = { B: 0, C: 137, F: 274 };
+const col = (grid, expected, said, outcome) => {
+  const [c, r] = grid.split("/");
+  return {
+    ...verdictRow("grid-column", expected, outcome),
+    grid,
+    said,
+    point: [COL[c], ROW[r]],
+    labelPattern: "HSS[\\d.]+X[\\d.]+X\\d+/\\d+",
+  };
+};
+
+// Row C carries HSS8X8 where row F carries HSS6X6 at the same thickness, so
+// "took the value one row down" and "read 8X8 as 6X6" produce the identical
+// answer at 2/C, 4.6/C and 7/C.
+const confoundedSheet = () => [
+  col("2/B", "HSS8X8X3/8", "HSS6X6X3/8", "off-target"),
+  col("2/C", "HSS8X8X3/8", "HSS6X6X3/8", "wrong"),
+  col("2/F", "HSS6X6X3/8", "HSS6X6X3/8", "correct"),
+  col("4/B", "HSS8X8X3/8", "HSS8X8X3/8", "correct"),
+  col("4/C", "HSS8X8X3/8", "HSS6X6X3/8", "off-target"),
+  col("4/F", "HSS6X6X5/8", "HSS6X6X3/8", "wrong"),
+  col("4.6/C", "HSS8X8X3/8", "HSS6X6X3/8", "wrong"),
+  col("4.6/F", "HSS6X6X3/8", "HSS6X6X3/8", "correct"),
+  col("6/B", "HSS8X8X1/2", "HSS8X8X1/2", "correct"),
+  col("6/F", "HSS8X8X1/2", "HSS6X6X1/2", "wrong"),
+  col("7/C", "HSS8X8X1/2", "HSS6X6X1/2", "wrong"),
+  col("7/F", "HSS6X6X1/2", "HSS6X6X1/2", "correct"),
+  col("8/B", "HSS8X8X3/8", "HSS6X6X3/8", "off-target"),
+  col("8/C", "HSS8X8X3/8", "HSS6X6X3/8", "off-target"),
+  col("8/F", "HSS8X8X3/8", "HSS8X8X3/8", "correct"),
+  col("9/C", "HSS8X8X3/8", "HSS6X6X3/8", "off-target"),
+  col("9/F", "HSS8X8X1/2", "HSS8X8X1/2", "correct"),
+];
+
+test("an offset a component misread also explains is not an enumeration error", () => {
+  // Without the gate this fixture reports "3 of those 6 are the SAME offset —
+  // 1 row line down", two lines above the component line saying nine of the
+  // same misses are 8X8 read as 6X6. Both cannot be independent evidence: they
+  // are the same three answers, counted twice, explained twice.
+  const off = systematicOffset(confoundedSheet());
+  assert.equal(off.drifted, 6);
+  assert.equal(off.ambiguous, 6, "every drifted miss is one substitution from its own truth");
+  assert.equal(off.discriminating, 0, "none of them needs displacement to be explained");
+  assert.equal(off.systematic, false);
+  assert.equal(off.confound.key, "8X8 read as 6X6");
+  assert.equal(off.confound.elsewhere, 4, "four misses no neighbour can account for");
+});
+
+test("the report names the substitution it refused the offset claim for", () => {
+  const said = verdict(confoundedSheet());
+  assert.match(said, /name the truth at an ADJACENT intersection/, "drift itself still reports");
+  assert.doesNotMatch(said, /ENUMERATED off by one/);
+  assert.match(said, /No offset claim/);
+  assert.match(said, /8X8 read as 6X6/);
+  assert.match(said, /cannot tell them apart/);
+  assert.match(said, /4 misses where no neighbour holds what was said/);
+});
+
+test("with no miss outside the drift, the report says neither story is falsifiable", () => {
+  // The same sheet minus the four misses displacement cannot reach. Now the
+  // misread has no independent evidence either, and the honest line is that
+  // this sheet's own label distribution cannot separate them — which is still
+  // not a licence to claim the offset.
+  const rows = confoundedSheet().filter((r) => !["2/B", "8/B", "8/C", "9/C"].includes(r.grid));
+  const off = systematicOffset(rows);
+  assert.equal(off.systematic, false);
+  assert.equal(off.confound.elsewhere, 0);
+  const said = verdict(rows);
+  assert.match(said, /unfalsifiable/);
+  assert.doesNotMatch(said, /ENUMERATED off by one/);
+});
+
+test("an offset no substitution can produce still reports as an enumeration error", () => {
+  // The gate is not a blanket refusal for compound labels. Here each answer
+  // differs from its own truth in BOTH parts, so no single misread makes it,
+  // and the only account left is that the values walked one row line down.
+  const both = (grid, expected, said, outcome) => col(grid, expected, said, outcome);
+  const rows = [
+    both("2/B", "HSS8X8X3/8", "HSS6X6X1/2", "wrong"),
+    both("4/B", "HSS10X10X3/8", "HSS5X5X5/8", "wrong"),
+    both("6/B", "HSS8X8X1/2", "HSS4X4X3/8", "wrong"),
+    both("2/C", "HSS6X6X1/2", "HSS6X6X1/2", "correct"),
+    both("4/C", "HSS5X5X5/8", "HSS5X5X5/8", "correct"),
+    both("6/C", "HSS4X4X3/8", "HSS4X4X3/8", "correct"),
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.ambiguous, 0);
+  assert.equal(off.discriminating, 3);
+  assert.equal(off.systematic, true);
+  assert.equal(off.rows, 1);
+  assert.match(verdict(rows), /ENUMERATED off by one/);
+});
+
+test("an atomic label has no substitution, so a footing offset is untouched", () => {
+  // The run this whole measure was built for. F3 for F4 is not half of a
+  // reading, so nothing can confound it and the claim stands as it did.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F2"),
+    onRow("4", 1390, "F4", "wrong", "F3"),
+    onRow("5", 1520, "F5", "wrong", "F4"),
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.ambiguous, 0);
+  assert.equal(off.discriminating, 4);
+  assert.equal(off.systematic, true);
+  assert.equal(componentSwap("F4", "F3"), null);
+});
+
+test("componentSwap names one edit, and refuses anything that is not one", () => {
+  assert.deepEqual(componentSwap("HSS8X8X3/8", "HSS6X6X3/8"), {
+    part: "section",
+    key: "8X8 read as 6X6",
+  });
+  assert.deepEqual(componentSwap("HSS6X6X5/8", "HSS6X6X3/8"), {
+    part: "thickness",
+    key: "5/8 read as 3/8",
+  });
+  assert.equal(componentSwap("HSS8X8X3/8", "HSS6X6X1/2"), null, "two edits are not one misread");
+  assert.equal(componentSwap("HSS8X8X3/8", "HSS8X8X3/8"), null, "no edit at all");
+  assert.equal(componentSwap("F12", "F10"), null, "an atomic label has no parts");
+  assert.equal(
+    componentSwap("HSS8X8X3/8", "HSS6X6X3/8, HSS8X8X3/8"),
+    null,
+    "a hedge names several labels and has no single reading to decompose",
+  );
 });
 
 // --- The only number that is an error bar ----------------------------------

@@ -850,6 +850,44 @@ one description is a small sample of a stochastic generator, and the fix is more
 configuration rather than more configurations — which is the opposite of how every experiment
 above was run.
 
+The two survivors then turned out not to be independent of each other, which is the fifth time a
+measure here has read one failure as another and the first time two of them did it to the same
+cases at once. Re-scoring the 68% corpus (identical project, identical tallies, identical drift
+list — `temperature: 0` means a re-score of one corpus is arithmetic, not a sample) printed both
+gates on the column tag, two lines apart: "3 of those 6 are the SAME offset — 1 row line down",
+and then "10 of its 11 misses carry the right thickness and miss only the section". Those are the
+SAME three answers. Row C's columns are HSS8X8 where row F's are HSS6X6 at the same thickness, so
+"took the value one row line down" and "read 8X8 as 6X6" predict the IDENTICAL string at 2/C,
+4.6/C and 7/C. The report offered each as independent evidence for a different mechanism, and the
+two mechanisms want opposite fixes — a crop for the enumeration, resolution for the glyph.
+
+The tie-break is the misses the other hypothesis cannot reach, and here it is one-sided. That same
+substitution appears on four more misses (2/B, 8/B, 8/C, 9/C) where NO neighbour holds what was
+said, so displacement is not available as an explanation at all; no drifted miss needed an offset
+that a substitution could not produce. The misread has evidence of its own, the offset has none,
+and the three ambiguous cases belong to neither.
+
+`componentSwap` decides it per miss: the single edit that turns one label into another, or null
+for two edits, no edit, a hedge, or a label with no parts. Only misses it CANNOT explain vote on
+an offset. The asymmetry is the point — a footing mark is atomic, so `F3` for `F4` has no
+substitution to be confused with, and the seven-of-ten footing offset this function was written
+for stands exactly as it did. On a compound label over a sheet with this few distinct sizes, an
+offset is close to unprovable, and the report now says that in the place it used to assert one.
+When neither side has a miss the other cannot account for, it says that too rather than picking.
+
+Read that against the error bar rather than beside it. The error bar bounds what a comparison
+BETWEEN runs may claim; this bounds what a shape WITHIN one run may claim, and those shapes were
+listed above as the things that survived. One of them still does — nine of eleven misses one edit
+from their truth, always toward 6 (8X8 read as 6X6 nine times, 10X10 as 16X10 once, never the
+reverse) — and it is a glyph collapse, which is the resolution argument the crop was always for.
+The enumeration error is not in evidence on this tag. It is in evidence on the footings, where the
+labels cannot confound it.
+
+None of that run is a new measurement, and the reason is worth keeping: it was invoked without
+`--label`, so the repeats group was empty and the ERROR BAR line — the one thing that would bound
+every number above it — did not print. The flag is the whole of what the previous commit added,
+and a run without it is another single point on a scale nobody has calibrated.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the

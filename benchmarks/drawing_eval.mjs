@@ -668,6 +668,27 @@ export function drift(rows) {
  * Offsets are measured in GRID INDEX space, not points: "one column line over"
  * is the claim, and the bays on this sheet run 130 to 218pt, so a distance
  * cannot say it. The order comes from the cases' own coordinates.
+ *
+ * And then it collided with the measure written directly above it, on the very
+ * next run. Three of the column tag's six drifted misses shared one offset —
+ * row C answered with row F's size — and the report duly called it an
+ * enumeration error. But row C's columns are HSS8X8 where row F's are HSS6X6
+ * at the same thickness, so "took the value one row down" and "read 8X8 as
+ * 6X6" predict the IDENTICAL string. Both gates fired on the same three cases
+ * and told opposite stories about them, two lines apart, each presented as
+ * independent evidence.
+ *
+ * The tie-break is the misses the other hypothesis cannot reach. That same
+ * substitution appeared on four more misses with NO neighbour holding what was
+ * said, where displacement is not available as an explanation; no drifted miss
+ * needed an offset that a substitution could not produce. So the misread has
+ * evidence of its own and the offset has none, and a miss that agrees with
+ * both must not be counted as if it agreed with one.
+ *
+ * `componentSwap` decides it per miss. Only misses it CANNOT explain vote on
+ * an offset, which is why this is not symmetric: an atomic label — a footing
+ * mark — has no substitution to be confused with, so the seven-of-ten footing
+ * offset that this function was written for stands exactly as it did.
  */
 export function systematicOffset(rows) {
   const drifted = drift(rows);
@@ -683,7 +704,7 @@ export function systematicOffset(rows) {
   };
   const columns = axis(0);
   const rowLines = axis(1);
-  const step = new Map();
+  const steps = [];
   for (const miss of drifted) {
     const from = String(miss.grid ?? "").split("/");
     const to = String(miss.truthAt ?? "").split("/");
@@ -695,28 +716,70 @@ export function systematicOffset(rows) {
     if ([to[0], to[1], from[0], from[1]].some((l, i) => (i % 2 ? rowLines : columns).indexOf(l) < 0)) {
       continue;
     }
-    const key = `${dc},${dr}`;
-    step.set(key, (step.get(key) ?? 0) + 1);
+    // Does a one-component misread of this case's OWN truth produce the same
+    // string? Then this miss is evidence for neither hypothesis on its own.
+    steps.push({ key: `${dc},${dr}`, swap: componentSwap(miss.expected, miss.said) });
   }
-  if (!step.size) return null;
-  const [key, count] = [...step].sort((a, b) => b[1] - a[1])[0];
-  const [dc, dr] = key.split(",").map(Number);
-  const total = [...step.values()].reduce((a, b) => a + b, 0);
+  if (!steps.length) return null;
+  const total = steps.length;
+  const ambiguous = steps.filter((s) => s.swap).length;
+
+  // What the misread hypothesis has that the offset hypothesis does not: the
+  // same substitution on a miss that drift could NOT explain. Those cases are
+  // the whole tie-break, so they are counted over the tag's misses rather than
+  // over the drifted subset.
+  const driftedGrids = new Set(drifted.map((d) => d.grid));
+  const elsewhere = new Map();
+  for (const row of rows) {
+    if (!["wrong", "off-target", "invented"].includes(row.outcome)) continue;
+    if (driftedGrids.has(row.grid)) continue;
+    const swap = componentSwap(row.expected, row.said);
+    if (swap) elsewhere.set(swap.key, (elsewhere.get(swap.key) ?? 0) + 1);
+  }
+  const swapped = new Map();
+  for (const s of steps) {
+    if (s.swap) swapped.set(s.swap.key, (swapped.get(s.swap.key) ?? 0) + 1);
+  }
+  // Ranked by the evidence the OFFSET cannot reach, then by how much of the
+  // drift it accounts for. `elsewhere: 0` is still reported: there neither
+  // hypothesis has a miss the other cannot explain, which is a weaker finding
+  // than a misread but a worse one than a confident offset claim.
+  const confound = [...swapped]
+    .map(([key, n]) => ({ key, n, elsewhere: elsewhere.get(key) ?? 0 }))
+    .sort((a, b) => b.elsewhere - a.elsewhere || b.n - a.n)[0] ?? null;
+
+  // Only the misses a component misread CANNOT account for may vote on an
+  // offset. An ambiguous one agrees with whichever story it is asked about.
+  const step = new Map();
+  for (const s of steps) {
+    if (s.swap) continue;
+    step.set(s.key, (step.get(s.key) ?? 0) + 1);
+  }
+  const ranked = [...step].sort((a, b) => b[1] - a[1])[0];
+  const [key, count] = ranked ?? [null, 0];
+  const [dc, dr] = key ? key.split(",").map(Number) : [0, 0];
+  const discriminating = [...step.values()].reduce((a, b) => a + b, 0);
   return {
     drifted: total,
+    ambiguous,
+    discriminating,
+    // The substitution that explains the ambiguous misses AND appears where no
+    // offset could have produced it. Null means nothing is confounded.
+    confound,
     count,
     columns: dc,
     rows: dr,
-    // Half the drifted misses sharing one offset is no longer a coincidence of
-    // a small sheet; it is the same mistake made repeatedly.
-    systematic: count >= 3 && count * 2 >= total,
-    describe:
-      [
-        dc ? `${Math.abs(dc)} column line${Math.abs(dc) > 1 ? "s" : ""} ${dc > 0 ? "over" : "back"}` : "",
-        dr ? `${Math.abs(dr)} row line${Math.abs(dr) > 1 ? "s" : ""} ${dr > 0 ? "down" : "up"}` : "",
-      ]
-        .filter(Boolean)
-        .join(" and "),
+    // Half the DISCRIMINATING misses sharing one offset is no longer a
+    // coincidence of a small sheet; it is the same mistake made repeatedly.
+    systematic: count >= 3 && count * 2 >= discriminating,
+    describe: !key
+      ? ""
+      : [
+          dc ? `${Math.abs(dc)} column line${Math.abs(dc) > 1 ? "s" : ""} ${dc > 0 ? "over" : "back"}` : "",
+          dr ? `${Math.abs(dr)} row line${Math.abs(dr) > 1 ? "s" : ""} ${dr > 0 ? "down" : "up"}` : "",
+        ]
+          .filter(Boolean)
+          .join(" and "),
   };
 }
 
@@ -963,6 +1026,32 @@ export function labelComponents(label) {
 }
 
 /**
+ * The one-component substitution that turns one label into another, or null.
+ *
+ * `HSS8X8X3/8` against `HSS6X6X3/8` is a SECTION swap with the thickness held.
+ * `HSS8X8X3/8` against `F9` is not a substitution at all, and neither is a
+ * label differing in both parts — those are two errors, not one, and the point
+ * of this is to name the single edit a misread would have to make.
+ *
+ * It exists for the tie-break in `systematicOffset`, and it returns null for an
+ * ATOMIC label on purpose: a footing mark has no parts, so `F10` for `F12` can
+ * only ever be a misread of the whole thing or a label taken from somewhere
+ * else, never half of one. That asymmetry is why the footing tag can still
+ * prove an enumeration error and the column tag, on this sheet, cannot.
+ */
+export function componentSwap(expected, said) {
+  const named = String(said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (named.length !== 1) return null;
+  const want = labelComponents(expected);
+  const got = labelComponents(named[0]);
+  if (!want || !got || got.length !== want.length) return null;
+  const differ = want.map((c, i) => c.value !== got[i].value);
+  if (differ.filter(Boolean).length !== 1) return null;
+  const i = differ.indexOf(true);
+  return { part: want[i].name, key: `${want[i].value} read as ${got[i].value}` };
+}
+
+/**
  * Which PART of a compound label a tag is getting wrong.
  *
  * The run that forced this: the column tag scored 33% against a 52% baseline
@@ -1154,6 +1243,23 @@ export function report(rows, json, onSheet, history = null) {
           "then read correctly along it: one mistake made " +
           `${offset.count} times rather than ${offset.count} mistakes. A crop cannot make it, ` +
           "because a crop is handed its coordinate instead of counting its way to one.",
+      );
+    } else if (offset?.confound && offset.ambiguous >= 3) {
+      // The gate that refuses the claim has to SAY so, or the reader is left
+      // with the drift line above and no idea an offset was considered and
+      // could not be separated from the misread reported two lines down.
+      const { key, elsewhere } = offset.confound;
+      console.log(
+        `    No offset claim: ${offset.ambiguous} of those ${offset.drifted} name a label that ` +
+          `"${key}" produces from this case's OWN truth, so displacement and a component ` +
+          "misread predict the same string and the miss cannot tell them apart. " +
+          (elsewhere
+            ? `That substitution also appears on ${elsewhere} miss${elsewhere > 1 ? "es" : ""} ` +
+              "where no neighbour holds what was said, which the offset cannot explain at all — " +
+              "so the reading failure has evidence of its own and the enumeration failure has " +
+              "none here. Fix the glyph before blaming the count."
+            : "Neither has a miss the other cannot account for, so on this sheet's label " +
+              "distribution the two are unfalsifiable and no mechanism may be claimed."),
       );
     }
   }
