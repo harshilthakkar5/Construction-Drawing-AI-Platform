@@ -775,18 +775,64 @@ const ran = (ranAt, projectId, ids, pct) => ({
   pct,
 });
 
-test("separate ingests report their spread, which is the error bar on any comparison", () => {
+test("separate ingests are listed oldest first with the range between them", () => {
   // The measured case: two ingests of the same sheet, on code whose
   // description path was byte-identical between them, scored 63% and 80%.
+  // The range is REPORTED and explicitly not called an error bar — it mixes
+  // real changes with run-to-run spread, and only repeating one configuration
+  // separates those.
   const h = runHistory([
     ran("2026-09-17T06:00Z", "p1", ["a"], 43),
     ran("2026-09-17T06:37Z", "p2", ["b"], 63),
     ran("2026-09-17T08:51Z", "p3", ["c"], 80),
   ]);
   assert.equal(h.ingests.length, 3);
-  assert.equal(h.spread, 37);
+  assert.equal(h.range, 37);
   assert.deepEqual(h.ingests.map((i) => i.pct), [43, 63, 80], "oldest first");
   assert.deepEqual(h.rescored, []);
+});
+
+test("runs with NO descriptions are separate samples, never one corpus", () => {
+  // The bug this feature shipped with. An empty chunk-id list is not a corpus
+  // identity, so keying on it collapsed every pre-vision run into one group
+  // and reported them as ONE corpus that had scored four different numbers —
+  // an alarm about something that does not exist, printed by the feature added
+  // to stop a number being over-read.
+  const h = runHistory([
+    ran("2026-09-17T01:00Z", "p1", [], 35),
+    ran("2026-09-17T02:00Z", "p2", [], 38),
+    ran("2026-09-17T03:00Z", "p3", [], 48),
+  ]);
+  assert.equal(h.ingests.length, 3, "three runs with no descriptions are three samples");
+  assert.deepEqual(h.rescored, [], "and none of them is a re-score of another");
+  assert.deepEqual(h.ingests.map((i) => i.described), [false, false, false]);
+});
+
+test("two description-less runs at the same instant are still not one corpus", () => {
+  // The key falls back to the timestamp, so a collision is the one way two
+  // runs with no descriptions can land in the same group. They still describe
+  // no shared corpus, so the alarm — which claims temperature: 0 was violated
+  // — must not fire on them.
+  const h = runHistory([
+    ran("2026-09-17T01:00Z", "p1", [], 35),
+    ran("2026-09-17T01:00Z", "p2", [], 48),
+  ]);
+  assert.deepEqual(h.rescored, []);
+});
+
+test("the recent tail is what the report shows, not the whole history", () => {
+  // The full list runs back to runs with no vision pass at all, which are a
+  // different system rather than a different setting. Quoting a range across
+  // all of them reads as an error bar and measures the project's history.
+  const h = runHistory(
+    [48, 25, 35, 45, 35, 28, 63, 20, 60, 57, 38, 43, 63, 80, 83].map((pct, i) =>
+      ran(`2026-09-17T${String(i).padStart(2, "0")}:00Z`, `p${i}`, [`c${i}`], pct),
+    ),
+  );
+  assert.equal(h.ingests.length, 15);
+  assert.equal(h.recent.length, 5);
+  assert.deepEqual(h.recent.map((i) => i.pct), [38, 43, 63, 80, 83], "the last five");
+  assert.equal(h.range, 45, "83 - 38, not 83 - 20 across every run ever");
 });
 
 test("re-scoring the SAME descriptions is one ingest, not two", () => {
@@ -799,11 +845,11 @@ test("re-scoring the SAME descriptions is one ingest, not two", () => {
   ]);
   assert.equal(h.runs, 2);
   assert.equal(h.ingests.length, 1, "chunk ids in a different order are the same corpus");
-  assert.equal(h.spread, 0);
+  assert.equal(h.range, 0);
   assert.deepEqual(h.rescored, [], "agreeing re-scores are not an alarm, they are the contract");
 });
 
-test("the spread is over distinct ingests, not over runs", () => {
+test("the range is over distinct ingests, not over runs", () => {
   // A corpus scored twice contributes ONE sample however many times the
   // harness was pointed at it. Counting each run would widen or narrow the
   // error bar with re-runs that measured nothing new — and the whole point of
@@ -814,7 +860,7 @@ test("the spread is over distinct ingests, not over runs", () => {
     ran("2026-09-17T08:00Z", "p2", ["b"], 75),
   ]);
   assert.equal(h.ingests.length, 2);
-  assert.equal(h.spread, 35, "40 and 75, not 80 and 40");
+  assert.equal(h.range, 35, "40 and 75, not 80 and 40");
 });
 
 test("the same descriptions scoring differently is an alarm about the harness", () => {
@@ -829,8 +875,8 @@ test("the same descriptions scoring differently is an alarm about the harness", 
   assert.deepEqual(h.rescored, [{ projectId: "p1", scores: [55, 63] }]);
 });
 
-test("a single run claims no spread at all", () => {
+test("a single run claims no range at all", () => {
   const h = runHistory([ran("2026-09-17T06:00Z", "p1", ["a"], 80)]);
-  assert.equal(h.spread, 0);
+  assert.equal(h.range, 0);
   assert.equal(h.ingests.length, 1);
 });

@@ -683,10 +683,22 @@ export function tally(subset) {
  * the vision settings, so it says what varied and leaves the cause to whoever
  * knows what they changed.
  */
+// How many recent ingests the history line shows. The full list runs back to
+// runs with no vision pass at all, which are a different system rather than a
+// different setting; the tail is the part anyone is comparing against.
+const RECENT_INGESTS = 5;
+
 export function runHistory(records) {
   const byCorpus = new Map();
   for (const r of records) {
-    const key = [...(r.descriptionChunkIds ?? [])].sort().join(",");
+    const ids = [...(r.descriptionChunkIds ?? [])].sort();
+    // A run with NO descriptions has no corpus identity, so it is its own
+    // sample. Keying it on the empty string collapsed every pre-vision run
+    // into one group and reported them as ONE corpus that had scored four
+    // different numbers — a fabricated alarm about a corpus that does not
+    // exist, from the feature added to stop a number being over-read. A
+    // benchmark may report bad news; it may never invent it.
+    const key = ids.length ? ids.join(",") : `no-descriptions:${r.ranAt}`;
     if (!byCorpus.has(key)) byCorpus.set(key, []);
     byCorpus.get(key).push(r);
   }
@@ -694,25 +706,31 @@ export function runHistory(records) {
     .map(([key, runs]) => ({
       key,
       runs,
+      described: !key.startsWith("no-descriptions:"),
       pct: runs[runs.length - 1].pct,
       ranAt: runs[runs.length - 1].ranAt,
-      projectId: runs[runs.length - 1].projectId,
+      projectId: runs[runs.length - 1].projectId ?? "unknown",
     }))
     .sort((a, b) => String(a.ranAt).localeCompare(String(b.ranAt)));
   // Same chunks in, different score out. temperature: 0 says this cannot
-  // happen from the model, so it is the harness that moved.
-  const rescored = [...byCorpus.values()]
+  // happen from the model, so it is the harness that moved. Only ever claimed
+  // of runs that name the SAME described corpus.
+  const rescored = [...byCorpus.entries()]
+    .filter(([key]) => !key.startsWith("no-descriptions:"))
+    .map(([, runs]) => runs)
     .filter((runs) => runs.length > 1 && new Set(runs.map((r) => r.pct)).size > 1)
     .map((runs) => ({
-      projectId: runs[0].projectId,
+      projectId: runs[0].projectId ?? "unknown",
       scores: [...new Set(runs.map((r) => r.pct))].sort((a, b) => a - b),
     }));
-  const scores = ingests.map((i) => i.pct);
+  const recent = ingests.slice(-RECENT_INGESTS);
+  const scores = recent.map((i) => i.pct);
   return {
     runs: records.length,
     ingests,
+    recent,
     rescored,
-    spread: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
+    range: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
   };
 }
 
@@ -943,17 +961,18 @@ export function report(rows, json, onSheet, history = null) {
   }
 
   if (history && history.ingests.length > 1) {
-    const line = history.ingests
-      .map((i) => `${i.pct.toFixed(0)}%`)
+    const line = history.recent
+      .map((i) => `${i.pct.toFixed(0)}%${i.described ? "" : " (no descriptions)"}`)
       .join(", ");
     console.log(
       `\n  This set has been scored ${history.runs} times over ` +
-        `${history.ingests.length} distinct sets of descriptions: ${line} — a ` +
-        `${history.spread.toFixed(0)}-point spread. The harness cannot see the VISION ` +
-        "settings (VLM_* is read by the worker at ingest and the chunks carry none of it), so " +
-        "it cannot tell a configuration change from the spread of asking one model twice. " +
-        "Whichever it is, one run is one sample, and a difference smaller than this spread is " +
-        "not a result yet.",
+        `${history.ingests.length} corpora. The last ${history.recent.length}, oldest first: ` +
+        `${line}.\n  Those span configurations this harness cannot see — VLM_* is read by the ` +
+        "worker at ingest and the chunks carry none of it — so the " +
+        `${history.range.toFixed(0)}-point range between them is NOT an error bar. It mixes ` +
+        "real changes with the spread of asking one model twice, and only REPEATING one " +
+        "configuration separates those. Until that is done a difference between two runs is a " +
+        "hypothesis, not a measurement.",
     );
   }
   if (history?.rescored.length) {
