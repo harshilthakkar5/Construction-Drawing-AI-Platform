@@ -622,10 +622,32 @@ the provider's default, so an unrelated 400 must not silently undo it. `_report_
 prints the read DPI beside the rendered one and warns when they differ, because the gap between
 those two numbers is the whole of what went wrong twice.
 
-What that settles is the direction, not the tag: whole-sheet magnification is bounded at 73 DPI
-by the provider, so the remaining lever is spending that same ceiling on less of the sheet. The
-footing tag holding at 74% across 72, 73 and "119" DPI, while the column tag moved only in its
-choice of filler label, is the same finding from the other side.
+Measured, at `VLM_MAX_EDGE=3072` and `GEMINI_MEDIA_RESOLUTION=ultra_high`, it is the largest
+single move in this file's history and it settles which of the two axes was the constraint. Same
+73 DPI as the run before it — the log says so — and the column tag went 14% to 43% while the
+footing tag went 74% to 84%: 63% overall against a 43% baseline, 17 of 25 hits on minority
+labels, ZERO abstentions, and the description itself grew from 406 to 601 tokens because there
+was more the model could resolve to write down. Pixels were never the lever; the IMAGE TOKEN
+BUDGET was, and `VLM_MAX_EDGE` had been the knob under the light.
+
+It also changed what the misses ARE, which is the finding that matters more than the score. Eight
+of the eleven are drift — 5 of 8 on columns, 3 of 3 on footings, every one naming the truth at an
+intersection 130-162pt away with the bay at 130. `invented` fell from 11 to 4. The failure is no
+longer "cannot read the glyph" and is now "read it correctly, placed it one bay off", which is
+exactly the boundary where more resolution stops helping and starts hurting: the grid bubbles are
+at the sheet's edge, the intersections are in the middle.
+
+That boundary broke a report gate, in the same way the pooled baseline and the minority-hit
+defence each broke once. ANSWER CONCENTRATION cannot tell a frequency prior from a label read
+correctly and misplaced, because the two produce the identical count — a tag that reads row F's
+size and smears it up into rows B and C over-names that size exactly as hard as a tag that never
+looked. So the report printed "its hits ride on a frequency rather than on the intersection each
+question names… right by coincidence, while reading nothing" over the column tag's best run,
+three lines below its own drift annotation saying 5 of its 8 misses named the truth one bay away.
+`tagConcentration` now asks how many of the over-named label's MISSES are drift and refuses the
+prior verdict when most of them are. It is not a defence of the score — a misplaced read is still
+wrong at that intersection — but the two want opposite fixes, and naming the wrong one points the
+next change at comprehension when what is missing is locality.
 
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.

@@ -459,7 +459,11 @@ function minorityHits(rows) {
  */
 const OVER_NAMING_POINTS = 15;
 
-function tagConcentration(subset, tag) {
+function saidLabels(row) {
+  return String(row.said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+function tagConcentration(subset, tag, drifted = []) {
   const answered = subset.filter((r) => r.outcome !== "abstained");
   if (!answered.length) return null;
   const freq = new Map();
@@ -497,6 +501,26 @@ function tagConcentration(subset, tag) {
   // sense worth printing. 24% where guessing scores 52% is fixation whatever
   // the hits look like.
   const beatsBase = (correct / subset.length) * 100 > majorityBaseline(subset).pct;
+  // And neither gate can tell a frequency prior from a label read correctly and
+  // PLACED one bay off, which is the failure that replaces fixation once a
+  // description gets good. The two produce the same concentration count: a tag
+  // that reads row F's size and smears it up into rows B and C over-names that
+  // size exactly as hard as a tag that never looked. `drift` already separates
+  // them per miss — the named label's own intersection is a bay away — so this
+  // asks how many of the over-named label's MISSES are that, and the verdict
+  // stops calling it a guess when most of them are.
+  //
+  // Not a defence of the score. A tag misplacing what it reads is still wrong
+  // at those intersections; it wants LOCALITY rather than a better prior, and
+  // saying "it is reaching for one label" without saying which of the two is
+  // happening points the next change at the wrong thing.
+  const namedMisses = subset.filter(
+    (r) => !["correct", "abstained"].includes(r.outcome) && saidLabels(r).includes(label),
+  );
+  const placed = namedMisses.filter((r) =>
+    drifted.some((d) => d.tag === r.tag && d.grid === r.grid && d.named === label),
+  ).length;
+  const placement = namedMisses.length > 0 && placed * 2 >= namedMisses.length;
   return {
     tag,
     label,
@@ -509,7 +533,10 @@ function tagConcentration(subset, tag) {
     minorityHits: minorityHits(subset),
     independentHits: independent,
     beatsBase,
-    prior: !beatsBase || (correct ? (independent / correct) * 100 : 0) < 25,
+    namedMisses: namedMisses.length,
+    placedMisses: placed,
+    placement,
+    prior: !placement && (!beatsBase || (correct ? (independent / correct) * 100 : 0) < 25),
   };
 }
 
@@ -522,9 +549,12 @@ function tagConcentration(subset, tag) {
  */
 export function answerConcentration(rows) {
   const tags = [...new Set(rows.map((r) => r.tag))];
-  if (tags.length <= 1) return tagConcentration(rows, tags[0] ?? null);
+  // Computed ONCE over the whole set: the bay is measured from the
+  // intersections the cases name, and a single tag's subset is the same grid.
+  const drifted = drift(rows);
+  if (tags.length <= 1) return tagConcentration(rows, tags[0] ?? null, drifted);
   const each = tags
-    .map((t) => tagConcentration(rows.filter((r) => r.tag === t), t))
+    .map((t) => tagConcentration(rows.filter((r) => r.tag === t), t, drifted))
     .filter(Boolean);
   if (!each.length) return null;
   // Prior-shaped tags first, THEN widest gap: a tag whose hits are mostly
@@ -651,8 +681,12 @@ export function report(rows, json, onSheet) {
       ? " — in step with the sheet"
       : c.prior
         ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
-        : ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.independentHits} of its ${c.correct} ` +
-          "hits name neither that label nor the tag's majority, which fixation does not produce");
+        : c.placement
+          ? ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.placedMisses} of the ` +
+            `${c.namedMisses} misses naming it are that label's own intersection a bay away: ` +
+            "placement, not a prior"
+          : ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.independentHits} of its ${c.correct} ` +
+            "hits name neither that label nor the tag's majority, which fixation does not produce");
 
   const block = (label, t) =>
     `  ${label.padEnd(14)} ${String(t.n).padStart(3)}   ` +
@@ -793,7 +827,13 @@ export function report(rows, json, onSheet) {
         `${worst.answered} (${worst.namedPct.toFixed(0)}%), where that is what the sheet shows ` +
         `${worst.truthPct.toFixed(0)}% of the time. Whatever that tag scored, it is reaching for ` +
         "one label far more often than the drawing offers it" +
-        (worst.prior
+        (worst.placement
+          ? `. But ${worst.placedMisses} of the ${worst.namedMisses} misses naming it are that ` +
+            "label's OWN intersection one bay away, so this is not a frequency prior — it is a " +
+            "size read correctly and put in the wrong place. The two look identical in this " +
+            "count and want opposite fixes: a prior wants comprehension, a misplacement wants " +
+            "locality, and a higher-resolution whole-sheet image makes locality worse."
+          : worst.prior
           ? (worst.beatsBase
               ? ", and only " +
                 `${worst.independentHits} of its ${worst.correct} correct answers name a label ` +

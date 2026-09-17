@@ -697,3 +697,70 @@ test("drift needs at least two misses before it claims a mechanism", () => {
   assert.equal(drift(rows).length, 1);
   assert.doesNotMatch(verdict(rows), /name the truth at an ADJACENT/);
 });
+
+// --- Concentration cannot tell a prior from a misplacement on its own -------
+
+// One row line, five intersections a bay apart. The model reads "S3" correctly
+// where it lives and smears it onto its two neighbours: it over-names S3
+// exactly as hard as a tag that never looked at the drawing.
+const smear = (grid, x, expected, outcome, said) => ({
+  ...verdictRow("grid-footing", expected, outcome),
+  grid,
+  point: [x, 600],
+  said: outcome === "abstained" ? "" : said ?? expected,
+});
+
+test("over-naming whose misses are drift is called placement, not a guess", () => {
+  const rows = [
+    smear("1/B", 1000, "S1", "correct"),
+    smear("2/B", 1130, "S2", "wrong", "S3"),
+    smear("3/B", 1260, "S3", "correct"),
+    smear("4/B", 1390, "S4", "off-target", "S3"),
+    smear("5/B", 1520, "S1", "correct"),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "S3");
+  assert.equal(c.namedMisses, 2);
+  assert.equal(c.placedMisses, 2, "both misses name S3's own intersection one bay away");
+  assert.equal(c.placement, true);
+  assert.equal(c.prior, false, "a misplaced read is not a frequency prior");
+  assert.match(verdict(rows), /placement, not a prior/);
+  assert.match(verdict(rows), /read correctly and put in the wrong place/);
+  assert.doesNotMatch(verdict(rows), /the shape of a guess/);
+});
+
+test("over-naming a label from nowhere near the misses is still a guess", () => {
+  // Same shape, same concentration count — and the over-named label's own
+  // intersection is on the far side of the sheet, so nothing was misplaced.
+  const rows = [
+    smear("1/B", 1000, "S1", "correct"),
+    smear("2/B", 1130, "S2", "wrong", "S9"),
+    smear("3/B", 1260, "S3", "off-target", "S9"),
+    smear("4/B", 1390, "S4", "off-target", "S9"),
+    smear("9/B", 4000, "S9", "correct"),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.label, "S9");
+  assert.equal(c.placedMisses, 0);
+  assert.equal(c.placement, false);
+  assert.equal(c.prior, true);
+  assert.match(verdict(rows), /the shape of a guess/);
+});
+
+test("placement needs MOST of the over-named misses, not one", () => {
+  // One drifted miss among four does not change what the tag is doing, and a
+  // gate that flipped on a single case would excuse any fixation that happened
+  // to sit next to its own home.
+  const rows = [
+    smear("1/B", 1000, "S1", "correct"),
+    smear("2/B", 1130, "S2", "wrong", "S3"),
+    smear("3/B", 1260, "S3", "correct"),
+    smear("7/B", 2000, "S7", "off-target", "S3"),
+    smear("8/B", 2130, "S8", "off-target", "S3"),
+    smear("9/B", 2260, "S9", "off-target", "S3"),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.namedMisses, 4);
+  assert.equal(c.placedMisses, 1);
+  assert.equal(c.placement, false);
+});
