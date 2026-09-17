@@ -455,10 +455,25 @@ Gemini thinking control worked at all. `GEMINI_THINKING_LEVEL` is the whole expe
 side: at `minimal` the same sheet scored 20% correct with 17 off-target and answered one member
 size to 75% of the column questions it attempted — a size the sheet shows on 14% of them, so not
 even the majority guess — while at `low` it scored 60% and beat the baseline on BOTH tags for the
-first time, 12 of 24 hits on minority labels. The floor of the scale is not a cheap version of the
-next rung; on this task it is a different model. Against Claude's best run on the same sheet (63%,
-footings 74%, columns tying their baseline) `low` trades: worse on footings, better on columns —
-the one configuration so far whose column tag beats its baseline at all.
+first time, 12 of 24 hits on minority labels. Against Claude's best run on the same sheet (63%,
+footings 74%, columns tying their baseline) `low` traded: worse on footings, better on columns.
+
+**That comparison no longer stands, and the way it fell over is the point.** It was n=1 per arm,
+and it was written as settled cause — "the floor of the scale is not a cheap version of the next
+rung; on this task it is a different model". A later run at `GEMINI_THINKING_LEVEL=low`, on the
+far better configuration this section arrives at, reproduced the failure signature this paragraph
+attributes to `minimal` almost exactly: the column tag at 19% with 10 off-target, answering
+`HSS6X6X3/8` to 67% of the questions it attempted — the same fixation, on a size the sheet shows
+on the same 14% of them. One arm's characteristic failure appearing under the other arm is not a
+detail; it says the variable named here was probably not the one doing the work.
+
+What it is instead is unknown, and the run cannot say, because TWO settings had moved from the
+83% run before it (`GEMINI_THINKING_LEVEL` off its default and `VLM_MAX_TOKENS` 4000 to 20000)
+and the run before that predates `_report_settings`, so its values were never recorded at all.
+Two variables at once against an unknown baseline is three unknowns and one number. The honest
+state is: `minimal` versus `low` is UNMEASURED on this pipeline, both of the runs that pretend to
+measure it are confounded, and nothing in this section should be read as knowing which way that
+switch cuts until one variable moves on its own.
 
 Those four rules were then measured, on a fresh ingest of the same sheet: 28% correct with 15
 abstentions became 63% correct with 4, and the footing tag went from guesswork to 74% against its
@@ -698,6 +713,24 @@ the sixth is `HSS16X0X1/2` for `HSS10X10X1/2` — a glyph misread, not a fabrica
 trajectory is monotone across the last four, which is what a real improvement looks like and what
 run-to-run noise does not; it is still not the repeat measurement, and the report says so every
 time it prints.
+
+`_report_settings` earned its place on the first run it saw. That run scored 53% — a 30-point
+drop from the 83% before it — and the line named the configuration in one glance:
+`VLM_MAX_TOKENS=20000 GEMINI_THINKING_LEVEL=low GEMINI_MEDIA_RESOLUTION=ultra_high`. Without it
+this would have been another unexplained swing filed next to the others, and the temptation would
+have been to explain it with whatever had changed in the repository — which was nothing that
+touches a description. It does NOT identify the cause: two settings moved at once and the run they
+are being compared against was never logged, so the comparison has three unknowns in it. What the
+line buys is knowing that, rather than guessing.
+
+The failure it produced is the old one exactly: the column tag at 19%, `HSS6X6X3/8` on 14 of 21
+answers where the sheet shows it on 3, and the footing tag untouched at 89%. That asymmetry has
+been stable through every configuration in this section — a footing mark in a bubble reads and a
+member size with a fraction on the end is the thing under pressure — and it is why the column tag,
+not the score, is the number to read. The `placement` gate behaved correctly under it, and only
+just: 5 of the 11 misses naming the over-named size were drift, one short of the majority that
+would have called it placement rather than a prior. It is a 50% threshold on eleven cases, so
+treat the two verdicts as neighbours near the boundary rather than as opposites.
 
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
