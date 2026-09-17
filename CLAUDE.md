@@ -1043,6 +1043,59 @@ row, which shares nothing with C — it is resolution, and cropping has been fal
 The footing tag, which already reads at 73 DPI, has nothing to gain and can only be hurt by a
 crop that cuts a label out, so a drop there points at the window before anything else.
 
+**And then it ran, and the prediction held — the first time in this file an advance prediction
+has.** `VLM_CROP=intersections` on the same sheet at `minimal` + 4000 + `ultra_high`: **98%**, 39
+of 40, with **zero wrong, zero off-target, zero invented, zero hedged** and one abstention. The
+column tag — the number this whole section has been chasing since the beginning, stuck between
+14% and 43% through every configuration and never once beating its 52% baseline — scored
+**21 of 21**. The log confirms the mechanism in one line: `993 DPI reaches the model against 73
+for the whole sheet`.
+
+The 8X8-read-as-6X6 substitution is GONE. Nine occurrences in one direction in the run before it,
+none here. That was the narrow falsifiable claim written above before the run, and it is the only
+prediction in this file that was stated in advance, was capable of failing, and did not. The
+discriminator behind it never had to fire.
+
+The C-to-F overlap did not bite either, and that is worth recording because the risk was real:
+those two crops share 85.6pt of drawing and rows C and F were the exact pair the 68% run confused,
+yet not one answer crossed between them. The handed coordinate plus the prompt's rule that a
+neighbour's label is not yours to report carried the load the geometry could not.
+
+What the run does NOT say, and the distinction matters more here than anywhere else in this
+section. It is n=1, and the error bar above is 43 points. The defence is not the score — it is
+that the score is not where the evidence is. A 43-point spread was measured across runs that each
+still produced five to eleven WRONG answers; this run produced none. Every miss bucket emptying at
+once is a WITHIN-run observation, which is the category this file already established as the one
+that survives a single sample, and it is not something a lucky draw from the old distribution
+produces. The claim is "the failure mode this section spent its whole history on is absent", not
+"cropping is worth 30 points".
+
+The honest boundary is narrower still, and it is not a caveat about confidence. **The crop pass is
+not better at reading drawings. It is better at this SHAPE of question**, because the system hands
+it the coordinate out of the PDF's own geometry — which is legitimate (production asks "what is at
+2/B" and the pipeline can derive 2/B the same way) and is also the whole trick. A question the
+grid cannot locate gains nothing, and the crop description is strictly NARROWER than the sheet
+pass: it holds a grid header and one line per intersection, and nothing at all about what lies
+between them. Everything this pass ever wrote about layout is gone. `retrieval_eval.mjs` is where
+that would show, and its set still carries a dead `projectId`, so the regression is currently
+unmeasured rather than absent. That is the next thing to check, ahead of any further crop work.
+
+The run also spent the benchmark, and `saturation` now says so. With no wrong, off-target,
+invented or hedged answer anywhere, the only headroom left is one case — 2.5 points on a 40-case
+set, against a measured 43-point spread. Nothing a future change does can be demonstrated through
+a gap that small in either direction, so a run scoring 95% next time is not a regression and one
+scoring 100% is not an improvement. A benchmark that has been beaten has to say so, for the same
+reason every other gate here exists: the report must not let someone keep quoting a number it can
+no longer earn. The next measurement needs a harder SET rather than a better pipeline —
+regenerate against all 27 intersections the grid actually has rather than the 22 that survived the
+jitter test, emit `sheetLabels` while doing it, and add a tag this pipeline is not already built
+to answer.
+
+Cost, measured rather than estimated: 27 images in 5 calls, about 60 seconds of wall clock, for
+ONE page. The sheet pass sends one image. That is the trade in full — it buys the column tag and
+it is not a default, it is a per-sheet decision for structural plans with a grid, and a 400-page
+set is a different order of spend entirely.
+
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
 dashboard labels from. It did not, first run — and the cost was not a missing dashboard row.

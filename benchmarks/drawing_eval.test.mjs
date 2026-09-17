@@ -31,6 +31,7 @@ import {
   componentMisreads,
   systematicOffset,
   componentSwap,
+  saturation,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1284,6 +1285,58 @@ test("componentSwap names one edit, and refuses anything that is not one", () =>
     null,
     "a hedge names several labels and has no single reading to decompose",
   );
+});
+
+// --- When the set has been beaten ------------------------------------------
+
+test("a set with no wrong answer and one case left says it is spent", () => {
+  // The first crop run: 39 of 40, nothing wrong, off-target, invented or
+  // hedged. One case of headroom on a forty-case set is 2.5 points against a
+  // measured 43-point spread, so the set can no longer tell two runs apart.
+  const rows = [
+    ...Array.from({ length: 39 }, () => verdictRow("grid-footing", "F9", "correct")),
+    verdictRow("grid-footing", "F7", "abstained"),
+  ];
+  const spent = saturation(rows);
+  assert.equal(spent.left, 1);
+  assert.equal(spent.points, 2.5);
+  const said = verdict(rows);
+  assert.match(said, /THIS SET IS SPENT/);
+  assert.match(said, /not a regression/);
+  assert.match(said, /needs a harder SET, not a better pipeline/);
+});
+
+test("one wrong answer means the set can still discriminate", () => {
+  // The distinction is the MISS buckets, not the score. A run can be at 97%
+  // and still be measurable, because a wrong answer is something a change can
+  // fix and a reader can check.
+  const rows = [
+    ...Array.from({ length: 38 }, () => verdictRow("grid-footing", "F9", "correct")),
+    verdictRow("grid-footing", "F7", "wrong"),
+    verdictRow("grid-footing", "F7", "abstained"),
+  ];
+  assert.equal(saturation(rows), null);
+  assert.doesNotMatch(verdict(rows), /THIS SET IS SPENT/);
+});
+
+test("a clean run with real headroom is not spent either", () => {
+  // Nothing wrong, but a quarter of the set declined. There is plenty for a
+  // change to move and the abstentions are exactly what it should move.
+  const rows = [
+    ...Array.from({ length: 30 }, () => verdictRow("grid-footing", "F9", "correct")),
+    ...Array.from({ length: 10 }, () => verdictRow("grid-footing", "F7", "abstained")),
+  ];
+  assert.equal(saturation(rows), null);
+});
+
+test("an off-target or invented answer keeps the set alive", () => {
+  for (const outcome of ["off-target", "invented", "hedged"]) {
+    const rows = [
+      ...Array.from({ length: 39 }, () => verdictRow("grid-footing", "F9", "correct")),
+      verdictRow("grid-footing", "F7", outcome),
+    ];
+    assert.equal(saturation(rows), null, outcome);
+  }
 });
 
 // --- The only number that is an error bar ----------------------------------
