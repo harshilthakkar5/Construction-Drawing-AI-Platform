@@ -335,8 +335,18 @@ def _takes_thinking_level(model: str) -> bool:
     name that parses as neither keeps the older field, which is where every
     pre-3 model lives.
     """
+    return _gemini_major(model) >= 3
+
+
+def _gemini_major(model: str) -> int:
+    """This model's generation number, or 0 for a name that does not parse.
+
+    0 rather than None because every caller asks the same question — "is this
+    at least generation N?" — and a name nothing recognises should answer no
+    to all of them.
+    """
     found = _GEMINI_VERSION.search(model or "")
-    return bool(found) and int(found.group(1)) >= 3
+    return int(found.group(1)) if found else 0
 
 
 # Models that rejected a thinking setting. The value is what to send INSTEAD —
@@ -529,7 +539,98 @@ def _record_gemini_usage(meta, *, kind, model, project_id) -> None:
     )
 
 
-def _user_content_gemini(user: str, images: list[bytes] | None):
+# How many pixels of an image the model actually reads.
+#
+# This is the third time the same lesson has been paid for here, and the most
+# expensive, because nothing in the transport or the logs contradicted the
+# belief. `vlm.render` prints the DPI it rendered at, and a run that set
+# VLM_MAX_EDGE=5000 to test whether the column tag is resolution-bound logged
+# "119 DPI" and scored the tag at 14% — worse than the 72 DPI run it was meant
+# to beat. The image was never read at 119 DPI:
+#
+#   * Gemini scales an image down to fit 3072x3072 before anything else. A
+#     42x30in sheet is 3024pt, so that cap IS 73 DPI on this drawing, whatever
+#     is sent. (Claude's ceiling, 2576px, is 61 DPI on the same sheet — the two
+#     providers differ by 12 DPI, not by "one of them tiles without a wall",
+#     which is what the comment in vlm.py used to say.)
+#   * From Gemini 3 on, the image is then tokenized to a FIXED BUDGET set by
+#     `media_resolution`, defaulting to HIGH — 1120 tokens for an image. More
+#     pixels do not buy more of those tokens; they are resampled into the same
+#     budget.
+#
+# So VLM_MAX_EDGE above 3072 costs render time and nothing else, and the
+# resolution experiment this repo has run twice has never actually varied the
+# resolution the model reads at. ULTRA_HIGH is the one control that does, and
+# it exists only PER PART: `GenerateContentConfig.media_resolution` stops at
+# HIGH, which is why this is attached to the image part rather than the config.
+#
+# The default is the top of the scale because this transport's only image
+# caller is the vision pass, whose entire job is resolving fine text on a
+# large sheet — a member size with a fraction on the end, which is the one
+# thing measured as unreadable. Lower it if the token cost matters more than
+# the reading does.
+_MEDIA_LEVELS = ("low", "medium", "high", "ultra_high")
+
+GEMINI_MEDIA_RESOLUTION = (
+    os.environ.get("GEMINI_MEDIA_RESOLUTION") or "ultra_high"
+).strip().lower()
+if GEMINI_MEDIA_RESOLUTION not in _MEDIA_LEVELS:
+    log.warning(
+        "GEMINI_MEDIA_RESOLUTION=%r is not one of %s — using %r",
+        GEMINI_MEDIA_RESOLUTION, ", ".join(_MEDIA_LEVELS), _MEDIA_LEVELS[-1],
+    )
+    GEMINI_MEDIA_RESOLUTION = _MEDIA_LEVELS[-1]
+
+# Models that rejected the field, latched after one refusal so a 400 is paid
+# once per model rather than once per page.
+_no_media_resolution: set[str] = set()
+
+_MEDIA_REFUSALS = ("media_resolution", "media resolution")
+
+
+def _takes_media_resolution(model: str) -> bool:
+    """Whether this model is asked for a per-part media resolution.
+
+    The same version sniff as the thinking level, for the same reason: a list
+    of model names expires on a schedule this repo does not control. ULTRA_HIGH
+    arrived with Gemini 3; a pre-3 model tokenizes an image its own way and is
+    sent no field at all.
+    """
+    return _takes_thinking_level(model) and model not in _no_media_resolution
+
+
+def _media_resolution_part(model: str) -> dict | None:
+    """The `media_resolution` to attach to an image part, or None to omit it."""
+    if not _takes_media_resolution(model):
+        return None
+    return {"level": f"MEDIA_RESOLUTION_{GEMINI_MEDIA_RESOLUTION.upper()}"}
+
+
+def _is_media_refusal(exc: object) -> bool:
+    """Whether this error is worth one retry without the media resolution.
+
+    Deliberately narrow. The thinking-refusal matcher had to be widened to a
+    bare INVALID_ARGUMENT because Gemini 3 rejects the OLD thinking field
+    without naming it, and that width is affordable there — the fallback is
+    another thinking setting. Here the fallback is reading the sheet at the
+    provider's default, so a match on an unrelated 400 would silently undo the
+    only resolution lever this pass has. It must name the field.
+    """
+    return any(mark in str(exc).lower() for mark in _MEDIA_REFUSALS)
+
+
+def _latch_no_media(model: str, exc: object) -> None:
+    _no_media_resolution.add(model)
+    log.warning(
+        "%s rejected media_resolution=%s (%s) — images are sent to it without the field "
+        "from now on, which means the provider's default budget for them. On a 42x30in "
+        "sheet that is roughly 73 DPI, where a footing mark reads and a member size with "
+        "a fraction does not.",
+        model, GEMINI_MEDIA_RESOLUTION, exc,
+    )
+
+
+def _user_content_gemini(user: str, images: list[bytes] | None, *, model: str = ""):
     """Gemini takes `contents` as a string or a list of parts. Same rule as the
     Claude side: no images means the exact string the caller passed, so the
     request this module has always sent is unchanged.
@@ -537,12 +638,21 @@ def _user_content_gemini(user: str, images: list[bytes] | None):
     An inline_data dict rather than a `types.Part` object at module scope —
     the SDK coerces it, and it keeps llm.py importable without google-genai,
     which is why every other SDK import here is deferred too.
+
+    `media_resolution` rides on the PART, not on the config, because that is
+    the only place ULTRA_HIGH exists. See the block above it for what the field
+    costs and what omitting it costs.
     """
     if not images:
         return user
-    return [
-        {"inline_data": {"mime_type": "image/png", "data": png}} for png in images
-    ] + [user]
+    media = _media_resolution_part(model)
+    parts = []
+    for png in images:
+        part = {"inline_data": {"mime_type": "image/png", "data": png}}
+        if media:
+            part["media_resolution"] = media
+        parts.append(part)
+    return parts + [user]
 
 
 def _complete_gemini(
@@ -552,10 +662,10 @@ def _complete_gemini(
     if client is None:
         return Reply(text="", stop_reason="unavailable")
 
-    def call(thinking: bool | dict):
+    def send(thinking: bool | dict, *, media_model: str):
         return client.models.generate_content(
             model=model,
-            contents=_user_content_gemini(user, images),
+            contents=_user_content_gemini(user, images, model=media_model),
             config=_gemini_config(
                 model=model,
                 max_tokens=max_tokens,
@@ -564,6 +674,19 @@ def _complete_gemini(
                 thinking=thinking,
             ),
         )
+
+    def call(thinking: bool | dict):
+        # The media-resolution retry is nested INSIDE one rung of the thinking
+        # ladder rather than being a second ladder beside it: the two settings
+        # are independent, and a model that refuses the image field should not
+        # also lose the thinking level that was working.
+        try:
+            return send(thinking, media_model=model)
+        except Exception as exc:
+            if not images or model in _no_media_resolution or not _is_media_refusal(exc):
+                raise
+            _latch_no_media(model, exc)
+            return send(thinking, media_model="")
 
     # Walk the ladder rather than falling straight off it. Dropping the field
     # used to be the whole fallback, and on a level-taking model that asks for

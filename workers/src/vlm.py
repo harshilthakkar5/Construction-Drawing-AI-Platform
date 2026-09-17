@@ -88,8 +88,19 @@ facts worth knowing before changing VLM_CLAUDE_MODEL:
   * Haiku 4.5 and every pre-4.7 model cap at 1568px. On a 42in sheet that is
     37 DPI and 5px text: unreadable. Sending 2576 to one of them does not help,
     it is downscaled server-side.
-  * Gemini bills 258 tokens per 768x768 tile with no hard cap, so there the
-    resolution knob is a cost knob rather than a wall.
+  * Gemini is a wall too, and believing otherwise cost this pass two
+    experiments. It scales an image down to fit 3072x3072 BEFORE tokenizing —
+    73 DPI on this sheet, twelve more than Claude's 61 — and from Gemini 3 on
+    it then tokenizes to a fixed per-part budget (`media_resolution`, default
+    HIGH at 1120 tokens for an image). More pixels are resampled into the same
+    budget. VLM_MAX_EDGE=5000 therefore rendered 119 DPI, logged 119 DPI, and
+    was read at 73; the column tag scored 14% and the run looked like evidence
+    that resolution is not the limit. It was evidence that VLM_MAX_EDGE stops
+    mattering at 3072.
+
+    `llm.GEMINI_MEDIA_RESOLUTION` (default `ultra_high`) is the one control
+    that varies what is read, and it exists only on the image PART — the
+    config-level field stops at HIGH.
 
 PAGE_RENDER_ZOOM=2 renders ~6048px on the long edge for the viewer. That is far
 larger than any model accepts, so this renders its own pixmap rather than
@@ -122,13 +133,25 @@ GEMINI_MODEL = os.environ.get("VLM_GEMINI_MODEL", "gemini-3.6-flash")
 # Claude ceiling; see the module docstring before lowering it.
 MAX_EDGE_PX = int(os.environ.get("VLM_MAX_EDGE", "2576"))
 
-# What this repo measured as the long edge Anthropic's high-resolution models
-# accept. Past it they downscale, so the extra pixels are billed and carry
-# nothing — the one direction in which raising VLM_MAX_EDGE actively costs.
-# Gemini has no such ceiling: it tiles, which makes resolution a COST knob
-# there rather than a wall, and therefore the one lever this pass has left for
-# text it cannot resolve.
+# What each provider will actually READ, whatever we render. Both have a wall;
+# the belief that one of them did not is what cost this pass two resolution
+# experiments.
+#
+# Anthropic downscales past 2576, so those pixels are billed and carry nothing.
+# Gemini scales an image to fit 3072x3072 before tokenizing it, and from
+# Gemini 3 on tokenizes it to a fixed budget set per part by `media_resolution`
+# (llm.GEMINI_MEDIA_RESOLUTION). The comment that used to sit here said Gemini
+# "has no such ceiling: it tiles, which makes resolution a COST knob there
+# rather than a wall" — it is a wall, 19% further out than Claude's, and
+# VLM_MAX_EDGE=5000 was resampled back down to it while this module logged
+# "119 DPI".
+#
+# On a 42x30in sheet (3024pt) those ceilings are 61 and 73 DPI. Neither
+# resolves "HSS8X8X3/8"; both resolve "F9". That 12-DPI spread is the whole
+# whole-sheet lever, and it is why the remaining one is a CROP — the same
+# ceiling spent on a twentieth of the page.
 CLAUDE_MAX_EDGE_PX = 2576
+GEMINI_MAX_EDGE_PX = 3072
 _resolution_reported = False
 
 # Room for a few dozen pairings written in the coordinate format the prompt
@@ -430,23 +453,33 @@ def _report_resolution(rect, zoom: float, max_edge: int) -> None:
     if _resolution_reported:
         return
     _resolution_reported = True
-    dpi = 72 * zoom
+    sent = round(max(rect.width, rect.height) * zoom)
+    who = provider()
+    ceiling = CLAUDE_MAX_EDGE_PX if who == "claude" else GEMINI_MAX_EDGE_PX
+    read = min(sent, ceiling)
     log.info(
-        "vision pass renders %.0fx%.0fin pages at %.0f DPI (long edge %d px, VLM_MAX_EDGE=%d)",
+        "vision pass renders %.0fx%.0fin pages at %.0f DPI (long edge %d px, "
+        "VLM_MAX_EDGE=%d); %s reads at most %d px, so %.0f DPI reaches the model",
         rect.width / 72,
         rect.height / 72,
-        dpi,
-        round(max(rect.width, rect.height) * zoom),
+        72 * zoom,
+        sent,
         max_edge,
+        who,
+        ceiling,
+        72 * zoom * read / sent if sent else 0,
     )
-    if provider() == "claude" and max_edge > CLAUDE_MAX_EDGE_PX:
+    if sent > ceiling:
         log.warning(
-            "VLM_MAX_EDGE=%d is past the %d this repo measured as Anthropic's high-resolution "
-            "limit, so the image is downscaled on their side: those pixels are billed and carry "
-            "no extra information. Raising resolution is a lever on VLM_PROVIDER=gemini, which "
-            "tiles instead of capping.",
+            "VLM_MAX_EDGE=%d renders %d px, but %s scales an image down to %d px before it "
+            "reads anything — the extra pixels cost render time and change nothing the model "
+            "sees. This is what made the resolution experiment look like it had run: the "
+            "rendered DPI is not the read DPI. Locality, not magnification, is the lever "
+            "left: a crop spends the same ceiling on a fraction of the sheet.",
             max_edge,
-            CLAUDE_MAX_EDGE_PX,
+            sent,
+            who,
+            ceiling,
         )
 
 

@@ -510,21 +510,40 @@ class TestResolutionIsReported:
         assert "61 DPI" in caplog.text
         assert "42x30in" in caplog.text
 
-    def test_raising_it_past_anthropics_limit_is_billed_for_nothing(self, monkeypatch, caplog):
-        monkeypatch.setattr(vlm, "_resolution_reported", False)
-        monkeypatch.setattr(vlm, "provider", lambda: "claude")
-        with caplog.at_level("INFO"):
-            vlm._report_resolution(self._Rect(), 5000 / (42 * 72), 5000)
-        assert "downscaled on their side" in caplog.text
-        assert "gemini" in caplog.text
-
-    def test_gemini_is_not_warned_because_it_tiles(self, monkeypatch, caplog):
+    def test_it_reports_the_read_dpi_beside_the_rendered_one(self, monkeypatch, caplog):
+        """The whole cost of this line's first version. It printed 119 DPI for
+        a render that Gemini read at 73, and the run that produced it was
+        filed as evidence that resolution is not the column tag's limit."""
         monkeypatch.setattr(vlm, "_resolution_reported", False)
         monkeypatch.setattr(vlm, "provider", lambda: "gemini")
         with caplog.at_level("INFO"):
             vlm._report_resolution(self._Rect(), 5000 / (42 * 72), 5000)
-        assert "downscaled" not in caplog.text
         assert "119 DPI" in caplog.text
+        assert "73 DPI reaches the model" in caplog.text
+
+    def test_past_the_ceiling_is_billed_for_nothing_on_both_providers(
+        self, monkeypatch, caplog
+    ):
+        """It is not a Claude-only warning. The comment this replaces said
+        Gemini "has no such ceiling: it tiles" — it caps at 3072, which on this
+        sheet is 73 DPI against Claude's 61. A 12-DPI spread, not a wall on one
+        side and open road on the other."""
+        for who, ceiling in (("claude", 2576), ("gemini", 3072)):
+            caplog.clear()
+            monkeypatch.setattr(vlm, "_resolution_reported", False)
+            monkeypatch.setattr(vlm, "provider", lambda who=who: who)
+            with caplog.at_level("INFO"):
+                vlm._report_resolution(self._Rect(), 5000 / (42 * 72), 5000)
+            assert f"scales an image down to {ceiling} px" in caplog.text
+            assert "the rendered DPI is not the read DPI" in caplog.text
+
+    def test_no_warning_when_the_render_is_inside_the_ceiling(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        monkeypatch.setattr(vlm, "provider", lambda: "gemini")
+        with caplog.at_level("INFO"):
+            vlm._report_resolution(self._Rect(), 2576 / (42 * 72), 2576)
+        assert "scales an image down" not in caplog.text
+        assert "61 DPI reaches the model" in caplog.text
 
 
 class TestZoneMarkersAreNotGridLines:

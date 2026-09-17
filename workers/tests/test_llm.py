@@ -921,3 +921,62 @@ class TestClaudeThinking:
         with caplog.at_level("WARNING"):
             self._call()
         assert "returned no text" not in caplog.text
+
+
+class TestMediaResolution:
+    """How many pixels of an image the model actually reads.
+
+    The measured failure: VLM_MAX_EDGE=5000 rendered a 42x30in sheet at 119
+    DPI, logged 119 DPI, and was read at 73 — Gemini scales an image into
+    3072x3072 and then tokenizes it to a fixed per-part budget. The run scored
+    the column tag at 14% and read as evidence that resolution is not the
+    limit. It was evidence that the experiment had not run.
+    """
+
+    def test_an_image_part_carries_the_resolution_on_a_level_model(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_media_resolution", set())
+        monkeypatch.setattr(llm, "GEMINI_MEDIA_RESOLUTION", "ultra_high")
+        parts = llm._user_content_gemini("describe", [b"png"], model="gemini-3.6-flash")
+        assert parts[0]["media_resolution"] == {"level": "MEDIA_RESOLUTION_ULTRA_HIGH"}
+        assert parts[0]["inline_data"]["data"] == b"png"
+        assert parts[-1] == "describe"
+
+    def test_ultra_high_is_the_default_because_only_it_changes_what_is_read(self):
+        """HIGH is what an unspecified field already means, so defaulting there
+        would ship a no-op named after a fix. ULTRA_HIGH is the only rung above
+        the provider's own default, and it exists only per-part."""
+        assert llm._MEDIA_LEVELS[-1] == "ultra_high"
+        assert llm.GEMINI_MEDIA_RESOLUTION in llm._MEDIA_LEVELS
+
+    def test_a_pre_3_model_is_sent_no_field(self, monkeypatch):
+        """Same version sniff as the thinking level, for the same reason: a
+        list of model names expires on a schedule this repo does not control."""
+        monkeypatch.setattr(llm, "_no_media_resolution", set())
+        parts = llm._user_content_gemini("describe", [b"png"], model="gemini-2.5-flash")
+        assert "media_resolution" not in parts[0]
+        assert llm._takes_media_resolution("gemini-4-flash")
+
+    def test_a_call_with_no_image_sends_the_string_it_always_sent(self):
+        """A cache breakpoint is a prefix match. Reshaping the user turn for
+        every text-only call site would have cost them all their cached prefix
+        on the day this shipped."""
+        assert llm._user_content_gemini("hello", None, model="gemini-3.6-flash") == "hello"
+        assert llm._user_content_gemini("hello", [], model="gemini-3.6-flash") == "hello"
+
+    def test_a_refusal_is_latched_so_the_400_is_paid_once(self, monkeypatch):
+        monkeypatch.setattr(llm, "_no_media_resolution", set())
+        llm._latch_no_media("gemini-3.6-flash", "unsupported")
+        assert not llm._takes_media_resolution("gemini-3.6-flash")
+        parts = llm._user_content_gemini("describe", [b"png"], model="gemini-3.6-flash")
+        assert "media_resolution" not in parts[0]
+
+    def test_the_refusal_matcher_must_name_the_field(self):
+        """Deliberately narrower than the thinking matcher, which had to widen
+        to a bare INVALID_ARGUMENT. There the fallback is another thinking
+        setting; here it is reading the sheet at the provider's default, so a
+        match on an unrelated 400 would silently undo the only lever this pass
+        has left short of cropping."""
+        assert llm._is_media_refusal("media_resolution is not supported")
+        assert llm._is_media_refusal("Unknown field: media resolution")
+        assert not llm._is_media_refusal("400 INVALID_ARGUMENT")
+        assert not llm._is_media_refusal("429 rate limit exceeded")

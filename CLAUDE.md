@@ -586,13 +586,9 @@ FOOTING MARK. The measured split is a footing tag at 79-95% beside a column tag 
 `HSS6X6X3/8` — the size that belongs to ONE ROW of the sheet — at every intersection on it. The
 member callouts sit 47pt from their intersections, CLOSER than the footing marks that are read
 correctly, so it is not proximity, and the illegible rule has now been widened twice without
-moving it: "F9" is two characters and "HSS8X8X3/8" is ten with a fraction on the end. Raising
-`VLM_MAX_EDGE` past 2576 is billed for nothing on Anthropic, which downscales, and `render` warns
-when asked to — but Gemini TILES, so there the ceiling does not exist and resolution is the one
-lever this pass has not pulled. Haiku 4.5 and every pre-4.7 model
-cap at 1568px, which on that sheet is 5px and cannot be read at all, so the cheap model is not
-an option here. Gemini tiles at 768px (258 tokens each) with no hard cap, making resolution a
-cost knob there rather than a wall. `vlm.render` scales UP only for a page that was DRAWN, and that
+moving it: "F9" is two characters and "HSS8X8X3/8" is ten with a fraction on the end. Haiku 4.5
+and every pre-4.7 model cap at 1568px, which on that sheet is 5px and cannot be read at all, so
+the cheap model is not an option here. `vlm.render` scales UP only for a page that was DRAWN, and that
 distinction had to be learned the hard way. "Never scale up: extra pixels carry no extra
 information" is true of a RASTER page and false of a vector one — a PDF re-rendered above 1.0
 draws its glyphs again at a higher sampling rate. Because 42in at 72pt/in is 3024pt, a blanket
@@ -602,6 +598,34 @@ the experiment could not run, and the only thing that revealed it was the log li
 same hypothesis. Upscaling now requires a text layer (`_has_vector_text`), because a page without
 one is a scan already fixed at its own resolution and there the original rule holds exactly. The
 default is unaffected: 2576 is below 3024, so it still downscales.
+
+And then the experiment did not run a SECOND time, for a reason no log line here could have
+shown, because the transport was reporting the number it rendered as though it were the number
+the model read. `VLM_MAX_EDGE=5000` on a vector sheet now genuinely renders 119 DPI, and the run
+scored the column tag at 14% — worse than the 72 DPI run it was meant to beat, with eleven
+answers naming `HSS8X5X3/8`, a size written nowhere on the drawing. Read as a resolution result
+that is decisive: more pixels made it worse. It was not a resolution result. Gemini scales an
+image into 3072x3072 BEFORE tokenizing it, which on a 3024pt sheet IS 73 DPI whatever is sent,
+and from Gemini 3 on it then tokenizes to a fixed per-part budget — `media_resolution`, whose
+unspecified value is HIGH at 1120 tokens for an image. Extra pixels are resampled into the same
+budget. So the two providers' ceilings are 61 and 73 DPI on this sheet, twelve apart, and the
+claim written here twice — that Gemini "tiles at 768px with no hard cap, making resolution a cost
+knob rather than a wall" — was simply false. It is a wall 19% further out.
+
+`GEMINI_MEDIA_RESOLUTION` (default `ultra_high`, `llm.py`) is the one control that varies what is
+read, and it exists only on the image PART: `GenerateContentConfig.media_resolution` stops at
+HIGH, which is the default already. It is version-sniffed like the thinking level rather than
+listed by model name, and a model that rejects it is retried once without it and latched — with
+a matcher deliberately NARROWER than the thinking one, which had to widen to a bare
+INVALID_ARGUMENT: there the fallback is another thinking setting, here it is reading the sheet at
+the provider's default, so an unrelated 400 must not silently undo it. `_report_resolution` now
+prints the read DPI beside the rendered one and warns when they differ, because the gap between
+those two numbers is the whole of what went wrong twice.
+
+What that settles is the direction, not the tag: whole-sheet magnification is bounded at 73 DPI
+by the provider, so the remaining lever is spending that same ceiling on less of the sheet. The
+footing tag holding at 74% across 72, 73 and "119" DPI, while the column tag moved only in its
+choice of filler label, is the same finding from the other side.
 
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
