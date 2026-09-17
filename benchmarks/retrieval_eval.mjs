@@ -265,6 +265,25 @@ async function pageRange(prisma, projectId) {
 }
 
 /**
+ * How much document this project holds.
+ *
+ * The number that turns a wall of failed expectations into a diagnosis. A set
+ * captured against a 30-sheet structural package and repointed at a project
+ * holding ONE sheet fails most of its cases, and every failure looks like a
+ * stale expectation — the text really is absent, so the check is right and its
+ * advice ("fix the expectations") sends someone to edit a file that is fine.
+ * What is wrong is the corpus: it is smaller than the one the questions were
+ * written against.
+ */
+async function corpusSize(prisma, projectId) {
+  const [documents, pages] = await Promise.all([
+    prisma.document.count({ where: { projectId, supersededAt: null } }),
+    prisma.page.count({ where: { document: { projectId, supersededAt: null } } }),
+  ]);
+  return { documents, pages };
+}
+
+/**
  * How many chunks of this project contain `needle`.
  *
  * Normalized in SQL the same way scoreCase normalizes in JS, so the preflight
@@ -456,12 +475,26 @@ async function main() {
         return `    - ${testCase.question.slice(0, 62)}\n        ${why.join("; ")}`;
       })
       .join("\n");
+    const held = await corpusSize(api.prisma, oneProjectOrThrow(cases));
+    // WHICH advice depends on how the set came to be pointed here. Told to
+    // repoint with --project, the likely fault is the corpus rather than the
+    // file: the same questions against a project holding fewer documents than
+    // the one they were captured from. Sending someone to rewrite a set that
+    // is correct is worse than saying nothing.
+    const fix = args.project
+      ? `  This set was repointed with --project, and that project holds ${held.documents} ` +
+        `document(s)\n  and ${held.pages} page(s). Expectations quoted off a sheet that is ` +
+        "not in it CANNOT match,\n  however well retrieval works. Either ingest the same " +
+        "documents the set was\n  captured against, or build a set whose questions this " +
+        "corpus can answer — do not\n  edit the expectations to fit, which would measure a " +
+        "different question than the one\n  that was asked."
+      : "  Fix the expectations — quote text off the sheet with expectedText, which does\n" +
+        "  not move when documents are re-uploaded — then run again.";
     throw new Error(
       `${impossible.length}/${marked.length} cases in ${args.set} expect something this project\n` +
         `  cannot return, so they would score as retrieval failures that never happened:\n\n` +
         `${detail}\n\n` +
-        `  Fix the expectations — quote text off the sheet with expectedText, which does\n` +
-        `  not move when documents are re-uploaded — then run again.`,
+        fix,
     );
   }
   const partial = checked.filter((c) => c.reachable > 0 && (c.strayPages.length || c.missingText.length));

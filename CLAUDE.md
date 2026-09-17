@@ -1226,11 +1226,35 @@ one-project refusals, so the flag rescues a stale set rather than being blocked 
 neither. `main()` is now guarded by the `import.meta.url` check `drawing_eval.mjs` already had, so
 the pure functions can be tested without a database, a key and a live Qdrant.
 
-That matters immediately rather than in principle. `VLM_CROP=intersections` replaces a whole-sheet
-description with a grid header and one line per intersection — strictly LESS text about the sheet,
-with nothing at all between the crossings — and the drawing eval cannot see the loss because every
-one of its questions names an intersection. This set is where a regression would show, and it is
-the check to run before any further crop work.
+That matters immediately rather than in principle — but NOT in the way the sentence that used to
+stand here claimed, and the first run with the flag is what corrected it. `VLM_CROP=intersections`
+stores strictly less text about the sheet, so this set was called "where the regression would
+show". It is not, and the reason is structural: `processing._extract_page` builds the `kind="text"`
+chunks from `chunker.chunk_page` and then APPENDS the description to them. The vision pass has
+never replaced a text chunk and cannot. Every note, schedule row, abbreviation and specification on
+the sheet is indexed identically under both modes, and those are exactly what this set's questions
+ask for, so it would report the same recall either way.
+
+What a crop run can actually lose is narrower: geometry described in prose that is NOT at a grid
+intersection — a relationship between two things the grid cannot locate. No set in this repository
+asks about that, which means the regression is not merely unmeasured, it is currently
+UNMEASURABLE, and saying "run the retrieval eval before any further crop work" was advice that
+would have produced a confident null result. The set to build is one asking about non-intersection
+geometry, and it does not exist yet.
+
+The run also produced the failure this flag makes possible, which is worth keeping because the
+tool's advice was wrong for it. Repointed at the one-sheet project the crop work uses, 7 of 10
+cases failed the preflight: the North Carolina building code, the Level 1 floor construction, the
+deck span, the temporary bracing, the HSS abbreviation and both Special Inspections tables. Every
+one of those is quoted correctly off a sheet in the ORIGINAL package, and none of those sheets is
+in a project holding `10.pdf` alone. The expectations are right and the corpus is smaller than the
+one they were captured against — so "fix the expectations", which the refusal printed, sends
+someone to edit a file that is correct and would quietly reshape the question being asked.
+`corpusSize` now reports the project's document and page count, and the advice branches on whether
+`--project` was passed: with the flag it says the corpus is the likely fault and names its size,
+without it the old wording stands. A benchmark that refuses has to say what to do about it, and
+the honest instruction here is to ingest the same documents or build a different set — never to
+edit expectations until they pass.
 
 Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
 GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
