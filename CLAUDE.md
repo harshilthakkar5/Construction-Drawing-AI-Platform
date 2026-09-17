@@ -732,6 +732,48 @@ just: 5 of the 11 misses naming the over-named size were drift, one short of the
 would have called it placement rather than a prior. It is a 50% threshold on eleven cases, so
 treat the two verdicts as neighbours near the boundary rather than as opposites.
 
+Then the one-variable run happened, and it answers the question the paragraph above had to leave
+open. Holding everything else exactly where the 53% run had it — `VLM_MAX_TOKENS=20000`,
+`ultra_high`, 3072 — and moving `GEMINI_THINKING_LEVEL` from `low` back to `minimal`: 65% against
+53%, the column tag 33% against 19%, and the footing tag 19 of 19. **`minimal` beats `low` on this
+pipeline**, which is the opposite of what this section claimed for a year of its own history. Still
+n=1 per arm, but for the first time one variable moved on its own, which is worth more than the
+four confounded comparisons that came before it. What is still unexplained is the 83% run, and the
+remaining suspect is now `VLM_MAX_TOKENS`: the same thinking level at 20000 gives 318 tokens of
+description and a 33% column tag, where the 83% run gave 602 and 76%.
+
+The footing tag reaching 100% is the first perfect tag in this file. It is also the tag that has
+never been the problem.
+
+And the column tag's misses finally said what they are. Of its fourteen, THIRTEEN carry the
+thickness exactly — 3/8, 5/8 and 1/2 each landing where the drawing puts them — and get only the
+section wrong, always `8X8` read as `6X6` and never once the reverse. The report called that
+"reaching for one label far more often than the drawing offers it… right by coincidence, while
+reading nothing". A model reading nothing does not place three different thicknesses correctly
+thirteen times. It is one glyph pair misread, in one direction, at every intersection on the
+sheet — which is a RESOLUTION failure on half of a compound label, and exactly the kind a crop at
+roughly 990 DPI makes go away.
+
+`componentMisreads` measures it. A footing mark is atomic; a member size is a SECTION and a WALL
+THICKNESS printed as one string and read as two facts, and every measure in this report that
+counts labels was treating them as atoms. That is the FOURTH time a measure here has read a
+specific failure as a guess for want of looking inside the thing it was counting — after the
+pooled baseline, the minority-hit defence and the placement gate — and the verdict is now gated on
+it the same way.
+
+The condition that makes it worth anything is that the held part must VARY. A tag answering one
+constant string holds whichever component the truth happens to share with it: answer `HSS6X6X3/8`
+to everything on a sheet whose columns are mostly X3/8 and the thickness "matches" every time,
+from a model that never looked. Reading shows up as the held part TRACKING the drawing — three
+different thicknesses, each where the sheet puts it — so one distinct held value is an artifact of
+the truth distribution and several is the claim. Without that condition the gate excuses the exact
+fixation the concentration measure exists to catch, and the old tests proved it: they fired on the
+first fixture built to represent a pure frequency prior.
+
+The citation check fired on the same run: 8 of 40 answers named a label that appears in none of
+the chunks they cited, including two that scored CORRECT. FR-13's chain does not hold for those,
+and nothing but this line would have said so.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the

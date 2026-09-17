@@ -522,6 +522,13 @@ function tagConcentration(subset, tag, drifted = []) {
     drifted.some((d) => d.tag === r.tag && d.grid === r.grid && d.named === label),
   ).length;
   const placement = namedMisses.length > 0 && placed * 2 >= namedMisses.length;
+  // And a compound label has a third possibility neither gate can see: the
+  // model reading one HALF of it right, every time. A member size is a section
+  // and a thickness printed as one string, and a tag that carries the thickness
+  // through thirteen of fourteen misses is not guessing a label — it is
+  // misreading one glyph pair. Same principle as `placement`: the verdict has
+  // to be the one the evidence supports.
+  const components = componentMisreads(subset);
   return {
     tag,
     label,
@@ -537,7 +544,11 @@ function tagConcentration(subset, tag, drifted = []) {
     namedMisses: namedMisses.length,
     placedMisses: placed,
     placement,
-    prior: !placement && (!beatsBase || (correct ? (independent / correct) * 100 : 0) < 25),
+    components,
+    prior:
+      !placement &&
+      !components?.halfRead &&
+      (!beatsBase || (correct ? (independent / correct) * 100 : 0) < 25),
   };
 }
 
@@ -793,6 +804,109 @@ export function readRunHistory(dir, set) {
  * never scored, for the same reason drift is: a new outcome would rebase every
  * tally in this file's history against runs that never measured it.
  */
+/**
+ * Split a label into the parts a drafter would read separately.
+ *
+ * A footing mark is atomic: "F9" is one token and either read or not. A member
+ * size is NOT — `HSS8X8X3/8` is a SECTION (8x8) and a WALL THICKNESS (3/8),
+ * printed as one string and read as two facts. Everything in this report that
+ * counts labels treats them as atoms, and on a compound label that is the
+ * difference between "guessed" and "read half of it".
+ *
+ * Returns null for anything that does not decompose, so a caller gets a plain
+ * "cannot tell" rather than a fabricated split.
+ */
+const MEMBER_PARTS = /^HSS\s*(\d+(?:\.\d+)?)\s*X\s*(\d+(?:\.\d+)?)\s*X\s*(\d+\s*\/\s*\d+)$/i;
+
+export function labelComponents(label) {
+  const found = MEMBER_PARTS.exec(String(label ?? "").trim());
+  if (!found) return null;
+  const clean = (x) => x.replace(/\s+/g, "");
+  return [
+    { name: "section", value: `${clean(found[1])}X${clean(found[2])}`.toUpperCase() },
+    { name: "thickness", value: clean(found[3]) },
+  ];
+}
+
+/**
+ * Which PART of a compound label a tag is getting wrong.
+ *
+ * The run that forced this: the column tag scored 33% against a 52% baseline
+ * and the report called it "reaching for one label far more often than the
+ * drawing offers it… right by coincidence, while reading nothing". Of its 14
+ * misses, THIRTEEN carried the thickness exactly — 3/8, 5/8 and 1/2 each landed
+ * where the drawing puts them — and got only the section wrong, always 8X8 read
+ * as 6X6 and never once the reverse.
+ *
+ * A model reading nothing does not place three different thicknesses correctly
+ * thirteen times. That is one glyph pair misread, in one direction, at every
+ * intersection on the sheet — a different failure from a frequency prior and
+ * with a different fix: 8 against 6 at 73 DPI is a resolution problem, and it
+ * is the kind a crop at roughly 990 makes go away.
+ *
+ * This is the fourth time a measure in this report has treated a compound thing
+ * as an atom and read a specific failure as a guess (the pooled baseline, the
+ * minority-hit defence, the placement gate). Reported, never scored.
+ */
+export function componentMisreads(subset) {
+  const pairs = [];
+  for (const row of subset) {
+    if (["correct", "abstained"].includes(row.outcome)) continue;
+    const want = labelComponents(row.expected);
+    const said = String(row.said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    // A hedged answer names several labels and has no single reading to
+    // decompose, so it contributes nothing rather than an arbitrary pick.
+    if (!want || said.length !== 1) continue;
+    const got = labelComponents(said[0]);
+    if (!got || got.length !== want.length) continue;
+    pairs.push({ want, got });
+  }
+  if (!pairs.length) return null;
+  const names = pairs[0].want.map((c) => c.name);
+  const right = names.map(
+    (_, i) => pairs.filter((p) => p.want[i].value === p.got[i].value).length,
+  );
+  // The interesting shape is exactly one part wrong, the same part every time.
+  const wrongIndex = right.indexOf(Math.min(...right));
+  const swaps = new Map();
+  for (const p of pairs) {
+    if (p.want[wrongIndex].value === p.got[wrongIndex].value) continue;
+    const key = `${p.want[wrongIndex].value} read as ${p.got[wrongIndex].value}`;
+    swaps.set(key, (swaps.get(key) ?? 0) + 1);
+  }
+  const ranked = [...swaps].sort((a, b) => b[1] - a[1]);
+  const heldIndex = 1 - wrongIndex;
+  const held = right[heldIndex] ?? 0;
+  // The held part must VARY, and this is the condition that makes the whole
+  // measure worth anything. A tag answering one constant string holds whichever
+  // component the truth happens to share with it — answer HSS6X6X3/8 to
+  // everything on a sheet whose columns are mostly X3/8 and the thickness
+  // "matches" every time, from a model that never looked. Reading shows up as
+  // the held part TRACKING the drawing: three different thicknesses, each
+  // landing where the sheet puts it. One distinct value is an artifact of the
+  // truth distribution; several is the claim.
+  const heldValues = new Set(
+    pairs
+      .filter((p) => p.want[heldIndex]?.value === p.got[heldIndex]?.value)
+      .map((p) => p.got[heldIndex]?.value),
+  );
+  return {
+    misses: pairs.length,
+    names,
+    right,
+    wrongPart: names[wrongIndex],
+    // The part that is nearly always RIGHT is what makes this a read rather
+    // than a guess, so it is carried explicitly rather than left to arithmetic.
+    heldPart: names[heldIndex] ?? null,
+    held,
+    heldDistinct: heldValues.size,
+    swaps: ranked,
+    // Two thirds rather than a bare majority — this has to be a pattern, not a
+    // lean — AND more than one value held, or a constant answer would qualify.
+    halfRead: held >= pairs.length * (2 / 3) && heldValues.size > 1,
+  };
+}
+
 export function citationSupport(said, citedIds, textById) {
   const labels = String(said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   if (!labels.length) return "no-label";
@@ -825,7 +939,11 @@ export function report(rows, json, onSheet, history = null) {
       ? " — in step with the sheet"
       : c.prior
         ? ` — ${c.gap.toFixed(0)}pt of over-naming, which is the shape of a guess`
-        : c.placement
+        : c.components?.halfRead
+          ? ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.components.held} of its ` +
+            `${c.components.misses} misses carry the right ${c.components.heldPart}: ` +
+            `one ${c.components.wrongPart} misread, not a label guessed at`
+          : c.placement
           ? ` — ${c.gap.toFixed(0)}pt of over-naming, but ${c.placedMisses} of the ` +
             `${c.namedMisses} misses naming it are that label's own intersection a bay away: ` +
             "placement, not a prior"
@@ -971,7 +1089,20 @@ export function report(rows, json, onSheet, history = null) {
         `${worst.answered} (${worst.namedPct.toFixed(0)}%), where that is what the sheet shows ` +
         `${worst.truthPct.toFixed(0)}% of the time. Whatever that tag scored, it is reaching for ` +
         "one label far more often than the drawing offers it" +
-        (worst.placement
+        (worst.components?.halfRead
+          ? `. But look at WHICH PART is wrong: ${worst.components.held} of its ` +
+            `${worst.components.misses} misses carry the right ${worst.components.heldPart} ` +
+            `and miss only the ${worst.components.wrongPart}` +
+            (worst.components.swaps.length
+              ? ` (${worst.components.swaps
+                  .slice(0, 2)
+                  .map(([swap, n]) => `${swap}, ${n}x`)
+                  .join("; ")})`
+              : "") +
+            ". A model reading nothing does not place the other half correctly that often. " +
+            "This is one glyph pair misread at every intersection — a resolution failure on " +
+            "a compound label, not a frequency prior, and the two want opposite fixes."
+          : worst.placement
           ? `. But ${worst.placedMisses} of the ${worst.namedMisses} misses naming it are that ` +
             "label's OWN intersection one bay away, so this is not a frequency prior — it is a " +
             "size read correctly and put in the wrong place. The two look identical in this " +
