@@ -21,6 +21,7 @@
  *   node benchmarks/retrieval_eval.mjs --set my.json       # a different set
  *   node benchmarks/retrieval_eval.mjs --json              # machine-readable
  *   node benchmarks/retrieval_eval.mjs --capture "question" --project <id>
+ *   node benchmarks/retrieval_eval.mjs --project <id>   # repoint every case
  *                                                          # draft a new case
  *
  * A case says what SHOULD come back, as expectedText (a short phrase quoted
@@ -91,6 +92,48 @@ function parseArgs(argv) {
     else if (arg === "--help" || arg === "-h") args.help = true;
   }
   return args;
+}
+
+/**
+ * Point every case at one project, when `--project` says so.
+ *
+ * `drawing_eval.mjs` grew this first and for the same reason, and this file
+ * needed it more: a generated set carries the `projectId` it was captured
+ * against, and the natural way to test an ingest change is a FRESH project per
+ * configuration. The set then asks a project nobody has touched — which does
+ * not error, it returns nothing for every question and reads as 0% recall, a
+ * number that looks like a retrieval result and is not one.
+ *
+ * The checked-in set has been in exactly that state: it names a project that no
+ * longer exists, so the one benchmark that could show whether a change to the
+ * CHUNKS hurt retrieval has been unrunnable for as long as the vision work has
+ * been changing them. That matters right now more than at any point before it:
+ * `VLM_CROP=intersections` replaces a whole-sheet description with a grid header
+ * and one line per intersection, which is strictly LESS text about the sheet,
+ * and nothing has asked what that did to the questions this set covers.
+ */
+export function applyProjectOverride(cases, projectId) {
+  if (!projectId) return cases;
+  return cases.map((c) => ({ ...c, projectId }));
+}
+
+/**
+ * The one project every case must ask.
+ *
+ * A set spanning two projects measures two corpora and reports one recall, and
+ * nothing in the output says so. It arrives by repointing some cases and not
+ * the rest.
+ */
+export function oneProjectOrThrow(cases) {
+  const ids = [...new Set(cases.map((c) => c.projectId))];
+  if (ids.length > 1) {
+    throw new Error(
+      `the set names ${ids.length} different projects (${ids.join(", ")}). Every case must ask ` +
+        "the same corpus, or recall mixes two of them — regenerate the set, or pass " +
+        "--project <uuid> to point every case at one.",
+    );
+  }
+  return ids[0];
 }
 
 /**
@@ -354,7 +397,13 @@ async function main() {
   const raw = JSON.parse(readFileSync(args.set, "utf8"));
   // The shipped set leads with a _comment block explaining the format; skip
   // anything that is not a real case rather than crashing on it.
-  const cases = (Array.isArray(raw) ? raw : []).filter((c) => c && c.question && c.projectId);
+  // `--project` FIRST, so a set whose stored id is stale or a placeholder is
+  // rescued by the flag rather than refused by the check below. The refusals
+  // exist for a set nobody has repointed, not for one being repointed now.
+  const cases = applyProjectOverride(
+    (Array.isArray(raw) ? raw : []).filter((c) => c && c.question && c.projectId),
+    args.project,
+  );
   if (cases.length === 0) {
     throw new Error(
       `${args.set} holds no usable cases (each needs projectId and question).\n` +
@@ -364,6 +413,7 @@ async function main() {
   // A placeholder id queries a project that does not exist, which returns
   // nothing for every question and reads as 0% recall — a number that looks
   // like a retrieval result and is not one. Refuse rather than report it.
+  oneProjectOrThrow(cases);
   const placeholders = cases.filter((c) => /REPLACE|<.*>/i.test(c.projectId));
   if (placeholders.length) {
     throw new Error(
@@ -447,7 +497,13 @@ async function main() {
   await api.prisma.$disconnect();
 }
 
-main().catch((err) => {
-  console.error(`\n  ${err.message}\n`);
-  process.exit(1);
-});
+// Guarded so `applyProjectOverride` and `oneProjectOrThrow` can be imported by
+// the test file without the harness firing off a run — which needs a database,
+// an embedding key and a live Qdrant. `drawing_eval.mjs` carries the same
+// guard for the same reason.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(`\n  ${err.message}\n`);
+    process.exit(1);
+  });
+}

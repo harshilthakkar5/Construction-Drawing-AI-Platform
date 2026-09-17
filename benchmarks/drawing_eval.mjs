@@ -1365,7 +1365,7 @@ export function report(rows, json, onSheet, history = null) {
   if (spent) {
     console.log(
       `\n  THIS SET IS SPENT: no answer is wrong, off-target, invented or hedged, so the only ` +
-        `headroom left is ${spent.left} of ${spent.cases} case${spent.left === 1 ? "" : "s"} — ` +
+        `headroom left is ${spent.left} of ${spent.cases} case${spent.cases === 1 ? "" : "s"} — ` +
         `${spent.points.toFixed(1)} points. Run-to-run spread at a FIXED configuration has been ` +
         "measured on this set at 43 points, so nothing a future change does can be shown " +
         "through a gap this small: a lower score is not a regression and a higher one is not an " +

@@ -1091,6 +1091,12 @@ regenerate against all 27 intersections the grid actually has rather than the 22
 jitter test, emit `sheetLabels` while doing it, and add a tag this pipeline is not already built
 to answer.
 
+Re-scoring that corpus printed the saturation line for the first time, which is how the wording
+got checked: it read "1 of 40 case". The plural belongs to the DENOMINATOR, and the version that
+reads correctly when one case is left is exactly the version that reads wrong there — a bug the
+test could not have had, because the test asserted the sentence's claims and not its English.
+It now asserts the phrase.
+
 Cost, measured rather than estimated: 27 images in 5 calls, about 60 seconds of wall clock, for
 ONE page. The sheet pass sends one image. That is the trade in full — it buys the column tag and
 it is not a default, it is a per-sheet decision for structural plans with a grid, and a 400-page
@@ -1206,6 +1212,25 @@ marked up from the source PDFs' filenames rather than the combined numbering rep
 20% recall for two configurations that were both returning the right chunk at rank 1. So every
 expectation is now checked against the corpus BEFORE the run, and one that cannot match is an
 error rather than a reported miss — a benchmark may report bad news, never invent it.
+
+It takes `--project <uuid>` too, and it took far too long to get it. A generated set carries the
+`projectId` it was captured against, and the natural way to test an ingest change is a FRESH
+project per configuration — so the set ends up asking a project nobody has touched, which does not
+error. It returns nothing for every question and reports 0% recall: a number that looks like a
+retrieval result and is not one. `drawing_eval.mjs` grew the flag for exactly this and this file
+needed it MORE, because its set had been naming a dead project for the whole of the vision work.
+The one benchmark that could say whether a change to the CHUNKS hurt retrieval was unrunnable
+through every change that rewrote them. `applyProjectOverride` runs BEFORE the placeholder and
+one-project refusals, so the flag rescues a stale set rather than being blocked by it, and
+`oneProjectOrThrow` refuses a set naming two — recall across two corpora is one number measuring
+neither. `main()` is now guarded by the `import.meta.url` check `drawing_eval.mjs` already had, so
+the pure functions can be tested without a database, a key and a live Qdrant.
+
+That matters immediately rather than in principle. `VLM_CROP=intersections` replaces a whole-sheet
+description with a grid header and one line per intersection — strictly LESS text about the sheet,
+with nothing at all between the crossings — and the drawing eval cannot see the loss because every
+one of its questions names an intersection. This set is where a regression would show, and it is
+the check to run before any further crop work.
 
 Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
 GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
