@@ -62,8 +62,9 @@ async function loadApi() {
   try {
     const retrieval = await load("apps/api/src/retrieval.ts");
     const answer = await load("apps/api/src/answer.ts");
+    const citations = await load("apps/api/src/citations.ts");
     const { prisma } = await load("apps/api/src/db.ts");
-    return { retrieval, answer, prisma };
+    return { retrieval, answer, citations, prisma };
   } catch (err) {
     throw new Error(
       "could not load the API's code. This harness runs the real thing, so it needs the " +
@@ -769,6 +770,39 @@ export function readRunHistory(dir, set) {
   return records.length ? runHistory(records) : null;
 }
 
+/**
+ * Whether the chunks an answer CITED can account for the label it gave.
+ *
+ * FR-13 is this project's central promise — every statement traceable to a
+ * chunk, a page and a bbox, verifiable in one click — and nothing measured it.
+ * The scorer grades WHAT was answered and never whether the citation supports
+ * it, so a correct answer hung on an unrelated chunk scores full marks and a
+ * reader who clicks it finds nothing.
+ *
+ * It is not hypothetical. In the run that first showed it, several answers read
+ * "Per the Column Footing Schedule on S-100.0, the footing mark at the
+ * intersection of column line 4 and row line B is F10" and cited only the
+ * schedule chunk. A footing schedule maps marks to sizes and reinforcing; the
+ * thing being claimed is a POSITION, which is exactly the fact the vision pass
+ * exists to supply because the text layer does not hold it.
+ *
+ * Deliberately a weak test, stated as what it is: it asks only whether the
+ * label appears ANYWHERE in the text of a cited chunk. A chunk that merely
+ * lists F10 passes, so this cannot prove a citation supports its claim — it
+ * can only catch the citation that could not possibly support it. Reported,
+ * never scored, for the same reason drift is: a new outcome would rebase every
+ * tally in this file's history against runs that never measured it.
+ */
+export function citationSupport(said, citedIds, textById) {
+  const labels = String(said ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!labels.length) return "no-label";
+  if (!citedIds.length) return "uncited";
+  const bodies = citedIds.map((id) => textById.get(id) ?? "");
+  return labels.every((label) => bodies.some((body) => mentions(body, label)))
+    ? "supported"
+    : "unsupported";
+}
+
 export function summarize(rows) {
   const tags = [...new Set(rows.map((r) => r.tag))].sort();
   return {
@@ -960,6 +994,32 @@ export function report(rows, json, onSheet, history = null) {
     );
   }
 
+  // FR-13, measured for the first time. Printed above the run history because
+  // it is a claim about THIS run rather than about the series.
+  const unsupported = rows.filter((r) => r.support === "unsupported");
+  const uncited = rows.filter((r) => r.support === "uncited");
+  if (unsupported.length || uncited.length) {
+    const parts = [];
+    if (unsupported.length) {
+      parts.push(
+        `${unsupported.length} named a label that appears in NONE of the chunks they cited`,
+      );
+    }
+    if (uncited.length) parts.push(`${uncited.length} named one and cited nothing at all`);
+    console.log(
+      `\n  Citations: of ${rows.length} answers, ${parts.join(", and ")}. FR-13 says every ` +
+        "statement is traceable to a chunk a reader can open, so those are answers whose " +
+        "chain does not hold — scored CORRECT wherever the label was right, because the " +
+        "scorer grades what was answered and not what it was hung on. This is a weak test " +
+        "and only catches a citation that could not possibly support its claim: it asks " +
+        "whether the label appears anywhere in the cited text, so a chunk that merely lists " +
+        "the mark passes.",
+    );
+    for (const r of unsupported.slice(0, 6)) {
+      console.log(`    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} said ${r.said} [${r.outcome}]`);
+    }
+  }
+
   if (history && history.ingests.length > 1) {
     const line = history.recent
       .map((i) => `${i.pct.toFixed(0)}%${i.described ? "" : " (no descriptions)"}`)
@@ -1017,7 +1077,7 @@ async function main() {
   if (args.limit > 0) cases = cases.slice(0, args.limit);
   if (!cases.length) throw new Error(`${args.set} has no cases`);
 
-  const { retrieval, answer, prisma } = await loadApi();
+  const { retrieval, answer, citations, prisma } = await loadApi();
   await preflight(prisma, cases);
   const descriptionsOnSheet = await descriptionChunksOnSheets(prisma, cases);
 
@@ -1028,6 +1088,10 @@ async function main() {
   const projectId = cases[0].projectId;
 
   const rows = [];
+  // Every chunk body this run has seen, so a cited id can be checked against
+  // what it actually says. Accumulated rather than re-queried: the same chunks
+  // come back for case after case.
+  const textById = new Map();
   for (const [index, testCase] of cases.entries()) {
     const { chunkIds } = await retrieval.retrieveChunkIds(testCase.projectId, testCase.question, {
       limit: RETRIEVAL_LIMIT,
@@ -1038,6 +1102,7 @@ async function main() {
     });
     const byId = new Map(chunkRows.map((c) => [c.id, c]));
     const ordered = chunkIds.flatMap((id) => byId.get(id) ?? []);
+    for (const c of chunkRows) textById.set(c.id, c.text ?? "");
 
     // The same call chat.ts makes, with no history: a benchmark question has no
     // conversation behind it, and an inherited one would leak between cases.
@@ -1065,6 +1130,14 @@ async function main() {
 
     const vocabulary = vocabularies.get(testCase.tag) ?? [];
     const outcome = score(text, testCase, vocabulary);
+    const said =
+      namedLabels(text, vocabulary).join(", ") ||
+      inventedLabel(text, testCase, vocabulary) ||
+      "";
+    // The API's own extractor, not a second regex here: it already knows every
+    // bracket shape the model emits, including `[chunk:a, chunk:b]`, which a
+    // pattern anchored on one id per bracket matches neither half of.
+    const citedChunkIds = citations.extractCitedChunkIds(text);
     rows.push({
       grid: `${testCase.derivation.gridColumn}/${testCase.derivation.gridRow}`,
       // Where this intersection IS, in the PDF's own points. Carried so the
@@ -1078,10 +1151,12 @@ async function main() {
       outcome,
       // Every label of this kind the answer named. For a miss it is the whole
       // point — "said F11" and "said nothing" are different failures.
-      said:
-        namedLabels(text, vocabulary).join(", ") ||
-        inventedLabel(text, testCase, vocabulary) ||
-        "",
+      said,
+      // WHICH chunks the answer hung itself on, and whether any of them so much
+      // as contains the label it gave. FR-13's chain is the product's central
+      // promise and the scorer has never looked at it.
+      citedChunkIds,
+      support: citationSupport(said, citedChunkIds, textById),
       labelPattern: testCase.labelPattern ?? null,
       sheetLabels: testCase.sheetLabels ?? [],
       retrieved: ordered.length,

@@ -26,6 +26,7 @@ import {
   answerConcentration,
   drift,
   runHistory,
+  citationSupport,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -879,4 +880,58 @@ test("a single run claims no range at all", () => {
   const h = runHistory([ran("2026-09-17T06:00Z", "p1", ["a"], 80)]);
   assert.equal(h.range, 0);
   assert.equal(h.ingests.length, 1);
+});
+
+// --- FR-13: does the cited chunk account for the answer? --------------------
+
+test("a label found in a cited chunk is supported", () => {
+  const bodies = new Map([["c1", "COLUMN FOOTING SCHEDULE\nF10  5'-0\" SQ x 18\""]]);
+  assert.equal(citationSupport("F10", ["c1"], bodies), "supported");
+});
+
+test("a label in NO cited chunk is unsupported, however right it is", () => {
+  // The measured case: "Per the Column Footing Schedule on S-100.0, the footing
+  // mark at the intersection of column line 4 and row line B is F10", citing
+  // only the schedule. The claim is a POSITION, which is the one fact the text
+  // layer does not hold — it is why the vision pass exists.
+  const bodies = new Map([["schedule", "COLUMN FOOTING SCHEDULE\nF7  F8  F9"]]);
+  assert.equal(citationSupport("F10", ["schedule"], bodies), "unsupported");
+});
+
+test("citing nothing at all is its own answer, not 'unsupported'", () => {
+  // A claim with no citation has not broken the chain, it never joined it, and
+  // the fix is different: the prompt's citation rule rather than retrieval.
+  assert.equal(citationSupport("F10", [], new Map()), "uncited");
+});
+
+test("an answer that named no label makes no claim to support", () => {
+  assert.equal(citationSupport("", ["c1"], new Map([["c1", "anything"]])), "no-label");
+});
+
+test("a hedged answer needs EVERY label it named to be cited", () => {
+  // "either F12 or F9" makes two claims. One of them being traceable is not
+  // the promise FR-13 makes.
+  const bodies = new Map([["c1", "F12 at that grid"]]);
+  assert.equal(citationSupport("F12, F9", ["c1"], bodies), "unsupported");
+  assert.equal(citationSupport("F12", ["c1"], bodies), "supported");
+});
+
+test("a cited id the run never saw cannot support anything", () => {
+  // The model can emit an id that was not in its prompt. It is a fabricated
+  // citation, and it must never read as support.
+  assert.equal(citationSupport("F10", ["never-retrieved"], new Map()), "unsupported");
+});
+
+test("support is checked against the CITED chunks, not everything retrieved", () => {
+  // The exact shape of the measured failure: the description chunk holds the
+  // grid pairing and the schedule does not, and the answer cited the schedule.
+  // Checking against the whole retrieved set would call that supported and
+  // report the one thing FR-13 exists to catch as fine.
+  const bodies = new Map([
+    ["schedule", "COLUMN FOOTING SCHEDULE\nF7  F8  F9"],
+    ["description", "At 4/B: footing F10, column HSS8X8X3/8."],
+  ]);
+  assert.equal(citationSupport("F10", ["schedule"], bodies), "unsupported");
+  assert.equal(citationSupport("F10", ["description"], bodies), "supported");
+  assert.equal(citationSupport("F10", ["schedule", "description"], bodies), "supported");
 });
