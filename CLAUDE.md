@@ -1025,6 +1025,42 @@ report contradicting its own evidence, on the most decisive line it prints. It i
 baseline mistake again: the strongest sentence on the screen produced by the report's arithmetic
 rather than by the system under test. The verdict is now gated on that fraction and states it.
 
+Two things the report could not see were sitting in the RAW ANSWERS all along, and both were
+found by reading one run file rather than by any number the harness prints.
+
+The first is a leak of the prompt into the product. `buildSystemPrompt` sorts questions into
+numbered kinds and opened by telling the model to "be explicit about which one you are using" —
+but only ONE of those kinds has a line prescribed for it (`Construction reference — not from this
+project's drawings.`), so for the other the model did the next most obvious thing and copied the
+rule's own heading. 25 of 40 answers in one run began with a bare line reading `QUESTIONS ABOUT
+THIS PROJECT`: correct, cited answers with a fragment of their own instructions stapled to the
+front, shipped to every reader for as long as the chat has existed. The prompt now says outright
+never to name the kind of question, which is the repair; `answer.stripPromptScaffolding` removes a
+rule heading standing on its own line, which is the guarantee — the same division `citations.ts`
+already makes when it sweeps for a bare `chunk:<uuid>` after rewriting the tags it knows about. A
+reader must never see the machinery, whatever shape the model invents on a day the wording does
+not cover. The stripper is deliberately narrow: only at the FRONT (a heading mid-answer is the
+model having gone strange, and deleting it would hide that), only a whole line, and never the
+`Construction reference` line, which IS content.
+
+The second is bigger and is still only measured, not fixed. FR-13 — every statement traceable to
+a chunk, a page and a bbox, verifiable in one click — is this project's central promise, and
+nothing had ever checked it. The scorer grades WHAT was answered and never what the answer was
+hung on, so a correct label cited to an unrelated chunk scores full marks while a reader who
+clicks it finds nothing. In the run that showed it, several answers read "Per the Column Footing
+Schedule on S-100.0, the footing mark at the intersection of column line 4 and row line B is F10"
+and cited only the schedule chunk. A footing schedule maps marks to sizes and reinforcing; the
+thing being claimed is a POSITION, which is precisely the fact the text layer does not hold and
+the whole reason the vision pass exists. `citationSupport` now records, per case, which chunks the
+answer cited and whether the label it gave appears in any of them, and the report says how many
+answers cite a chunk that could not account for them. It is REPORTED, never scored, like drift —
+a seventh outcome would rebase every tally in this file's history — and the line states its own
+weakness: it asks only whether the label appears somewhere in the cited text, so a chunk that
+merely lists the mark passes. It cannot prove a citation supports its claim, only catch one that
+could not possibly. "Cited nothing at all" is kept separate from "cited the wrong thing", because
+a claim with no citation has not broken the chain, it never joined it, and the fix is the prompt
+rather than retrieval.
+
 FR-14 is amended in one direction only (`apps/api/src/answer.ts`, `CHAT_SCOPE`): a claim ABOUT
 THE PROJECT still comes from retrieved chunks and still carries a `[chunk:<id>]` citation, so
 FR-13's chain is intact, and a gap in the drawings is NEVER filled from the model's knowledge —

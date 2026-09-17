@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db.js", () => ({ prisma: { usageEvent: { create: vi.fn() } } }));
 
-import { buildSystemPrompt, chatScope, serializeChunks } from "./answer.js";
+import {
+  buildSystemPrompt,
+  chatScope,
+  serializeChunks,
+  stripPromptScaffolding,
+} from "./answer.js";
 
 /**
  * The chat's scope is a policy, and the prompt is where it is written down, so
@@ -171,5 +176,77 @@ describe("serializeChunks", () => {
     const out = serializeChunks([base, { ...base, chunkId: "22222222-aaaa-4bbb-8ccc-000000000002" }]);
     expect(out.match(/<chunk /g)).toHaveLength(2);
     expect(out.match(/<\/chunk>/g)).toHaveLength(2);
+  });
+});
+
+/**
+ * The prompt sorts questions into numbered kinds. It used to open by telling
+ * the model to "be explicit about which one you are using", and only ONE of
+ * those kinds has a line prescribed for it — so for the other the model copied
+ * the rule's heading. 25 of 40 answers in one benchmark run opened with a bare
+ * "QUESTIONS ABOUT THIS PROJECT": correct, cited answers with a fragment of
+ * their own instructions stapled to the front, shipped to readers for as long
+ * as the feature has existed. It was found in a run file, not in the app.
+ */
+describe("stripPromptScaffolding", () => {
+  it("removes a rule heading the model echoed as a header", () => {
+    const said =
+      "QUESTIONS ABOUT THIS PROJECT\n\nPer the drawing shown on sheet S-100.0, the footing mark at 2/B is F9 [chunk:abc].";
+    expect(stripPromptScaffolding(said)).toBe(
+      "Per the drawing shown on sheet S-100.0, the footing mark at 2/B is F9 [chunk:abc].",
+    );
+  });
+
+  it("removes it with the rule number, a colon or a dash attached", () => {
+    for (const header of [
+      "1. QUESTIONS ABOUT THIS PROJECT",
+      "QUESTIONS ABOUT THIS PROJECT:",
+      "questions about this project —",
+      "3. EVERYTHING ELSE",
+    ]) {
+      expect(stripPromptScaffolding(`${header}\n\nThe answer.`)).toBe("The answer.");
+    }
+  });
+
+  it("keeps the Construction reference line, which IS content", () => {
+    // Rule 2 asks for that line word for word and a reader needs it: it is the
+    // marker saying this did not come from the drawings.
+    const said =
+      "Construction reference — not from this project's drawings.\n\nA shear wall resists lateral load.";
+    expect(stripPromptScaffolding(said)).toBe(said);
+  });
+
+  it("never touches a heading's words inside a sentence", () => {
+    const said = "I can only answer questions about this project's drawings.";
+    expect(stripPromptScaffolding(said)).toBe(said);
+  });
+
+  it("only strips from the FRONT, so a heading mid-answer survives for review", () => {
+    // A heading in the middle is not scaffolding the model prefixed, it is the
+    // model having gone strange — and silently deleting it would hide that.
+    const said = "The footing is F9.\n\nEVERYTHING ELSE\n\nMore text.";
+    expect(stripPromptScaffolding(said)).toBe(said);
+  });
+
+  it("leaves an ordinary answer byte-identical", () => {
+    const said = "Per S-100.0, the column at 7/F is an HSS6X6X1/2 [chunk:abc].";
+    expect(stripPromptScaffolding(said)).toBe(said);
+  });
+
+  it("knows every heading the prompt defines", () => {
+    // A heading added to the prompt and not to the stripper leaks silently,
+    // which is exactly how this one survived.
+    const prompt = buildSystemPrompt("construction");
+    for (const heading of prompt.matchAll(/^\d+\.\s+([A-Z][A-Z -]{6,})/gm)) {
+      const name = (heading[1] ?? "").trim();
+      expect(stripPromptScaffolding(`${name}\n\nThe answer.`)).toBe("The answer.");
+    }
+  });
+
+  it("tells the model not to name the category in the first place", () => {
+    // The stripper is the guarantee; the prompt is the repair.
+    const prompt = buildSystemPrompt("construction");
+    expect(prompt).toMatch(/NEVER open an answer by naming the kind of question it is/);
+    expect(prompt).toMatch(/do not label the answer with the rule number or category/);
   });
 });
