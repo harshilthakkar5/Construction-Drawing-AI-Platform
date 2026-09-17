@@ -533,6 +533,7 @@ def _report_resolution(rect, zoom: float, max_edge: int) -> None:
         ceiling,
         72 * zoom * read / sent if sent else 0,
     )
+    _report_settings()
     if sent > ceiling:
         log.warning(
             "VLM_MAX_EDGE=%d renders %d px, but %s scales an image down to %d px before it "
@@ -545,6 +546,42 @@ def _report_resolution(rect, zoom: float, max_edge: int) -> None:
             who,
             ceiling,
         )
+
+
+def _report_settings() -> None:
+    """Name every setting that decides what a description says.
+
+    The DPI line was added because nothing printed the number that limits what
+    can be read. It was not enough. Two ingests of the same sheet, on code
+    whose description path was byte-identical, produced 601 and 307 tokens and
+    scored 63% and 80% — and NOTHING on disk could say whether a setting had
+    moved between them or whether that is simply the spread of one model asked
+    twice. `VLM_*` is read here, at ingest, so the chunks carry none of it and
+    the benchmark process's own environment says nothing about the corpus it is
+    scoring.
+
+    That is the "was that run Claude or Gemini?" problem one level down: the
+    provider and model are now in the log, and the thinking level, the image
+    token budget and the output budget — each of which has moved a tag by
+    twenty points or more in this repo's history — were not. A comparison
+    between two runs is worth nothing if the configuration of either cannot be
+    recovered afterwards.
+    """
+    who = provider()
+    settings = [f"VLM_MAX_TOKENS={MAX_TOKENS}", f"VLM_CROP_BAYS={CROP_BAYS}"]
+    if who == "gemini":
+        settings += [
+            f"GEMINI_THINKING_LEVEL={llm.GEMINI_THINKING_LEVEL}",
+            f"GEMINI_MEDIA_RESOLUTION={llm.GEMINI_MEDIA_RESOLUTION}",
+        ]
+    else:
+        settings.append(f"CLAUDE_THINKING={os.environ.get('CLAUDE_THINKING', '')!r}")
+    log.info(
+        "vision pass settings: %s/%s %s",
+        who,
+        GEMINI_MODEL if who == "gemini" else CLAUDE_MODEL,
+        " ".join(settings),
+    )
 
 
 def _prompt(sheet_number: str | None) -> str:

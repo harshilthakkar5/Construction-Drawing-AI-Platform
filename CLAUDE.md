@@ -649,6 +649,34 @@ prior verdict when most of them are. It is not a defence of the score — a misp
 wrong at that intersection — but the two want opposite fixes, and naming the wrong one points the
 next change at comprehension when what is missing is locality.
 
+The next run then scored 80% — 32 of 40, both tags beating their baseline for the first time
+(columns 71% against 52%, footings 89% against 32%), 20 of 32 hits on minority labels, zero
+abstentions, one invented. The column tag's concentration INVERTED: it named `HSS8X8X3/8` on 33%
+of its answers where the sheet shows it 52% of the time, which is the opposite of the fixation
+this section has been chasing since the beginning. Five of the eight remaining misses are drift.
+
+And that run is where the methodology broke, because it is the best number in this file and
+nothing on disk can say what produced it. The code that writes a description was BYTE-IDENTICAL
+to the 63% run before it — the only commits between them added `crops()`, which nothing calls,
+and a scorer wording gate that cannot move a tally — yet the description came back at 307 tokens
+where the previous one was 601, on the same sheet at the same 73 DPI. So either a `VLM_*` setting
+moved between the two ingests or that is simply the spread of asking one model twice, and the
+repository could not tell the difference. Every comparison recorded in this section is n=1, and
+n=1 cannot separate a 17-point improvement from a 17-point spread.
+
+Two things now make that answerable. `vlm._report_settings` logs, once per process, every setting
+that decides a description — model, thinking level, media resolution, output budget, crop bays —
+because the DPI line was added for exactly this reason and stopped one level short: the provider
+and model were recoverable afterwards and the settings that have each moved a tag twenty points
+were not. And `drawing_eval.runHistory` reads the run files the harness has always written and
+prints what this set has scored BEFORE, grouped by the description chunk ids: runs sharing a
+corpus are one sample however often they are re-scored, runs with different ids are separate
+INGESTS, and the spread across ingests is the error bar on every claim made by comparing two
+runs. A difference smaller than that spread is not a result yet. Same corpus scoring differently
+is a separate and louder line — `temperature: 0` means same chunks in, same answer out, so a
+disagreement there is the SCORER or the chat path moving under the set, which nothing else in the
+report can see.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the

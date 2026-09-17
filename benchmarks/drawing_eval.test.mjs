@@ -25,6 +25,7 @@ import {
   tally,
   answerConcentration,
   drift,
+  runHistory,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -763,4 +764,73 @@ test("placement needs MOST of the over-named misses, not one", () => {
   assert.equal(c.namedMisses, 4);
   assert.equal(c.placedMisses, 1);
   assert.equal(c.placement, false);
+});
+
+// --- One run is one sample --------------------------------------------------
+
+const ran = (ranAt, projectId, ids, pct) => ({
+  ranAt,
+  projectId,
+  descriptionChunkIds: ids,
+  pct,
+});
+
+test("separate ingests report their spread, which is the error bar on any comparison", () => {
+  // The measured case: two ingests of the same sheet, on code whose
+  // description path was byte-identical between them, scored 63% and 80%.
+  const h = runHistory([
+    ran("2026-09-17T06:00Z", "p1", ["a"], 43),
+    ran("2026-09-17T06:37Z", "p2", ["b"], 63),
+    ran("2026-09-17T08:51Z", "p3", ["c"], 80),
+  ]);
+  assert.equal(h.ingests.length, 3);
+  assert.equal(h.spread, 37);
+  assert.deepEqual(h.ingests.map((i) => i.pct), [43, 63, 80], "oldest first");
+  assert.deepEqual(h.rescored, []);
+});
+
+test("re-scoring the SAME descriptions is one ingest, not two", () => {
+  // Re-running the harness against an unchanged corpus is not a second sample
+  // of anything. Counting it as one would shrink the spread with runs that
+  // measured nothing new.
+  const h = runHistory([
+    ran("2026-09-17T06:00Z", "p1", ["a", "b"], 63),
+    ran("2026-09-17T07:00Z", "p1", ["b", "a"], 63),
+  ]);
+  assert.equal(h.runs, 2);
+  assert.equal(h.ingests.length, 1, "chunk ids in a different order are the same corpus");
+  assert.equal(h.spread, 0);
+  assert.deepEqual(h.rescored, [], "agreeing re-scores are not an alarm, they are the contract");
+});
+
+test("the spread is over distinct ingests, not over runs", () => {
+  // A corpus scored twice contributes ONE sample however many times the
+  // harness was pointed at it. Counting each run would widen or narrow the
+  // error bar with re-runs that measured nothing new — and the whole point of
+  // the number is that it bounds what a comparison can claim.
+  const h = runHistory([
+    ran("2026-09-17T06:00Z", "p1", ["a"], 80),
+    ran("2026-09-17T07:00Z", "p1", ["a"], 40),
+    ran("2026-09-17T08:00Z", "p2", ["b"], 75),
+  ]);
+  assert.equal(h.ingests.length, 2);
+  assert.equal(h.spread, 35, "40 and 75, not 80 and 40");
+});
+
+test("the same descriptions scoring differently is an alarm about the harness", () => {
+  // temperature: 0 — same chunks in, same answer out. A disagreement here is
+  // the scorer or the chat path moving under the set, and nothing else in the
+  // report can see it.
+  const h = runHistory([
+    ran("2026-09-17T06:00Z", "p1", ["a"], 63),
+    ran("2026-09-17T07:00Z", "p1", ["a"], 55),
+  ]);
+  assert.equal(h.ingests.length, 1);
+  assert.deepEqual(h.rescored, [{ projectId: "p1", scores: [55, 63] }]);
+});
+
+test("a single run claims no spread at all", () => {
+  const h = runHistory([ran("2026-09-17T06:00Z", "p1", ["a"], 80)]);
+  assert.equal(h.spread, 0);
+  assert.equal(h.ingests.length, 1);
 });

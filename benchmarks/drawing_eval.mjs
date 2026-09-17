@@ -39,9 +39,9 @@
  * and the chat provider's key) because it runs the API's own retrieval and
  * answer code rather than a copy.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -659,6 +659,98 @@ export function tally(subset) {
   };
 }
 
+/**
+ * What this set has scored BEFORE, read off the run files every run already
+ * writes. It exists because a single run was being read as a result.
+ *
+ * Two ingests of the same sheet, on code whose description path was
+ * byte-identical between them, scored 63% and 80%. Either a setting moved or
+ * that is the spread of asking one model twice — and nothing on disk could
+ * say which, because `VLM_*` is read by the WORKER at ingest and the chunks
+ * carry none of it. Every comparison recorded against this benchmark is n=1,
+ * and n=1 cannot distinguish a 17-point improvement from a 17-point spread.
+ *
+ * Two groupings, because they answer different questions:
+ *
+ *  - Runs sharing the same DESCRIPTION CHUNK IDS asked the same corpus. With
+ *    `temperature: 0` those must score identically; a disagreement means the
+ *    SCORER or the chat path changed, which is worth knowing loudly and is
+ *    invisible any other way.
+ *  - Runs with different ids are separate INGESTS. Their spread is the error
+ *    bar on every claim made by comparing two runs.
+ *
+ * It reports the spread and refuses to interpret it: the harness cannot see
+ * the vision settings, so it says what varied and leaves the cause to whoever
+ * knows what they changed.
+ */
+export function runHistory(records) {
+  const byCorpus = new Map();
+  for (const r of records) {
+    const key = [...(r.descriptionChunkIds ?? [])].sort().join(",");
+    if (!byCorpus.has(key)) byCorpus.set(key, []);
+    byCorpus.get(key).push(r);
+  }
+  const ingests = [...byCorpus.entries()]
+    .map(([key, runs]) => ({
+      key,
+      runs,
+      pct: runs[runs.length - 1].pct,
+      ranAt: runs[runs.length - 1].ranAt,
+      projectId: runs[runs.length - 1].projectId,
+    }))
+    .sort((a, b) => String(a.ranAt).localeCompare(String(b.ranAt)));
+  // Same chunks in, different score out. temperature: 0 says this cannot
+  // happen from the model, so it is the harness that moved.
+  const rescored = [...byCorpus.values()]
+    .filter((runs) => runs.length > 1 && new Set(runs.map((r) => r.pct)).size > 1)
+    .map((runs) => ({
+      projectId: runs[0].projectId,
+      scores: [...new Set(runs.map((r) => r.pct))].sort((a, b) => a - b),
+    }));
+  const scores = ingests.map((i) => i.pct);
+  return {
+    runs: records.length,
+    ingests,
+    rescored,
+    spread: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
+  };
+}
+
+/**
+ * Load the run files this set has produced. Best-effort by design: a missing
+ * directory, an unreadable file or one written by an older shape is skipped
+ * rather than failing the run — a benchmark that cannot read its own history
+ * should still report the run in front of it.
+ *
+ * Matched on the SET, not the project: repointing the same questions at a
+ * fresh project per configuration is exactly the workflow this measures.
+ */
+export function readRunHistory(dir, set) {
+  let names;
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(".json"));
+  } catch {
+    return null;
+  }
+  const records = [];
+  for (const name of names) {
+    try {
+      const raw = JSON.parse(readFileSync(resolve(dir, name), "utf8"));
+      const pct = raw?.summary?.all?.pct;
+      if (typeof pct !== "number" || basename(raw.set ?? "") !== basename(set ?? "")) continue;
+      records.push({
+        ranAt: raw.ranAt ?? name,
+        projectId: raw.projectId,
+        descriptionChunkIds: raw.descriptionChunkIds ?? [],
+        pct,
+      });
+    } catch {
+      // An unreadable run file is one lost data point, not a failed run.
+    }
+  }
+  return records.length ? runHistory(records) : null;
+}
+
 export function summarize(rows) {
   const tags = [...new Set(rows.map((r) => r.tag))].sort();
   return {
@@ -667,7 +759,7 @@ export function summarize(rows) {
   };
 }
 
-export function report(rows, json, onSheet) {
+export function report(rows, json, onSheet, history = null) {
   if (json) {
     console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
@@ -850,6 +942,31 @@ export function report(rows, json, onSheet) {
     );
   }
 
+  if (history && history.ingests.length > 1) {
+    const line = history.ingests
+      .map((i) => `${i.pct.toFixed(0)}%`)
+      .join(", ");
+    console.log(
+      `\n  This set has been scored ${history.runs} times over ` +
+        `${history.ingests.length} distinct sets of descriptions: ${line} — a ` +
+        `${history.spread.toFixed(0)}-point spread. The harness cannot see the VISION ` +
+        "settings (VLM_* is read by the worker at ingest and the chunks carry none of it), so " +
+        "it cannot tell a configuration change from the spread of asking one model twice. " +
+        "Whichever it is, one run is one sample, and a difference smaller than this spread is " +
+        "not a result yet.",
+    );
+  }
+  if (history?.rescored.length) {
+    for (const r of history.rescored) {
+      console.log(
+        `\n  ALARM: the same descriptions (project ${r.projectId}) have scored ` +
+          `${r.scores.map((p) => `${p.toFixed(0)}%`).join(" and ")}. Same chunks in, and ` +
+          "temperature: 0 means same answer out — so this is the SCORER or the chat path " +
+          "changing under the set, not the model. Fix that before reading any comparison above.",
+      );
+    }
+  }
+
   // The descriptions are named, not counted. A configuration change that did
   // not reach the corpus leaves these ids untouched, and that is the first
   // thing to check before reading any number above as a result.
@@ -993,7 +1110,7 @@ async function main() {
     ),
   );
 
-  report(rows, args.json, descriptionsOnSheet);
+  report(rows, args.json, descriptionsOnSheet, readRunHistory(dirname(outPath), args.set));
   process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();
 }
