@@ -774,6 +774,82 @@ The citation check fired on the same run: 8 of 40 answers named a label that app
 the chunks they cited, including two that scored CORRECT. FR-13's chain does not hold for those,
 and nothing but this line would have said so.
 
+The next run falsified the obvious follow-up and found something better. Holding `minimal`,
+`ultra_high` and 3072, and moving `VLM_MAX_TOKENS` from 20000 back to 4000 — the last unlogged
+difference between here and the 83% run — scored **25%**, the worst result since descriptions
+existed. The prediction was that columns would climb back toward 76%; they went to 24%, and the
+FOOTING tag, which had been 84-100% through every configuration in this section, fell to 26%. The
+description was 604 tokens against the 83% run's 602, which also disposes of length as an
+explanation for anything.
+
+So `VLM_MAX_TOKENS` is a large lever in a direction nobody predicted, OR the 83% run was at these
+same settings and this is the repeat measurement finally arriving with a 58-point spread. The data
+cannot separate those, because the 83% run predates `_report_settings`. One more ingest at
+`minimal` + 4000 decides it, and no reading of this section is safe until it happens.
+
+What the run did settle is the SHAPE of the failure, and it needed one more measure to see.
+`drift` annotates each miss on its own — "the truth at 3/B, 148pt away" — which reads as N
+independent slips. Seven of the footing tag's ten drifted misses were the IDENTICAL offset: one
+column line over, same row. Column 4 answered with column 3's footing, 4.6 with 4's, 6 with 4.6's,
+7 with 6's, 9 with 8's, every one the same direction and every one exactly one grid step. That is
+not ten mistakes, it is ONE mistake made seven times: the model named the grid correctly and then
+walked its values along that grid off by one.
+
+`systematicOffset` reports it, in GRID INDEX space rather than points — "one column line over" is
+the claim, and the bays here run 130 to 218pt, so no distance can say it. An enumeration error is
+a third failure distinct from the two this section already separates: not a misread glyph, which
+wants resolution, and not a correctly-read label dropped at an arbitrary neighbour, which wants
+locality. It is the one failure a crop removes COMPLETELY, because a crop is handed its coordinate
+instead of counting its way to one.
+
+Writing the tests exposed a limit in `drift` worth stating rather than fixing. It measures the bay
+as the SHORTEST gap in the set and looks 1.5 bays out, so on a sheet whose bays run 130 to 218pt
+the widest pair (1.5 x 130 = 195) falls outside the window. Every drift count in this file is
+therefore a LOWER bound, and so is every offset built on one. Widening the threshold would rebase
+every drift figure here against runs that never measured it, which is the same reason drift is
+reported and never scored.
+
+**And then the error bar arrived, and it eats most of this section.**
+
+Two ingests at a byte-identical, fully logged configuration — `VLM_MAX_TOKENS=4000`,
+`GEMINI_THINKING_LEVEL=minimal`, `GEMINI_MEDIA_RESOLUTION=ultra_high`, 3072, same model, same
+sheet, same prompt, same commit — scored **25% and 68%**. The footing tag inside those two runs
+ran **26% and 95%**. Nothing moved between them but the model being asked twice.
+
+A 43-point spread set-wide, 69 on the tag underneath it, is WIDER THAN EVERY EFFECT THIS SECTION
+CLAIMS TO HAVE MEASURED. `minimal` beating `low` was 12 points. `media_resolution` as "the largest
+single move in this file's history" was 20. The four-rules change, the count rule, the grid-naming
+rule — every one of them is a single run against a single run, and every one of them is smaller
+than the noise. They are not refuted; they are UNSUPPORTED, which is a different and more
+uncomfortable thing: the experiments were never powered to see what they reported.
+
+What survives is what was never a between-run comparison:
+
+  * The mechanical facts, which are properties of code and APIs rather than measured effects —
+    Gemini's 3072 cap and its fixed per-part image token budget, `thinking_level` replacing
+    `thinking_budget` with omission at the TOP of the scale, the prompt heading leaking into 25 of
+    40 answers, the citations that name a chunk which cannot support them.
+  * The failure SHAPES, which are observations INSIDE one description rather than differences
+    between two: thirteen of fourteen column misses carrying the right thickness and only the
+    section wrong; seven of ten footing misses sharing one column-line offset. Those are
+    structural claims about a single run's own misses, and a coin flip does not produce them.
+
+What does not survive is any sentence of the form "configuration A scores better than B" on n=1.
+
+`--label` is the repair, and it is the one thing the harness cannot work out for itself: `VLM_*`
+is read by the WORKER at ingest and the chunks carry none of it, so only the person running the
+ingest can say what configuration produced it. Copy it off `_report_settings` in the worker log,
+pass it to the benchmark, and two ingests sharing a label are the same experiment repeated.
+`runHistory` then reports the spread between them as an ERROR BAR — printed FIRST, above every
+other history line, because it bounds what all of them may claim — and names the widest TAG
+separately, since the set-wide number averages the variance away exactly where it is worst. A
+wrong label is worse than no label: it manufactures a measurement rather than merely lacking one.
+
+The size of that spread is itself the next question this pass has to answer. Forty cases against
+one description is a small sample of a stochastic generator, and the fix is more ingests per
+configuration rather than more configurations — which is the opposite of how every experiment
+above was run.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the

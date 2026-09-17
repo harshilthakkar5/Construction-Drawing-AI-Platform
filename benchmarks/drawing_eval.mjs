@@ -31,6 +31,12 @@
  *   node benchmarks/drawing_eval.mjs --set benchmarks/drawing_eval_set.json
  *   node benchmarks/drawing_eval.mjs --limit 10      # a cheap smoke run
  *   node benchmarks/drawing_eval.mjs --json
+ *   node benchmarks/drawing_eval.mjs --project <uuid> --label "minimal+4000"
+ *
+ * `--label` names the CONFIGURATION an ingest was made under, copied off
+ * `vlm._report_settings` in the worker log. Two ingests sharing a label are the
+ * same experiment repeated, and the spread between them is the only error bar
+ * this benchmark can produce — measured at 43 points set-wide, 69 on one tag.
  *
  * Every case costs one chat completion, so the full set is a real spend. Start
  * with --limit.
@@ -89,6 +95,14 @@ function parseArgs(argv) {
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--out") args.out = resolve(process.cwd(), argv[++i]);
     else if (arg === "--project") args.project = argv[++i];
+    // What CONFIGURATION this ingest was made under. The harness cannot know
+    // it: VLM_* is read by the worker at ingest and the chunks carry none of
+    // it, so this is the one thing only the person running it can supply.
+    // Copy it off `vlm._report_settings` in the worker log. Two ingests given
+    // the same label are claimed to be the SAME experiment, and that claim is
+    // what turns a list of scores into an error bar — so a wrong label is
+    // worse than none, because it manufactures a measurement.
+    else if (arg === "--label") args.label = argv[++i];
     else if (arg === "--help") args.help = true;
   }
   return args;
@@ -633,6 +647,79 @@ export function drift(rows) {
   return found;
 }
 
+/**
+ * Whether a tag's drifted misses all point the SAME WAY.
+ *
+ * `drift` says each miss named a label that lives one bay off, and annotates
+ * them one at a time. That reads as N independent slips. It is not always: on
+ * the run that forced this, SEVEN of the footing tag's ten drifted misses were
+ * the identical offset — one column line to the right, same row line — with the
+ * rest split between two row shifts. Column 4 answered with column 3's footing,
+ * 4.6 with 4's, 6 with 4.6's, 7 with 6's, 9 with 8's, every one in the same
+ * direction and every one exactly one grid step.
+ *
+ * That is ONE error repeated, not ten. The model named the grid correctly and
+ * then walked its values along it off by one — an ENUMERATION failure, which is
+ * a different thing from reading a label wrong and a different thing again from
+ * placing a correctly-read label at a random neighbour. It is also the failure
+ * a crop removes completely, because a crop is handed its coordinate rather
+ * than counting its way to one.
+ *
+ * Offsets are measured in GRID INDEX space, not points: "one column line over"
+ * is the claim, and the bays on this sheet run 130 to 218pt, so a distance
+ * cannot say it. The order comes from the cases' own coordinates.
+ */
+export function systematicOffset(rows) {
+  const drifted = drift(rows);
+  if (drifted.length < 3) return null;
+  const axis = (index) => {
+    const at = new Map();
+    for (const row of rows) {
+      if (!Array.isArray(row.point) || typeof row.grid !== "string") continue;
+      const label = row.grid.split("/")[index];
+      if (label !== undefined) at.set(label, row.point[index]);
+    }
+    return [...at].sort((a, b) => a[1] - b[1]).map(([label]) => label);
+  };
+  const columns = axis(0);
+  const rowLines = axis(1);
+  const step = new Map();
+  for (const miss of drifted) {
+    const from = String(miss.grid ?? "").split("/");
+    const to = String(miss.truthAt ?? "").split("/");
+    const dc = columns.indexOf(to[0]) - columns.indexOf(from[0]);
+    const dr = rowLines.indexOf(to[1]) - rowLines.indexOf(from[1]);
+    if (![dc, dr].every(Number.isFinite) || (!dc && !dr)) continue;
+    // An index of -1 means a label this set does not place; it cannot be an
+    // offset from anywhere.
+    if ([to[0], to[1], from[0], from[1]].some((l, i) => (i % 2 ? rowLines : columns).indexOf(l) < 0)) {
+      continue;
+    }
+    const key = `${dc},${dr}`;
+    step.set(key, (step.get(key) ?? 0) + 1);
+  }
+  if (!step.size) return null;
+  const [key, count] = [...step].sort((a, b) => b[1] - a[1])[0];
+  const [dc, dr] = key.split(",").map(Number);
+  const total = [...step.values()].reduce((a, b) => a + b, 0);
+  return {
+    drifted: total,
+    count,
+    columns: dc,
+    rows: dr,
+    // Half the drifted misses sharing one offset is no longer a coincidence of
+    // a small sheet; it is the same mistake made repeatedly.
+    systematic: count >= 3 && count * 2 >= total,
+    describe:
+      [
+        dc ? `${Math.abs(dc)} column line${Math.abs(dc) > 1 ? "s" : ""} ${dc > 0 ? "over" : "back"}` : "",
+        dr ? `${Math.abs(dr)} row line${Math.abs(dr) > 1 ? "s" : ""} ${dr > 0 ? "down" : "up"}` : "",
+      ]
+        .filter(Boolean)
+        .join(" and "),
+  };
+}
+
 export function tally(subset) {
   const n = subset.length || 1;
   const count = (k) => subset.filter((r) => r.outcome === k).length;
@@ -722,6 +809,8 @@ export function runHistory(records) {
       pct: runs[runs.length - 1].pct,
       ranAt: runs[runs.length - 1].ranAt,
       projectId: runs[runs.length - 1].projectId ?? "unknown",
+      label: runs[runs.length - 1].label ?? null,
+      byTag: runs[runs.length - 1].byTag ?? null,
     }))
     .sort((a, b) => String(a.ranAt).localeCompare(String(b.ranAt)));
   // Same chunks in, different score out. temperature: 0 says this cannot
@@ -735,6 +824,48 @@ export function runHistory(records) {
       projectId: runs[0].projectId ?? "unknown",
       scores: [...new Set(runs.map((r) => r.pct))].sort((a, b) => a - b),
     }));
+  // The measurement this whole feature was built to demand, and the first one
+  // that is an ERROR BAR rather than a history. Two ingests carrying the same
+  // --label are the same experiment repeated, so the spread between them is
+  // run-to-run variance with nothing else moving.
+  //
+  // It arrived and it was brutal. Two ingests at a byte-identical, fully
+  // logged configuration — VLM_MAX_TOKENS=4000, GEMINI_THINKING_LEVEL=minimal,
+  // GEMINI_MEDIA_RESOLUTION=ultra_high, 3072 — scored 25% and 68%. The footing
+  // tag inside them ran 26% and 95%. That is wider than every effect this
+  // repo's vision work has claimed to measure, all of which were n=1 per arm.
+  const labelled = new Map();
+  for (const i of ingests) {
+    if (!i.label) continue;
+    if (!labelled.has(i.label)) labelled.set(i.label, []);
+    labelled.get(i.label).push(i);
+  }
+  const repeats = [...labelled]
+    .filter(([, runs]) => runs.length > 1)
+    .map(([label, runs]) => {
+      const scores = runs.map((r) => r.pct);
+      const tags = new Set(runs.flatMap((r) => Object.keys(r.byTag ?? {})));
+      const perTag = [...tags]
+        .map((tag) => {
+          const at = runs.map((r) => r.byTag?.[tag]?.pct).filter((x) => typeof x === "number");
+          return at.length > 1
+            ? { tag, spread: Math.max(...at) - Math.min(...at), scores: at }
+            : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.spread - a.spread);
+      return {
+        label,
+        n: runs.length,
+        scores,
+        spread: Math.max(...scores) - Math.min(...scores),
+        // The widest tag, because a set-wide number averages the variance away:
+        // 43 points overall hid 69 on the tag underneath it.
+        worstTag: perTag[0] ?? null,
+      };
+    })
+    .sort((a, b) => b.spread - a.spread);
+
   const recent = ingests.slice(-RECENT_INGESTS);
   const scores = recent.map((i) => i.pct);
   return {
@@ -742,6 +873,7 @@ export function runHistory(records) {
     ingests,
     recent,
     rescored,
+    repeats,
     range: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0,
   };
 }
@@ -772,6 +904,8 @@ export function readRunHistory(dir, set) {
         ranAt: raw.ranAt ?? name,
         projectId: raw.projectId,
         descriptionChunkIds: raw.descriptionChunkIds ?? [],
+        label: raw.label ?? null,
+        byTag: raw.summary?.byTag ?? null,
         pct,
       });
     } catch {
@@ -1010,6 +1144,18 @@ export function report(rows, json, onSheet, history = null) {
         "make it worse, because the grid bubbles are at the edge and the intersections are in " +
         "the middle. Locality is the lever — a crop carrying its own grid lines.",
     );
+    // And whether those misses are N slips or ONE mistake made N times. The
+    // line above cannot tell the difference, and they are not the same finding.
+    const offset = systematicOffset(tagRows);
+    if (offset?.systematic) {
+      console.log(
+        `    ${offset.count} of those ${offset.drifted} are the SAME offset — ${offset.describe}. ` +
+          "That is not drift in different directions, it is the grid ENUMERATED off by one and " +
+          "then read correctly along it: one mistake made " +
+          `${offset.count} times rather than ${offset.count} mistakes. A crop cannot make it, ` +
+          "because a crop is handed its coordinate instead of counting its way to one.",
+      );
+    }
   }
 
   // Without it, a mark the model made up is indistinguishable from a refusal,
@@ -1149,6 +1295,25 @@ export function report(rows, json, onSheet, history = null) {
     for (const r of unsupported.slice(0, 6)) {
       console.log(`    ${r.grid.padEnd(8)} ${r.tag.padEnd(14)} said ${r.said} [${r.outcome}]`);
     }
+  }
+
+  // Printed FIRST among the history lines, because it is the only one that
+  // bounds what any other number on this screen is allowed to claim.
+  for (const r of history?.repeats ?? []) {
+    console.log(
+      `\n  ERROR BAR: "${r.label}" has been ingested ${r.n} times — ` +
+        `${r.scores.map((p) => `${p.toFixed(0)}%`).join(", ")}, a ${r.spread.toFixed(0)}-point ` +
+        "spread with NOTHING changed between them" +
+        (r.worstTag
+          ? `. The ${r.worstTag.tag} tag inside those runs ran ` +
+            `${r.worstTag.scores.map((p) => `${p.toFixed(0)}%`).join(", ")} — ` +
+            `${r.worstTag.spread.toFixed(0)} points, because a set-wide number averages the ` +
+            "variance away"
+          : "") +
+        `.\n  Read every comparison above against that: a difference smaller than ` +
+        `${r.spread.toFixed(0)} points is not evidence of anything, however well it fits the ` +
+        "story. That includes differences this report itself describes as large.",
+    );
   }
 
   if (history && history.ingests.length > 1) {
@@ -1325,6 +1490,7 @@ async function main() {
         // description for every one of its cases still only ever surfaced one.
         descriptionChunksOnSheet: [...descriptionsOnSheet].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
+        label: args.label ?? null,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
         hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
         summary: summarize(rows),
