@@ -670,12 +670,34 @@ because the DPI line was added for exactly this reason and stopped one level sho
 and model were recoverable afterwards and the settings that have each moved a tag twenty points
 were not. And `drawing_eval.runHistory` reads the run files the harness has always written and
 prints what this set has scored BEFORE, grouped by the description chunk ids: runs sharing a
-corpus are one sample however often they are re-scored, runs with different ids are separate
-INGESTS, and the spread across ingests is the error bar on every claim made by comparing two
-runs. A difference smaller than that spread is not a result yet. Same corpus scoring differently
-is a separate and louder line — `temperature: 0` means same chunks in, same answer out, so a
-disagreement there is the SCORER or the chat path moving under the set, which nothing else in the
-report can see.
+corpus are one sample however often they are re-scored, and runs with different ids are separate
+INGESTS. Same corpus scoring differently is a separate and louder line — `temperature: 0` means
+same chunks in, same answer out, so a disagreement there is the SCORER or the chat path moving
+under the set, which nothing else in the report can see.
+
+That feature then shipped two mistakes of exactly the kind it exists to prevent, and both showed
+up on its first real run against 25 accumulated run files. It keyed a corpus on the sorted chunk
+ids, so every run from BEFORE the vision pass existed — which has no description ids at all —
+collapsed into one group under the empty string and was reported as a single corpus that had
+scored 35%, 38%, 40% and 48%. That is the alarm claiming `temperature: 0` had been violated, on a
+corpus that does not exist. An empty list is not an identity; a run with no descriptions is its
+own sample and can never be a re-score of anything. And it quoted the range across ALL ingests as
+"the error bar", which on a real history reaches back to runs with no vision pass — a 63-point
+number that measures the project's history rather than any configuration's spread, printed in the
+one place a reader is deciding how much to believe. The line now shows the last five ingests
+oldest first and says outright that the range between them is NOT an error bar: it mixes real
+changes with run-to-run spread, and only REPEATING one configuration separates those. A benchmark
+may report bad news; it may never invent it, and a number offered as evidence has to be evidence
+of the thing it is standing next to.
+
+With that fixed the tail reads 38%, 43%, 63%, 80%, 83% — the last of those 33 of 40 with both
+tags over baseline (columns 76% against 52%, footings 89% against 32%), 19 of 33 hits on minority
+labels, and every tag's concentration "in step with the sheet" for the first time: the footing tag
+named F9 on exactly the 32% the drawing shows it. Five of the six remaining misses are drift, and
+the sixth is `HSS16X0X1/2` for `HSS10X10X1/2` — a glyph misread, not a fabrication. That
+trajectory is monotone across the last four, which is what a real improvement looks like and what
+run-to-run noise does not; it is still not the repeat measurement, and the report says so every
+time it prints.
 
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
