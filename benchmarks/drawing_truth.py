@@ -67,26 +67,16 @@ import json
 import math
 import re
 import sys
+from pathlib import Path
 
 import fitz
 
-# A grid bubble's circle, in points. Detail callouts share these dimensions —
-# they are told apart by how many words sit inside, not by size.
-BUBBLE_MIN_PT = 30.0
-BUBBLE_MAX_PT = 45.0
-BUBBLE_ASPECT = (0.85, 1.18)
+# Finding the grid is no longer this file's job. The vision pass needs the same
+# bubbles to decide what to crop, and a grid detected twice is a grid that
+# drifts — see workers/src/grid.py, which also records what sharing it costs.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workers" / "src"))
 
-# A grid label: "7", "4.6", "11.3", "B", "DD". A detail callout's second token
-# ("S-301.0") fails this, and so does anything from the drawing body.
-GRID_LABEL = re.compile(r"\d+(?:\.\d+)?|[A-Z]{1,2}")
-
-# Bubbles are on an axis if their cross-coordinate agrees within this. Drawn
-# grid lines are exact; the tolerance absorbs only the bubble's own centring.
-AXIS_TOL_PT = 6.0
-
-# An axis needs this many bubbles. Two points define a line through any pair of
-# strays; three is the smallest number that has to be deliberate.
-MIN_AXIS = 3
+import grid  # noqa: E402
 
 # A label further than this from the intersection is not labelling it. ~1.4in
 # on the sheet, comfortably more than the offset a drafter uses and comfortably
@@ -128,70 +118,12 @@ LABEL_PATTERN = {
 }
 
 
-def _centre(rect: fitz.Rect) -> tuple[float, float]:
-    return ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
-
-
-def grid_bubbles(page: fitz.Page) -> list[tuple[str, float, float]]:
-    """Circled grid labels, in the page's DISPLAYED coordinate space.
-
-    Display space because that is where the user and the renderer both live;
-    `get_text` and `get_drawings` report unrotated coordinates, so everything is
-    mapped once, here, rather than at each comparison.
-    """
-    to_display = ~page.derotation_matrix
-    words = page.get_text("words")
-    out: list[tuple[str, float, float]] = []
-    for drawing in page.get_drawings():
-        rect = drawing["rect"]
-        if rect.width <= 0 or rect.height <= 0:
-            continue
-        if not BUBBLE_MIN_PT < rect.width < BUBBLE_MAX_PT:
-            continue
-        if not BUBBLE_ASPECT[0] < rect.width / rect.height < BUBBLE_ASPECT[1]:
-            continue
-        if not any(item[0] == "c" for item in drawing["items"]):
-            continue
-        inside = [
-            w
-            for x0, y0, x1, y1, w, *_ in words
-            if rect.x0 <= (x0 + x1) / 2 <= rect.x1 and rect.y0 <= (y0 + y1) / 2 <= rect.y1
-        ]
-        # Exactly one word: two means a detail callout ("6" + "S-301.0"), which
-        # is a reference to another sheet and not a grid line at all.
-        if len(inside) == 1 and GRID_LABEL.fullmatch(inside[0]):
-            out.append((inside[0], *_centre(rect * to_display)))
-    return out
-
-
-def axes(bubbles: list[tuple[str, float, float]]) -> tuple[dict, dict]:
-    """Split bubbles into the column grid (a shared y) and the row grid (a
-    shared x). A sheet's angled wing has bubbles on neither and is skipped."""
-
-    def cluster(index: int) -> list[list[tuple[str, float, float]]]:
-        groups: list[list[tuple[str, float, float]]] = []
-        for bubble in sorted(bubbles, key=lambda b: b[index + 1]):
-            value = bubble[index + 1]
-            if groups and abs(groups[-1][-1][index + 1] - value) <= AXIS_TOL_PT:
-                groups[-1].append(bubble)
-            else:
-                groups.append([bubble])
-        return [g for g in groups if len(g) >= MIN_AXIS]
-
-    # Columns share a y (index 1); rows share an x (index 0).
-    col_groups = cluster(1)
-    row_groups = cluster(0)
-    columns = {b[0]: b[1] for g in col_groups for b in g}
-    rows = {b[0]: b[2] for g in row_groups for b in g}
-    return columns, rows
-
-
 def labels_of(page: fitz.Page, pattern: re.Pattern) -> list[tuple[str, float, float]]:
     to_display = ~page.derotation_matrix
     out = []
     for x0, y0, x1, y1, word, *_ in page.get_text("words"):
         if pattern.fullmatch(word):
-            out.append((word, *_centre(fitz.Rect(x0, y0, x1, y1) * to_display)))
+            out.append((word, *grid.centre(fitz.Rect(x0, y0, x1, y1) * to_display)))
     return out
 
 
@@ -245,8 +177,7 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
     refusals: list[str] = []
 
     for page_index, page in enumerate(doc):
-        bubbles = grid_bubbles(page)
-        columns, rows = axes(bubbles)
+        columns, rows = grid.axes(grid.bubbles(page))
         if not columns or not rows:
             refusals.append(f"page {page_index + 1}: no orthogonal grid found")
             continue

@@ -726,7 +726,16 @@ vision. Cases are GENERATED, never hand-written and never captured from the app,
 bubbles are circles holding exactly one label (a detail callout holds two, and the drawing
 frame's zone letters are not circled at all — mistaking those for grid lines is how the footing
 at grid 7/C got read as F10 when it is F12), and a candidate case is REFUSED unless its reading
-survives jittering the intersection 20pt in eight directions. Scoring is SIX-way, not pass/fail:
+survives jittering the intersection 20pt in eight directions. Finding those bubbles now lives in
+`workers/src/grid.py`, which the generator imports, because the vision pass needs the same
+coordinates to decide what to CROP and a grid detected twice is a grid that drifts — the lesson
+the identifier regex, the combined-numbering rule and the storage switch each paid for once. It
+costs something real and the module says so: while the generator was the only reader, the eval
+could falsify anything the pipeline believed about the grid, and once both sides read the same
+bubbles a misdetection is wrong in both at once — the crop labelled 4/B and the expected answer
+for 4/B agree with each other and disagree with the drawing. One definition plus a stated blind
+spot beats two definitions and a silent divergence; the blind spot is covered by `--explain`,
+read by a person once per sheet. Scoring is SIX-way, not pass/fail:
 `correct`, `wrong` (named the nearest neighbouring label), `off-target` (named some other label
 of that kind, from elsewhere on the sheet), `invented` (named something SHAPED like a mark of
 that kind but written nowhere on the drawing), `hedged` (named the truth and the distractor), and
