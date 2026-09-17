@@ -116,6 +116,7 @@ import fitz
 
 import chunker
 import config
+import grid
 import llm
 import logutil
 
@@ -399,6 +400,69 @@ def available() -> bool:
     """Checked once per document rather than per page, so an unconfigured
     provider skips the work instead of failing page by page."""
     return llm.available(provider())
+
+
+# How much drawing belongs to one intersection, in bays. The crop is centred on
+# the intersection and extends this many bays each way, so 0.6 spans 1.2 bays.
+#
+# Sized against the only number that can falsify it: how far a label sits from
+# the intersection it belongs to. On the sheet this was written against, the
+# furthest is 83.7pt (a footing), the median is 47-60pt, and the columns are
+# 130-218pt apart. At 0.6 of the MEDIAN bay that is 94pt horizontally and 111pt
+# vertically — every label in the set falls inside its own crop, with the
+# nearest neighbouring intersection still outside it on all but the tightest
+# pair. Below about 0.55 the furthest footing label is cut out of the crop that
+# exists to carry it; well above 0.6 the neighbour's labels come in, which is
+# the confusion cropping exists to remove.
+CROP_BAYS = float(os.environ.get("VLM_CROP_BAYS", "0.6"))
+
+
+def crops(page: fitz.Page, bays: float = CROP_BAYS) -> list[tuple[str, fitz.Rect]]:
+    """One rectangle per grid intersection, labelled "<column>/<row>".
+
+    This is the lever that whole-sheet resolution cannot be. Both providers cap
+    what they read — 2576px for Claude, 3072px for Gemini — which on a 42x30in
+    sheet is 61 and 73 DPI, and a member size with a fraction on the end is not
+    legible at either. The cap is on the IMAGE, not on the drawing, so spending
+    it on a 190x220pt crop instead of a 3024x2160pt sheet is worth roughly 14x
+    the linear resolution on the same budget.
+
+    The second half of what it buys is not resolution at all. The measured
+    failure is a label read correctly and placed one bay off — five of seven
+    footing misses in one run, and the grid bubbles that would settle it are at
+    the sheet's edge while the intersections are in the middle, so a
+    higher-resolution whole-sheet image makes that WORSE (each tile covers less
+    of the page and the bubble is further outside it). A crop does not ask the
+    model where the grid is. The label comes from `grid.py`, off the PDF's own
+    geometry, and the model is told which intersection it is looking at.
+
+    Returns display-space rectangles, which is what `get_pixmap(clip=...)`
+    takes — unlike `get_text(clip=...)`, which needs the derotation matrix
+    applied first. That asymmetry is the trap `region.py` exists to document,
+    and it is the reason this returns rects rather than pixmaps: the caller
+    that renders them should be looking at the same coordinates the caller that
+    labels them saw.
+
+    Empty for a page with no orthogonal grid, which is most pages. This is a
+    structural-plan device, not a general one.
+    """
+    columns, rows = grid.axes(grid.bubbles(page))
+    if not columns or not rows:
+        return []
+    half_x = grid.spacing(list(columns.values())) * bays
+    half_y = grid.spacing(list(rows.values())) * bays
+    if half_x <= 0 or half_y <= 0:
+        return []
+    out: list[tuple[str, fitz.Rect]] = []
+    for col, row, cx, cy in grid.intersections(columns, rows):
+        box = fitz.Rect(cx - half_x, cy - half_y, cx + half_x, cy + half_y)
+        clipped = box & page.rect
+        # An intersection whose crop falls entirely off the page is not a real
+        # intersection — it is two axes extrapolated past the drawing.
+        if clipped.is_empty:
+            continue
+        out.append((f"{col}/{row}", clipped))
+    return out
 
 
 def render(page: fitz.Page, max_edge: int = MAX_EDGE_PX) -> bytes:

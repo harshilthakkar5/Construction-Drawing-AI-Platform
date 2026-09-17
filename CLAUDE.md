@@ -622,10 +622,69 @@ the provider's default, so an unrelated 400 must not silently undo it. `_report_
 prints the read DPI beside the rendered one and warns when they differ, because the gap between
 those two numbers is the whole of what went wrong twice.
 
-What that settles is the direction, not the tag: whole-sheet magnification is bounded at 73 DPI
-by the provider, so the remaining lever is spending that same ceiling on less of the sheet. The
-footing tag holding at 74% across 72, 73 and "119" DPI, while the column tag moved only in its
-choice of filler label, is the same finding from the other side.
+Measured, at `VLM_MAX_EDGE=3072` and `GEMINI_MEDIA_RESOLUTION=ultra_high`, it is the largest
+single move in this file's history and it settles which of the two axes was the constraint. Same
+73 DPI as the run before it — the log says so — and the column tag went 14% to 43% while the
+footing tag went 74% to 84%: 63% overall against a 43% baseline, 17 of 25 hits on minority
+labels, ZERO abstentions, and the description itself grew from 406 to 601 tokens because there
+was more the model could resolve to write down. Pixels were never the lever; the IMAGE TOKEN
+BUDGET was, and `VLM_MAX_EDGE` had been the knob under the light.
+
+It also changed what the misses ARE, which is the finding that matters more than the score. Eight
+of the eleven are drift — 5 of 8 on columns, 3 of 3 on footings, every one naming the truth at an
+intersection 130-162pt away with the bay at 130. `invented` fell from 11 to 4. The failure is no
+longer "cannot read the glyph" and is now "read it correctly, placed it one bay off", which is
+exactly the boundary where more resolution stops helping and starts hurting: the grid bubbles are
+at the sheet's edge, the intersections are in the middle.
+
+That boundary broke a report gate, in the same way the pooled baseline and the minority-hit
+defence each broke once. ANSWER CONCENTRATION cannot tell a frequency prior from a label read
+correctly and misplaced, because the two produce the identical count — a tag that reads row F's
+size and smears it up into rows B and C over-names that size exactly as hard as a tag that never
+looked. So the report printed "its hits ride on a frequency rather than on the intersection each
+question names… right by coincidence, while reading nothing" over the column tag's best run,
+three lines below its own drift annotation saying 5 of its 8 misses named the truth one bay away.
+`tagConcentration` now asks how many of the over-named label's MISSES are drift and refuses the
+prior verdict when most of them are. It is not a defence of the score — a misplaced read is still
+wrong at that intersection — but the two want opposite fixes, and naming the wrong one points the
+next change at comprehension when what is missing is locality.
+
+`vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
+grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
+On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the
+same 3072px ceiling that buys 73 DPI on the whole sheet buys roughly 990 on a crop. The size is
+`VLM_CROP_BAYS` (0.6) times the MEDIAN bay per axis, and median rather than minimum is load-
+bearing: the columns here are 130 to 218pt apart, and sizing every crop off the 130 cuts the
+furthest footing label (83.7pt out) from the crop that exists to carry it. The minimum bay is the
+right unit for `drawing_eval.mjs`'s drift annotation and the wrong one for this.
+
+The second thing a crop buys is not resolution at all, and it is the half the DPI argument keeps
+hiding: the model is no longer asked WHERE the grid is. The measured failure is a label read
+correctly and placed one bay off — five of seven footing misses in one run — and the bubbles that
+would settle it are at the sheet's edge while the intersections are in the middle, so a
+higher-resolution whole-sheet image makes that worse rather than better. The crop's label comes
+off the PDF's own geometry and is handed to the model as given.
+
+Which is exactly why the grid's NAMES had to be got right first, and Phase B found they were not.
+`grid.bubbles` reports DISPLAY coordinates, so on a /Rotate 90 sheet the numbered lines share a
+display x and `axes` files them as the ROWS: the labels stay correct and the two axis names swap.
+That was survivable while the generator was the only reader — a case asked about "column line B"
+and derived its answer at the same point, self-consistently — and it stops being survivable the
+moment a label is handed to a model as ground truth, because "B/2" for an intersection the
+drawing calls 2/B is then our own error, agreed on by both readers of `grid.py` at once. Geometry
+cannot break that tie, so the CONVENTION does (`grid.transposed`): column lines are numbered, row
+lines are lettered, applied only when one axis is entirely numeric and the other entirely
+alphabetic, and never otherwise. The fix belongs in `intersections` and NOT in `axes`, which was
+the first attempt and was wrong in a way worth recording: the two dicts hold different
+coordinates — an x per column, a y per row — so swapping them does not rename the axes, it
+reflects the whole grid about its diagonal. A transposed sheet assembles its point the other way
+round instead.
+
+`drawing_truth.py --crops [--against set.json]` prints the dump and checks it: every crop centred
+on the set's own `intersectionPt`, every `labelDistancePt` inside its crop, every intersection the
+set asks about present. It exits non-zero on a disagreement. That check is worth stating carefully
+— both sides read `grid.py`, so it cannot catch a grid they are wrong about together. That blind
+spot is still `--explain` plus one person looking at the sheet.
 
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
