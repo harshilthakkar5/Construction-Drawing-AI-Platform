@@ -27,6 +27,8 @@ import {
   drift,
   runHistory,
   citationSupport,
+  labelComponents,
+  componentMisreads,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -934,4 +936,114 @@ test("support is checked against the CITED chunks, not everything retrieved", ()
   assert.equal(citationSupport("F10", ["schedule"], bodies), "unsupported");
   assert.equal(citationSupport("F10", ["description"], bodies), "supported");
   assert.equal(citationSupport("F10", ["schedule", "description"], bodies), "supported");
+});
+
+// --- A member size is two facts printed as one string -----------------------
+
+test("a member size splits into a section and a thickness", () => {
+  assert.deepEqual(labelComponents("HSS8X8X3/8"), [
+    { name: "section", value: "8X8" },
+    { name: "thickness", value: "3/8" },
+  ]);
+  // Written the way a person types it.
+  assert.deepEqual(labelComponents("hss 6x6 x 1/2"), [
+    { name: "section", value: "6X6" },
+    { name: "thickness", value: "1/2" },
+  ]);
+});
+
+test("a footing mark does not decompose, and says so", () => {
+  // "F9" is one token, read or not. A fabricated split would invent a finding.
+  assert.equal(labelComponents("F9"), null);
+  assert.equal(labelComponents("HSS8X8"), null);
+  assert.equal(labelComponents(""), null);
+  assert.equal(labelComponents(null), null);
+});
+
+const sized = (expected, said, outcome = "off-target") => ({
+  tag: "grid-column",
+  expected,
+  said,
+  outcome,
+});
+
+test("holding one part across the misses is a misread, not a guess", () => {
+  // The measured run: 13 of 14 column misses carried the thickness exactly —
+  // 3/8, 5/8 and 1/2 each landing where the drawing puts them — and got only
+  // the section wrong, always 8X8 read as 6X6 and never the reverse. The report
+  // called that "reaching for one label… while reading nothing". A model
+  // reading nothing does not place three different thicknesses correctly
+  // thirteen times.
+  const rows = [
+    ...Array.from({ length: 9 }, () => sized("HSS8X8X3/8", "HSS6X6X3/8")),
+    ...Array.from({ length: 3 }, () => sized("HSS8X8X5/8", "HSS6X6X5/8")),
+    ...Array.from({ length: 2 }, () => sized("HSS8X8X1/2", "HSS6X6X1/2")),
+  ];
+  const c = componentMisreads(rows);
+  assert.equal(c.misses, 14);
+  assert.equal(c.wrongPart, "section");
+  assert.equal(c.heldPart, "thickness");
+  assert.equal(c.held, 14);
+  assert.equal(c.heldDistinct, 3, "three thicknesses, each placed correctly");
+  assert.equal(c.halfRead, true);
+  assert.deepEqual(c.swaps, [["8X8 read as 6X6", 14]], "one direction, never the reverse");
+});
+
+test("one constant answer is NOT a half-read, however well one part matches", () => {
+  // The condition the whole measure turns on. Answer HSS6X6X3/8 to everything
+  // on a sheet whose columns are mostly X3/8 and the thickness "matches" every
+  // time — from a model that never looked. Reading shows up as the held part
+  // TRACKING the drawing, not as one value that happens to agree.
+  const rows = Array.from({ length: 12 }, () => sized("HSS8X8X3/8", "HSS6X6X3/8"));
+  const c = componentMisreads(rows);
+  assert.equal(c.held, 12);
+  assert.equal(c.heldDistinct, 1);
+  assert.equal(c.halfRead, false, "one held value is an artifact of the truth distribution");
+});
+
+test("a part held by only half the misses is a lean, not a pattern", () => {
+  const rows = [
+    ...Array.from({ length: 4 }, () => sized("HSS8X8X3/8", "HSS6X6X3/8")),
+    ...Array.from({ length: 2 }, () => sized("HSS8X8X5/8", "HSS6X6X5/8")),
+    ...Array.from({ length: 6 }, () => sized("HSS8X8X3/8", "HSS8X8X1/2")),
+  ];
+  const c = componentMisreads(rows);
+  assert.equal(c.halfRead, false, "6 of 12 is not two thirds");
+});
+
+test("correct answers and abstentions contribute nothing", () => {
+  // This measures how the MISSES fail. Folding in the hits would let a good
+  // tag's successes argue that its failures were nearly right.
+  const rows = [
+    sized("HSS8X8X3/8", "HSS8X8X3/8", "correct"),
+    sized("HSS8X8X3/8", "", "abstained"),
+  ];
+  assert.equal(componentMisreads(rows), null);
+});
+
+test("a hedged answer naming two sizes is not decomposed", () => {
+  // Two labels is no single reading, and picking one to split would be the
+  // report inventing the finding it then reports.
+  const rows = [sized("HSS8X8X3/8", "HSS6X6X3/8, HSS8X8X1/2", "hedged")];
+  assert.equal(componentMisreads(rows), null);
+});
+
+test("the verdict says which PART is wrong instead of calling it a guess", () => {
+  const rows = [
+    ...Array.from({ length: 9 }, () => ({
+      ...namedRow("grid-column", "HSS8X8X3/8", "off-target", "HSS6X6X3/8"),
+    })),
+    ...Array.from({ length: 3 }, () => ({
+      ...namedRow("grid-column", "HSS8X8X5/8", "off-target", "HSS6X6X5/8"),
+    })),
+    ...Array.from({ length: 2 }, () => ({
+      ...namedRow("grid-column", "HSS8X8X1/2", "off-target", "HSS6X6X1/2"),
+    })),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.prior, false, "a half-read is not a frequency prior");
+  const said = verdict(rows);
+  assert.match(said, /WHICH PART is wrong/);
+  assert.match(said, /8X8 read as 6X6/);
+  assert.doesNotMatch(said, /while reading nothing/);
 });

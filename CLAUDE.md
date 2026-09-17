@@ -455,10 +455,25 @@ Gemini thinking control worked at all. `GEMINI_THINKING_LEVEL` is the whole expe
 side: at `minimal` the same sheet scored 20% correct with 17 off-target and answered one member
 size to 75% of the column questions it attempted — a size the sheet shows on 14% of them, so not
 even the majority guess — while at `low` it scored 60% and beat the baseline on BOTH tags for the
-first time, 12 of 24 hits on minority labels. The floor of the scale is not a cheap version of the
-next rung; on this task it is a different model. Against Claude's best run on the same sheet (63%,
-footings 74%, columns tying their baseline) `low` trades: worse on footings, better on columns —
-the one configuration so far whose column tag beats its baseline at all.
+first time, 12 of 24 hits on minority labels. Against Claude's best run on the same sheet (63%,
+footings 74%, columns tying their baseline) `low` traded: worse on footings, better on columns.
+
+**That comparison no longer stands, and the way it fell over is the point.** It was n=1 per arm,
+and it was written as settled cause — "the floor of the scale is not a cheap version of the next
+rung; on this task it is a different model". A later run at `GEMINI_THINKING_LEVEL=low`, on the
+far better configuration this section arrives at, reproduced the failure signature this paragraph
+attributes to `minimal` almost exactly: the column tag at 19% with 10 off-target, answering
+`HSS6X6X3/8` to 67% of the questions it attempted — the same fixation, on a size the sheet shows
+on the same 14% of them. One arm's characteristic failure appearing under the other arm is not a
+detail; it says the variable named here was probably not the one doing the work.
+
+What it is instead is unknown, and the run cannot say, because TWO settings had moved from the
+83% run before it (`GEMINI_THINKING_LEVEL` off its default and `VLM_MAX_TOKENS` 4000 to 20000)
+and the run before that predates `_report_settings`, so its values were never recorded at all.
+Two variables at once against an unknown baseline is three unknowns and one number. The honest
+state is: `minimal` versus `low` is UNMEASURED on this pipeline, both of the runs that pretend to
+measure it are confounded, and nothing in this section should be read as knowing which way that
+switch cuts until one variable moves on its own.
 
 Those four rules were then measured, on a fresh ingest of the same sheet: 28% correct with 15
 abstentions became 63% correct with 4, and the footing tag went from guesswork to 74% against its
@@ -698,6 +713,66 @@ the sixth is `HSS16X0X1/2` for `HSS10X10X1/2` — a glyph misread, not a fabrica
 trajectory is monotone across the last four, which is what a real improvement looks like and what
 run-to-run noise does not; it is still not the repeat measurement, and the report says so every
 time it prints.
+
+`_report_settings` earned its place on the first run it saw. That run scored 53% — a 30-point
+drop from the 83% before it — and the line named the configuration in one glance:
+`VLM_MAX_TOKENS=20000 GEMINI_THINKING_LEVEL=low GEMINI_MEDIA_RESOLUTION=ultra_high`. Without it
+this would have been another unexplained swing filed next to the others, and the temptation would
+have been to explain it with whatever had changed in the repository — which was nothing that
+touches a description. It does NOT identify the cause: two settings moved at once and the run they
+are being compared against was never logged, so the comparison has three unknowns in it. What the
+line buys is knowing that, rather than guessing.
+
+The failure it produced is the old one exactly: the column tag at 19%, `HSS6X6X3/8` on 14 of 21
+answers where the sheet shows it on 3, and the footing tag untouched at 89%. That asymmetry has
+been stable through every configuration in this section — a footing mark in a bubble reads and a
+member size with a fraction on the end is the thing under pressure — and it is why the column tag,
+not the score, is the number to read. The `placement` gate behaved correctly under it, and only
+just: 5 of the 11 misses naming the over-named size were drift, one short of the majority that
+would have called it placement rather than a prior. It is a 50% threshold on eleven cases, so
+treat the two verdicts as neighbours near the boundary rather than as opposites.
+
+Then the one-variable run happened, and it answers the question the paragraph above had to leave
+open. Holding everything else exactly where the 53% run had it — `VLM_MAX_TOKENS=20000`,
+`ultra_high`, 3072 — and moving `GEMINI_THINKING_LEVEL` from `low` back to `minimal`: 65% against
+53%, the column tag 33% against 19%, and the footing tag 19 of 19. **`minimal` beats `low` on this
+pipeline**, which is the opposite of what this section claimed for a year of its own history. Still
+n=1 per arm, but for the first time one variable moved on its own, which is worth more than the
+four confounded comparisons that came before it. What is still unexplained is the 83% run, and the
+remaining suspect is now `VLM_MAX_TOKENS`: the same thinking level at 20000 gives 318 tokens of
+description and a 33% column tag, where the 83% run gave 602 and 76%.
+
+The footing tag reaching 100% is the first perfect tag in this file. It is also the tag that has
+never been the problem.
+
+And the column tag's misses finally said what they are. Of its fourteen, THIRTEEN carry the
+thickness exactly — 3/8, 5/8 and 1/2 each landing where the drawing puts them — and get only the
+section wrong, always `8X8` read as `6X6` and never once the reverse. The report called that
+"reaching for one label far more often than the drawing offers it… right by coincidence, while
+reading nothing". A model reading nothing does not place three different thicknesses correctly
+thirteen times. It is one glyph pair misread, in one direction, at every intersection on the
+sheet — which is a RESOLUTION failure on half of a compound label, and exactly the kind a crop at
+roughly 990 DPI makes go away.
+
+`componentMisreads` measures it. A footing mark is atomic; a member size is a SECTION and a WALL
+THICKNESS printed as one string and read as two facts, and every measure in this report that
+counts labels was treating them as atoms. That is the FOURTH time a measure here has read a
+specific failure as a guess for want of looking inside the thing it was counting — after the
+pooled baseline, the minority-hit defence and the placement gate — and the verdict is now gated on
+it the same way.
+
+The condition that makes it worth anything is that the held part must VARY. A tag answering one
+constant string holds whichever component the truth happens to share with it: answer `HSS6X6X3/8`
+to everything on a sheet whose columns are mostly X3/8 and the thickness "matches" every time,
+from a model that never looked. Reading shows up as the held part TRACKING the drawing — three
+different thicknesses, each where the sheet puts it — so one distinct held value is an artifact of
+the truth distribution and several is the claim. Without that condition the gate excuses the exact
+fixation the concentration measure exists to catch, and the old tests proved it: they fired on the
+first fixture built to represent a pure frequency prior.
+
+The citation check fired on the same run: 8 of 40 answers named a label that appears in none of
+the chunks they cited, including two that scored CORRECT. FR-13's chain does not hold for those,
+and nothing but this line would have said so.
 
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
