@@ -423,3 +423,88 @@ def test_document_and_project_locks_never_collide():
     serialize the whole project it belongs to."""
     same_id = "a52ef361-8194-42bc-bb4f-454c431bc886"
     assert db._lock_key(same_id) != db._lock_key(f"document:{same_id}")
+
+
+# --- which vision pass runs, and what happens when it declines --------------
+
+
+class TestTheVisionPassRoutes:
+    """`VLM_CROP` picks the pass; every refusal lands on the same fallback.
+
+    The crop pass REPLACES the sheet pass rather than joining it — two accounts
+    of the same intersection in one corpus have nothing to say which retrieval
+    should surface, and running both would move two variables at once in the
+    only experiment that can say whether cropping works. So the contract is
+    narrow: crops when asked, whole sheet when the crops decline, and never
+    both.
+    """
+
+    @staticmethod
+    def _page():
+        doc = fitz.open()
+        return doc, doc.new_page(width=42 * 72, height=30 * 72)
+
+    @pytest.fixture
+    def wired(self, monkeypatch):
+        import config
+        import processing
+        import vlm
+
+        called = []
+        monkeypatch.setattr(config, "VLM_ENABLED", True)
+        monkeypatch.setattr(processing.config, "VLM_ENABLED", True)
+        monkeypatch.setattr(vlm, "available", lambda: True)
+        monkeypatch.setattr(vlm, "render", lambda page: b"png")
+
+        def sheet_pass(png, **kwargs):
+            called.append("sheet")
+            return "whole sheet"
+
+        monkeypatch.setattr(vlm, "describe_page", sheet_pass)
+        return processing, vlm, called
+
+    def test_off_runs_the_whole_sheet_pass(self, wired, monkeypatch):
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "off")
+        monkeypatch.setattr(
+            vlm, "describe_crops", lambda *a, **k: pytest.fail("must not be called")
+        )
+        doc, page = self._page()
+        assert processing._describe_page(page, "p", 1) == "whole sheet"
+        assert called == ["sheet"]
+        doc.close()
+
+    def test_intersections_replaces_it_rather_than_joining_it(self, wired, monkeypatch):
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        monkeypatch.setattr(vlm, "describe_crops", lambda *a, **k: "At 4/B: footing F1.")
+        doc, page = self._page()
+        assert processing._describe_page(page, "p", 1) == "At 4/B: footing F1."
+        assert called == [], "the whole-sheet pass must not also run"
+        doc.close()
+
+    def test_a_declined_crop_pass_falls_back_instead_of_losing_the_page(
+        self, wired, monkeypatch
+    ):
+        """No grid, too many intersections, nothing readable — one answer to
+        all of them, because the page still deserves the description it would
+        have had before this mode existed."""
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        monkeypatch.setattr(vlm, "describe_crops", lambda *a, **k: None)
+        doc, page = self._page()
+        assert processing._describe_page(page, "p", 1) == "whole sheet"
+        assert called == ["sheet"]
+        doc.close()
+
+    def test_a_raising_crop_pass_is_still_never_a_failed_page(self, wired, monkeypatch):
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+
+        def boom(*a, **k):
+            raise RuntimeError("provider exploded")
+
+        monkeypatch.setattr(vlm, "describe_crops", boom)
+        doc, page = self._page()
+        assert processing._describe_page(page, "p", 1) is None
+        doc.close()

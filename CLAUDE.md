@@ -925,6 +925,83 @@ set asks about present. It exits non-zero on a disagreement. That check is worth
 — both sides read `grid.py`, so it cannot catch a grid they are wrong about together. That blind
 spot is still `--explain` plus one person looking at the sheet.
 
+**Phase C** is `VLM_CROP=intersections`, and it REPLACES the whole-sheet pass rather than joining
+it. `describe_crops` cuts one crop per grid crossing, sends them in batches of `VLM_CROP_BATCH`,
+and assembles the answers into exactly the `At 4/B: footing F12, column HSS8X8X3/8.` lines the
+sheet prompt asks for — identical on purpose, because `grid_coverage` counts those lines,
+`split_description` splits on them and `drawing_eval.mjs` scores what the chat makes of them, so
+a crop run and a sheet run have to be directly comparable or the experiment measures the format.
+There is no `both` mode: a whole-sheet description writes `At 4/B:` lines too, so running both
+would put two accounts of one intersection into one corpus with nothing to say which retrieval
+should surface — and it would move two variables at once in the only experiment that can say
+whether cropping works at all.
+
+Two things it removes STRUCTURALLY, which is a different claim from scoring better and the only
+kind this section is still entitled to make at n=1. The model is never asked where it is: the
+coordinate is handed to it, and the prompt says outright never to infer it, never to correct it,
+and never to second-guess it from a grid bubble visible at a crop's edge — a small window shows
+bubbles that may belong to another line. And the GRID'S NAMES come from `grid.intersections`
+rather than from a reply, which closes the failure that leaves nothing to see: one description
+got the pairings right at three consecutive intersections and labelled the whole row with its
+neighbour's letter, costing 14 of the eval's 40 questions and reporting as abstentions. No reply
+can do that here. The header claims no DIRECTION either — "Column lines: 2, 4, 4.6" and not
+"left to right" — because the order is derived and on a rotated sheet the display axes carry each
+other's names, so a directional claim nothing verifies would be a fresh fabrication of exactly
+the kind this pass exists to remove.
+
+What it ADDS is one failure mode, and it is the one that would be worst here: alignment. A
+drifted sheet-batch answer gives a page the wrong discipline; a drifted crop answer puts a real
+footing mark at an intersection it does not belong to — the precise failure the mode exists to
+remove, reintroduced by the mechanism meant to remove it. So the model echoes BOTH the index and
+the coordinate and `parse_crop_batch` checks both: the index says which image, the coordinate
+says which intersection the model thought it was, and either alone can drift in silence. An
+index outside the batch is discarded, an index answered TWICE discards both answers rather than
+the later one (two answers for one image means neither can be trusted, and keeping either is
+choosing a wrong placement at random over an honest gap), and a coordinate disagreeing with the
+one its index was given is discarded. Every discard becomes an ABSENCE. A crop that went
+unanswered is retried once on its own, but only when a batch's worth or less is missing — more
+than that is the reply FORMAT failing rather than any one crop, and asking again one at a time
+would buy twenty more images and the same silence. The sheet reader draws the line in the same
+place for the same reason.
+
+The cost is the reason it is off by default, and the log says it on every page. The sheet pass
+sends ONE image; this sends one per intersection — 24 on the sheet measured here — and on Gemini
+each image part carries its own `media_resolution` budget, so batching saves round trips and NOT
+image tokens. That is roughly 24x the image spend per page, for every page of a document.
+`VLM_CROP_MAX` (60) refuses a page whose grid would cost more than that, names the number in the
+refusal, and falls back to the whole-sheet pass; so does a page with no orthogonal grid, and so
+does a reply nothing survived. One answer to all of them, because a page still deserves the
+description it would have had before this existed.
+
+`render_crop` is where the resolution argument is finally cashed, and the arithmetic is the whole
+case for the mode: the provider's cap is on the IMAGE, so the question is never how many pixels
+are sent but how much DRAWING one budget has to cover. A 190x220pt crop at the same ceiling as a
+3024x2160pt sheet is the same spend on 0.6% of the area — roughly 990 DPI against 73. It keeps
+the vector-text gate for the same reason `render` has one: a scan is already fixed at its own
+resolution and there bigger is empty pixels at full price.
+
+The illegible rule is at its most dangerous in this mode, because the crops look alike. Answering
+one size five times in a row is what filling in a count looks like, and the prompt names that
+signature rather than just forbidding the behaviour. Its examples had to be SYNTHETIC for the
+third time in this file, and the test caught it on the first run:
+`test_the_prompt_never_seeds_an_answer_from_the_sheet_under_test` fired on `F9` and
+`HSS8X8X3/8` — this sheet's majority footing mark and its majority column size, i.e. the two
+labels the majority-class baseline guesses and scores 32% and 52% with. A model falling back on
+the prompt's own examples would have produced precisely the frequency prior the benchmark exists
+to punish, and the run would have scored the prompt.
+
+None of which says it works. A 43-point error bar at a fixed configuration is wider than every
+effect this section has ever claimed, so a crop run scoring 80% proves nothing next to a sheet
+run scoring 68%, and the column tag's 43% is inside the noise by itself. The comparison this mode
+needs is three to five labelled ingests of `VLM_CROP=off` and the same again at
+`intersections` — `--label "off+minimal+4000"` against `--label "crops+minimal+4000"` — and the
+prediction worth writing down in advance, because it is falsifiable and narrow: the 8X8-read-as-
+6X6 substitution is a glyph collapse at 73 DPI and should largely disappear at 990, while the
+footing tag, which already reads at 73, has nothing to gain and can only be hurt by a crop that
+cuts a label out. If the column tag does not move and the footing tag drops, the crop window is
+wrong, not the idea; check it with `drawing_truth.py --crops --against` before changing anything
+else.
+
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
 dashboard labels from. It did not, first run — and the cost was not a missing dashboard row.

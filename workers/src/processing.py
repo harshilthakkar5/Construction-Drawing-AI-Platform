@@ -162,6 +162,16 @@ def _describe_page(page, project_id: str, page_number: int) -> str | None:
         if not vlm.available():
             log.warning("VLM_ENABLED but %s has no key — skipping", vlm.provider())
             return None
+        if vlm.CROP_MODE == "intersections":
+            # Phase C REPLACES the sheet pass rather than joining it: two
+            # accounts of the same intersection in one corpus have nothing to
+            # say which retrieval should surface. Every way the crop pass
+            # declines — no grid, too many intersections, nothing readable —
+            # returns None and lands here, because the answer to all of them is
+            # the pass this was meant to improve on.
+            described = vlm.describe_crops(page, project_id=project_id)
+            if described:
+                return described
         return vlm.describe_page(vlm.render(page), project_id=project_id)
     except Exception as exc:
         log.warning("page %d: vision pass failed: %s", page_number, exc)

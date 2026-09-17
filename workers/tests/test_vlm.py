@@ -717,3 +717,332 @@ class TestCropsAtEveryIntersection:
         page.insert_text((100, 100), "GENERAL NOTES", fontsize=12)
         assert vlm.crops(page) == []
         doc.close()
+
+
+# --- Phase C: one crop per intersection ------------------------------------
+
+
+class TestCropAlignment:
+    """Which image a line is about, checked twice.
+
+    This is the sheet-batch lesson (`parse_sheet_batch_response`) applied to
+    images, and it matters more here than it did there. A drifted sheet answer
+    gives a page the wrong discipline; a drifted crop answer puts a real footing
+    mark at an intersection it does not belong to — which is the exact failure
+    this whole mode exists to remove, reintroduced by the mechanism meant to
+    remove it. Every discard below must become an ABSENCE, never a confident
+    wrong placement.
+    """
+
+    def test_a_well_formed_batch_is_read(self):
+        got = vlm.parse_crop_batch(
+            "1. 2/B: footing F9, column HSS8X8X3/8\n"
+            "2. 4/B: footing -, column HSS6X6X3/8\n",
+            ["2/B", "4/B"],
+        )
+        assert got == {"2/B": ("F9", "HSS8X8X3/8"), "4/B": (None, "HSS6X6X3/8")}
+
+    def test_an_index_outside_the_batch_is_discarded(self):
+        assert vlm.parse_crop_batch("7. 2/B: footing F9, column HSS8X8X3/8", ["2/B"]) == {}
+
+    def test_an_index_answered_twice_discards_BOTH_answers(self):
+        """Not the second one — both. Two answers for one image means neither
+        can be trusted, and keeping either is choosing a wrong placement at
+        random over an honest gap."""
+        got = vlm.parse_crop_batch(
+            "1. 2/B: footing F9, column A\n"
+            "1. 2/B: footing F7, column B\n"
+            "2. 4/B: footing F1, column C\n",
+            ["2/B", "4/B"],
+        )
+        assert got == {"4/B": ("F1", "C")}
+
+    def test_a_coordinate_that_disagrees_with_its_index_is_discarded(self):
+        """The index says which image; the coordinate says which intersection
+        the model thought it was. Either alone can drift in silence."""
+        assert vlm.parse_crop_batch("1. 9/F: footing F9, column HSS8X8X3/8", ["2/B"]) == {}
+
+    def test_a_hedged_value_is_no_value(self):
+        """"appears to be F9" and "HSS8X8 (illegible)" are the failure the
+        illegible rule was widened twice to close: only the label survives
+        retrieval and the caveat is dropped."""
+        got = vlm.parse_crop_batch(
+            "1. 2/B: footing appears to be F9, column HSS8X8 (illegible)", ["2/B"]
+        )
+        assert got == {"2/B": (None, None)}
+
+    def test_the_absent_vocabulary_is_wider_than_the_dash_the_prompt_asks_for(self):
+        for said in ("-", "--", "none", "N/A", "not legible", "illegible", "not visible"):
+            assert vlm._crop_value(said) is None, said
+        assert vlm._crop_value("F9") == "F9"
+        assert vlm._crop_value("HSS8X8X3/8.") == "HSS8X8X3/8"
+
+
+class TestCropResolution:
+    def test_a_crop_spends_the_same_ceiling_on_far_less_drawing(self):
+        """The whole argument for the mode, as a number. Same cap, same page —
+        the crop resolves the drawing an order of magnitude finer because the
+        budget covers 0.6% of the area."""
+        doc, page = sheet()
+        rect = fitz.Rect(1000, 800, 1190, 1020)
+        whole = fitz.Pixmap(vlm.render(page, max_edge=3072))
+        crop = fitz.Pixmap(vlm.render_crop(page, rect, max_edge=3072))
+        whole_dpi = max(whole.width, whole.height) / (max(page.rect.width, page.rect.height) / 72)
+        crop_dpi = max(crop.width, crop.height) / (max(rect.width, rect.height) / 72)
+        assert crop_dpi > whole_dpi * 10
+        doc.close()
+
+    def test_a_crop_of_a_scan_is_not_upscaled_either(self):
+        """A page with no text layer is fixed at its own resolution, and there
+        the original rule holds exactly: bigger is empty pixels at full price."""
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        rect = fitz.Rect(100, 100, 290, 320)
+        pix = fitz.Pixmap(vlm.render_crop(page, rect, max_edge=3072))
+        assert max(pix.width, pix.height) <= max(rect.width, rect.height) + 1
+        doc.close()
+
+
+class TestCropPrompt:
+    """Matched against the prompt with its line wrapping flattened.
+
+    A rule that spans two source lines is the same rule, and a test that misses
+    it because of where the paragraph broke would pass the day the rule was
+    deleted — which is the opposite of what these assert.
+    """
+
+    @staticmethod
+    def flat():
+        return re.sub(r"\s+", " ", vlm.CROP_SYSTEM)
+
+    def test_the_coordinate_is_given_and_may_not_be_second_guessed(self):
+        """The half of this that is not about resolution. The model is never
+        asked where it is, so the bubble visible at a crop's edge must not be
+        allowed to overrule the coordinate handed to it."""
+        assert re.search(r"coordinate is given to you", self.flat(), re.I)
+        assert re.search(r"never infer it", self.flat(), re.I)
+        assert re.search(r"grid bubble visible inside a crop", self.flat(), re.I)
+
+    def test_it_forbids_carrying_a_value_between_crops(self):
+        """Crops look alike, which makes this the likeliest failure of the mode:
+        the same size five times in a row is filling in the count, not reading."""
+        assert re.search(r"never carry a value from one crop to the next", self.flat(), re.I)
+        assert re.search(r"same size on five lines in a row", self.flat(), re.I)
+
+    def test_a_line_is_owed_but_a_value_is_not(self):
+        assert re.search(r"a line is owed for every crop", self.flat(), re.I)
+        assert re.search(r"a value is not", self.flat(), re.I)
+
+    def test_a_neighbours_label_is_not_the_answer(self):
+        assert re.search(r"neighbouring intersection may be visible", self.flat(), re.I)
+
+    def test_untrusted_drawing_text_is_named_as_such(self):
+        assert re.search(r"untrusted input", self.flat(), re.I)
+
+    def test_the_prompt_never_seeds_an_answer_from_the_sheet_under_test(self):
+        """Same rule as the sheet prompt, for the same reason: an example
+        carrying this drawing's own marks would let a model score the prompt."""
+        import json
+
+        cases = json.loads(TestCropsAtEveryIntersection.SET.read_text())
+        for case in cases:
+            for label in (case["expected"], case.get("distractor")):
+                if label:
+                    assert label.upper() not in vlm.CROP_SYSTEM.upper(), label
+
+
+class TestDescribeFromCrops:
+    """The assembled description, against the real sheet's grid."""
+
+    @staticmethod
+    def _answering(monkeypatch, *, answer=True, calls=None):
+        """A transport that reads the crop listing out of the user turn and
+        answers every crop correctly. The point of the tests below is what the
+        ASSEMBLY does, so the model is made reliable and the failures are
+        injected one at a time."""
+
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            if calls is not None:
+                calls.append([label for _, label in labels])
+            if not answer:
+                return llm.Reply(text="I cannot read these.", stop_reason="end_turn")
+            body = "\n".join(
+                f"{i}. {label}: footing F{i}, column HSS8X8X3/8" for i, label in labels
+            )
+            return llm.Reply(text=body, stop_reason="end_turn")
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+
+    def test_the_grid_header_comes_from_geometry_not_from_the_model(self, monkeypatch):
+        """The failure this removes outright. A description that got three
+        pairings right and labelled the row with its neighbour's letter cost 14
+        of 40 eval questions and reported as abstentions — because the model was
+        asked to name the grid. Here the names come off the same bubbles that
+        decided where to crop, and no reply can change them."""
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        self._answering(monkeypatch)
+        text = vlm.describe_crops(page)
+        named = vlm.grid_coverage(text)
+        assert named is not None
+        across, down, written = named
+        assert (across, down) == (len(columns), len(rows))
+        assert written == len(columns) * len(rows), "a line is owed at every intersection"
+        doc.close()
+
+    def test_its_lines_are_the_shape_the_sheet_pass_writes(self, monkeypatch):
+        """Identical on purpose: the same `At 4/B: ...` the whole-sheet prompt
+        demands, so a crop run and a sheet run are directly comparable and the
+        experiment measures the method instead of the format."""
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        self._answering(monkeypatch)
+        text = vlm.describe_crops(page)
+        assert re.search(r"^At \S+/\S+: footing F\d+, column HSS8X8X3/8\.$", text, re.M)
+        doc.close()
+
+    def test_an_intersection_with_nothing_legible_still_gets_its_line(self, monkeypatch):
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            return llm.Reply(
+                text="\n".join(f"{i}. {label}: footing -, column -" for i, label in labels),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        text = vlm.describe_crops(page)
+        assert text.count("nothing legible") == len(columns) * len(rows)
+        doc.close()
+
+    def test_a_page_with_no_grid_falls_back_rather_than_inventing_one(self, monkeypatch):
+        self._answering(monkeypatch)
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        page.insert_text((100, 100), "GENERAL NOTES", fontsize=12)
+        assert vlm.describe_crops(page) is None
+        doc.close()
+
+    def test_a_grid_too_big_to_afford_is_refused_out_loud(self, monkeypatch, caplog):
+        """One image per intersection, per page, for a whole document. The
+        refusal has to name the spend, because the alternative is finding it on
+        an invoice."""
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        monkeypatch.setattr(vlm, "CROP_MAX", 4)
+        self._answering(monkeypatch)
+        with caplog.at_level("WARNING"):
+            assert vlm.describe_crops(page) is None
+        assert "VLM_CROP_MAX" in caplog.text
+        assert str(len(columns) * len(rows)) in caplog.text
+        doc.close()
+
+    def test_a_reply_nothing_survives_falls_back_instead_of_storing_silence(
+        self, monkeypatch, caplog
+    ):
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        self._answering(monkeypatch, answer=False)
+        with caplog.at_level("WARNING"):
+            assert vlm.describe_crops(page) is None
+        assert "falling back to the whole-sheet pass" in caplog.text
+        doc.close()
+
+    def test_a_few_unanswered_crops_are_retried_one_at_a_time(self, monkeypatch):
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        skipped = {"2/B"}
+        seen = []
+
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            seen.append([label for _, label in labels])
+            keep = [(i, l) for i, l in labels if l not in skipped or len(labels) == 1]
+            return llm.Reply(
+                text="\n".join(f"{i}. {l}: footing F1, column HSS8X8X3/8" for i, l in keep),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        text = vlm.describe_crops(page)
+        assert seen[-1] == ["2/B"], "the one that went unanswered is asked again alone"
+        assert "At 2/B:" in text
+        doc.close()
+
+    def test_a_batch_that_answers_nothing_is_not_retried_crop_by_crop(
+        self, monkeypatch, caplog
+    ):
+        """More than a batch's worth unanswered is the reply FORMAT failing, and
+        asking again one at a time buys twenty more images and the same
+        silence."""
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        answered = []
+
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            answered.append(len(labels))
+            first = labels[:1]
+            return llm.Reply(
+                text="\n".join(f"{i}. {l}: footing F1, column HSS8X8X3/8" for i, l in first),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        with caplog.at_level("WARNING"):
+            vlm.describe_crops(page)
+        batches = -(-len(columns) * len(rows) // vlm.CROP_BATCH)
+        assert len(answered) == batches, "no per-crop retry"
+        assert "points at the reply FORMAT" in caplog.text
+        doc.close()
+
+    def test_what_it_costs_is_logged_on_every_page(self, monkeypatch, caplog):
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        self._answering(monkeypatch)
+        with caplog.at_level("INFO"):
+            vlm.describe_crops(page, sheet_number="S-100.0")
+        assert "where the whole-sheet pass sends 1" in caplog.text
+        assert f"{len(columns) * len(rows)} intersections" in caplog.text
+        doc.close()
+
+    def test_the_settings_line_names_the_crop_numbers_when_cropping(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        with caplog.at_level("INFO"):
+            vlm._report_settings()
+        assert "VLM_CROP=intersections" in caplog.text
+        assert "VLM_CROP_BATCH" in caplog.text
+        assert "VLM_CROP_MAX_TOKENS" in caplog.text
+
+
+class TestTheCropPassStillReportsItself:
+    """Adding a mode must not delete the log lines the last two commits added.
+
+    `render` reports the DPI and, through it, the settings. The crop pass never
+    calls `render` — so shipping it without this removed both from the log of
+    the run that most needs them, which is exactly the class of failure
+    `_report_settings` exists to prevent.
+    """
+
+    def test_a_crop_run_still_says_what_dpi_reaches_the_model(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        monkeypatch.setattr(vlm, "provider", lambda: "gemini")
+        doc, page = sheet()
+        with caplog.at_level("INFO"):
+            vlm.render_crop(page, fitz.Rect(1000, 800, 1190, 1020), max_edge=3072)
+        assert "reaches the model" in caplog.text
+        assert "against 73 for the whole sheet" in caplog.text
+        doc.close()
+
+    def test_a_crop_run_still_says_what_configuration_produced_it(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        doc, page = sheet()
+        with caplog.at_level("INFO"):
+            vlm.render_crop(page, fitz.Rect(1000, 800, 1190, 1020), max_edge=3072)
+        assert "vision pass settings" in caplog.text
+        assert "VLM_CROP=intersections" in caplog.text
+        doc.close()
+
+    def test_it_is_said_once_per_process_like_the_whole_sheet_line(self, monkeypatch, caplog):
+        monkeypatch.setattr(vlm, "_resolution_reported", False)
+        doc, page = sheet()
+        with caplog.at_level("INFO"):
+            for _ in range(3):
+                vlm.render_crop(page, fitz.Rect(1000, 800, 1190, 1020), max_edge=3072)
+        assert caplog.text.count("reaches the model") == 1
+        doc.close()
