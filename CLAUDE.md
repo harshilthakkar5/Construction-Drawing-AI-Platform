@@ -990,17 +990,58 @@ labels the majority-class baseline guesses and scores 32% and 52% with. A model 
 the prompt's own examples would have produced precisely the frequency prior the benchmark exists
 to punish, and the run would have scored the prompt.
 
+The grid check then ran on the real PDF and passed — 27 crops from 9 column lines and 3 row
+lines, every one centred on the set's own `intersectionPt`, every `labelDistancePt` inside its
+own crop, 22 of the 27 asked about by the set, 0 problems. It also said something the summary
+line does not: columns 1 and 3 are real grid lines the set barely covers, because the generator
+REFUSED those cases, so the crop pass will describe five intersections the eval cannot score.
+That is not a fault in either side — it is the jitter test doing its job — but a coverage number
+from a crop run should be read against 27 and a score against 22.
+
+And the check passed while missing the question that decides whether any of this works. It asks
+"is my label inside my crop?" A crop exists to stop a model answering 2/C with row F's member
+size, so the question that matters is "is anyone ELSE's label inside my crop?", and the two can
+have opposite answers. On this sheet they do, everywhere: all 22 intersections have a label that
+can reach a neighbouring crop.
+
+The arithmetic is short and it is not a sizing bug. A crop must be big enough to hold its OWN
+furthest label, which here is 83.7pt out, so a clean separation needs every grid gap above
+167.4pt. The tightest are 129.9pt (columns 4.6 to 4) and 137.2pt (rows C to F). No value of
+`VLM_CROP_BAYS` satisfies both constraints, because they pull opposite ways: below about 0.55 the
+furthest footing label falls outside the crop that exists to carry it, and at 0.6 the crop is
+222.8pt tall on a 137.2pt row gap. Rows C and F therefore OVERLAP by 85.6pt, and F's crop begins
+25.8pt from C's intersection while every label on this sheet sits 47pt or more out.
+
+Rows C and F are exactly the pair the 68% run confused — 2/C, 4.6/C and 7/C each answered with
+row F's size, the three misses `componentSwap` could not attribute. So the crop does NOT separate
+them geometrically. The prompt's rule that a neighbour's label is not yours to report is the only
+thing that can, which is a much heavier load than it was written to carry, and instruction is
+precisely what the whole-sheet pass already failed at.
+
+`_report_crop_overlap` prints this and deliberately never fails. The condition is unsatisfiable
+on this sheet, so exiting non-zero would block a run that is as good as the geometry allows; what
+the line buys is knowing which pairs to suspect before the run rather than after it. The median
+bay earns a second look here too: the row axis has only TWO gaps, 234 and 137.2, so the median is
+their mean and the crop is sized between a gap it clears and one it overruns. Median was chosen
+so the furthest label stays inside its crop and that reason still holds — it simply guarantees
+the tight pair overlaps on a bimodal axis.
+
 None of which says it works. A 43-point error bar at a fixed configuration is wider than every
 effect this section has ever claimed, so a crop run scoring 80% proves nothing next to a sheet
 run scoring 68%, and the column tag's 43% is inside the noise by itself. The comparison this mode
 needs is three to five labelled ingests of `VLM_CROP=off` and the same again at
-`intersections` — `--label "off+minimal+4000"` against `--label "crops+minimal+4000"` — and the
-prediction worth writing down in advance, because it is falsifiable and narrow: the 8X8-read-as-
-6X6 substitution is a glyph collapse at 73 DPI and should largely disappear at 990, while the
-footing tag, which already reads at 73, has nothing to gain and can only be hurt by a crop that
-cuts a label out. If the column tag does not move and the footing tag drops, the crop window is
-wrong, not the idea; check it with `drawing_truth.py --crops --against` before changing anything
-else.
+`intersections` — `--label "off+minimal+4000"` against `--label "crops+minimal+4000"`.
+
+The prediction worth writing down in advance, now that the geometry is known, needs a
+DISCRIMINATOR rather than a direction, because the overlap above gives the obvious outcome two
+readings. The 8X8-read-as-6X6 substitution is a glyph collapse at 73 DPI and should largely
+disappear at 990. If it persists, that is not by itself "cropping does not help": look at WHERE.
+Confined to the C and F rows it is contamination, since those crops share 85.6pt of drawing and
+the answer is a marker at the intersection or a tighter window that accepts clipping a label;
+spread evenly across pairs that do NOT overlap — 8 to 7 at 218pt, 6 to 4.6 at 194pt, and every B
+row, which shares nothing with C — it is resolution, and cropping has been falsified as the fix.
+The footing tag, which already reads at 73 DPI, has nothing to gain and can only be hurt by a
+crop that cuts a label out, so a drop there points at the window before anything else.
 
 Its usage kind is `vlm`, and that has to exist in THREE places or the pass fails in a way that
 looks like nothing: `usage.KINDS`, the `UsageKind` Prisma enum, and the `@cdip/shared` union the
