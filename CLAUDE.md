@@ -774,6 +774,41 @@ The citation check fired on the same run: 8 of 40 answers named a label that app
 the chunks they cited, including two that scored CORRECT. FR-13's chain does not hold for those,
 and nothing but this line would have said so.
 
+The next run falsified the obvious follow-up and found something better. Holding `minimal`,
+`ultra_high` and 3072, and moving `VLM_MAX_TOKENS` from 20000 back to 4000 — the last unlogged
+difference between here and the 83% run — scored **25%**, the worst result since descriptions
+existed. The prediction was that columns would climb back toward 76%; they went to 24%, and the
+FOOTING tag, which had been 84-100% through every configuration in this section, fell to 26%. The
+description was 604 tokens against the 83% run's 602, which also disposes of length as an
+explanation for anything.
+
+So `VLM_MAX_TOKENS` is a large lever in a direction nobody predicted, OR the 83% run was at these
+same settings and this is the repeat measurement finally arriving with a 58-point spread. The data
+cannot separate those, because the 83% run predates `_report_settings`. One more ingest at
+`minimal` + 4000 decides it, and no reading of this section is safe until it happens.
+
+What the run did settle is the SHAPE of the failure, and it needed one more measure to see.
+`drift` annotates each miss on its own — "the truth at 3/B, 148pt away" — which reads as N
+independent slips. Seven of the footing tag's ten drifted misses were the IDENTICAL offset: one
+column line over, same row. Column 4 answered with column 3's footing, 4.6 with 4's, 6 with 4.6's,
+7 with 6's, 9 with 8's, every one the same direction and every one exactly one grid step. That is
+not ten mistakes, it is ONE mistake made seven times: the model named the grid correctly and then
+walked its values along that grid off by one.
+
+`systematicOffset` reports it, in GRID INDEX space rather than points — "one column line over" is
+the claim, and the bays here run 130 to 218pt, so no distance can say it. An enumeration error is
+a third failure distinct from the two this section already separates: not a misread glyph, which
+wants resolution, and not a correctly-read label dropped at an arbitrary neighbour, which wants
+locality. It is the one failure a crop removes COMPLETELY, because a crop is handed its coordinate
+instead of counting its way to one.
+
+Writing the tests exposed a limit in `drift` worth stating rather than fixing. It measures the bay
+as the SHORTEST gap in the set and looks 1.5 bays out, so on a sheet whose bays run 130 to 218pt
+the widest pair (1.5 x 130 = 195) falls outside the window. Every drift count in this file is
+therefore a LOWER bound, and so is every offset built on one. Widening the threshold would rebase
+every drift figure here against runs that never measured it, which is the same reason drift is
+reported and never scored.
+
 `vlm.crops(page)` is that lever's geometry, and nothing more — one display-space rectangle per
 grid intersection, labelled `<column>/<row>` off `grid.py`, with no model call and no rendering.
 On the sheet measured here it is 187x223pt against a 3024x2160pt page: 0.6% of the area, so the

@@ -633,6 +633,79 @@ export function drift(rows) {
   return found;
 }
 
+/**
+ * Whether a tag's drifted misses all point the SAME WAY.
+ *
+ * `drift` says each miss named a label that lives one bay off, and annotates
+ * them one at a time. That reads as N independent slips. It is not always: on
+ * the run that forced this, SEVEN of the footing tag's ten drifted misses were
+ * the identical offset — one column line to the right, same row line — with the
+ * rest split between two row shifts. Column 4 answered with column 3's footing,
+ * 4.6 with 4's, 6 with 4.6's, 7 with 6's, 9 with 8's, every one in the same
+ * direction and every one exactly one grid step.
+ *
+ * That is ONE error repeated, not ten. The model named the grid correctly and
+ * then walked its values along it off by one — an ENUMERATION failure, which is
+ * a different thing from reading a label wrong and a different thing again from
+ * placing a correctly-read label at a random neighbour. It is also the failure
+ * a crop removes completely, because a crop is handed its coordinate rather
+ * than counting its way to one.
+ *
+ * Offsets are measured in GRID INDEX space, not points: "one column line over"
+ * is the claim, and the bays on this sheet run 130 to 218pt, so a distance
+ * cannot say it. The order comes from the cases' own coordinates.
+ */
+export function systematicOffset(rows) {
+  const drifted = drift(rows);
+  if (drifted.length < 3) return null;
+  const axis = (index) => {
+    const at = new Map();
+    for (const row of rows) {
+      if (!Array.isArray(row.point) || typeof row.grid !== "string") continue;
+      const label = row.grid.split("/")[index];
+      if (label !== undefined) at.set(label, row.point[index]);
+    }
+    return [...at].sort((a, b) => a[1] - b[1]).map(([label]) => label);
+  };
+  const columns = axis(0);
+  const rowLines = axis(1);
+  const step = new Map();
+  for (const miss of drifted) {
+    const from = String(miss.grid ?? "").split("/");
+    const to = String(miss.truthAt ?? "").split("/");
+    const dc = columns.indexOf(to[0]) - columns.indexOf(from[0]);
+    const dr = rowLines.indexOf(to[1]) - rowLines.indexOf(from[1]);
+    if (![dc, dr].every(Number.isFinite) || (!dc && !dr)) continue;
+    // An index of -1 means a label this set does not place; it cannot be an
+    // offset from anywhere.
+    if ([to[0], to[1], from[0], from[1]].some((l, i) => (i % 2 ? rowLines : columns).indexOf(l) < 0)) {
+      continue;
+    }
+    const key = `${dc},${dr}`;
+    step.set(key, (step.get(key) ?? 0) + 1);
+  }
+  if (!step.size) return null;
+  const [key, count] = [...step].sort((a, b) => b[1] - a[1])[0];
+  const [dc, dr] = key.split(",").map(Number);
+  const total = [...step.values()].reduce((a, b) => a + b, 0);
+  return {
+    drifted: total,
+    count,
+    columns: dc,
+    rows: dr,
+    // Half the drifted misses sharing one offset is no longer a coincidence of
+    // a small sheet; it is the same mistake made repeatedly.
+    systematic: count >= 3 && count * 2 >= total,
+    describe:
+      [
+        dc ? `${Math.abs(dc)} column line${Math.abs(dc) > 1 ? "s" : ""} ${dc > 0 ? "over" : "back"}` : "",
+        dr ? `${Math.abs(dr)} row line${Math.abs(dr) > 1 ? "s" : ""} ${dr > 0 ? "down" : "up"}` : "",
+      ]
+        .filter(Boolean)
+        .join(" and "),
+  };
+}
+
 export function tally(subset) {
   const n = subset.length || 1;
   const count = (k) => subset.filter((r) => r.outcome === k).length;
@@ -1010,6 +1083,18 @@ export function report(rows, json, onSheet, history = null) {
         "make it worse, because the grid bubbles are at the edge and the intersections are in " +
         "the middle. Locality is the lever — a crop carrying its own grid lines.",
     );
+    // And whether those misses are N slips or ONE mistake made N times. The
+    // line above cannot tell the difference, and they are not the same finding.
+    const offset = systematicOffset(tagRows);
+    if (offset?.systematic) {
+      console.log(
+        `    ${offset.count} of those ${offset.drifted} are the SAME offset — ${offset.describe}. ` +
+          "That is not drift in different directions, it is the grid ENUMERATED off by one and " +
+          "then read correctly along it: one mistake made " +
+          `${offset.count} times rather than ${offset.count} mistakes. A crop cannot make it, ` +
+          "because a crop is handed its coordinate instead of counting its way to one.",
+      );
+    }
   }
 
   // Without it, a mark the model made up is indistinguishable from a refusal,

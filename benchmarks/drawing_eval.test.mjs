@@ -29,6 +29,7 @@ import {
   citationSupport,
   labelComponents,
   componentMisreads,
+  systematicOffset,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1046,4 +1047,102 @@ test("the verdict says which PART is wrong instead of calling it a guess", () =>
   assert.match(said, /WHICH PART is wrong/);
   assert.match(said, /8X8 read as 6X6/);
   assert.doesNotMatch(said, /while reading nothing/);
+});
+
+// --- One mistake made N times is not N mistakes ----------------------------
+
+// Five column lines 130pt apart on one row line, mirroring the real sheet's
+// geometry closely enough to index.
+const onRow = (col, x, expected, outcome, said) => ({
+  ...verdictRow("grid-footing", expected, outcome),
+  grid: `${col}/B`,
+  point: [x, 600],
+  said: outcome === "abstained" ? "" : said ?? expected,
+});
+
+test("drifted misses sharing one offset are reported as a single enumeration error", () => {
+  // The measured run: SEVEN of the footing tag's ten drifted misses were the
+  // identical offset — one column line over, same row — column 4 answering
+  // with column 3's footing, 4.6 with 4's, 6 with 4.6's, 7 with 6's, 9 with
+  // 8's. Every one the same direction, every one exactly one grid step. That
+  // is the grid enumerated off by one, not ten independent slips.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F2"),
+    onRow("4", 1390, "F4", "wrong", "F3"),
+    onRow("5", 1520, "F5", "wrong", "F4"),
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.count, 4);
+  assert.equal(off.drifted, 4);
+  assert.equal(off.columns, -1, "each answer belongs one column line BACK");
+  assert.equal(off.rows, 0);
+  assert.equal(off.systematic, true);
+  assert.match(off.describe, /1 column line back/);
+  assert.match(verdict(rows), /the SAME offset/);
+  assert.match(verdict(rows), /ENUMERATED off by one/);
+});
+
+test("drift in scattered directions is not called systematic", () => {
+  // Misses that point different ways are what the drift line already says:
+  // labels read right and placed at a neighbour. Calling that one enumeration
+  // error would invent a mechanism the evidence does not show.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F4"),
+    onRow("4", 1390, "F4", "wrong", "F3"),
+    onRow("5", 1520, "F5", "correct"),
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.systematic, false, "two one way and one the other is not a pattern");
+  assert.doesNotMatch(verdict(rows), /the SAME offset/);
+});
+
+test("fewer than three drifted misses claims no mechanism at all", () => {
+  // Two in a row on a small sheet is a coincidence, and this line is a claim
+  // about how the model is failing.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F2"),
+  ];
+  assert.equal(systematicOffset(rows), null);
+});
+
+test("the offset is counted in grid lines, not points", () => {
+  // "One column line over" cannot be said with a distance: the bays on the
+  // real sheet run 130 to 218pt. Unequal spacing must not split one offset
+  // into several, so these uneven steps all report as the same -1.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F2"),
+    onRow("4", 1454, "F4", "wrong", "F3"),
+    onRow("5", 1584, "F5", "wrong", "F4"),
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.columns, -1);
+  assert.equal(off.count, 4, "130pt and 194pt steps are both ONE column line");
+  assert.equal(off.systematic, true);
+});
+
+test("a neighbour past drift's own window is not counted, and that is drift's limit", () => {
+  // Worth writing down rather than working around. `drift` measures the bay as
+  // the SHORTEST gap in the set and looks 1.5 bays out, so on a sheet whose
+  // bays run 130 to 218pt the widest pair — 1.5 x 130 = 195 — falls outside.
+  // Every drift count on this sheet is therefore a LOWER bound, and so is the
+  // offset built on it. Changing the threshold would rebase every drift figure
+  // in CLAUDE.md against runs that never measured it.
+  const rows = [
+    onRow("1", 1000, "F1", "correct"),
+    onRow("2", 1130, "F2", "wrong", "F1"),
+    onRow("3", 1260, "F3", "wrong", "F2"),
+    onRow("4", 1390, "F4", "wrong", "F3"),
+    onRow("5", 1608, "F5", "wrong", "F4"), // 218pt from its neighbour
+  ];
+  const off = systematicOffset(rows);
+  assert.equal(off.count, 3, "the 218pt pair is outside 1.5 bays and never reaches this");
+  assert.equal(off.systematic, true, "the three that do reach it still agree");
 });
