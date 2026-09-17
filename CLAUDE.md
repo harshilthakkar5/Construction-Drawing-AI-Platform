@@ -772,6 +772,23 @@ candidates scores off-target, which is why every run now writes its answers to
 `--json`. The scorer has its own tests (`node --test benchmarks/drawing_eval.test.mjs`), because
 a matcher that finds "F9" inside "F90" reports a wrong answer as right.
 
+Six outcomes still cannot express the failure that matters most once a description is good: the
+RIGHT label at the WRONG intersection. "F10 at 3/B" scores off-target — "named some other label of
+that kind" — which reads as a model that could not read the mark. But F10 IS the truth at 4/B,
+148pt away, one grid bay across, and five of seven footing misses in one run were exactly that,
+alongside five of fourteen column misses. The mark was read correctly and placed one bay off.
+`drift` reports it: every miss naming a label whose home intersection is within 1.5 bays is
+annotated with where that label really lives and how far, and a tag with two or more says so in a
+line of its own. The bay is measured from the cases themselves (the shortest gap between two
+intersections), because no constant is right across sheets. It is REPORTED, never scored — a
+seventh outcome would silently rebase every tally in this file's history against runs that never
+measured it. The distinction decides the next move and the two are opposite: a misread glyph wants
+resolution, while a correctly-read label in the wrong place wants LOCALITY, and a
+higher-resolution whole-sheet image makes locality WORSE, since the grid bubbles are at the
+drawing's edge and the intersections are in the middle, so each tile covers less of the sheet.
+That is the lever the crop-per-grid-row idea exists for, and it is why raising DPI on the whole
+page cannot be the last word.
+
 The harness runs the API's own `retrieveChunkIds` + `answerFromChunks`, and "the real thing" is
 load-bearing to the letter: it must pass `kind` exactly as `routes/chat.ts` does, or the
 description is serialized without `kind="description"` and the model reads a vision model's
