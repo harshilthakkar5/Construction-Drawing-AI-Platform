@@ -1302,6 +1302,10 @@ test("a set with no wrong answer and one case left says it is spent", () => {
   assert.equal(spent.points, 2.5);
   const said = verdict(rows);
   assert.match(said, /THIS SET IS SPENT/);
+  // "1 of 40 case" shipped in the first run of this line. The plural belongs to
+  // the DENOMINATOR — "1 of 40 cases" — and the version that reads correctly at
+  // left === 1 is exactly the version that reads wrong there.
+  assert.match(said, /1 of 40 cases/);
   assert.match(said, /not a regression/);
   assert.match(said, /needs a harder SET, not a better pipeline/);
 });
