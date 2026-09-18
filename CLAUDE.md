@@ -1258,6 +1258,21 @@ xs and row ys are already there, so a bay question has a ground truth no model i
 is the same tag `saturation` demanded when it declared the set spent, arrived at from the other
 direction.
 
+Running that one case anyway is what found the next gate, and it is this file's oldest shape. It
+printed `1 cases · recall@18 100.0%` — the grammar slip `saturation` already paid for once, and
+beside it a percentage carrying a precision the set does not have. One case can only ever print
+0.0% or 100.0%, and the second reads exactly like a result. `headline` now states the rate's own
+STEP SIZE below ten cases — "moves in steps of 100.0 points, because one answer is 1/1 of the
+set… it is not a recall FIGURE, it is 1 of 1" — for the same reason the pooled baseline, the dead
+`projectId` and the cross-ingest range each needed a line: a number offered as evidence has to be
+evidence at the resolution it is printed to. Ten is deliberately generous, since below it one
+answer moves the rate further than any retrieval change measured in this repository.
+
+What that run did say is in the RANK rather than the rate. The dimension chunk came back at #2,
+behind the crop description at #1 — one description chunk outranking the sheet's own text on a
+question about the sheet's own text. That is the competition `split_description` was written to
+make honest rather than to win, and it is visible here in a way no recall number shows.
+
 The run also produced the failure this flag makes possible, which is worth keeping because the
 tool's advice was wrong for it. Repointed at the one-sheet project the crop work uses, 7 of 10
 cases failed the preflight: the North Carolina building code, the Level 1 floor construction, the
