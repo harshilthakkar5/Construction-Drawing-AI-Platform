@@ -211,3 +211,99 @@ class TestWhoseLabelsACropContains:
         said = capsys.readouterr().err
         assert "2/A's crop starts 25.8pt away" in said
         assert "3/A" not in said
+
+
+class TestTheSpacingTag:
+    """A bay dimension is the one question a crop description cannot hold.
+
+    The crop pass writes a grid header and one line per intersection. What lies
+    BETWEEN two grid lines is not in it at all, and it is not in the text layer
+    either — not as a fact. The number is there; which gap owns it is not.
+    """
+
+    # (text, x, y) in display coordinates, as dimensions_of returns them.
+    CHAIN = [
+        ("26' - 2 1/2\"", 209.0, 40.0),
+        ("5' - 3 1/2\"", 383.0, 40.0),
+        ("18' - 0\"", 520.0, 40.0),
+    ]
+    COLUMNS = {"7": 100.0, "8": 318.0, "9": 448.0, "10": 592.0}
+
+    def test_the_dimension_inside_a_gap_is_the_answer(self):
+        value, reason = drawing_truth.dimension_between(self.CHAIN, 100.0, 318.0, 0)
+        assert value == "26' - 2 1/2\""
+        assert reason == ""
+
+    def test_containment_is_the_rule_and_not_nearest(self):
+        # 5'-3 1/2" at x=383 is 65pt from the 318 line and 26'-2 1/2" at 209 is
+        # 109pt from it. Nearest would give the 8-9 gap the wrong one; the gap
+        # it is printed INSIDE gives the right one.
+        value, _ = drawing_truth.dimension_between(self.CHAIN, 318.0, 448.0, 0)
+        assert value == "5' - 3 1/2\""
+
+    def test_two_different_dimensions_in_one_gap_are_refused(self):
+        # An overall dimension crossing a bay run: the question has two true
+        # answers and the set must not pick one.
+        crowded = [*self.CHAIN, ("44' - 6\"", 250.0, 90.0)]
+        value, reason = drawing_truth.dimension_between(crowded, 100.0, 318.0, 0)
+        assert value is None
+        assert "2 different dimensions" in reason
+
+    def test_the_same_value_written_twice_is_one_answer(self):
+        twice = [*self.CHAIN, ("26' - 2 1/2\"", 209.0, 300.0)]
+        value, _ = drawing_truth.dimension_between(twice, 100.0, 318.0, 0)
+        assert value == "26' - 2 1/2\""
+
+    def test_a_dimension_just_outside_the_boundary_is_refused(self):
+        # 7pt past the 318 line: containment says it belongs to the next gap
+        # and 20pt of jitter says that verdict is rounding. The reading moves,
+        # so there is no answer here — the same refusal a label gets when it
+        # moves under jitter, applied to the BOUNDARY rather than to a point.
+        edgy = [("26' - 2 1/2\"", 209.0, 40.0), ("9' - 0\"", 325.0, 40.0)]
+        value, reason = drawing_truth.dimension_between(edgy, 100.0, 318.0, 0)
+        assert value is None
+        assert "boundary jitter" in reason
+
+    def test_an_empty_gap_is_refused_rather_than_guessed(self):
+        value, reason = drawing_truth.dimension_between(self.CHAIN, 700.0, 900.0, 0)
+        assert value is None
+        assert "no dimension" in reason
+
+    def test_the_row_axis_reads_the_other_coordinate(self):
+        vertical = [("12' - 0\"", 40.0, 209.0)]
+        assert drawing_truth.dimension_between(vertical, 100.0, 318.0, 1)[0] == "12' - 0\""
+        assert drawing_truth.dimension_between(vertical, 100.0, 318.0, 0)[0] is None
+
+    def test_only_adjacent_grid_lines_are_asked_about(self):
+        # "between 7 and 9" spans a line and has no single dimension. Asking it
+        # would score a model for declining what the drawing declines too.
+        pairs = drawing_truth.adjacent_pairs(self.COLUMNS)
+        assert [(a, b) for a, b, _, _ in pairs] == [("7", "8"), ("8", "9"), ("9", "10")]
+
+    def test_pairs_come_from_position_and_not_from_name(self):
+        # Grid names are not sortable: 4.6 sits between 4 and 6, and "10" sorts
+        # before "7" as a string.
+        pairs = drawing_truth.adjacent_pairs({"6": 300.0, "4": 100.0, "4.6": 230.0})
+        assert [(a, b) for a, b, _, _ in pairs] == [("4", "4.6"), ("4.6", "6")]
+
+    def test_the_distractor_is_the_neighbouring_bay(self):
+        got = drawing_truth._neighbour_bay(self.CHAIN, self.COLUMNS, "8", "9", 0, "5' - 3 1/2\"")
+        assert got in {"26' - 2 1/2\"", "18' - 0\""}
+
+    def test_a_bay_with_no_usable_neighbour_has_no_distractor(self):
+        lone = [("26' - 2 1/2\"", 209.0, 40.0)]
+        assert drawing_truth._neighbour_bay(lone, {"7": 100.0, "8": 318.0}, "7", "8", 0, "26' - 2 1/2\"") is None
+
+    def test_the_pattern_matches_a_dimension_as_a_drafter_writes_it(self):
+        for good in ("26' - 2 1/2\"", "18' - 0\"", "5'-3 1/2\""):
+            assert drawing_truth.DIMENSION.fullmatch(good), good
+        for bad in ("S-301.0", "HSS8X8X3/8", "F9", "26'"):
+            assert not drawing_truth.DIMENSION.fullmatch(bad), bad
+
+    def test_the_scorers_shape_pattern_accepts_what_a_model_writes(self):
+        # The extraction pattern reads the PDF, where the spacing is the
+        # drafter's. The scorer sees prose, where it is the model's.
+        shape = re.compile(drawing_truth.LABEL_PATTERN["grid-spacing"])
+        for written in ("26' - 2 1/2\"", "26'-2 1/2\"", "26' - 2 1/2 \""):
+            assert shape.fullmatch(written), written
+        assert not shape.fullmatch("HSS8X8X3/8")

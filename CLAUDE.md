@@ -1268,6 +1268,48 @@ set… it is not a recall FIGURE, it is 1 of 1" — for the same reason the pool
 evidence at the resolution it is printed to. Ten is deliberately generous, since below it one
 answer moves the rate further than any retrieval change measured in this repository.
 
+`grid-spacing` is that tag, and it is built. `drawing_truth.py` reads DIMENSION strings off the
+page's SPANS rather than its words — `26' - 2 1/2"` is four words and one span, so the word
+extractor every other label here uses cannot see it at all — and assigns each to the gap it is
+printed INSIDE. Containment rather than nearest-neighbour, because a dimension is not a label OF a
+gap: it is written along a dimension line that may sit far above the plan, so its distance from
+the two grid lines says nothing and being between them says everything. Only ADJACENT lines are
+asked about, since "between 7 and 9" spans a line and the drawing does not answer it either.
+
+Two refusals keep it honest, and they are the same two the label tags have. More than one DISTINCT
+dimension inside one gap is refused outright — a structural sheet carries a bay run, an overall
+dimension and partials at once, and a question with two true answers is not a question; the same
+value written twice is one answer and is kept. And the jitter test moves to the BOUNDARY rather
+than the point: widen and narrow the gap by 20pt and the reading must not change, so a dimension
+sitting just outside a grid line belongs to whichever side the rounding fell on, which is not an
+answer. `adjacent_pairs` orders by POSITION and never by name, because 4.6 sits between 4 and 6
+and "10" sorts before "7" as a string.
+
+Why it is the right tag rather than one more: the value IS in the text layer and the ASSOCIATION
+is not, which is precisely the footing-mark argument one level up. `page.get_text()` returns every
+dimension on the sheet in one run, attached to nothing. And a crop description holds a grid header
+and one line per intersection — nothing about what lies between them — so this is the narrowest
+question that separates the two vision modes. It is what the retrieval set could not be.
+
+It cost one change in the scorer, and that change was a latent bug rather than new support.
+`mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
+sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,
+and the two did not match. That scores a correct answer as an ABSTENTION — the same shape as the
+`HSS9X9X3/8` run where a vocabulary gap turned 21 answers into refusals, and it would have been
+read as a model declining to give dimensions. Whitespace in the needle is now dropped rather than
+escaped, which the `\s*` between every character already permits; an expectation of nothing but
+whitespace is refused explicitly, because an empty body compiles to two lookarounds that match
+wherever two non-alphanumerics meet — `F9, F10.` matches at the comma, so an unfilled expectation
+would score every answer CORRECT. The test for that guard first passed against a haystack where
+the guard did not matter, which is a green test measuring nothing; it now uses one where it does.
+
+`caseLocation` is the other seam. A spacing case is not AT a point, so `4/B` is the wrong shape and
+reading `gridColumn` off it printed `undefined/undefined` against every spacing miss. The field is
+an identity in `drift` as well as a label on screen, so it has to be distinct per case: a gap is
+`7-8`, a malformed derivation is `?` rather than something that looks like a grid line. `drift`
+itself needs no change — it skips a row with no point, and `bayLength` reads only rows that have
+one, so the footing and column bays are measured exactly as before.
+
 What that run did say is in the RANK rather than the rate. The dimension chunk came back at #2,
 behind the crop description at #1 — one description chunk outranking the sheet's own text on a
 question about the sheet's own text. That is the competition `split_description` was written to
