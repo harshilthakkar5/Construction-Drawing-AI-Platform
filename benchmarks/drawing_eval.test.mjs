@@ -32,6 +32,7 @@ import {
   systematicOffset,
   componentSwap,
   saturation,
+  caseLocation,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1403,4 +1404,56 @@ test("the report leads with the error bar and says what it forbids", () => {
   assert.match(out, /ERROR BAR: "minimal\+4000" has been ingested 2 times/);
   assert.match(out, /43-point spread with NOTHING changed/);
   assert.match(out, /is not evidence of anything/);
+});
+
+test("a dimension matches however the model spaces it", () => {
+  // The drafter writes 26' - 2 1/2"; a model writes 26'-2 1/2". Escaping the
+  // sheet's own spaces made the two miss each other, which scores a correct
+  // answer as an ABSTENTION — the outcome that reads as restraint.
+  const truth = "26' - 2 1/2\"";
+  for (const written of ["26' - 2 1/2\"", "26'-2 1/2\"", "26'-21/2\"", "26 ' - 2 1/2 \""]) {
+    assert.ok(mentions(`the bay is ${written} wide`, truth), written);
+  }
+});
+
+test("dropping the needle's spaces does not widen what it matches", () => {
+  assert.equal(mentions("126' - 2 1/2\"", "26' - 2 1/2\""), false, "flank guard still holds");
+  assert.equal(mentions("F90", "F9"), false);
+  assert.equal(mentions("HSS8X8X3/8", "HSS8X8X3/16"), false);
+});
+
+test("a needle of nothing but whitespace matches nothing", () => {
+  // An unfilled expectation must never score. Without the guard the body is
+  // empty and the pattern becomes two lookarounds, which match wherever two
+  // non-alphanumerics meet — so "F9, F10." matches a blank expectation at the
+  // comma and every answer containing punctuation scores CORRECT. The first
+  // haystack I asserted this against ("anything at all") passed either way,
+  // which made the test look green while testing nothing.
+  assert.equal(mentions("the marks are F9, F10.", "   "), false);
+  assert.equal(mentions("the marks are F9, F10.", ""), false);
+  assert.equal(mentions("the marks are F9, F10.", "\t\n"), false);
+});
+
+test("a spacing case is located by the gap it asks about", () => {
+  // It is not AT an intersection, so "4/B" is the wrong shape. Reading
+  // gridColumn off it printed "undefined/undefined" against every miss.
+  assert.equal(caseLocation({ axis: "column line", between: ["7", "8"] }), "7-8");
+  assert.equal(caseLocation({ gridColumn: "4", gridRow: "B" }), "4/B");
+});
+
+test("a derivation naming no location says so rather than inventing one", () => {
+  assert.equal(caseLocation({}), "?");
+  assert.equal(caseLocation(), "?");
+  assert.equal(caseLocation({ gridColumn: "4" }), "?", "half a coordinate is not one");
+});
+
+test("a between that names one line is not a gap", () => {
+  // ["7"] joins to "7", which reads like a grid line rather than a gap and
+  // collides with nothing — so a malformed derivation would pass silently.
+  assert.equal(caseLocation({ between: ["7"] }), "?");
+  assert.equal(caseLocation({ between: ["7", "8", "9"] }), "?");
+});
+
+test("the location is distinct per gap, because drift compares rows by it", () => {
+  assert.notEqual(caseLocation({ between: ["7", "8"] }), caseLocation({ between: ["8", "9"] }));
 });
