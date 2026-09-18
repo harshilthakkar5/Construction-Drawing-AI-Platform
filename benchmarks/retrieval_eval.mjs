@@ -484,10 +484,17 @@ async function main() {
     const fix = args.project
       ? `  This set was repointed with --project, and that project holds ${held.documents} ` +
         `document(s)\n  and ${held.pages} page(s). Expectations quoted off a sheet that is ` +
-        "not in it CANNOT match,\n  however well retrieval works. Either ingest the same " +
-        "documents the set was\n  captured against, or build a set whose questions this " +
-        "corpus can answer — do not\n  edit the expectations to fit, which would measure a " +
-        "different question than the one\n  that was asked."
+        "not in it CANNOT match,\n  however well retrieval works, and re-running changes " +
+        "nothing — this is a fact about\n  the corpus, not a failure in the harness. Two " +
+        "ways forward, and editing the\n  expectations to fit is neither, because that " +
+        "measures a different question than the\n  one that was asked:\n\n" +
+        `    1. Ingest the documents the set was captured against into this project.\n` +
+        `    2. Build a set THIS corpus can answer, one question at a time:\n` +
+        `         node benchmarks/retrieval_eval.mjs --capture "your question" ` +
+        `--project ${args.project}\n` +
+        "       That runs the real retrieval, prints what came back, and writes a case\n" +
+        "       skeleton for you to fill in with text quoted off the sheet. It reads no\n" +
+        "       set, so it works now."
       : "  Fix the expectations — quote text off the sheet with expectedText, which does\n" +
         "  not move when documents are re-uploaded — then run again.";
     throw new Error(
