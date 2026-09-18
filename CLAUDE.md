@@ -1239,8 +1239,24 @@ What a crop run can actually lose is narrower: geometry described in prose that 
 intersection — a relationship between two things the grid cannot locate. No set in this repository
 asks about that, which means the regression is not merely unmeasured, it is currently
 UNMEASURABLE, and saying "run the retrieval eval before any further crop work" was advice that
-would have produced a confident null result. The set to build is one asking about non-intersection
-geometry, and it does not exist yet.
+would have produced a confident null result.
+
+"Build a set asking about non-intersection geometry" was then the SECOND wrong answer, and
+capturing one case is what showed why. This harness scores RECALL, which needs a fixed string
+sitting in a chunk, and the loss has no such string on either side of it. Ask "what is between
+column lines 7 and 8" and the only thing on the sheet to quote is a DIMENSION — text-layer text,
+indexed identically under both modes, so the case is markable and scores the same either way. The
+version that would discriminate is the whole-sheet description's own prose about that bay, and
+that cannot be an expectation at all: it is a stochastic model output with a 43-point error bar
+on it, so a set anchored to it would re-measure the generator's variance and call it retrieval.
+`expectedChunkIds` is no better, since `replace_page_chunks` mints fresh uuids per ingest.
+
+So the regression is not missing a SET, it is in the wrong HARNESS. It belongs in
+`drawing_eval.mjs`, which scores an answer against a truth derived from the PDF rather than a
+string fetched from a chunk, on a tag `drawing_truth.py` generates off `grid.axes` — the column
+xs and row ys are already there, so a bay question has a ground truth no model is asked for. That
+is the same tag `saturation` demanded when it declared the set spent, arrived at from the other
+direction.
 
 The run also produced the failure this flag makes possible, which is worth keeping because the
 tool's advice was wrong for it. Repointed at the one-sheet project the crop work uses, 7 of 10
