@@ -13,7 +13,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { appendCase, applyProjectOverride, oneProjectOrThrow } from "./retrieval_eval.mjs";
+import {
+  appendCase,
+  captureFollowUp,
+  applyProjectOverride,
+  oneProjectOrThrow,
+  unmarkedRefusal,
+} from "./retrieval_eval.mjs";
 
 const at = (projectId, question) => ({ projectId, question, expectedText: "IT-2" });
 
@@ -98,4 +104,86 @@ test("appending a case for another project is refused before the file is written
 
 test("a case with no question is preamble, not a conflicting case", () => {
   assert.doesNotThrow(() => appendCase([{ _comment: ["x"], projectId: "other" }], at("p1", "q")));
+});
+
+test("a set of skeletons is told to fill them in, never to capture more", () => {
+  // The refusal this replaces said "Build them with --capture", printed to
+  // someone who had just run exactly that. Capturing again appends another
+  // empty case to a file whose problem is that its cases are empty.
+  const said = unmarkedRefusal("benchmarks/crop_eval_set.json", [
+    { question: "what is between column lines 7 and 8?" },
+  ]);
+  assert.match(said, /Capturing again will not fix it/);
+  assert.doesNotMatch(said, /--capture/, "the command that produced this file is not the fix");
+  assert.match(said, /benchmarks\/crop_eval_set\.json/, "names the file to open");
+  assert.match(said, /expectedText/);
+});
+
+test("the refusal lists the questions waiting to be answered", () => {
+  const said = unmarkedRefusal("s.json", [{ question: "what is at 4/B?" }, { question: "what is at 7/C?" }]);
+  assert.match(said, /what is at 4\/B\?/);
+  assert.match(said, /what is at 7\/C\?/);
+});
+
+test("the refusal counts in English", () => {
+  // The saturation line shipped "1 of 40 case" because its test asserted the
+  // sentence's claims and not its grammar. Assert the phrase.
+  assert.match(unmarkedRefusal("s.json", [{ question: "q" }]), /all 1 case in s\.json is a skeleton/);
+  assert.match(
+    unmarkedRefusal("s.json", [{ question: "q" }, { question: "r" }]),
+    /all 2 cases in s\.json are skeletons/,
+  );
+});
+
+test("a long skeleton list is truncated rather than filling the screen", () => {
+  const many = Array.from({ length: 14 }, (_, i) => ({ question: `q${i}` }));
+  const said = unmarkedRefusal("s.json", many);
+  assert.match(said, /\.\.\. and 4 more/);
+  assert.doesNotMatch(said, /"q13"/);
+});
+
+test("the example expectation is not copied from this sheet's retrieval hits", () => {
+  // Same rule as the vision prompt's synthetic examples: an expectation that
+  // arrives from the tool rather than the drawing measures agreement with the
+  // behaviour it was captured from.
+  const said = unmarkedRefusal("s.json", [{ question: "q" }]);
+  assert.match(said, /from the DRAWING rather than from what retrieval returned/);
+});
+
+test("the first capture into a new file says the run will REFUSE, not skip", () => {
+  // The claim that mattered: a lone empty case is not skipped, it is refused.
+  const said = captureFollowUp("s.json", "p1", [{ projectId: "p1", question: "q", expectedText: "" }]);
+  assert.match(said, /REFUSES/);
+  assert.doesNotMatch(said, /SKIPPED/);
+  assert.match(said, /NOW FILL IT IN/);
+});
+
+test("a capture into a set that already scores says the new case is skipped", () => {
+  const said = captureFollowUp("s.json", "p1", [
+    { projectId: "p1", question: "old", expectedText: "IT-2 STEEL" },
+    { projectId: "p1", question: "new", expectedText: "" },
+  ]);
+  assert.match(said, /SKIPPED/);
+  assert.doesNotMatch(said, /REFUSES/);
+  assert.match(said, /the 1 case already filled in/, "singular on one, and it counts the filled ones");
+});
+
+test("the follow-up counts only cases that can actually be scored", () => {
+  const said = captureFollowUp("s.json", "p1", [
+    { _comment: "how to fill this in" },
+    { projectId: "p1", question: "a", expectedText: "X" },
+    { projectId: "p1", question: "b", expectedPages: [3] },
+    { projectId: "p1", question: "c", expectedText: "" },
+  ]);
+  assert.match(said, /the 2 cases already filled in/, "the preamble is not a case; the empty one is not scored");
+});
+
+test("the follow-up always ends with the command that runs the set", () => {
+  for (const written of [
+    [{ projectId: "p1", question: "q", expectedText: "" }],
+    [{ projectId: "p1", question: "q", expectedText: "X" }],
+  ]) {
+    const said = captureFollowUp("benchmarks/crop_eval_set.json", "a3c28a63", written);
+    assert.match(said, /--set benchmarks\/crop_eval_set\.json --project a3c28a63/);
+  }
 });
