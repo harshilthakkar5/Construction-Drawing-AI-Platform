@@ -250,6 +250,72 @@ export function appendCase(existing, newCase) {
   return [...preamble, ...cases, newCase];
 }
 
+/**
+ * What to say when a set holds cases and not one of them says what it expects.
+ *
+ * The wording here is the fourth attempt at the same refusal, and the first
+ * three all failed the same way: each was TRUE and each left the next step
+ * implicit, so the loop ran again. This one told someone who had just captured
+ * a skeleton to "build them with --capture" — the exact command that had
+ * produced the file it was refusing. Capturing again cannot help: it appends
+ * another empty case to a file whose problem is that its cases are empty.
+ *
+ * A skeleton is finished by HAND, from the drawing, because that is the whole
+ * point of it — an expectation derived from what retrieval already returned
+ * measures agreement with the behaviour it was captured from. So the refusal
+ * names the file, lists the questions waiting in it, and says what to write.
+ */
+export function unmarkedRefusal(setPath, unmarked) {
+  const n = unmarked.length;
+  const listed = unmarked
+    .slice(0, 10)
+    .map((c) => `    - ${JSON.stringify(String(c.question ?? "").slice(0, 70))}`)
+    .join("\n");
+  const more = n > 10 ? `\n    ... and ${n - 10} more` : "";
+  return (
+    `all ${n} case${n === 1 ? "" : "s"} in ${setPath} ${n === 1 ? "is a skeleton" : "are skeletons"}: ` +
+    `expectedText is still\n  empty, so there is nothing to score.\n\n` +
+    `${listed}${more}\n\n` +
+    `  Capturing again will not fix it — that appends another empty case. Open ${setPath}\n` +
+    `  and, for each question, quote a short distinctive phrase of the text on the sheet\n` +
+    `  that answers it:\n\n` +
+    `      "expectedText": "TOP OF FOOTING ELEV. -12'-8\\""\n\n` +
+    `  It has to come from the DRAWING rather than from what retrieval returned: an\n` +
+    `  expectation copied out of the hits above would measure agreement with the\n` +
+    `  behaviour it was captured from, and every later change would look like a\n` +
+    `  regression. Fill in one and the run works; the rest are skipped with a warning.`
+  );
+}
+
+/**
+ * What a capture says after it has written the skeleton.
+ *
+ * "It will be SKIPPED until expectedText is filled in" is true only while
+ * something ELSE in the file can still be scored. On the first capture into a
+ * new file it is false: the run refuses, because a set where every case is
+ * empty has nothing to measure. Saying it anyway sent someone straight to a
+ * command that could not work yet, which is how this loop reached a fourth
+ * round. The message therefore reads the file it just wrote instead of
+ * describing what a capture usually does.
+ */
+export function captureFollowUp(setPath, projectId, written) {
+  const answerable = written.filter((c) => c && c.question && isMarked(c)).length;
+  return (
+    `  Appended to ${setPath}.\n\n` +
+    (answerable === 0
+      ? `  NOW FILL IT IN: open that file and put a short distinctive phrase from the\n` +
+        `  sheet into "expectedText". Until at least one case has one the run REFUSES —\n` +
+        `  a set of empty cases has nothing to score, and scoring them as misses would\n` +
+        `  report retrieval failures that never happened.\n\n` +
+        `  Capture the other questions first if you prefer; they are all filled in the\n` +
+        `  same way.\n`
+      : `  It is SKIPPED with a warning until expectedText is filled in — an empty\n` +
+        `  expectation cannot pass or fail, and the ${answerable} case${answerable === 1 ? "" : "s"} ` +
+        `already filled in still run.\n`) +
+    `\n  Then: node benchmarks/retrieval_eval.mjs --set ${setPath} --project ${projectId}\n`
+  );
+}
+
 async function capture(api, question, projectId, k, { setPath, append } = {}) {
   const { chunkIds } = await api.retrieval.retrieveChunkIds(projectId, question, { limit: k });
   const hits = await locate(api.prisma, chunkIds);
@@ -288,13 +354,9 @@ async function capture(api, question, projectId, k, { setPath, append } = {}) {
     return;
   }
   const existing = existsSync(setPath) ? JSON.parse(readFileSync(setPath, "utf8")) : [];
-  writeFileSync(setPath, `${JSON.stringify(appendCase(existing, skeleton), null, 2)}\n`);
-  console.log(
-    `  Appended to ${setPath}. It will be SKIPPED until expectedText is filled in —\n` +
-      "  an empty expectation cannot pass or fail, and the run says so rather than\n" +
-      `  scoring it as a miss. Then: node benchmarks/retrieval_eval.mjs --set ${setPath} ` +
-      `--project ${projectId}\n`,
-  );
+  const written = appendCase(existing, skeleton);
+  writeFileSync(setPath, `${JSON.stringify(written, null, 2)}\n`);
+  console.log(captureFollowUp(setPath, projectId, written));
 }
 
 /**
@@ -496,10 +558,7 @@ async function main() {
 
   const unmarked = cases.filter((c) => !isMarked(c));
   if (unmarked.length === cases.length) {
-    throw new Error(
-      `no case in ${args.set} says what it expects, so every one scores as a miss.\n` +
-        `  Build them with: node benchmarks/retrieval_eval.mjs --capture "a question" --project <id>`,
-    );
+    throw new Error(unmarkedRefusal(args.set, unmarked));
   }
   if (unmarked.length) {
     console.warn(

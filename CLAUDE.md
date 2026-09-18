@@ -1273,9 +1273,30 @@ capture without `--append` says outright that nothing was saved and prints the c
 save it. A skeleton lands with an empty `expectedText`, which the run SKIPS with a warning rather
 than scoring as a miss — the one shape an unfinished case must never take.
 
-The pattern across all three: each fix explained the situation better and left the next step
+**A FOURTH time**, and this one is the clearest statement of the pattern because the tool was
+refusing the file its own advice had just produced. The capture worked, the append worked, and the
+run then said *"no case says what it expects — Build them with: --capture"* — the exact command
+that had written the file. Capturing again cannot help: it appends another empty case to a set
+whose problem is that its cases are empty. The refusal was TRUE and pointed backwards, which is
+worse than pointing nowhere, because following it lengthens the loop rather than ending it. A
+skeleton is finished BY HAND, from the drawing, and that is not an inconvenience to route around —
+an expectation copied out of the hits the capture just printed would measure agreement with the
+behaviour it was captured from, so every later change would score as a regression.
+`unmarkedRefusal` therefore names the file, LISTS the questions waiting in it, shows the field and
+says where its value comes from, and never mentions `--capture` at all.
+
+The same commit corrected a claim capture had been making about the file it writes. "It will be
+SKIPPED until `expectedText` is filled in" is true only while something ELSE in that set can still
+be scored; on the FIRST capture into a new file it is false — the run refuses, since a set of
+empty cases has nothing to measure — and that sentence is what sent someone straight into the
+refusal above. `captureFollowUp` reads the file it just wrote instead of describing what a capture
+usually does: alone in a new set it says the run will REFUSE and to fill the case in now, and
+beside cases that already score it says the new one is skipped and names how many still run.
+
+The pattern across all four: each fix explained the situation better and left the next step
 implicit. The test of a refusal is not whether it is true, it is whether the person reading it can
-act without guessing.
+act without guessing — and a refusal that names a command must be checked against the state that
+command produces, because the one it names may be the one that produced the state it is refusing.
 
 Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
 GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
