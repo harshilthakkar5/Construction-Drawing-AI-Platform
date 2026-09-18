@@ -1259,10 +1259,23 @@ edit expectations until they pass.
 That was still not enough, because the same run happened again. A refusal that explains itself but
 leaves no NEXT COMMAND invites a re-run, and re-running cannot change a fact about the corpus. The
 message now says that outright and names both ways forward, one of them as a command with the
-project id already in it: `--capture "question" --project <id>` runs the real retrieval, prints
-what came back and writes a case skeleton, and it returns BEFORE the set is read, so it works on a
-corpus whose set is refused. The escape hatch existed the whole time and the error did not mention
-it.
+project id already in it. The escape hatch existed the whole time and the error did not mention it.
+
+And THAT was still not enough, for a reason worth writing down because it is the same shape a
+third time: the command worked and the loop continued. `--capture` PRINTED a skeleton and saved
+nothing, so the set was unchanged and the next run refused identically — and even a saved skeleton
+would not have helped, because the seven stale cases stay in the shipped set and keep refusing. An
+instruction that leaves the user holding a JSON fragment and an unchanged file has not unblocked
+anything. `--capture ... --set <new file> --append` now WRITES it, `appendCase` refuses to mix two
+projects into one file before the file is touched rather than at the next run, the shipped set's
+`_comment` block survives the append because it is what someone reads to fill the skeleton in, and
+capture without `--append` says outright that nothing was saved and prints the command that would
+save it. A skeleton lands with an empty `expectedText`, which the run SKIPS with a warning rather
+than scoring as a miss — the one shape an unfinished case must never take.
+
+The pattern across all three: each fix explained the situation better and left the next step
+implicit. The test of a refusal is not whether it is true, it is whether the person reading it can
+act without guessing.
 
 Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
 GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
