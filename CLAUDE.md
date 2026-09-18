@@ -1256,6 +1256,14 @@ without it the old wording stands. A benchmark that refuses has to say what to d
 the honest instruction here is to ingest the same documents or build a different set — never to
 edit expectations until they pass.
 
+That was still not enough, because the same run happened again. A refusal that explains itself but
+leaves no NEXT COMMAND invites a re-run, and re-running cannot change a fact about the corpus. The
+message now says that outright and names both ways forward, one of them as a command with the
+project id already in it: `--capture "question" --project <id>` runs the real retrieval, prints
+what came back and writes a case skeleton, and it returns BEFORE the set is read, so it works on a
+corpus whose set is refused. The escape hatch existed the whole time and the error did not mention
+it.
+
 Recall is not answer quality, and on a text-heavy set the two come apart in one specific place:
 GEOMETRY. A sheet's text layer holds every footing mark and every member size, so retrieval
 reports 100% recall honestly — but it holds them in two separate runs, one of sizes and one of
