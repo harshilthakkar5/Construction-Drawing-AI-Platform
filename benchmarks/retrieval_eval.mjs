@@ -483,6 +483,38 @@ function summarize(results, k) {
   };
 }
 
+/**
+ * The headline line, and what a small set is allowed to claim with it.
+ *
+ * A percentage implies a resolution the set may not have. One case can only
+ * ever print 0.0% or 100.0%, and the second reads exactly like a result — the
+ * same shape as every number this file has had to put a gate in front of: a
+ * dead projectId scoring 0%, a pooled baseline scoring 28%, a range across
+ * unrelated ingests offered as an error bar. A rate whose step size is 100
+ * points cannot separate two configurations, so the line says its own step
+ * size rather than leaving a reader to work it out from the case count.
+ *
+ * The threshold is deliberately generous. Below ten cases one answer moves the
+ * rate by more than ten points, which is larger than any retrieval change this
+ * repository has ever measured.
+ */
+export function headline(summary, k) {
+  const n = summary.cases;
+  const pct = (x) => `${(x * 100).toFixed(1)}%`;
+  const line =
+    `  ${n} case${n === 1 ? "" : "s"} · recall@${k} ${pct(summary[`recall@${k}`])} ` +
+    `· MRR ${summary.mrr.toFixed(3)}`;
+  if (n === 0 || n >= 10) return line;
+  const step = 100 / n;
+  return (
+    `${line}\n\n` +
+    `  That rate moves in steps of ${step.toFixed(1)} points, because one answer is ` +
+    `1/${n} of the set.\n` +
+    `  It cannot separate two configurations, and it is not a recall FIGURE — it is ` +
+    `${summary[`recall@${k}`] * n} of ${n}.`
+  );
+}
+
 function report(results, summary, k) {
   const pct = (n) => `${(n * 100).toFixed(1)}%`;
   console.log("");
@@ -491,9 +523,7 @@ function report(results, summary, k) {
     const rank = r.found ? `#${r.rank}` : "miss";
     console.log(`  ${mark} ${rank.padEnd(6)} ${r.question.slice(0, 68)}`);
   }
-  console.log(
-    `\n  ${summary.cases} cases · recall@${k} ${pct(summary[`recall@${k}`])} · MRR ${summary.mrr.toFixed(3)}`,
-  );
+  console.log(`\n${headline(summary, k)}`);
   const tags = Object.entries(summary.byTag);
   if (tags.length > 1) {
     console.log("");

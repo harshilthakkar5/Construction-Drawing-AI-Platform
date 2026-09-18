@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   appendCase,
   captureFollowUp,
+  headline,
   applyProjectOverride,
   oneProjectOrThrow,
   unmarkedRefusal,
@@ -186,4 +187,35 @@ test("the follow-up always ends with the command that runs the set", () => {
     const said = captureFollowUp("benchmarks/crop_eval_set.json", "a3c28a63", written);
     assert.match(said, /--set benchmarks\/crop_eval_set\.json --project a3c28a63/);
   }
+});
+
+test("the headline counts in English", () => {
+  // "1 cases", the same slip as drawing_eval's "1 of 40 case". The version
+  // that reads correctly in the plural is exactly the one that reads wrong here.
+  assert.match(headline({ cases: 1, "recall@18": 1, mrr: 0.5 }, 18), /^ {2}1 case · /);
+  assert.match(headline({ cases: 2, "recall@18": 1, mrr: 0.5 }, 18), /^ {2}2 cases · /);
+});
+
+test("a small set is told what its rate's step size is", () => {
+  // 100.0% on one case reads exactly like a result. It is 1 of 1.
+  const said = headline({ cases: 1, "recall@18": 1, mrr: 0.5 }, 18);
+  assert.match(said, /steps of 100\.0 points/);
+  assert.match(said, /it is 1 of 1/);
+  assert.match(said, /cannot separate two configurations/);
+});
+
+test("the step size is the one a single answer actually moves", () => {
+  assert.match(headline({ cases: 4, "recall@18": 0.5, mrr: 0.3 }, 18), /steps of 25\.0 points/);
+  assert.match(headline({ cases: 4, "recall@18": 0.5, mrr: 0.3 }, 18), /it is 2 of 4/);
+});
+
+test("a set big enough to carry a percentage is left alone", () => {
+  const said = headline({ cases: 10, "recall@18": 0.7, mrr: 0.5 }, 18);
+  assert.equal(said, "  10 cases · recall@18 70.0% · MRR 0.500");
+  assert.doesNotMatch(said, /steps of/);
+});
+
+test("an empty set claims no resolution rather than dividing by zero", () => {
+  const said = headline({ cases: 0, "recall@18": 0, mrr: 0 }, 18);
+  assert.doesNotMatch(said, /Infinity|NaN|steps of/);
 });
