@@ -42,7 +42,7 @@
  * rather than a copy of it — a harness that measured a reimplementation would
  * measure the wrong thing.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL  } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -88,6 +88,7 @@ function parseArgs(argv) {
     else if (arg === "--set") args.set = resolve(process.cwd(), argv[++i]);
     else if (arg === "--k") args.k = Number(argv[++i]);
     else if (arg === "--capture") args.capture = argv[++i];
+    else if (arg === "--append") args.append = true;
     else if (arg === "--project") args.project = argv[++i];
     else if (arg === "--help" || arg === "-h") args.help = true;
   }
@@ -223,7 +224,33 @@ async function locate(prisma, chunkIds) {
 }
 
 /** --capture: run one question and print a case skeleton to fill in. */
-async function capture(api, question, projectId, k) {
+/**
+ * A captured skeleton merged into a set's cases, or a refusal.
+ *
+ * Pure so it can be tested; the file I/O is the caller's. It guards the one
+ * thing appending can break, which is the thing `oneProjectOrThrow` refuses at
+ * run time: a set whose cases name two projects measures two corpora and
+ * reports one recall. Catching it HERE is better than catching it at the next
+ * run, because here the file has not been written yet.
+ */
+export function appendCase(existing, newCase) {
+  const cases = (Array.isArray(existing) ? existing : []).filter((c) => c && c.question);
+  const other = cases.find((c) => c.projectId && c.projectId !== newCase.projectId);
+  if (other) {
+    throw new Error(
+      `that set already holds cases for project ${other.projectId}, and this capture is for ` +
+        `${newCase.projectId}.\n  A set spanning two projects measures two corpora and reports ` +
+        "one recall.\n  Capture into a NEW file instead: --set benchmarks/<name>_eval_set.json",
+    );
+  }
+  // Everything that is not a case — the shipped set leads with a _comment
+  // block explaining the format — is kept, so appending never deletes the
+  // documentation someone will need to fill the skeleton in.
+  const preamble = (Array.isArray(existing) ? existing : []).filter((c) => !(c && c.question));
+  return [...preamble, ...cases, newCase];
+}
+
+async function capture(api, question, projectId, k, { setPath, append } = {}) {
   const { chunkIds } = await api.retrieval.retrieveChunkIds(projectId, question, { limit: k });
   const hits = await locate(api.prisma, chunkIds);
 
@@ -239,12 +266,34 @@ async function capture(api, question, projectId, k) {
   // which is circular: the set then measures agreement with the behaviour it
   // was captured from, and every later change looks like a regression. The
   // field is left empty so it has to be answered from the drawing.
+  const skeleton = { projectId, question, tag: "", expectedText: "", note: "" };
   console.log(
     `\nFind the text on the sheet that actually answers it and quote a short,\n` +
       `distinctive phrase of it below — not a page number, which moves when\n` +
       `documents are re-uploaded:\n\n` +
-      JSON.stringify({ projectId, question, tag: "", expectedText: "", note: "" }, null, 2) +
+      JSON.stringify(skeleton, null, 2) +
       "\n",
+  );
+  if (!append) {
+    // Printing is not saving, and that gap cost a round trip: the skeleton
+    // appeared, the set was unchanged, and the next run refused identically.
+    console.log(
+      `  NOTHING WAS SAVED — that is a skeleton on your screen. Add --append to write it\n` +
+        `  into a set file, and give --set a NEW path rather than the shipped one, which\n` +
+        `  holds another project's questions:\n\n` +
+        `    node benchmarks/retrieval_eval.mjs --capture ${JSON.stringify(question)} ` +
+        `--project ${projectId} \\\n` +
+        `      --set benchmarks/<name>_eval_set.json --append\n`,
+    );
+    return;
+  }
+  const existing = existsSync(setPath) ? JSON.parse(readFileSync(setPath, "utf8")) : [];
+  writeFileSync(setPath, `${JSON.stringify(appendCase(existing, skeleton), null, 2)}\n`);
+  console.log(
+    `  Appended to ${setPath}. It will be SKIPPED until expectedText is filled in —\n` +
+      "  an empty expectation cannot pass or fail, and the run says so rather than\n" +
+      `  scoring it as a miss. Then: node benchmarks/retrieval_eval.mjs --set ${setPath} ` +
+      `--project ${projectId}\n`,
   );
 }
 
@@ -408,7 +457,10 @@ async function main() {
 
   if (args.capture) {
     if (!args.project) throw new Error("--capture needs --project <projectId>");
-    await capture(api, args.capture, args.project, args.k);
+    await capture(api, args.capture, args.project, args.k, {
+      setPath: args.set,
+      append: args.append,
+    });
     await api.prisma.$disconnect();
     return;
   }
@@ -489,12 +541,16 @@ async function main() {
         "ways forward, and editing the\n  expectations to fit is neither, because that " +
         "measures a different question than the\n  one that was asked:\n\n" +
         `    1. Ingest the documents the set was captured against into this project.\n` +
-        `    2. Build a set THIS corpus can answer, one question at a time:\n` +
+        `    2. Build a set THIS corpus can answer, in a NEW file — the stale cases above\n` +
+        `       stay in the shipped set and keep refusing, so a new --set path is what\n` +
+        `       ends this loop:\n\n` +
         `         node benchmarks/retrieval_eval.mjs --capture "your question" ` +
-        `--project ${args.project}\n` +
-        "       That runs the real retrieval, prints what came back, and writes a case\n" +
-        "       skeleton for you to fill in with text quoted off the sheet. It reads no\n" +
-        "       set, so it works now."
+        `--project ${args.project} \\\n` +
+        `           --set benchmarks/<name>_eval_set.json --append\n\n` +
+        `       runs the real retrieval, shows what came back, and APPENDS a skeleton to\n` +
+        `       that file. Fill in expectedText from the sheet, repeat per question, then\n` +
+        `         node benchmarks/retrieval_eval.mjs --set benchmarks/<name>_eval_set.json ` +
+        `--project ${args.project}`
       : "  Fix the expectations — quote text off the sheet with expectedText, which does\n" +
         "  not move when documents are re-uploaded — then run again.";
     throw new Error(

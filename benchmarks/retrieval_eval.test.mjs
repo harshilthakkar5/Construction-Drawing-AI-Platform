@@ -13,7 +13,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyProjectOverride, oneProjectOrThrow } from "./retrieval_eval.mjs";
+import { appendCase, applyProjectOverride, oneProjectOrThrow } from "./retrieval_eval.mjs";
 
 const at = (projectId, question) => ({ projectId, question, expectedText: "IT-2" });
 
@@ -62,4 +62,40 @@ test("importing this module does not start a benchmark run", () => {
   // The guard that makes every test above possible. Without it the import
   // fires main(), which needs a database, an embedding key and a live Qdrant.
   assert.equal(typeof applyProjectOverride, "function");
+});
+
+// --- Appending a captured case --------------------------------------------
+
+test("a captured skeleton is added to a set that already fits the corpus", () => {
+  const out = appendCase([at("p1", "q1")], at("p1", "q2"));
+  assert.deepEqual(
+    out.map((c) => c.question),
+    ["q1", "q2"],
+  );
+});
+
+test("appending to an empty or absent set just starts one", () => {
+  assert.deepEqual(appendCase([], at("p1", "q1")).length, 1);
+  assert.deepEqual(appendCase(undefined, at("p1", "q1")).length, 1);
+});
+
+test("the shipped set's _comment block survives the append", () => {
+  // It explains the format, and it is what someone reads to fill in the
+  // skeleton they just captured. Dropping it would delete the instructions at
+  // the exact moment they are needed.
+  const preamble = { _comment: ["how to fill this in"] };
+  const out = appendCase([preamble, at("p1", "q1")], at("p1", "q2"));
+  assert.equal(out[0], preamble);
+  assert.equal(out.length, 3);
+});
+
+test("appending a case for another project is refused before the file is written", () => {
+  // The same rule oneProjectOrThrow enforces at run time, caught one step
+  // earlier — here the set has not been modified yet, so nothing needs undoing.
+  assert.throws(() => appendCase([at("old", "q1")], at("new", "q2")), /already holds cases for/);
+  assert.throws(() => appendCase([at("old", "q1")], at("new", "q2")), /--set benchmarks\//);
+});
+
+test("a case with no question is preamble, not a conflicting case", () => {
+  assert.doesNotThrow(() => appendCase([{ _comment: ["x"], projectId: "other" }], at("p1", "q")));
 });
