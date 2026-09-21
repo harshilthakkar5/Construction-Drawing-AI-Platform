@@ -1310,6 +1310,37 @@ text RUNS (`line["dir"]`, the writing direction) and each axis takes only the di
 along it, the way a drafter writes them. Where that convention fails the case refuses for want of
 a dimension rather than emitting a wrong one, which is the direction an error here has to fall.
 
+Run against the real sheet the loop then produced **1 case from 10 candidate gaps**, and the
+refusals said why in a shape no unit test had reached. Seven of the eight column gaps reported
+"no dimension printed inside this gap" — on a drawing that visibly carries a dimension chain —
+while the two ROW gaps each held several. Dimensions were being offered to the wrong axis, and
+the cause is the same one `test_region.py` was written for: `get_text` reports in the page's
+UNROTATED system. The bbox was mapped to display space and `line["dir"]` was read raw, so on a
+/Rotate 90 sheet position and orientation sat 90 degrees apart and the filter was not approximate,
+it was EXACTLY INVERTED — every column gap hunting text that runs down the sheet. A `dir` is a
+vector, so only the matrix's linear part applies; translating it would move a direction to a
+place.
+
+Tests at 0/90/180/270 assert AGREEMENT rather than a fixed answer, and the first version of them
+asserted the wrong thing: that a given string stays horizontal at every rotation. It does not —
+rotating a page genuinely changes which way its text reads — and a test demanding that is testing
+a misunderstanding. The claim is that the two readings describe ONE drawing, so a run called
+horizontal has a display bbox wider than it is tall, checked independently of `dir`.
+
+Orientation is also a THIRD state rather than a boolean. A run that is not clearly along an axis
+belongs to neither, because forcing it onto the nearer one lets a skewed callout answer a bay
+question. `runs_along` is pure and separate for one reason: the threshold's boundary cannot be
+reached through a PDF — a page whose text sits at exactly `atan(1/2)` is a floating-point
+coincidence, not a fixture — and an untestable branch is how the first two attempts at this
+survived their own mutation run.
+
+What the refusals do NOT show is a fixable yield problem. Three gaps refused for holding several
+DIFFERENT dimensions (9-8 holds four), and that is the rule working: a structural sheet layers a
+bay run, an overall dimension and partials, so those gaps genuinely have more than one true
+answer. Grouping by dimension LINE would reduce the count and would have to pick which chain is
+"the" answer, which is a guess wearing geometry's clothes. The honest ceiling for this tag on this
+sheet is however many gaps carry exactly one dimension, and that number is what it is.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,
