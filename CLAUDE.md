@@ -1468,16 +1468,20 @@ Two new tags, and two rather than one for the pooled-baseline reason this file h
 for once: a mark and a section are different answer vocabularies with different majority-class
 baselines, and a single tag spanning both describes neither.
 
-  * `grid-colmark` — 66 cases, majority baseline **39%** (C2 26, C1 24, C4 10, C3 6). This is the
-    tag worth having: three times the old column tag's 21 cases, at a baseline 13 points below
-    its 52%, on a sheet where the marks are short and unambiguous glyphs rather than a compound
-    label. It asks the locality question with the resolution question subtracted out.
-  * `grid-pilecap` — 139 cases, majority baseline **79%** (PC1 110, PC2 29). Its SCORE is close to
-    uninformative: 21 points of headroom against a 43-point error bar, which is the same
+  * `grid-colmark` — 15 cases, majority baseline **33%** (C1, C2 and C4 at five each). A
+    perfectly flat distribution is the best thing a tag can have: it is the hardest baseline in
+    this repository, and the marks are short unambiguous glyphs rather than compound labels, so
+    it asks the locality question with the resolution question subtracted out.
+  * `grid-pilecap` — 36 cases, majority baseline **81%** (PC1 29, PC2 7). Its SCORE is close to
+    uninformative: 19 points of headroom against a 43-point error bar, which is the same
     arithmetic `saturation` uses to declare a set spent. What is worth reading on it is the
-    minority-hit count over the 29 PC2s. It is emitted WITH that said rather than withheld,
+    minority-hit count over the seven PC2s. It is emitted WITH that said rather than withheld,
     because the per-tag baseline and minority-hit machinery already report exactly this, and a
     tag nobody generates is a tag nobody can check.
+
+Those counts are what the set became AFTER the failure below. The first version of it emitted
+205 cases, and the numbers it reported — 66 colmark cases at a 39% baseline, 139 pile caps at
+79% — were the symptom.
 
 `names_its_own_intersection` is the refusal this sheet needed and the first one could never have
 revealed. S101P marks its columns C1..C4 while naming its row lines A..H and its column lines
@@ -1509,6 +1513,67 @@ neighbouring crop. The crop decision was reached on a sheet with 27 intersection
 bays; this is the first measurement of how narrow that geometry was. The gating rule listed as
 pending work is therefore not a detail of productionisation — it is the difference between a mode
 that helps and a mode that silently does not run.
+
+**And then the set ran, scored 74%, beat its baseline on both tags — and was not a measurement
+at all.** 205 cases, 152 correct, `grid-colmark` 52% against a 39% baseline and `grid-pilecap`
+85% against 79%, zero invented, zero hedged, 99% coverage. Every gate in the report was content.
+The set was broken, and it was broken by the commit that added it.
+
+Sixty-six colmark cases were derived from TWENTY-FOUR distinct physical marks. One `C2` sits
+25pt from 9/E, and the set made it the expected answer at 9/D, 10/E **and 10/D — 91pt away**.
+`MAX_LABEL_PT` is 100, nothing else was near, so every intersection that could see that mark
+claimed it. 164 of the 205 cases asked about a mark belonging somewhere else, and the drawing
+leaves those intersections unmarked, so the benchmark asserted a column mark where there is none
+and scored the model WRONG for disagreeing. That is the one thing this file says a benchmark may
+never do, committed by the file that says it.
+
+`MAX_LABEL_PT`'s own comment names the assumption it broke: "comfortably more than the offset a
+drafter uses and comfortably less than the spacing between grid lines". The first half still
+holds. The second was a property of ONE SHEET — bays of 130-218pt — and S101P has row lines D and
+C 40.4pt apart and nine column pairs 50-64pt apart. A constant cannot express that rule, because
+the rule is about the grid and not about the sheet.
+
+The jitter test could not catch it and never could have, which is the part worth keeping. It asks
+whether the READING is stable — move the intersection 20pt and does the nearest label change —
+and a lone mark with no competitor is perfectly stable seen from every intersection within
+100pt of it. Stability is not ownership. The missing question is the CONVERSE, and it is the one
+`--against` already learned to ask about crops from the other side: not "which label is nearest
+this intersection" but "is this intersection the one that label belongs to".
+
+`owning_intersection` asks it. A label answers a case only when that case is the label's own
+nearest intersection, by a margin of one `JITTER_PT`. The margin is a MARGIN and not another
+jitter loop, and that distinction is what makes the rule usable rather than total: jittering the
+label 20pt in eight directions demands the runner-up be some 40pt further off, which on a grid
+with 52pt column spacing condemns every mark on the sheet — a drafter writes the mark 25pt from
+its own line and 55pt from the next, and no reader finds that ambiguous. Jitter is right for the
+INTERSECTION, whose position is inferred from bubbles and genuinely uncertain; a label's position
+is read straight off its own bbox, so the question is only whether the two distances are far
+enough apart to mean anything.
+
+The set went from 205 cases to **51** — 36 pile caps and 15 column marks, each from its own mark,
+one mark one question, asserted as a test rather than checked by hand. The colmark baseline fell
+from 39% to 33% and its distribution came out flat, which is what a tag looks like when the
+mis-attributed cases stop stacking onto whichever label happened to be nearby.
+
+The miss list is what should have raised the alarm before any of this analysis, and it is worth
+recording how it read. The misses were structured BY ROW: all 26 C2 cases missed and no others of
+their kind, every row-D case answered C1, every row-E case answered C3, ten of the row-C pile
+caps answered PC1. That is exactly the shape of `systematicOffset` — a whole row walked one line
+over — and it is ALSO exactly the shape of a truth attributed to the wrong row. The two are
+indistinguishable from the score, and the report has no gate that separates them, because every
+gate here assumes the set is right. A row-shaped miss pattern is now the first thing to check the
+GENERATOR against, not the model.
+
+**What this costs the rest of this section is not yet known, and that is the honest state.** The
+first sheet's set has not been audited under the new rule, and cannot be here: it needs its PDF,
+which this repository does not carry. What can be said from the set itself is that it is closer
+to the line than is comfortable — `labelDistancePt` runs 43.1 to 83.7pt with a mean of 54.3,
+against a closest intersection separation of 129.9pt, so a typical case clears the margin by
+about a point and the furthest label is inside the radius of its neighbour. Regenerate it against
+`10.pdf` with this commit and compare: if cases drop, then the 98% crop run, the 63% sheet run
+and the conclusion drawn from them were scored against a set with mis-attributed answers, and the
+miss structure those numbers rest on has to be read again. Until that is done, treat the
+comparison as unverified rather than wrong.
 
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the

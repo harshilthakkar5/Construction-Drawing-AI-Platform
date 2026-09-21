@@ -81,8 +81,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workers" / "src"))
 import grid  # noqa: E402
 
 # A label further than this from the intersection is not labelling it. ~1.4in
-# on the sheet, comfortably more than the offset a drafter uses and comfortably
-# less than the spacing between grid lines.
+# on the sheet, comfortably more than the offset a drafter uses.
+#
+# The rest of that sentence used to read "and comfortably less than the spacing
+# between grid lines", and S101P falsified it: its row lines D and C are 40pt
+# apart and nine of its column pairs are 50-64pt apart, so ONE radius of 100pt
+# reaches several intersections at once. A constant cannot express this rule at
+# all, because the rule is about the grid and not about the sheet. It survives
+# only as a cheap upper bound; `owning_intersection` is what actually decides.
 MAX_LABEL_PT = 100.0
 
 # The refusal radius. Larger than a drafter's label offset, smaller than half a
@@ -367,16 +373,60 @@ def labels_of(page: fitz.Page, pattern: re.Pattern) -> list[tuple[str, float, fl
     return out
 
 
-def nearest(labels, x: float, y: float) -> tuple[str, float] | None:
+def nearest(labels, x: float, y: float) -> tuple[str, float, float, float] | None:
+    """The closest label to (x, y), as (text, distance, lx, ly)."""
     best = None
     for label, lx, ly in labels:
         d = math.hypot(lx - x, ly - y)
         if best is None or d < best[1]:
-            best = (label, d)
+            best = (label, d, lx, ly)
     return best
 
 
-def stable_reading(labels, x: float, y: float) -> tuple[str, float, str] | None:
+def owning_intersection(lx: float, ly: float, intersections):
+    """Which intersection a label belongs to, or None if it is between two.
+
+    This is the question `stable_reading` was missing, and it is the converse
+    of the one it asks. "Which label is nearest this intersection?" always has
+    an answer; it does not establish that the label is THIS intersection's, and
+    on a tight grid it usually is not. S101P put one `C2` 25pt from 9/E and let
+    10/D claim it from 91pt away — inside `MAX_LABEL_PT`, stable under the
+    reading's own jitter because nothing else was near, and simply not that
+    intersection's mark. The set then asserted a column mark where the drawing
+    leaves one out, and scored the model WRONG for saying otherwise. A
+    benchmark may report bad news and may never invent it, so a label answers a
+    case only when that case is the label's own nearest intersection.
+
+    It is the same question `--against` learned to ask about crops — "is anyone
+    ELSE's label in here?" — arrived at from the other side.
+
+    The margin is a MARGIN and not another jitter loop, and the difference is
+    the whole of what makes the rule usable. Jittering the label 20pt in eight
+    directions demands the runner-up be ~40pt further off, which on a grid
+    whose column lines are 52pt apart condemns every mark on the sheet: a
+    drafter writes the mark 25pt from its own line and 55pt from the next, and
+    no reader finds that ambiguous. Jitter is the right tool for the
+    INTERSECTION, whose position is inferred from bubbles and genuinely
+    uncertain; a label's position is read straight off its own bbox, so what is
+    asked here is whether the two distances are far enough apart to mean
+    anything, and one jitter's worth of separation is that test.
+    """
+    ranked = sorted(
+        intersections, key=lambda i: math.hypot(i[2] - lx, i[3] - ly)
+    )
+    if not ranked:
+        return None
+    first = math.hypot(ranked[0][2] - lx, ranked[0][3] - ly)
+    if len(ranked) > 1:
+        second = math.hypot(ranked[1][2] - lx, ranked[1][3] - ly)
+        if second - first < JITTER_PT:
+            return None
+    return (ranked[0][0], ranked[0][1])
+
+
+def stable_reading(
+    labels, col: str, row: str, x: float, y: float, intersections
+) -> tuple[str, float, str] | None:
     """The label at (x, y), or None with a reason if it is not unambiguous.
 
     Returns (label, distance, "") on success and (None, 0, reason) on refusal —
@@ -386,7 +436,7 @@ def stable_reading(labels, x: float, y: float) -> tuple[str, float, str] | None:
     here = nearest(labels, x, y)
     if here is None:
         return None, 0.0, "no label of this kind on the sheet"
-    label, distance = here
+    label, distance, lx, ly = here
     if distance > MAX_LABEL_PT:
         return None, 0.0, f"nearest label {label} is {distance:.0f}pt away (limit {MAX_LABEL_PT:.0f})"
     for dx in (-JITTER_PT, 0.0, JITTER_PT):
@@ -395,6 +445,17 @@ def stable_reading(labels, x: float, y: float) -> tuple[str, float, str] | None:
             if moved is None or moved[0] != label:
                 other = moved[0] if moved else "nothing"
                 return None, 0.0, f"reading moves {label} -> {other} under {JITTER_PT:.0f}pt jitter"
+    home = owning_intersection(lx, ly, intersections)
+    if home is None:
+        return None, 0.0, (
+            f"the label {label} sits between intersections — {JITTER_PT:.0f}pt of "
+            f"jitter moves which one owns it"
+        )
+    if home != (col, row):
+        return None, 0.0, (
+            f"the nearest label {label} is {home[0]}/{home[1]}'s, not this "
+            f"intersection's ({distance:.0f}pt from here)"
+        )
     return label, distance, ""
 
 
@@ -539,11 +600,16 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
 
         # Via grid.intersections rather than a nested loop here, so the
         # generator and the vision pass cannot disagree about what "4/B" means.
-        for col, row, cx, cy in grid.intersections(columns, rows):
+        # Materialized once: every case needs the WHOLE grid to ask whether the
+        # label it found belongs to it or to a neighbour.
+        crossings = list(grid.intersections(columns, rows))
+        for col, row, cx, cy in crossings:
             for kind, cls in INTERSECTION_TAGS.items():
                 labels = found[kind]
                 question = cls.question.format(sheet=sheet_name, col=col, row=row)
-                label, distance, reason = stable_reading(labels, cx, cy)
+                label, distance, reason = stable_reading(
+                    labels, col, row, cx, cy, crossings
+                )
                 if label is None:
                     refusals.append(f"{sheet_name} {col}/{row} {kind}: {reason}")
                     continue

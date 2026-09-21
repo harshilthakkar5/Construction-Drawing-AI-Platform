@@ -785,3 +785,90 @@ class TestTheMarkTagsActuallyRun:
         marks = [c for c in cases if c["tag"] == "grid-colmark"]
         assert marks
         assert all(c["sheetLabels"] == ["C2", "C3"] for c in marks)
+
+
+class TestWhoseLabelAnIntersectionMayClaim:
+    """The converse question `stable_reading` was missing.
+
+    "Which label is nearest this intersection?" always has an answer, and that
+    is not the same as the label being THIS intersection's. On S101P — row
+    lines D and C 40pt apart, nine column pairs 50-64pt apart — one radius of
+    100pt reaches several intersections at once, so 164 of 205 generated cases
+    asked about a mark belonging somewhere else. The set asserted a column mark
+    at an unmarked intersection and scored the model WRONG for disagreeing,
+    which is a benchmark inventing bad news rather than reporting it.
+    """
+
+    # Two column lines 52pt apart, as tight as S101P's tightest pair.
+    TIGHT = [("9", "E", 100.0, 100.0), ("10", "E", 152.0, 100.0)]
+
+    def test_a_label_on_its_own_intersection_is_owned_by_it(self):
+        assert drawing_truth.owning_intersection(102.0, 104.0, self.TIGHT) == ("9", "E")
+
+    def test_a_close_neighbour_does_not_get_to_claim_it(self):
+        # 2pt from column 9 and 50pt from column 10: inside MAX_LABEL_PT of
+        # both, and only one of them owns it.
+        assert drawing_truth.owning_intersection(102.0, 100.0, self.TIGHT) != ("10", "E")
+
+    def test_a_label_midway_between_two_belongs_to_neither(self):
+        # Dead centre: 20pt of jitter hands it to either side, so it is not an
+        # answer for either — the same refusal the reading's own jitter makes.
+        assert drawing_truth.owning_intersection(126.0, 100.0, self.TIGHT) is None
+
+    def test_ownership_is_decided_in_two_dimensions(self):
+        grid_ = [("4", "B", 0.0, 0.0), ("4", "C", 0.0, 300.0)]
+        assert drawing_truth.owning_intersection(5.0, 290.0, grid_) == ("4", "C")
+
+
+class TestAMarkIsNotClaimedByItsNeighbour:
+    """`build` end to end on the geometry that produced the bad set."""
+
+    @staticmethod
+    def _sheet(tmp_path, marks):
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        for text, x, y in marks:
+            page.insert_text((x, y), text, fontsize=8)
+        path = tmp_path / "tight.pdf"
+        doc.save(str(path))
+        doc.close()
+        return str(path)
+
+    # Column lines 9 and 10 are 52pt apart, as tight as S101P's tightest pair.
+    TIGHT = ({"9": 100.0, "10": 152.0}, {"E": 100.0, "H": 400.0})
+    # A grid with S101P's widest spacing, where both marks are unambiguous.
+    ROOMY = ({"9": 100.0, "10": 250.0}, {"E": 100.0, "H": 400.0})
+
+    def _colmarks(self, tmp_path, monkeypatch, marks, axes):
+        pdf = self._sheet(tmp_path, marks)
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: axes)
+        cases = drawing_truth.build(pdf, "p1", "S101P", explain=False)
+        return {
+            (c["derivation"]["gridColumn"], c["derivation"]["gridRow"]): c["expected"]
+            for c in cases
+            if c["tag"] == "grid-colmark"
+        }
+
+    def test_the_owning_intersection_still_gets_its_case(self, tmp_path, monkeypatch):
+        got = self._colmarks(tmp_path, monkeypatch, [("C2", 101.0, 103.0)], self.TIGHT)
+        assert got.get(("9", "E")) == "C2", got
+
+    def test_the_neighbour_52pt_away_does_not(self, tmp_path, monkeypatch):
+        """The exact shape of the bug: 10/E is well inside MAX_LABEL_PT of a
+        mark that is 52pt closer to 9/E, and must not be handed it."""
+        got = self._colmarks(tmp_path, monkeypatch, [("C2", 101.0, 103.0)], self.TIGHT)
+        assert ("10", "E") not in got, f"10/E was handed 9/E's mark: {got}"
+
+    def test_a_mark_answers_exactly_one_question(self, tmp_path, monkeypatch):
+        """The set-wide invariant that was violated: 66 cases were drawn from
+        24 marks, and one C2 was the expected answer at four intersections."""
+        got = self._colmarks(tmp_path, monkeypatch, [("C2", 101.0, 103.0)], self.TIGHT)
+        assert len(got) <= 1, f"one mark produced {len(got)} cases: {got}"
+
+    def test_each_intersection_with_its_own_mark_keeps_both(self, tmp_path, monkeypatch):
+        """The rule must not simply delete the tag: where the drawing really
+        does mark both lines, both cases survive."""
+        got = self._colmarks(
+            tmp_path, monkeypatch, [("C2", 101.0, 103.0), ("C4", 251.0, 103.0)], self.ROOMY
+        )
+        assert got.get(("9", "E")) == "C2" and got.get(("10", "E")) == "C4", got
