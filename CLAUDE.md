@@ -1334,12 +1334,35 @@ reached through a PDF — a page whose text sits at exactly `atan(1/2)` is a flo
 coincidence, not a fixture — and an untestable branch is how the first two attempts at this
 survived their own mutation run.
 
-What the refusals do NOT show is a fixable yield problem. Three gaps refused for holding several
-DIFFERENT dimensions (9-8 holds four), and that is the rule working: a structural sheet layers a
-bay run, an overall dimension and partials, so those gaps genuinely have more than one true
-answer. Grouping by dimension LINE would reduce the count and would have to pick which chain is
-"the" answer, which is a guess wearing geometry's clothes. The honest ceiling for this tag on this
-sheet is however many gaps carry exactly one dimension, and that number is what it is.
+With the orientation fixed the tag then emitted **nothing at all**, and that is the honest state
+of it. Every one of the ten gaps now finds dimensions — the fix worked — and every one refuses for
+holding several DIFFERENT ones: `6-4.6` carries `1' - 6"`, `2' - 0"`, `2' - 6"`, `21' - 6 5/8"`
+and `145' - 10 7/8"`, which is a bay, three detail dimensions and the overall building length
+stacked in one gap. A structural sheet layers several dimension chains at once, so "the dimension
+between 6 and 4.6" has five candidate answers and the rule refuses all five rather than picking.
+
+That is the rule behaving correctly and the tag being useless, which are not in tension. The
+containment rule assumed a gap holds at most one dimension, and this sheet says otherwise on
+every gap it has. What would rescue it is the structure the refusals themselves reveal: a bay
+CHAIN lies along one dimension line and has exactly one entry per gap, so the question to ask is
+not "which dimensions are in this gap" but "is there a line on which EVERY gap has exactly one
+dimension". That is a derivable property rather than a preference — the chain either tiles the
+grid or it does not — and it refuses the same way when two lines qualify or none do. It is not
+built.
+
+The run also said none of this out loud. "40 cases emitted, 24 refused" read as healthy, and 40
+is exactly the footing-plus-column count, so the figure that should have raised the alarm was the
+one that looked normal. `tally` now breaks the emitted count down BY TAG and names any tag that
+produced zero, because a dead tag is not a smaller set — it is a question the benchmark has
+stopped asking, and nothing downstream mentions a tag that is simply absent.
+
+`--project` earned a correction in the same place, because two runs of the generator against two
+ingests came back byte-identical and that reads like a broken tool. It is not: this script derives
+its answers from the PDF and never opens a database, so the flag STAMPS an id onto every case and
+changes nothing else. Comparing two ingests means generating ONCE and passing `--project` to
+`drawing_eval.mjs` per run — the generator makes the questions, the scorer asks a corpus. The help
+text now says so, since the old wording ("projectId the questions are asked against") invited
+exactly the reading that wasted the run.
 
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
