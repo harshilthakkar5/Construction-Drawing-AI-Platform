@@ -285,6 +285,14 @@ drawing does not have. If a label has no line and no circle, leave it out.
 THEN WRITE THE PAIRINGS, ONE PER LINE, EACH BEGINNING WITH ITS FULL GRID
 COORDINATE in the form <column line>/<row line>:
 
+The "footing" field holds whatever the column bears on, however THIS sheet marks
+it — a footing, a pile cap, a pier, a pad, a grade beam — and the "column" field
+holds a member size or a mark keyed to a column schedule, whichever is printed.
+Use those two field names whatever the drawing calls the elements, so every
+sheet reads the same way downstream. A field is left out only when the value is
+illegible or absent, never because the drawing uses a notation this prompt did
+not name.
+
     At 12/K: footing F42, column HSS4X4X1/4.
     At 12/L: footing F42, column HSS4X4X1/4, detail 9/S-999.9 pointing at the column.
 
@@ -515,8 +523,21 @@ window and the bubble you can see may belong to a different line. Echo the
 number and the coordinate exactly as they were given.
 
 For each crop, report two things about THAT intersection:
-  - the footing mark (a short mark in a bubble or box, e.g. F31)
-  - the column member size (e.g. HSS7X7X7/16)
+  - the FOUNDATION mark — whatever the column bears on, however THIS sheet
+    marks it: a footing, a pile cap, a pier, a pad, a grade beam. It may sit in
+    a bubble, in a box, or on its own line above an elevation. Report the short
+    mark that is printed (e.g. F31) in the "footing" field, whatever the drawing
+    calls the element.
+  - the COLUMN, exactly as the drawing gives it: a member size (e.g.
+    HSS7X7X7/16), or a mark keyed to a column schedule. Either one is the
+    answer when it is what is printed.
+
+A field is a dash ONLY when the value is illegible or genuinely absent — never
+because the drawing uses a notation these instructions did not name. A sheet
+that marks its foundations against a schedule instead of printing a size is
+still a sheet with a foundation at that intersection, and a dash there reads
+downstream as "the drawing does not show this", which is a different and wrong
+claim.
 
 Write one line per crop, in the order given, and nothing else:
 
