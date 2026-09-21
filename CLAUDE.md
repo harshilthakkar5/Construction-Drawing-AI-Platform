@@ -1627,6 +1627,66 @@ page the gate had already refused. The gate was right on cost alone: 400 pages a
 some 26 hours and 60,800 images. The per-crop DPI is higher here (1820 against the first sheet's
 993) only because the bays are tighter, which is the same fact that makes the crops overlap.
 
+**It ran, and the advance prediction held for the second time in this file.** Same 51 questions,
+same fingerprint, so for the first time on this sheet the two arms are genuinely comparable:
+
+| | `off` (whole sheet) | `intersections` (crops) |
+|---|---|---|
+| `grid-colmark` (15) | 10 correct, **5 off-target — all five C2 cases** | **15 correct, nothing else** |
+| `grid-pilecap` (36) | 35 correct, 1 wrong | 20 correct, **16 abstained**, 0 wrong |
+| set-wide | 45 of 51 (88%) | 35 of 51 (69%) |
+| wrong + off-target + invented + hedged | 6 | **0** |
+| selective accuracy | 88% | **100%** |
+
+The prediction written before the run said: the sheet arm misses one whole label CLASS, and if
+the crop arm reads those five that is the same signature as the first sheet's `8X8`-read-as-`6X6`
+disappearing. It read all five. Set-wide the crop arm LOSES by 19 points, and the set-wide number
+is again the wrong thing to read: the two arms fail in opposite directions and only one of those
+directions is dangerous. The sheet arm asserts a label that is not there; the crop arm says
+nothing. Zero wrong answers in 51 is a WITHIN-run observation and it is the same one the first
+sheet produced.
+
+**The 16 abstentions are a PROMPT bug, and finding that is what this pair was for.** Geometry was
+ruled out first: all 36 pile-cap marks fall inside their own crop (half-extents 55.7 x 60.8pt,
+every mark nearer than that), so the model saw them and declined. The crop prompt asked for *"the
+footing mark (a short mark in a bubble or box, e.g. F31)"*, and S101P has no footings — it has
+PILE CAPS marked `PC1`/`PC2`, printed above an elevation rather than in a bubble. The column
+field scored 15 of 15 on the same crops because `column` names an ELEMENT the sheet has, while
+`footing` named one SPECIES of foundation it does not. Same asymmetry, one prompt.
+
+That is the generator's lesson arriving at the prompt one sheet later, and it had exactly the
+same shape: a vocabulary that belonged to the first sheet, invisible until a second one used
+another notation. The foundation field now names the CATEGORY — footing, pile cap, pier, pad,
+grade beam — the column field says outright that a schedule mark is as good an answer as a member
+size, and a dash is refused as a way out of an unfamiliar notation, because "the drawing does not
+show this" and "these instructions did not name my notation" read identically downstream and mean
+opposite things.
+
+The FIELD NAMES do not move. `footing` and `column` stay, whatever the drawing calls the
+elements, because `grid_coverage` counts those lines, `split_description` splits on them and
+`drawing_eval.mjs` scores them — renaming the field would make every run in this file's history
+incomparable with the next one, which is the last thing this section needs. The test for that is
+not a substring check: it feeds the prompt's OWN example lines to `parse_crop_batch` and requires
+them to parse, so renaming the field in either place fails. The first version of that test looked
+for the word "footing" somewhere in the prompt and survived a mutation that renamed the field in
+the instructions while leaving it in the example — a green test measuring nothing, for the third
+time in this file.
+
+What the fix is predicted to do, stated before it runs: the crop arm's 16 abstentions should
+become answers, and its selective accuracy should hold, since nothing about what it can READ has
+changed — only what it is permitted to report. If the abstentions persist, the cause is not
+vocabulary and the next place to look is the pile-cap callout's two-line shape (`PC1` above
+`(-1'-0")`) against a prompt that asks for one short mark. If they become WRONG answers rather
+than right ones, the widening bought a guess and must be narrowed again.
+
+**The decision this pair supports, which is not a score.** On a sheet whose geometry is the
+question, the crop arm is the one that does not fabricate: 0 errors against the sheet arm's 6,
+100% selective accuracy, and the one label class the sheet arm cannot see read at 15 of 15. The
+sheet arm's advantage on this run is entirely COVERAGE, and coverage is the half that a prompt
+fix addresses while fabrication is not. That is the whole argument for fixing the prompt rather
+than switching arms — and it stays an argument until the re-ingest lands, because both arms are
+still n=1 and the error bar is still 43 points.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,

@@ -627,6 +627,12 @@ class TestCropsAtEveryIntersection:
     """
 
     SET = Path(__file__).resolve().parents[2] / "benchmarks" / "drawing_eval_set.json"
+    # EVERY checked-in set. The seeding rule is about the sheets under test,
+    # and there are two of them now with disjoint vocabularies — guarding only
+    # the first would leave PC1/C4 free to appear in the prompt.
+    SETS = sorted(
+        (Path(__file__).resolve().parents[2] / "benchmarks").glob("drawing_eval_set*.json")
+    )
 
     @staticmethod
     def _bubble(page, x, y, label):
@@ -844,11 +850,14 @@ class TestCropPrompt:
         carrying this drawing's own marks would let a model score the prompt."""
         import json
 
-        cases = json.loads(TestCropsAtEveryIntersection.SET.read_text())
-        for case in cases:
-            for label in (case["expected"], case.get("distractor")):
-                if label:
-                    assert label.upper() not in vlm.CROP_SYSTEM.upper(), label
+        for path in TestCropsAtEveryIntersection.SETS:
+            for case in json.loads(path.read_text()):
+                for label in (case["expected"], case.get("distractor")):
+                    if label:
+                        assert label.upper() not in vlm.CROP_SYSTEM.upper(), (
+                            path.name,
+                            label,
+                        )
 
 
 class TestDescribeFromCrops:
@@ -1046,3 +1055,103 @@ class TestTheCropPassStillReportsItself:
                 vlm.render_crop(page, fitz.Rect(1000, 800, 1190, 1020), max_edge=3072)
         assert caplog.text.count("reaches the model") == 1
         doc.close()
+
+
+class TestTheFoundationFieldIsNotOneSpecies:
+    """The measured failure that produced this class.
+
+    S101P's crop run scored ZERO wrong, off-target, invented or hedged across
+    51 cases and still abstained on 16 of 36 pile caps. Geometry was ruled out
+    first — every one of those 36 marks falls inside its own crop — so the
+    model saw them and declined. The prompt asked for "the footing mark (a
+    short mark in a bubble or box, e.g. F31)", and this sheet has no footings:
+    it has PILE CAPS, printed as a mark above an elevation rather than in a
+    bubble. The column field scored 15 of 15 on the same crops, because
+    "column" names an element the sheet HAS while "footing" named one species
+    of foundation it does not.
+
+    It is the same lesson the GENERATOR learned one sheet earlier — the
+    vocabulary belonged to the first sheet — arriving at the prompt.
+    """
+
+    def test_the_crop_prompt_names_the_category_not_one_species(self):
+        for element in ("pile cap", "pier", "pad"):
+            assert element in vlm.CROP_SYSTEM.lower(), element
+
+    def test_the_sheet_prompt_names_them_too(self):
+        # The two prompts produce the SAME line format on purpose, so a
+        # vocabulary that widens on one side and not the other makes a crop run
+        # and a sheet run incomparable in exactly the way they must not be.
+        for element in ("pile cap", "pier", "pad"):
+            assert element in vlm.SYSTEM.lower(), element
+
+    def test_the_parser_accepts_the_prompt_s_own_example_lines(self):
+        """The contract the substring check could not express.
+
+        Renaming the field in the instructions while the parser still expects
+        `footing ..., column ...` is a silent break: the model does as it is
+        told, every line is discarded on a regex miss, and the page falls back
+        to the whole-sheet pass with nothing saying why. So the format is
+        asserted where it actually lives — the parser must accept the very
+        lines the prompt holds up as the shape to write.
+        """
+        import re as _re
+
+        examples = [
+            line.strip()
+            for line in vlm.CROP_SYSTEM.splitlines()
+            if _re.match(r"\s*\d+\.\s+\S+/\S+:", line)
+        ]
+        assert examples, "the crop prompt shows no example line at all"
+        # Every answer-shaped line the prompt shows must carry its INDEX. The
+        # index is half the alignment check — the coordinate says which
+        # intersection the model thought it was, the index says which image it
+        # was actually handed — so an example missing one teaches the shape
+        # that drifts in silence.
+        shown = [
+            line
+            for line in vlm.CROP_SYSTEM.splitlines()
+            if ": footing" in line and ", column" in line
+        ]
+        for line in shown:
+            assert _re.match(r"\s*\d+\.\s", line), f"example without an index: {line!r}"
+        for line in examples:
+            index = int(line.split(".", 1)[0])
+            label = line.split(":", 1)[0].split(".", 1)[1].strip()
+            # A batch long enough to contain this example's own index.
+            labels = [f"X{n}/Y" for n in range(index)]
+            labels[index - 1] = label
+            got = vlm.parse_crop_batch(line, labels)
+            assert label in got, (line, got)
+
+    def test_both_still_demand_the_footing_field_name(self):
+        # The FIELD NAME is the format, and the format is load-bearing:
+        # grid_coverage counts these lines, split_description splits on them
+        # and drawing_eval.mjs scores them. Widening what may go in the field
+        # must not rename it, or every run in this repo's history stops being
+        # comparable with the next one.
+        assert "footing" in vlm.CROP_SYSTEM and "column" in vlm.CROP_SYSTEM
+        assert "footing" in vlm.SYSTEM and "column" in vlm.SYSTEM
+
+    def test_a_dash_is_refused_as_a_way_out_of_an_unfamiliar_notation(self):
+        """The dash must stay available for illegible, and stop being
+        available for "these instructions did not name my notation" — those
+        read identically downstream and mean opposite things."""
+        # Whitespace-collapsed: the prompt is wrapped prose, so a phrase that
+        # happens to straddle a line break is still the phrase.
+        said = " ".join(vlm.CROP_SYSTEM.lower().split())
+        assert "illegible" in said
+        assert "never because the drawing uses a notation" in said
+
+    def test_the_illegible_rule_is_not_weakened(self):
+        # Widening the vocabulary must not buy back the guess this prompt has
+        # been narrowed twice to forbid.
+        said = " ".join(vlm.CROP_SYSTEM.lower().split())
+        assert "never carry a value from one crop to the next" in said
+        assert "a value written beside the word illegible is still a value" in said
+
+    def test_a_schedule_mark_is_an_acceptable_column_answer(self):
+        # The column field scored 15/15 on marks it was never told to accept.
+        # That it worked is luck the next sheet should not need.
+        assert "column schedule" in vlm.CROP_SYSTEM.lower()
+        assert "column schedule" in vlm.SYSTEM.lower()
