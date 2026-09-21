@@ -120,9 +120,17 @@ function parseArgs(argv) {
  */
 export function mentions(haystack, needle) {
   if (!needle) return false;
-  const body = [...needle]
-    .map((ch) => (/[a-z0-9]/i.test(ch) ? ch : `\\${ch}`))
-    .join("\\s*");
+  // Whitespace in the NEEDLE is dropped rather than escaped, because `\s*`
+  // already sits between every pair of characters and a literal space would
+  // make the sheet's own spacing mandatory. That mattered the moment a
+  // dimension became an answer: the drafter writes `26' - 2 1/2"` and a model
+  // writes `26'-2 1/2"`, and the escaped version matched neither against the
+  // other. It would have scored a correct answer as an ABSTENTION — the same
+  // shape as the HSS9X9X3/8 run, where a wrong-looking vocabulary turned 21
+  // answers into refusals.
+  const chars = [...needle].filter((ch) => !/\s/.test(ch));
+  if (chars.length === 0) return false;
+  const body = chars.map((ch) => (/[a-z0-9]/i.test(ch) ? ch : `\\${ch}`)).join("\\s*");
   return new RegExp(`(?<![a-z0-9])${body}(?![a-z0-9])`, "i").test(haystack);
 }
 
@@ -620,6 +628,25 @@ function bayLength(rows) {
     }
   }
   return Number.isFinite(shortest) ? shortest : null;
+}
+
+/**
+ * Where on the sheet a case is, as the report names it.
+ *
+ * An intersection case is "4/B"; a spacing case is not AT a point at all, it
+ * is the gap between two lines, so it is "7-8". The field is an identity in
+ * `drift` (a label's home is compared by it) as well as a label on screen, so
+ * it has to be distinct per case and readable — and reading
+ * `derivation.gridColumn` off a case that has none printed `undefined/undefined`
+ * against every spacing miss, which is the shape of a field nobody checked.
+ */
+export function caseLocation(derivation = {}) {
+  if (Array.isArray(derivation.between) && derivation.between.length === 2) {
+    return derivation.between.join("-");
+  }
+  const { gridColumn, gridRow } = derivation;
+  if (gridColumn === undefined || gridRow === undefined) return "?";
+  return `${gridColumn}/${gridRow}`;
 }
 
 export function drift(rows) {
@@ -1586,7 +1613,7 @@ async function main() {
     // pattern anchored on one id per bracket matches neither half of.
     const citedChunkIds = citations.extractCitedChunkIds(text);
     rows.push({
-      grid: `${testCase.derivation.gridColumn}/${testCase.derivation.gridRow}`,
+      grid: caseLocation(testCase.derivation),
       // Where this intersection IS, in the PDF's own points. Carried so the
       // report can tell a misread label from a correctly-read one placed at
       // the wrong intersection — two failures with opposite fixes.

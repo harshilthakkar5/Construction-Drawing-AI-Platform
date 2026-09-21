@@ -10,6 +10,7 @@ filing the most dangerous outcome as the safest.
 
 import json
 import re
+import fitz
 import sys
 from pathlib import Path
 
@@ -211,3 +212,213 @@ class TestWhoseLabelsACropContains:
         said = capsys.readouterr().err
         assert "2/A's crop starts 25.8pt away" in said
         assert "3/A" not in said
+
+
+class TestTheSpacingTag:
+    """A bay dimension is the one question a crop description cannot hold.
+
+    The crop pass writes a grid header and one line per intersection. What lies
+    BETWEEN two grid lines is not in it at all, and it is not in the text layer
+    either — not as a fact. The number is there; which gap owns it is not.
+    """
+
+    # (text, x, y) in display coordinates, as dimensions_of returns them.
+    CHAIN = [
+        ("26' - 2 1/2\"", 209.0, 40.0),
+        ("5' - 3 1/2\"", 383.0, 40.0),
+        ("18' - 0\"", 520.0, 40.0),
+    ]
+    COLUMNS = {"7": 100.0, "8": 318.0, "9": 448.0, "10": 592.0}
+
+    def test_the_dimension_inside_a_gap_is_the_answer(self):
+        value, reason = drawing_truth.dimension_between(self.CHAIN, 100.0, 318.0, 0)
+        assert value == "26' - 2 1/2\""
+        assert reason == ""
+
+    def test_containment_is_the_rule_and_not_nearest(self):
+        # 5'-3 1/2" at x=383 is 65pt from the 318 line and 26'-2 1/2" at 209 is
+        # 109pt from it. Nearest would give the 8-9 gap the wrong one; the gap
+        # it is printed INSIDE gives the right one.
+        value, _ = drawing_truth.dimension_between(self.CHAIN, 318.0, 448.0, 0)
+        assert value == "5' - 3 1/2\""
+
+    def test_two_different_dimensions_in_one_gap_are_refused(self):
+        # An overall dimension crossing a bay run: the question has two true
+        # answers and the set must not pick one.
+        crowded = [*self.CHAIN, ("44' - 6\"", 250.0, 90.0)]
+        value, reason = drawing_truth.dimension_between(crowded, 100.0, 318.0, 0)
+        assert value is None
+        assert "2 different dimensions" in reason
+
+    def test_the_same_value_written_twice_is_one_answer(self):
+        twice = [*self.CHAIN, ("26' - 2 1/2\"", 209.0, 300.0)]
+        value, _ = drawing_truth.dimension_between(twice, 100.0, 318.0, 0)
+        assert value == "26' - 2 1/2\""
+
+    def test_a_dimension_just_outside_the_boundary_is_refused(self):
+        # 7pt past the 318 line: containment says it belongs to the next gap
+        # and 20pt of jitter says that verdict is rounding. The reading moves,
+        # so there is no answer here — the same refusal a label gets when it
+        # moves under jitter, applied to the BOUNDARY rather than to a point.
+        edgy = [("26' - 2 1/2\"", 209.0, 40.0), ("9' - 0\"", 325.0, 40.0)]
+        value, reason = drawing_truth.dimension_between(edgy, 100.0, 318.0, 0)
+        assert value is None
+        assert "boundary jitter" in reason
+
+    def test_an_empty_gap_is_refused_rather_than_guessed(self):
+        value, reason = drawing_truth.dimension_between(self.CHAIN, 700.0, 900.0, 0)
+        assert value is None
+        assert "no dimension" in reason
+
+    def test_the_row_axis_reads_the_other_coordinate(self):
+        vertical = [("12' - 0\"", 40.0, 209.0)]
+        assert drawing_truth.dimension_between(vertical, 100.0, 318.0, 1)[0] == "12' - 0\""
+        assert drawing_truth.dimension_between(vertical, 100.0, 318.0, 0)[0] is None
+
+    def test_only_adjacent_grid_lines_are_asked_about(self):
+        # "between 7 and 9" spans a line and has no single dimension. Asking it
+        # would score a model for declining what the drawing declines too.
+        pairs = drawing_truth.adjacent_pairs(self.COLUMNS)
+        assert [(a, b) for a, b, _, _ in pairs] == [("7", "8"), ("8", "9"), ("9", "10")]
+
+    def test_pairs_come_from_position_and_not_from_name(self):
+        # Grid names are not sortable: 4.6 sits between 4 and 6, and "10" sorts
+        # before "7" as a string.
+        pairs = drawing_truth.adjacent_pairs({"6": 300.0, "4": 100.0, "4.6": 230.0})
+        assert [(a, b) for a, b, _, _ in pairs] == [("4", "4.6"), ("4.6", "6")]
+
+    def test_the_distractor_is_the_neighbouring_bay(self):
+        got = drawing_truth._neighbour_bay(self.CHAIN, self.COLUMNS, "8", "9", 0, "5' - 3 1/2\"")
+        assert got in {"26' - 2 1/2\"", "18' - 0\""}
+
+    def test_a_bay_with_no_usable_neighbour_has_no_distractor(self):
+        lone = [("26' - 2 1/2\"", 209.0, 40.0)]
+        assert drawing_truth._neighbour_bay(lone, {"7": 100.0, "8": 318.0}, "7", "8", 0, "26' - 2 1/2\"") is None
+
+    def test_the_pattern_matches_a_dimension_as_a_drafter_writes_it(self):
+        for good in ("26' - 2 1/2\"", "18' - 0\"", "5'-3 1/2\""):
+            assert drawing_truth.DIMENSION.fullmatch(good), good
+        for bad in ("S-301.0", "HSS8X8X3/8", "F9", "26'"):
+            assert not drawing_truth.DIMENSION.fullmatch(bad), bad
+
+    def test_the_scorers_shape_pattern_accepts_what_a_model_writes(self):
+        # The extraction pattern reads the PDF, where the spacing is the
+        # drafter's. The scorer sees prose, where it is the model's.
+        shape = re.compile(drawing_truth.LABEL_PATTERN["grid-spacing"])
+        for written in ("26' - 2 1/2\"", "26'-2 1/2\"", "26' - 2 1/2 \""):
+            assert shape.fullmatch(written), written
+        assert not shape.fullmatch("HSS8X8X3/8")
+
+
+class TestTheSpacingLoopActuallyRuns:
+    """`build` end to end over a real PDF, because the unit tests above cover
+    the decisions and NOT the loop that calls them.
+
+    That distinction is not academic here. A first regeneration against the
+    real sheet emitted 40 cases and 14 refusals — every one of them a footing
+    or a column, not one spacing case and, more tellingly, not one spacing
+    REFUSAL. Ten candidate gaps producing neither an answer nor a reason is
+    the signature of a loop that never ran, and no test of `dimension_between`
+    could have shown it.
+    """
+
+    @staticmethod
+    def _sheet(tmp_path, dimensions):
+        """A page carrying the given dimensions; a 4th field rotates one."""
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        for text, x, y, *rest in dimensions:
+            page.insert_text((x, y), text, fontsize=8, rotate=(rest[0] if rest else 0))
+        path = tmp_path / "sheet.pdf"
+        doc.save(str(path))
+        doc.close()
+        return str(path)
+
+    # Two column lines and two row lines, so there is exactly one gap on each
+    # axis and the arithmetic is checkable by eye.
+    AXES = ({"7": 100.0, "8": 400.0}, {"B": 100.0, "C": 500.0})
+
+    def test_a_gap_with_one_dimension_becomes_a_case(self, tmp_path, monkeypatch):
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        cases = drawing_truth.build(pdf, "p1", "S-100.0", explain=False)
+        spacing = [c for c in cases if c["tag"] == "grid-spacing"]
+        assert len(spacing) == 1, [c["question"] for c in cases]
+        assert spacing[0]["expected"] == "26'-2 1/2\""
+        assert "column line 7 and column line 8" in spacing[0]["question"]
+
+    def test_the_case_carries_what_the_scorer_needs(self, tmp_path, monkeypatch):
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        case = [c for c in drawing_truth.build(pdf, "p1", "S-100.0", False) if c["tag"] == "grid-spacing"][0]
+        assert case["labelPattern"] == drawing_truth.LABEL_PATTERN["grid-spacing"]
+        assert case["sheetLabels"] == ["26'-2 1/2\""]
+        assert case["derivation"]["between"] == ["7", "8"]
+        assert case["derivation"]["gapPt"] == 300.0
+        assert case["projectId"] == "p1"
+
+    def test_a_gap_that_refuses_says_so_instead_of_vanishing(self, tmp_path, monkeypatch):
+        # No dimension anywhere: both gaps must REFUSE, and a refusal is what
+        # tells someone the loop ran at all.
+        pdf = self._sheet(tmp_path, [("S-301.0", 200.0, 300.0)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        cases = drawing_truth.build(pdf, "p1", "S-100.0", explain=False)
+        assert not [c for c in cases if c["tag"] == "grid-spacing"]
+
+    def test_both_axes_are_walked(self, tmp_path, monkeypatch):
+        # One dimension written across for the column gap, one rotated for the
+        # row gap. A loop that ran only the first axis passes every test above.
+        pdf = self._sheet(
+            tmp_path,
+            [("26'-2 1/2\"", 200.0, 300.0), ("12'-0\"", 600.0, 300.0, 90)],
+        )
+        monkeypatch.setattr(
+            drawing_truth.grid,
+            "axes",
+            lambda _: ({"7": 100.0, "8": 400.0}, {"B": 100.0, "C": 500.0}),
+        )
+        cases = drawing_truth.build(pdf, "p1", "S-100.0", explain=False)
+        axes_asked = {c["derivation"]["axis"] for c in cases if c["tag"] == "grid-spacing"}
+        assert axes_asked == {"column line", "row line"}
+
+    def test_a_page_with_no_grid_emits_no_spacing_case(self, tmp_path, monkeypatch):
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: ({}, {}))
+        assert drawing_truth.build(pdf, "p1", "S-100.0", explain=False) == []
+
+    def test_a_horizontal_dimension_never_answers_a_row_gap(self, tmp_path, monkeypatch):
+        # It sits inside the row gap by containment, and it measures a
+        # horizontal distance. Offering it as the answer to "what is between
+        # row lines B and C" would be a wrong answer derived from the PDF,
+        # which is the one thing this generator must never produce.
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        spacing = [
+            c for c in drawing_truth.build(pdf, "p1", "S-100.0", False) if c["tag"] == "grid-spacing"
+        ]
+        assert [c["derivation"]["axis"] for c in spacing] == ["column line"]
+
+    def test_a_rotated_dimension_answers_the_row_gap_alone(self, tmp_path, monkeypatch):
+        pdf = self._sheet(tmp_path, [("12'-0\"", 200.0, 300.0, 90)])
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        spacing = [
+            c for c in drawing_truth.build(pdf, "p1", "S-100.0", False) if c["tag"] == "grid-spacing"
+        ]
+        assert [c["derivation"]["axis"] for c in spacing] == ["row line"]
+        assert spacing[0]["expected"] == "12'-0\""
+
+    def test_dimensions_of_reports_which_way_the_text_runs(self, tmp_path):
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0), ("12'-0\"", 600.0, 300.0, 90)])
+        doc = fitz.open(pdf)
+        by_text = {d[0]: d[3] for d in drawing_truth.dimensions_of(doc[0])}
+        assert by_text == {"26'-2 1/2\"": True, "12'-0\"": False}
+        doc.close()
+
+    def test_dimensions_are_read_off_the_page_itself(self, tmp_path):
+        pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0), ("HSS8X8X3/8", 400.0, 300.0)])
+        doc = fitz.open(pdf)
+        found = drawing_truth.dimensions_of(doc[0])
+        assert [d[0] for d in found] == ["26'-2 1/2\""]
+        text, x, y, _ = found[0]
+        assert 200.0 < x < 300.0, "the span's centre, not its origin"
+        doc.close()

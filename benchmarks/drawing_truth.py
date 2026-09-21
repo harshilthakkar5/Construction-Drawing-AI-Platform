@@ -111,11 +111,119 @@ MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 # in Python's `re` and in JavaScript's RegExp.
 LABEL_PATTERN = {
     "grid-footing": r"F\d{1,2}",
+    # A dimension as a drafter writes it: 26' - 2 1/2". Every separator is
+    # optional-whitespace tolerant for the same reason the member size is —
+    # the sheet writes "26' - 2 1/2"" and a model writes "26'-2 1/2"".
+    "grid-spacing": (
+        r"\d+\s*'\s*-?\s*\d+(?:\s*\d+\s*/\s*\d+)?\s*\""
+    ),
     "grid-column": (
         r"HSS\s*\d+(?:\.\d+)?\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?"
         r"(?:\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?)?"
     ),
 }
+
+
+# A dimension string as this sheet prints it. Unlike a footing mark or a member
+# size, a dimension is NOT one word: `get_text("words")` splits `26' - 2 1/2"`
+# into four. It is read off SPANS instead, and only a span whose whole text is
+# one dimension is taken — a span holding two would have one bbox and two
+# positions, and guessing which half sits where is exactly the kind of
+# approximation this file refuses everywhere else.
+DIMENSION = re.compile(r"\d+'\s*-?\s*\d+(?:\s+\d+/\d+)?\"")
+
+
+def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float, bool]]:
+    """Every dimension string on the page: (text, x, y, horizontal).
+
+    ORIENTATION is the fourth field and it is not decoration. Containment on
+    one axis cannot tell a horizontal dimension from a vertical one, so a bay
+    dimension written across the top of the plan also sits inside every ROW
+    gap it happens to span — and would be emitted as the answer to "what is
+    between row lines B and C", which is a horizontal measurement offered for
+    a vertical distance. A drafter settles it the way a reader does: a
+    dimension measuring a horizontal distance is written horizontally, and one
+    measuring a vertical distance is rotated to run with it. `line["dir"]` is
+    the writing direction, (1, 0) across and (0, ±1) down.
+
+    If the convention does not hold on some sheet the case REFUSES for want of
+    a dimension rather than emitting a wrong one, which is the direction an
+    error here has to fall.
+    """
+    to_display = ~page.derotation_matrix
+    out = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            horizontal = abs(line.get("dir", (1.0, 0.0))[0]) > abs(line.get("dir", (1.0, 0.0))[1])
+            for span in line.get("spans", []):
+                text = span["text"].strip()
+                if not DIMENSION.fullmatch(text):
+                    continue
+                x, y = grid.centre(fitz.Rect(span["bbox"]) * to_display)
+                out.append((text, x, y, horizontal))
+    return out
+
+
+def dimension_between(dimensions, low: float, high: float, axis: int):
+    """The single dimension printed inside the gap (low, high) on one axis.
+
+    Returns (value, "") or (None, reason). `axis` is 0 for the x coordinate
+    (a column bay) and 1 for y (a row bay).
+
+    Containment rather than nearest-neighbour, because a dimension is not a
+    LABEL of the gap — it is written ALONG it, anywhere on a dimension line
+    that may sit far above or below the plan. The distance from the two grid
+    lines says nothing; being between them says everything.
+
+    Ambiguity is refused rather than resolved. A structural sheet carries
+    several dimension chains at once — the bay run, an overall dimension, a
+    partial to a slab edge — and more than one distinct value inside one gap
+    means the question "what is between 7 and 8" has more than one true answer.
+    Two spans reading the SAME value are one answer written twice and are fine.
+    """
+    # Items may be (text, x, y) or (text, x, y, horizontal) — the orientation
+    # filter belongs to the CALLER, which knows what the sheet's conventions
+    # are, and not to this arithmetic.
+    inside = {
+        item[0]
+        for item in dimensions
+        if low < (item[1], item[2])[axis] < high
+    }
+    if not inside:
+        return None, "no dimension printed inside this gap"
+    if len(inside) > 1:
+        return None, f"{len(inside)} different dimensions inside this gap: {', '.join(sorted(inside))}"
+    value = inside.pop()
+    # The same jitter test the label readings get, applied to the boundary
+    # rather than to a point: widen and narrow the gap by JITTER_PT and the
+    # answer must not change. A dimension sitting within 20pt of a grid line
+    # belongs to whichever side the rounding fell on, which is not an answer.
+    for grow in (-JITTER_PT, JITTER_PT):
+        moved = {
+            item[0]
+            for item in dimensions
+            if low - grow < (item[1], item[2])[axis] < high + grow
+        }
+        if moved != {value}:
+            return None, (
+                f"the reading moves under {JITTER_PT:.0f}pt of boundary jitter: "
+                f"{value} -> {', '.join(sorted(moved)) or 'nothing'}"
+            )
+    return value, ""
+
+
+def adjacent_pairs(positions: dict[str, float]) -> list[tuple[str, str, float, float]]:
+    """Neighbouring grid lines on one axis, ordered by position.
+
+    Only ADJACENT pairs: "between 7 and 9" spans a line and has no single
+    dimension, and asking it would score a model for refusing to answer a
+    question the drawing does not answer either.
+    """
+    ordered = sorted(positions.items(), key=lambda kv: kv[1])
+    return [
+        (a[0], b[0], a[1], b[1])
+        for a, b in zip(ordered, ordered[1:])
+    ]
 
 
 def labels_of(page: fitz.Page, pattern: re.Pattern) -> list[tuple[str, float, float]]:
@@ -171,6 +279,26 @@ def runner_up(labels, x: float, y: float, exclude: str) -> str | None:
     return best[0] if best else None
 
 
+def _neighbour_bay(dimensions, positions, first, second, axis, exclude):
+    """The dimension in a gap ADJOINING this one, as the distractor.
+
+    Chosen the same way `runner_up` chooses one for a label: the most plausible
+    wrong answer, not an arbitrary other value. A model that reads the
+    dimension chain and loses its place by one names its neighbour.
+    """
+    pairs = adjacent_pairs(positions)
+    for index, (a, b, _, _) in enumerate(pairs):
+        if (a, b) != (first, second):
+            continue
+        for step in (index - 1, index + 1):
+            if not 0 <= step < len(pairs):
+                continue
+            value, _ = dimension_between(dimensions, pairs[step][2], pairs[step][3], axis)
+            if value and value != exclude:
+                return value
+    return None
+
+
 def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[dict]:
     doc = fitz.open(pdf)
     cases: list[dict] = []
@@ -183,7 +311,51 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
             continue
         footings = labels_of(page, FOOTING_MARK)
         members = labels_of(page, MEMBER_CALLOUT)
+        dimensions = dimensions_of(page)
         sheet_name = sheet or f"page {page_index + 1}"
+
+        # The spacing tag asks what the crop pass cannot answer. A crop
+        # description holds a grid header and one line per intersection and
+        # says nothing about what lies BETWEEN them, so a bay dimension is the
+        # narrowest question that separates the two vision modes. It is a
+        # geometry question in exactly the sense the footing tag is: the value
+        # is in the text layer, and WHICH gap it belongs to is not — the text
+        # stream returns every dimension on the sheet in one run, associated
+        # with nothing. A chunker recovers the numbers and never the pairing.
+        for axis, (name, positions, other) in enumerate(
+            (("column line", columns, "row"), ("row line", rows, "column")),
+        ):
+            # A column gap is a horizontal distance, so only horizontally
+            # written dimensions can measure it, and vice versa.
+            on_axis = [d for d in dimensions if d[3] == (axis == 0)]
+            for first, second, low, high in adjacent_pairs(positions):
+                value, reason = dimension_between(on_axis, low, high, axis)
+                if value is None:
+                    refusals.append(f"{sheet_name} {first}-{second} grid-spacing: {reason}")
+                    continue
+                cases.append(
+                    {
+                        "projectId": project_id,
+                        "tag": "grid-spacing",
+                        "question": (
+                            f"On sheet {sheet_name}, what is the dimension between "
+                            f"{name} {first} and {name} {second}?"
+                        ),
+                        "expected": value,
+                        # The neighbouring bay: the value a model reaching one
+                        # gap over would name, which is the drift this tag can
+                        # see and the one a crop run cannot commit at all.
+                        "distractor": _neighbour_bay(on_axis, positions, first, second, axis, value),
+                        "labelPattern": LABEL_PATTERN["grid-spacing"],
+                        "sheetLabels": sorted({d[0] for d in dimensions}),
+                        "derivation": {
+                            "sheet": sheet_name,
+                            "axis": name,
+                            "between": [first, second],
+                            "gapPt": round(high - low, 1),
+                        },
+                    }
+                )
 
         # Via grid.intersections rather than a nested loop here, so the
         # generator and the vision pass cannot disagree about what "4/B" means.
