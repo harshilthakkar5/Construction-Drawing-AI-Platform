@@ -39,6 +39,7 @@ import {
   sameCorpusAgain,
   setFingerprint,
   sameQuestions,
+  labelFromChunks,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1767,4 +1768,59 @@ test("the report says COVERAGE rather than accusing a prior", () => {
   assert.doesNotMatch(out, /while reading nothing/);
   assert.match(out, /never once named/);
   assert.match(out, /That is COVERAGE/);
+});
+
+// ---------------------------------------------------------------------------
+// The label a run carries should come from the CHUNKS, not from a flag typed
+// by hand off a worker log. VLM_* is read at ingest; until chunks.sourceSettings
+// existed the benchmark could not recover it, and a wrong --label manufactures
+// a measurement rather than merely lacking one.
+// ---------------------------------------------------------------------------
+
+const described = (settings, model = "gemini/gemini-3.6-flash") => ({
+  id: "d1",
+  tokenCount: 200,
+  sourceModel: model,
+  sourceSettings: settings,
+});
+
+test("the label names the model and every setting that decided the description", () => {
+  const label = labelFromChunks([
+    described({ provider: "gemini", model: "gemini-3.6-flash", VLM_CROP: "intersections", VLM_MAX_TOKENS: 4000 }),
+  ]);
+  assert.match(label, /gemini\/gemini-3\.6-flash/);
+  assert.match(label, /VLM_CROP=intersections/);
+  assert.match(label, /VLM_MAX_TOKENS=4000/);
+});
+
+test("two ingests at one configuration produce the SAME label", () => {
+  // The whole point: equal labels group as repeats, which is what turns an
+  // error bar into something the harness computes rather than something a
+  // flag asserts.
+  const a = labelFromChunks([described({ VLM_CROP: "off", VLM_MAX_TOKENS: 4000 })]);
+  const b = labelFromChunks([described({ VLM_MAX_TOKENS: 4000, VLM_CROP: "off" })]);
+  assert.equal(a, b, "key order must not change the label");
+});
+
+test("a changed setting produces a DIFFERENT label", () => {
+  const a = labelFromChunks([described({ VLM_CROP: "off" })]);
+  const b = labelFromChunks([described({ VLM_CROP: "intersections" })]);
+  assert.notEqual(a, b);
+});
+
+test("descriptions that disagree get no label at all", () => {
+  // Two configurations in one corpus is not a labelling problem — it is a page
+  // described twice under different settings, and naming it after either would
+  // assert an experiment that did not happen.
+  const label = labelFromChunks([
+    described({ VLM_CROP: "off" }),
+    described({ VLM_CROP: "intersections" }),
+  ]);
+  assert.equal(label, null);
+});
+
+test("a corpus written before the column existed has no derived label", () => {
+  assert.equal(labelFromChunks([{ id: "d1", tokenCount: 200 }]), null);
+  assert.equal(labelFromChunks([]), null);
+  assert.equal(labelFromChunks(null), null);
 });

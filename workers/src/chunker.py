@@ -116,6 +116,13 @@ class Chunk:
     # citation leads to the thing it cites, and a reader who clicks through to
     # a description must not find sentences that are nowhere on the page.
     kind: str = "text"
+    # Only a chunk a MODEL wrote carries these: "<provider>/<model>" and the
+    # settings that decided what it says. A text chunk is words lifted off the
+    # sheet and has no source in this sense, so None there is a fact rather
+    # than a gap — and None on a description means its settings were not
+    # recorded, which is a different fact and must stay tellable apart.
+    source_model: str | None = None
+    source_settings: dict | None = None
 
 
 def _bbox_union(blocks: list[Block]) -> dict:
@@ -387,7 +394,13 @@ def _split_oversized_block(block: Block) -> list[Chunk]:
     ]
 
 
-def split_description(text: str, bbox: dict) -> list[Chunk]:
+def split_description(
+    text: str,
+    bbox: dict,
+    *,
+    source_model: str | None = None,
+    source_settings: dict | None = None,
+) -> list[Chunk]:
     """A vision description, packed to the size of every other chunk.
 
     The description arrives as one string whose length is whatever
@@ -427,6 +440,8 @@ def split_description(text: str, bbox: dict) -> list[Chunk]:
                     bbox=dict(bbox),
                     token_count=estimate_tokens(joined),
                     kind="description",
+                    source_model=source_model,
+                    source_settings=source_settings,
                 )
             )
         current, current_tokens = [], 0
@@ -442,6 +457,8 @@ def split_description(text: str, bbox: dict) -> list[Chunk]:
                         bbox=dict(bbox),
                         token_count=estimate_tokens(piece),
                         kind="description",
+                        source_model=source_model,
+                        source_settings=source_settings,
                     )
                 )
             continue

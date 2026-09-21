@@ -330,6 +330,19 @@ model Chunk {
   textHash    String?
   /// Qdrant point ID; PostgreSQL is the source of truth for references.
   embeddingId String? @unique
+  /// "<provider>/<model>" for a chunk a model WROTE — today only kind=
+  /// "description". NULL on every text chunk and on everything written before
+  /// this column existed, and those two must stay distinguishable from a
+  /// description whose settings were never recorded.
+  sourceModel String?
+  /// The settings that decided what that description says, as vlm
+  /// ._report_settings names them. `VLM_*` is read at ingest and the chunks
+  /// carried none of it, so the only record of a run's configuration was a
+  /// --label typed by hand off a log line — and a wrong label manufactures a
+  /// measurement rather than merely lacking one. Two ingests with equal
+  /// settings are the same experiment repeated, which is what makes an error
+  /// bar computable without anyone remembering to pass a flag.
+  sourceSettings Json?
 
   page    Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
   portion Portion? @relation(fields: [portionId], references: [id], onDelete: SetNull)

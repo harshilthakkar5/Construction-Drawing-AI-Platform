@@ -368,9 +368,26 @@ async function descriptionChunksOnSheets(prisma, cases) {
         kind: "description",
         page: { sheetNumber: sheet, document: { projectId, supersededAt: null } },
       },
-      select: { id: true, tokenCount: true },
+      // sourceModel/sourceSettings are what `--label` used to stand in for.
+      // VLM_* is read by the worker at ingest, so until the chunk carried its
+      // own configuration the only record was a flag typed by hand off a log
+      // line — and a wrong label manufactures a measurement rather than merely
+      // lacking one.
+      select: {
+        id: true,
+        tokenCount: true,
+        sourceModel: true,
+        sourceSettings: true,
+      },
     });
-    ids.push(...found.map((c) => ({ id: c.id, tokenCount: c.tokenCount ?? null })));
+    ids.push(
+      ...found.map((c) => ({
+        id: c.id,
+        tokenCount: c.tokenCount ?? null,
+        sourceModel: c.sourceModel ?? null,
+        sourceSettings: c.sourceSettings ?? null,
+      })),
+    );
   }
   return ids;
 }
@@ -1009,6 +1026,35 @@ const RECENT_INGESTS = 5;
  * changing a question, and two ingests asked the same questions are the
  * comparison this whole file exists to make.
  */
+/**
+ * The label this run would carry if nobody typed one: the configuration the
+ * CHUNKS say produced them.
+ *
+ * `--label` exists because `VLM_*` is read by the worker at ingest and the
+ * benchmark could not recover it. That is no longer true — `chunks
+ * .sourceSettings` carries it — so the flag is now a fallback for corpora
+ * written before the column existed rather than the only record.
+ *
+ * Returns null rather than guessing when the descriptions disagree with each
+ * other. Two configurations in one corpus is not a labelling problem, it is a
+ * page described twice under different settings, and naming it after either
+ * one would assert an experiment that did not happen.
+ */
+export function labelFromChunks(descriptions) {
+  const stamped = (descriptions ?? []).filter((d) => d && d.sourceSettings);
+  if (!stamped.length) return null;
+  const seen = new Set(
+    stamped.map((d) => JSON.stringify(d.sourceSettings, Object.keys(d.sourceSettings).sort())),
+  );
+  if (seen.size > 1) return null;
+  const settings = stamped[0].sourceSettings;
+  const parts = Object.entries(settings)
+    .filter(([k]) => k !== "provider" && k !== "model")
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`);
+  return [stamped[0].sourceModel, ...parts].filter(Boolean).join(" ");
+}
+
 export function setFingerprint(cases) {
   const body = (cases ?? [])
     .map((c) => `${c.tag}|${c.question}|${c.expected}`)
@@ -1346,7 +1392,16 @@ export function summarize(rows) {
   };
 }
 
-export function report(rows, json, onSheet, history = null, biggestDescription = null, fingerprint = null) {
+export function report(
+  rows,
+  json,
+  onSheet,
+  history = null,
+  biggestDescription = null,
+  fingerprint = null,
+  derivedLabel = null,
+) {
+  const onSheetHasChunks = (onSheet ?? []).length > 0;
   if (json) {
     console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
@@ -1726,6 +1781,12 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
       `k=${RETRIEVAL_LIMIT}` +
       `\n  Project: ${rows[0]?.projectId ?? "?"}` +
       `\n  Descriptions scored: ${descriptions.length ? descriptions.join(", ") : "NONE"}` +
+      (derivedLabel
+        ? `\n  Written by: ${derivedLabel}`
+        : onSheetHasChunks
+        ? "\n  Written by: NOT RECORDED — these descriptions predate chunks.sourceSettings, so " +
+          "this run's configuration is only as good as its --label."
+        : "") +
       `\n  ${describeCoverage(onSheet ?? [], descriptions, biggestDescription)}\n`,
   );
 }
@@ -1876,7 +1937,10 @@ async function main() {
         // description for every one of its cases still only ever surfaced one.
         descriptionChunksOnSheet: [...descriptionIdsOnSheet].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
-        label: args.label ?? null,
+        // The chunks' own record wins over a typed flag: it cannot be
+        // mistyped and it cannot be forgotten. `--label` stays for corpora
+        // written before `sourceSettings` existed.
+        label: labelFromChunks(descriptionsOnSheet) ?? args.label ?? null,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
         hybridRetrieval: process.env.HYBRID_RETRIEVAL ?? "true",
         summary: summarize(rows),
@@ -1894,6 +1958,7 @@ async function main() {
     readRunHistory(dirname(outPath), args.set),
     biggestDescription,
     fingerprint,
+    labelFromChunks(descriptionsOnSheet),
   );
   process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();

@@ -56,14 +56,14 @@ class TestParallelExtraction:
         lock = threading.Lock()
         original = processing._process_page
 
-        def record(project_id, document_id, pdf, index, offset):
+        def record(project_id, document_id, pdf, index, offset, spend=None):
             with lock:
                 seen.append(index)
             return original(project_id, document_id, pdf, index, offset)
 
         monkeypatch.setattr(processing, "_process_page", record)
         processed, ocr = processing._extract_pages(
-            "p", "d", pdf_path, list(range(12)), 0, 12, "test"
+            "p", "d", pdf_path, list(range(12)), 0, 12, "test", processing.DocumentSpend()
         )
         assert processed == 12
         assert ocr == 0
@@ -77,7 +77,7 @@ class TestParallelExtraction:
         lock = threading.Lock()
         start = threading.Event()
 
-        def slow(project_id, document_id, pdf, index, offset):
+        def slow(project_id, document_id, pdf, index, offset, spend=None):
             nonlocal inside, peak
             with lock:
                 inside += 1
@@ -89,24 +89,28 @@ class TestParallelExtraction:
             return False
 
         monkeypatch.setattr(processing, "_process_page", slow)
-        processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "test")
+        processing._extract_pages(
+            "p", "d", pdf_path, list(range(12)), 0, 12, "test", processing.DocumentSpend()
+        )
         assert peak > 1, "pages were still processed one at a time"
 
     def test_one_thread_still_works(self, processing, pdf_path, monkeypatch):
         """PAGE_CONCURRENCY=1 must behave exactly like the old serial loop."""
         monkeypatch.setattr(processing.config, "PAGE_CONCURRENCY", 1)
         processed, _ = processing._extract_pages(
-            "p", "d", pdf_path, list(range(5)), 0, 5, "test"
+            "p", "d", pdf_path, list(range(5)), 0, 5, "test", processing.DocumentSpend()
         )
         assert processed == 5
 
     def test_nothing_to_do_is_not_an_error(self, processing, pdf_path):
-        assert processing._extract_pages("p", "d", pdf_path, [], 0, 0, "test") == (0, 0)
+        assert processing._extract_pages(
+            "p", "d", pdf_path, [], 0, 0, "test", processing.DocumentSpend()
+        ) == (0, 0)
 
     def test_resume_only_processes_the_pages_it_was_given(self, processing, pdf_path):
         """Resuming after a crash hands in the remaining indices only."""
         processed, _ = processing._extract_pages(
-            "p", "d", pdf_path, [7, 8, 9, 10, 11], 0, 12, "test"
+            "p", "d", pdf_path, [7, 8, 9, 10, 11], 0, 12, "test", processing.DocumentSpend()
         )
         assert processed == 5
 
@@ -115,14 +119,16 @@ class TestFailureContract:
     def test_a_failing_page_raises_so_bullmq_retries(
         self, processing, pdf_path, monkeypatch
     ):
-        def explode(project_id, document_id, pdf, index, offset):
+        def explode(project_id, document_id, pdf, index, offset, spend=None):
             if index == 3:
                 raise RuntimeError("page 4 is corrupt")
             return False
 
         monkeypatch.setattr(processing, "_process_page", explode)
         with pytest.raises(RuntimeError, match="corrupt"):
-            processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "test")
+            processing._extract_pages(
+            "p", "d", pdf_path, list(range(12)), 0, 12, "test", processing.DocumentSpend()
+        )
 
     def test_pages_that_succeeded_before_a_failure_are_kept(
         self, processing, pdf_path, monkeypatch
@@ -132,7 +138,7 @@ class TestFailureContract:
         committed: list[int] = []
         lock = threading.Lock()
 
-        def half_broken(project_id, document_id, pdf, index, offset):
+        def half_broken(project_id, document_id, pdf, index, offset, spend=None):
             if index == 9:
                 raise RuntimeError("boom")
             with lock:
@@ -141,7 +147,9 @@ class TestFailureContract:
 
         monkeypatch.setattr(processing, "_process_page", half_broken)
         with pytest.raises(RuntimeError):
-            processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "test")
+            processing._extract_pages(
+            "p", "d", pdf_path, list(range(12)), 0, 12, "test", processing.DocumentSpend()
+        )
         assert committed, "no page was committed before the failure"
         assert 9 not in committed
 
@@ -337,7 +345,7 @@ class TestPageHandlesAreClosed:
 
         monkeypatch.setattr(processing.fitz, "open", tracking_open)
 
-        def fake_page(project_id, document_id, pdf, index, offset):
+        def fake_page(project_id, document_id, pdf, index, offset, spend=None):
             if fail_on is not None and index == fail_on:
                 raise RuntimeError("page exploded")
             return False
@@ -349,7 +357,9 @@ class TestPageHandlesAreClosed:
         self, processing, pdf_path, monkeypatch
     ):
         opened = self._track(processing, monkeypatch)
-        processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "d")
+        processing._extract_pages(
+            "p", "d", pdf_path, list(range(12)), 0, 12, "d", processing.DocumentSpend()
+        )
         assert opened, "the test never observed a Document being opened"
         assert all(d.is_closed for d in opened)
 
@@ -361,7 +371,9 @@ class TestPageHandlesAreClosed:
         confusing PermissionError about a temp file."""
         opened = self._track(processing, monkeypatch, fail_on=3)
         with pytest.raises(RuntimeError):
-            processing._extract_pages("p", "d", pdf_path, list(range(12)), 0, 12, "d")
+            processing._extract_pages(
+            "p", "d", pdf_path, list(range(12)), 0, 12, "d", processing.DocumentSpend()
+        )
         assert opened
         assert all(d.is_closed for d in opened)
 
@@ -378,7 +390,9 @@ class TestPageHandlesAreClosed:
         target.write_bytes(pathlib.Path(pdf_path).read_bytes())
 
         monkeypatch.setattr(processing, "_process_page", lambda *a, **k: False)
-        processing._extract_pages("p", "d", str(target), list(range(12)), 0, 12, "d")
+        processing._extract_pages(
+            "p", "d", str(target), list(range(12)), 0, 12, "d", processing.DocumentSpend()
+        )
 
         shutil.rmtree(workdir)  # raises if anything still holds original.pdf
         assert not workdir.exists()
@@ -461,6 +475,15 @@ class TestTheVisionPassRoutes:
             return "whole sheet"
 
         monkeypatch.setattr(vlm, "describe_page", sheet_pass)
+        # The gating rule is a collaborator of the routing now, so the default
+        # here is "this page can be cropped" and a test that wants the refusal
+        # path overrides it. Left unstubbed, every one of these synthetic blank
+        # pages has no grid and the routing would never reach the crop pass —
+        # which is the gate working, and would make these tests pass for the
+        # wrong reason.
+        monkeypatch.setattr(
+            vlm, "crop_decision", lambda page: vlm.CropDecision(True, "stubbed", 4)
+        )
         return processing, vlm, called
 
     def test_off_runs_the_whole_sheet_pass(self, wired, monkeypatch):
@@ -472,6 +495,46 @@ class TestTheVisionPassRoutes:
         doc, page = self._page()
         assert processing._describe_page(page, "p", 1) == "whole sheet"
         assert called == ["sheet"]
+        doc.close()
+
+    def test_a_gated_out_page_goes_to_the_whole_sheet_pass(self, wired, monkeypatch):
+        """The gating rule's contract, from the caller's side. Every refusal —
+        no grid, no vector text, more intersections than the cap — lands on the
+        pass the crop mode was meant to improve on, because a page still
+        deserves the description it would have had before this existed."""
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        monkeypatch.setattr(
+            vlm, "crop_decision", lambda page: vlm.CropDecision(False, "no orthogonal grid", 0)
+        )
+        monkeypatch.setattr(
+            vlm, "describe_crops", lambda *a, **k: pytest.fail("gated out, must not be called")
+        )
+        doc, page = self._page()
+        spend = processing.DocumentSpend()
+        assert processing._describe_page(page, "p", 1, spend) == "whole sheet"
+        assert called == ["sheet"]
+        assert spend.refusals == {"no orthogonal grid": 1}
+        assert spend.crop_pages == 0 and spend.sheet_pages == 1
+        doc.close()
+
+    def test_the_document_tally_counts_what_each_page_cost(self, wired, monkeypatch):
+        processing, vlm, called = wired
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        monkeypatch.setattr(vlm, "CROP_BATCH", 6)
+        monkeypatch.setattr(
+            vlm, "crop_decision", lambda page: vlm.CropDecision(True, "ok", 24)
+        )
+        monkeypatch.setattr(vlm, "describe_crops", lambda *a, **k: "At 4/B: footing F1.")
+        doc, page = self._page()
+        spend = processing.DocumentSpend()
+        processing._describe_page(page, "p", 1, spend)
+        # 24 intersections is 24 IMAGES however few requests carry them: on
+        # Gemini each image part is billed its own budget, so batching saves
+        # round trips and not image tokens.
+        assert spend.images == 24
+        assert spend.calls == 4
+        assert spend.summary()["vlmCropPages"] == 1
         doc.close()
 
     def test_intersections_replaces_it_rather_than_joining_it(self, wired, monkeypatch):

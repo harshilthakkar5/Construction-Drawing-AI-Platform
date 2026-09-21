@@ -1759,11 +1759,44 @@ What the decision does NOT extend to, stated as firmly:
   * The first sheet's set is **still unaudited** under the ownership rule, so the 98%/63% pair
     that opened this argument remains unverified rather than wrong.
 
-What is left is productionisation, and it has not changed since it was first written: the
-`sourceModel` column so a description's configuration travels with it; the gating rule for which
-pages get crops, which S101P turned from a nicety into the difference between a mode that helps
-and one that silently does not run; and per-document cost reporting, because 152 images per page
-is a number someone must see before a 400-page set is queued.
+**The three productionisation items are built, and they are the same lesson three times: a fact
+that exists only in a log is a fact nobody can act on.**
+
+`chunks.sourceModel` and `chunks.sourceSettings` end `--label`. `VLM_*` is read by the WORKER at
+ingest, so nothing downstream could recover it and the repair was a flag typed by hand off
+`_report_settings` — which works exactly as long as someone remembers and types it correctly, and
+a wrong label manufactures a measurement rather than merely lacking one. `vlm.settings_snapshot()`
+is the same facts as data, stamped onto every piece of a split description by
+`chunker.split_description`, and `drawing_eval.labelFromChunks` derives the run's label from the
+corpus itself. Two ingests with equal snapshots are the same experiment repeated, so **the error
+bar is now computable without anyone passing a flag**. Both columns are NULLABLE and stay that
+way: NULL on a text chunk means "words lifted off the sheet" and NULL on a description means "its
+settings were not recorded", and those must stay tellable apart — the report says `NOT RECORDED`
+rather than guessing. A corpus whose descriptions DISAGREE gets no derived label at all, because
+two configurations in one corpus is a page described twice under different settings, and naming
+it after either asserts an experiment that did not happen.
+
+`vlm.crop_decision(page)` is the gating rule, in one place, decided before anything is spent. It
+was three refusals scattered through `describe_crops`, each logged where it happened — and one of
+them missing: a SCAN was cropped like anything else, which is empty pixels at full price for the
+same reason `render` refuses to upscale one. It is FEASIBILITY and COST and deliberately nothing
+else, and the gate it does NOT have is the instructive one. Crop overlap is the tempting fourth
+rule, and the measurements forbid it: on the first sheet ALL 22 intersections had a neighbour's
+label reachable inside their crop, and that is the sheet the crop pass scored 98% on with no
+wrong answer of any kind. Overlap did not predict failure, so gating on it would refuse the page
+the mode works best on — `_report_crop_overlap` stays a warning and never a veto. The cost
+refusal carries `loud=True` and logs at WARNING while a sheet with no grid stays at INFO, because
+a cap someone may want to raise for this document must not be buried among a thousand info lines.
+
+`processing.DocumentSpend` is the per-document cost. The per-page line has always named the trade
+— "27 images where the whole-sheet pass sends 1" — and that is the wrong unit for the decision
+anyone actually makes, which is whether to queue a 400-page set; nobody reads four hundred info
+lines and adds them up. It counts crop pages, whole-sheet pages, images and calls, tallies WHY
+pages were refused, reports once at finalize and rides in the job result as `vlmImages` /
+`vlmCalls` / `vlmCropPages`. It is owned per document and passed down rather than kept in a
+module global, because `PROCESS_CONCURRENCY` documents run at once and a shared counter would
+bill one document for another's pages — the parameter is required, so a new caller has to decide
+where its spend is counted instead of silently losing it.
 
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
@@ -2094,7 +2127,10 @@ pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, ...)   // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
-chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind)  // embeddingId = Qdrant point ID; kind = text|description
+chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind,
+       sourceModel, sourceSettings)  // embeddingId = Qdrant point ID; kind = text|description;
+                                     // source* NULL on text chunks and on anything written
+                                     // before the column existed
 summaries(id, projectId, portionId, level[page|section|portion|project], summary JSON, sources)
 chat_sessions(id, projectId, createdAt)
 messages(id, sessionId, role, content JSON incl. citations, sources, createdAt)
