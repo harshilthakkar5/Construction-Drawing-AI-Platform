@@ -36,6 +36,7 @@ import {
   CHUNK_MAX_TOKENS,
   OUTCOMES,
   progressLine,
+  sameCorpusAgain,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1520,4 +1521,53 @@ test("the progress line pads to the outcome vocabulary, not a magic number", () 
 
 test("the progress line still says where the run is", () => {
   assert.match(progressLine(7, 40, "correct"), /\[7\/40\]/);
+});
+
+const scored = (ids, pct, projectId = "p1") => ({
+  descriptionChunkIds: ids,
+  pct,
+  projectId,
+  ranAt: `2026-01-0${pct % 9}`,
+});
+
+test("a corpus scored once is a first measurement, not a repeat", () => {
+  // The records include the run being reported, so one occurrence is this run.
+  assert.equal(sameCorpusAgain([scored(["a"], 98)], ["a"]), null);
+});
+
+test("a corpus scored again added no sample, and the line says so", () => {
+  // The quiet case rescored never covered: same corpus, same score, run again.
+  const again = sameCorpusAgain([scored(["a"], 98), scored(["a"], 98)], ["a"]);
+  assert.deepEqual(again, { before: 1, scores: [98], projectId: "p1" });
+});
+
+test("it counts prior scorings, not total ones", () => {
+  const records = [scored(["a"], 98), scored(["a"], 98), scored(["a"], 98)];
+  assert.equal(sameCorpusAgain(records, ["a"]).before, 2);
+});
+
+test("a corpus that disagreed with itself is reported with both scores", () => {
+  const again = sameCorpusAgain([scored(["a"], 98), scored(["a"], 63)], ["a"]);
+  assert.deepEqual(again.scores, [63, 98]);
+});
+
+test("another corpus's runs never count toward this one", () => {
+  const records = [scored(["a"], 98), scored(["b"], 63), scored(["b"], 63)];
+  assert.equal(sameCorpusAgain(records, ["a"]), null, "one scoring of a");
+  assert.equal(sameCorpusAgain(records, ["b"]).before, 1);
+});
+
+test("chunk id ORDER never makes one corpus look like two", () => {
+  const records = [scored(["b", "a"], 98), scored(["a", "b"], 98)];
+  // The CURRENT ids arrive unsorted too — rows are flattened in answer order,
+  // not in id order — so sorting only the records is half a fix.
+  assert.equal(sameCorpusAgain(records, ["b", "a"]).before, 1);
+  assert.equal(sameCorpusAgain(records, ["a", "b"]).before, 1);
+});
+
+test("a run with no descriptions has no corpus to repeat", () => {
+  // Keying those on the empty string is the mistake runHistory already paid
+  // for: every pre-vision run collapsing into one fabricated corpus.
+  assert.equal(sameCorpusAgain([scored([], 40), scored([], 44)], []), null);
+  assert.equal(sameCorpusAgain([scored([], 40)], undefined), null);
 });

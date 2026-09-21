@@ -19,7 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarks"))
 
 import drawing_truth  # noqa: E402
 
-SET = Path(__file__).resolve().parents[2] / "benchmarks" / "drawing_eval_set.json"
+BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
+SET = BENCHMARKS / "drawing_eval_set.json"
+# EVERY checked-in set, not just the first one. A second sheet means a second
+# file, and a validation that names one file leaves the other unchecked while
+# still reading as "the set is validated".
+SETS = sorted(BENCHMARKS.glob("drawing_eval_set*.json"))
 
 
 def _matches(pattern: str, text: str) -> bool:
@@ -85,21 +90,42 @@ class TestBackfill:
         assert case["expected"] == "F12" and case["distractor"] == "F13"
 
 
+@pytest.mark.parametrize("path", SETS, ids=lambda p: p.name)
 class TestTheCheckedInSet:
-    def test_every_case_can_score_an_invented_label(self):
+    def test_every_case_can_score_an_invented_label(self, path):
         """Both recent reports printed "40/40 cases carry no labelPattern".
         This is the line that stops that coming back."""
-        cases = json.loads(SET.read_text())
+        cases = json.loads(path.read_text())
         blind = [c for c in cases if not c.get("labelPattern")]
         assert not blind, f"{len(blind)} of {len(cases)} cases cannot score an invented label"
 
-    def test_each_pattern_matches_that_case_s_own_answers(self):
+    def test_each_pattern_matches_that_case_s_own_answers(self, path):
         """A pattern that does not match the truth it ships with would score a
         correct answer as invented."""
-        for case in json.loads(SET.read_text()):
+        for case in json.loads(path.read_text()):
             for label in (case["expected"], case.get("distractor")):
                 if label:
                     assert _matches(case["labelPattern"], label), (case["tag"], label)
+
+    def test_one_project_per_set(self, path):
+        """`drawing_eval.mjs` refuses a set naming two projects, because recall
+        or accuracy across two corpora is one number describing neither. A set
+        that mixes them fails at the run rather than here, after the ingest."""
+        ids = {c.get("projectId", "") for c in json.loads(path.read_text())}
+        assert len(ids) == 1, f"{path.name} names {len(ids)} projects: {sorted(ids)}"
+
+    def test_no_case_answers_with_its_own_intersection(self, path):
+        """The shorthand collision, asserted on the shipped file. A case whose
+        expected mark is also its intersection's name scores CORRECT for a
+        model that read the question and never looked at the sheet."""
+        for case in json.loads(path.read_text()):
+            d = case.get("derivation", {})
+            col, row = d.get("gridColumn"), d.get("gridRow")
+            if col is None or row is None:
+                continue
+            assert not drawing_truth.names_its_own_intersection(
+                case["expected"], col, row
+            ), (path.name, case["expected"], f"{col}/{row}")
 
 
 class TestWhoseLabelsACropContains:
@@ -583,20 +609,24 @@ class TestTheEmittedTally:
         )
         assert "40 cases emitted" in said
         assert "grid-footing 19" in said and "grid-column 21" in said
-        assert "grid-spacing 0" in said
+        for quiet in set(drawing_truth.TAGS) - {"grid-footing", "grid-column"}:
+            assert f"{quiet} 0" in said
         assert "24 refused" in said
 
     def test_a_tag_that_emitted_nothing_is_called_out(self):
+        # Derived from TAGS rather than naming one, so adding a tag to the
+        # generator does not silently retarget this test at a different tag —
+        # or break it, which is what a hardcoded vocabulary did here once.
+        *alive, dead = drawing_truth.TAGS
         said = drawing_truth.tally(
-            [{"tag": "grid-footing"}] * 19 + [{"tag": "grid-column"}] * 21,
-            [],
-            drawing_truth.TAGS,
+            [{"tag": t} for t in alive], [], drawing_truth.TAGS
         )
-        assert "NO CASES for grid-spacing" in said
+        assert f"NO CASES for {dead}" in said
 
     def test_several_dead_tags_are_named_together(self):
-        said = drawing_truth.tally([{"tag": "grid-footing"}], [], drawing_truth.TAGS)
-        assert "NO CASES for grid-column, grid-spacing" in said
+        alive, *dead = drawing_truth.TAGS
+        said = drawing_truth.tally([{"tag": alive}], [], drawing_truth.TAGS)
+        assert f"NO CASES for {', '.join(dead)}" in said
 
     def test_a_full_set_says_nothing_extra(self):
         said = drawing_truth.tally(
@@ -611,5 +641,147 @@ class TestTheEmittedTally:
             [],
             drawing_truth.TAGS,
         )
-        assert "4 cases emitted" in said
+        assert f"{len(drawing_truth.TAGS) + 1} cases emitted" in said
         assert "NO CASES" not in said
+
+
+class TestTheLabelClassTable:
+    """A tag is one row, so it cannot ship with half of itself missing.
+
+    The three things a tag needs used to live in three places — an extraction
+    pattern, a scorer-facing shape and a question written inline in the loop.
+    Nothing checked that a tag had all three, and the failure that shape
+    produces is a set whose cases carry another tag's vocabulary: well-formed,
+    scored, and measuring the wrong thing.
+    """
+
+    def test_every_tag_the_generator_names_has_a_shape(self):
+        assert set(drawing_truth.LABEL_PATTERN) == set(drawing_truth.TAGS)
+
+    def test_every_intersection_tag_is_complete(self):
+        for tag, cls in drawing_truth.INTERSECTION_TAGS.items():
+            assert cls.extract.pattern, tag
+            assert cls.shape, tag
+            for field in ("{sheet}", "{col}", "{row}"):
+                assert field in cls.question, f"{tag} never fills {field}"
+
+    def test_a_question_never_names_a_candidate_answer(self):
+        """The prohibition the vision prompt already carries, on this side.
+
+        A question that shows what a mark looks like invites the model to
+        answer in that shape without reading the drawing, and the run then
+        scores the question rather than the sheet.
+        """
+        for tag, cls in drawing_truth.INTERSECTION_TAGS.items():
+            filled = cls.question.format(sheet="S-100.0", col="4", row="B")
+            assert not re.search(cls.shape, filled), f"{tag} seeds its own answer"
+
+    def test_the_two_mark_vocabularies_do_not_capture_each_other(self):
+        """`PC1` is a pile cap and `C1` is a column mark, and the difference is
+        one character at the front. Extraction is `fullmatch`, which is what
+        keeps them apart; `search` would file every pile cap as a column mark
+        as well, and both tags would then be scored against a polluted
+        vocabulary."""
+        pilecap = drawing_truth.INTERSECTION_TAGS["grid-pilecap"].extract
+        colmark = drawing_truth.INTERSECTION_TAGS["grid-colmark"].extract
+        assert colmark.fullmatch("C1") and not colmark.fullmatch("PC1")
+        assert pilecap.fullmatch("PC1") and not pilecap.fullmatch("C1")
+
+    def test_a_column_mark_shape_does_not_match_inside_a_pile_cap(self):
+        """The scorer's own bracketing, asserted here because it is what makes
+        the short `C\\d` shape safe to emit at all."""
+        shape = drawing_truth.LABEL_PATTERN["grid-colmark"]
+        scorer = re.compile(f"(?<![a-z0-9])(?:{shape})(?![a-z0-9])", re.I)
+        assert scorer.search("the mark is C3")
+        assert not scorer.search("the pile cap is PC1")
+
+
+class TestAMarkThatNamesItsOwnIntersection:
+    """S101P marks columns C1..C4, names rows A..H and columns 1..19 — so at
+    column line 1 and row line C the mark `C1` and the intersection's own
+    shorthand are the same two characters, and no reading of the answer tells
+    them apart."""
+
+    def test_the_collision_is_refused(self):
+        assert drawing_truth.names_its_own_intersection("C1", "1", "C")
+
+    def test_the_other_order_is_refused_too(self):
+        assert drawing_truth.names_its_own_intersection("C1", "C", "1")
+
+    def test_the_same_mark_elsewhere_is_fine(self):
+        # C1 at 11/H is unambiguous: nothing about that intersection is "C1".
+        assert not drawing_truth.names_its_own_intersection("C1", "11", "H")
+
+    def test_it_is_not_special_cased_to_column_marks(self):
+        # A footing mark collides the same way on a sheet with an F row.
+        assert drawing_truth.names_its_own_intersection("F2", "2", "F")
+
+    def test_an_ordinary_mark_is_untouched(self):
+        assert not drawing_truth.names_its_own_intersection("PC1", "4", "B")
+        assert not drawing_truth.names_its_own_intersection("F12", "4", "B")
+
+
+class TestTheMarkTagsActuallyRun:
+    """`build` end to end, for the reason the spacing tag established: every
+    decision above is unit-tested and the LOOP that calls them is not, and a
+    tag wired up wrong emits nothing while every unit test stays green."""
+
+    AXES = ({"7": 100.0, "8": 400.0}, {"B": 100.0, "C": 500.0})
+
+    @staticmethod
+    def _sheet(tmp_path, marks):
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        for text, x, y in marks:
+            page.insert_text((x, y), text, fontsize=8)
+        path = tmp_path / "marks.pdf"
+        doc.save(str(path))
+        doc.close()
+        return str(path)
+
+    def _build(self, tmp_path, monkeypatch, marks):
+        pdf = self._sheet(tmp_path, marks)
+        monkeypatch.setattr(drawing_truth.grid, "axes", lambda _: self.AXES)
+        return drawing_truth.build(pdf, "p1", "S101P", explain=False)
+
+    def test_a_pile_cap_mark_becomes_a_case(self, tmp_path, monkeypatch):
+        cases = self._build(tmp_path, monkeypatch, [("PC1", 105.0, 105.0)])
+        caps = [c for c in cases if c["tag"] == "grid-pilecap"]
+        assert caps, [c["tag"] for c in cases]
+        assert caps[0]["expected"] == "PC1"
+        assert "pile cap mark" in caps[0]["question"]
+        assert caps[0]["labelPattern"] == drawing_truth.LABEL_PATTERN["grid-pilecap"]
+
+    def test_a_column_mark_becomes_a_case(self, tmp_path, monkeypatch):
+        cases = self._build(tmp_path, monkeypatch, [("C3", 105.0, 105.0)])
+        marks = [c for c in cases if c["tag"] == "grid-colmark"]
+        assert marks, [c["tag"] for c in cases]
+        assert marks[0]["expected"] == "C3"
+        assert marks[0]["derivation"]["gridColumn"] == "7"
+        assert marks[0]["derivation"]["gridRow"] == "B"
+
+    def test_a_pile_cap_is_not_also_emitted_as_a_column_mark(self, tmp_path, monkeypatch):
+        cases = self._build(tmp_path, monkeypatch, [("PC1", 105.0, 105.0)])
+        assert not [c for c in cases if c["tag"] == "grid-colmark"]
+
+    def test_a_mark_naming_its_own_intersection_is_refused(self, tmp_path, monkeypatch):
+        # "C7" sits at column line 7, row line C — the one intersection where
+        # that mark is indistinguishable from the question.
+        cases = self._build(tmp_path, monkeypatch, [("C7", 105.0, 505.0)])
+        at_7c = [
+            c
+            for c in cases
+            if c["tag"] == "grid-colmark"
+            and (c["derivation"]["gridColumn"], c["derivation"]["gridRow"]) == ("7", "C")
+        ]
+        assert not at_7c
+
+    def test_the_sheet_vocabulary_travels_with_the_case(self, tmp_path, monkeypatch):
+        # Both marks are on the sheet, so naming either is off-target rather
+        # than invented — the distinction `sheetLabels` exists to carry.
+        cases = self._build(
+            tmp_path, monkeypatch, [("C3", 105.0, 105.0), ("C2", 405.0, 105.0)]
+        )
+        marks = [c for c in cases if c["tag"] == "grid-colmark"]
+        assert marks
+        assert all(c["sheetLabels"] == ["C2", "C3"] for c in marks)

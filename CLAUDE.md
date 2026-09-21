@@ -1404,6 +1404,112 @@ chunk's `tokenCount` and separates the two — under the cap it says so and stop
 says `split_description` did not run and names the consequence. A warning that is usually wrong
 is a warning people stop reading, which is the same failure as a refusal nobody can act on.
 
+Both commands were then re-run, and both produced BYTE-IDENTICAL output — same description
+chunk ids, same tallies, same miss list. That is what `temperature: 0` promises and the report
+said nothing about it: `rescored` only fires when one corpus scores DIFFERENTLY, which is the
+loud case where the harness has moved. The quiet case — same corpus, same score, scored again —
+had no line at all, so a full page of analysis printed over a run that added nothing.
+`sameCorpusAgain` now says so FIRST: these descriptions have been scored N times before, a
+re-score is arithmetic, and **a new sample needs a new INGEST** — the worker re-run so
+`replace_page_chunks` mints fresh ids. No amount of re-scoring can stand in for one. A benchmark
+that cannot tell a measurement from a repeat of one invites exactly the round that produced it.
+
+The improved coverage line paid for itself in the same output, with a fact nothing had ever
+printed: the crop description is **216 tokens** against the whole-sheet arm's **601**. The
+better-scoring arm writes a THIRD as much. Every length hypothesis in this section — the 1285
+and 2231 token runs, the 307-against-601 puzzle, `VLM_MAX_TOKENS` as "a large lever in a
+direction nobody predicted" — was chasing a number that does not decide anything. 216 tokens of
+`At 4/B: …` lines beat 601 tokens of prose because of WHAT is in them, not how much.
+
+**The conclusion, stated as a decision rather than a score.** `VLM_CROP=intersections` is the
+right mode for a structural plan with a detectable grid, and the evidence for that is the miss
+structure plus the advance prediction plus a mechanism that explains both — 993 DPI against 73 on
+precisely the compound label that was failing. It is NOT "worth 35 points", and no further
+re-scoring of these two corpora can make it so.
+
+What the decision does not extend to: it stays OFF by default. One image per page becomes 27,
+about 60 seconds of wall clock per page, so a 400-page set is a different order of spend and this
+is a per-sheet choice for sheets whose geometry is the question. And the crop arm's OWN
+run-to-run spread is unmeasured — the 43-point error bar was measured on two WHOLE-SHEET ingests,
+so it bounds that arm and is merely the best available guess for this one. The argument that it
+should be narrower is mechanical rather than measured: the whole-sheet pass asks one call to find
+the grid, name it, enumerate it and read it, and the variance compounds across all four, while a
+crop pass is handed its coordinate and asked 27 nearly identical small questions. The failures
+that produced the 43-point spread — a row labelled with its neighbour's letter, an enumeration
+walked off by one, a truncated grid — are structurally unavailable to it. That is an argument,
+and it is written here as one.
+
+What is left is not more benchmark runs. It is the `sourceModel` column this file has wanted
+since the vision pass began, so a description's configuration travels with it and `--label` stops
+being the only record; the gating rule for which pages get crops; and per-document cost
+reporting. Those make the decision operable. Another score against a spent 40-case set does not.
+
+**A second sheet arrived, and the first thing it said was that the vocabulary belonged to the
+first one.** S101P (GARAGE LEVEL FOUNDATION PLAN - OVERALL, ARCH E1, unrotated) is the harder
+SET `saturation` demanded, and against the generator as it stood it produced **zero cases out of
+329 candidates** — every footing candidate refused with "nearest label F2 is 444pt away", every
+column candidate the same. Nothing was broken. The sheet records the identical fact in the other
+notation a drafter has: a MARK keyed to a schedule elsewhere in the set (`PC1`, `C3`) instead of
+the value printed at the intersection (`F9`, `HSS8X8X3/8`). Both are exactly what the text layer
+cannot hold — `page.get_text()` returns every mark on the sheet in one run, attached to nothing,
+and what joins a mark to its intersection is drawn rather than written. The per-tag `NO CASES`
+line added one commit earlier is what said so, instead of a healthy-looking total over a set that
+asked nothing; it is the first time that gate has paid for itself.
+
+So a tag is now ONE TABLE ROW — `LabelClass(extract, shape, question)` in `INTERSECTION_TAGS` —
+because the three things a tag needs were living in three places: an extraction pattern, a
+scorer-facing shape, and a question written inline in the emission loop. That was survivable
+while one sheet defined the vocabulary and stopped being survivable the moment a second one did,
+since a tag whose cases carry another tag's shape is a set that scores the wrong vocabulary while
+looking perfectly well formed. `TAGS` and `LABEL_PATTERN` are DERIVED from the table, so a tag
+cannot exist with a shape the scorer never receives.
+
+Two new tags, and two rather than one for the pooled-baseline reason this file has already paid
+for once: a mark and a section are different answer vocabularies with different majority-class
+baselines, and a single tag spanning both describes neither.
+
+  * `grid-colmark` — 66 cases, majority baseline **39%** (C2 26, C1 24, C4 10, C3 6). This is the
+    tag worth having: three times the old column tag's 21 cases, at a baseline 13 points below
+    its 52%, on a sheet where the marks are short and unambiguous glyphs rather than a compound
+    label. It asks the locality question with the resolution question subtracted out.
+  * `grid-pilecap` — 139 cases, majority baseline **79%** (PC1 110, PC2 29). Its SCORE is close to
+    uninformative: 21 points of headroom against a 43-point error bar, which is the same
+    arithmetic `saturation` uses to declare a set spent. What is worth reading on it is the
+    minority-hit count over the 29 PC2s. It is emitted WITH that said rather than withheld,
+    because the per-tag baseline and minority-hit machinery already report exactly this, and a
+    tag nobody generates is a tag nobody can check.
+
+`names_its_own_intersection` is the refusal this sheet needed and the first one could never have
+revealed. S101P marks its columns C1..C4 while naming its row lines A..H and its column lines
+1..19 — so at column line 1 and row line C, the mark `C1` is the same two characters as the
+shorthand anyone would write for that intersection. An answer of "C1" is then both the truth and
+a restatement of the question, and nothing in the reply separates them: the case would score
+CORRECT for a model that read the question and never looked at the drawing. It refuses for the
+same reason a label equidistant between two intersections does — not because the DRAWING is
+ambiguous, which it is not, but because the ANSWER would be. One case dropped here, at 1/C. It is
+deliberately not special-cased to column marks: `F2` at column line 2, row line F collides
+identically, and a sheet with an F row would have hit it eventually.
+
+The set is its own file, `drawing_eval_set_s101p.json`, rather than an addition to
+`drawing_eval_set.json`. The scorer refuses a set naming two projects, the two sheets have
+different tags with separate baselines, and a combined file would report one number over two
+corpora. `TestTheCheckedInSet` is parametrized over every `drawing_eval_set*.json` instead of
+naming one, so a second set is validated by the same four rules as the first rather than being
+the unchecked one sitting beside it — including, now, that no case answers with its own
+intersection's name.
+
+**And the sheet is a counter-example to the crop decision above, which is worth more than the
+cases are.** It has **152 grid intersections against `VLM_CROP_MAX`'s 60**, so
+`VLM_CROP=intersections` refuses the page outright and the whole-sheet pass runs instead — the
+mode concluded right one section earlier does not engage here at all. Forcing it would be worse
+than leaving it off: `--crops --against` reports **83 of the 152 crops do not contain their own
+label**, because the bays are tight enough to size a crop at 111 x 122pt while the marks sit
+58-91pt out from their intersections, and 144 of 146 intersections have a label that can reach a
+neighbouring crop. The crop decision was reached on a sheet with 27 intersections and generous
+bays; this is the first measurement of how narrow that geometry was. The gating rule listed as
+pending work is therefore not a detail of productionisation — it is the difference between a mode
+that helps and a mode that silently does not run.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,
