@@ -46,6 +46,7 @@
  * answer code rather than a copy.
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { basename, dirname, resolve } from "node:path";
 
@@ -966,6 +967,50 @@ const RECENT_INGESTS = 5;
  * before the history is read, so a corpus seen once is a first scoring and
  * anything beyond that is a repeat.
  */
+/**
+ * A stable identity for the QUESTIONS, so two runs are only ever compared when
+ * they were asked the same ones.
+ *
+ * `runHistory` keyed a run on its description chunk ids alone, which is the
+ * identity of the CORPUS, and then spoke about "this set" as though the set
+ * were a constant. It is not. Regenerating `drawing_eval_set_s101p.json` under
+ * the ownership rule took it from 205 cases to 51 and re-derived the truth on
+ * the survivors, and the very next run against an unchanged corpus scored 88%
+ * where the old set had scored 74%. The report read that as the one thing it
+ * is built to shout about — "same chunks in, temperature: 0, so this is the
+ * SCORER or the chat path changing under the set" — and printed ALARM over a
+ * pair of numbers that were never comparable. It was right that something had
+ * moved and wrong about what, which is worse than silence: it sends someone
+ * hunting a scorer bug that is not there.
+ *
+ * The truth is included deliberately. A set can keep every question and change
+ * what counts as a right answer — that is exactly what the ownership rule did
+ * — and a run scored against the old answers is not a sample of the new set.
+ * The projectId is NOT included, because `--project` repoints a set without
+ * changing a question, and two ingests asked the same questions are the
+ * comparison this whole file exists to make.
+ */
+export function setFingerprint(cases) {
+  const body = (cases ?? [])
+    .map((c) => `${c.tag}|${c.question}|${c.expected}`)
+    .sort()
+    .join("\n");
+  return createHash("sha256").update(body).digest("hex").slice(0, 16);
+}
+
+/**
+ * The runs that asked the same questions as this one. Records written before
+ * fingerprints existed carry none, and are LEFT OUT rather than assumed to
+ * match: an unknown set is not a matching set, and guessing here is how the
+ * false alarm above got printed.
+ */
+export function sameQuestions(records, fingerprint) {
+  if (!fingerprint) return [];
+  return (records ?? []).filter((r) => r.setFingerprint === fingerprint);
+}
+
+// Callers pass records ALREADY narrowed to the same questions; the corpus
+// identity alone was never enough to say two scores are comparable.
 export function sameCorpusAgain(records, currentIds) {
   const key = [...(currentIds ?? [])].sort().join(",");
   if (!key) return null;
@@ -1282,7 +1327,7 @@ export function summarize(rows) {
   };
 }
 
-export function report(rows, json, onSheet, history = null, biggestDescription = null) {
+export function report(rows, json, onSheet, history = null, biggestDescription = null, fingerprint = null) {
   if (json) {
     console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
@@ -1551,9 +1596,41 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
     }
   }
 
+  // EVERY history line below is scoped to runs that asked the same questions.
+  // Keying only on the corpus let a set regeneration look like the harness
+  // moving under a fixed set: 205 cases became 51 under the ownership rule,
+  // the next run against an UNCHANGED corpus scored 88% where the old set
+  // scored 74%, and the report printed ALARM naming the scorer. Nothing was
+  // wrong with the scorer. A percentage only means something beside another
+  // percentage from the same questions.
+  // With no fingerprint the set cannot be identified at all, and dropping
+  // every history line on that account would hide the ERROR BAR — the one
+  // number that bounds all the others. So the unscoped history stands there,
+  // exactly as it did before this existed. `main` always passes one.
+  const sameSet = fingerprint
+    ? sameQuestions(history?.records ?? [], fingerprint)
+    : (history?.records ?? []);
+  const otherSet = (history?.records ?? []).filter((r) => !sameSet.includes(r));
+  const scoped = history ? runHistory(sameSet) : null;
+  if (fingerprint && otherSet.length) {
+    const known = otherSet.filter((r) => r.setFingerprint).length;
+    console.log(
+      `\n  ${otherSet.length} earlier run${otherSet.length === 1 ? "" : "s"} of this file asked ` +
+        `DIFFERENT questions and ${otherSet.length === 1 ? "is" : "are"} left out of every ` +
+        "history line below" +
+        (known < otherSet.length
+          ? ` (${otherSet.length - known} predate${otherSet.length - known === 1 ? "s" : ""} ` +
+            "this check, and an unknown set is not a matching one)"
+          : "") +
+        `.\n  Regenerating a set is a new measurement and not a re-score: its cases and its ` +
+        "expected answers can both have moved, so a percentage from before it is not a number " +
+        "this run can be read against.",
+    );
+  }
+
   // Printed FIRST among the history lines, because it is the only one that
   // bounds what any other number on this screen is allowed to claim.
-  for (const r of history?.repeats ?? []) {
+  for (const r of scoped?.repeats ?? []) {
     console.log(
       `\n  ERROR BAR: "${r.label}" has been ingested ${r.n} times — ` +
         `${r.scores.map((p) => `${p.toFixed(0)}%`).join(", ")}, a ${r.spread.toFixed(0)}-point ` +
@@ -1570,23 +1647,23 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
     );
   }
 
-  if (history && history.ingests.length > 1) {
-    const line = history.recent
+  if (scoped && scoped.ingests.length > 1) {
+    const line = scoped.recent
       .map((i) => `${i.pct.toFixed(0)}%${i.described ? "" : " (no descriptions)"}`)
       .join(", ");
     console.log(
-      `\n  This set has been scored ${history.runs} times over ` +
-        `${history.ingests.length} corpora. The last ${history.recent.length}, oldest first: ` +
+      `\n  This set has been scored ${scoped.runs} times over ` +
+        `${scoped.ingests.length} corpora. The last ${scoped.recent.length}, oldest first: ` +
         `${line}.\n  Those span configurations this harness cannot see — VLM_* is read by the ` +
         "worker at ingest and the chunks carry none of it — so the " +
-        `${history.range.toFixed(0)}-point range between them is NOT an error bar. It mixes ` +
+        `${scoped.range.toFixed(0)}-point range between them is NOT an error bar. It mixes ` +
         "real changes with the spread of asking one model twice, and only REPEATING one " +
         "configuration separates those. Until that is done a difference between two runs is a " +
         "hypothesis, not a measurement.",
     );
   }
-  if (history?.rescored.length) {
-    for (const r of history.rescored) {
+  if (scoped?.rescored.length) {
+    for (const r of scoped.rescored) {
       console.log(
         `\n  ALARM: the same descriptions (project ${r.projectId}) have scored ` +
           `${r.scores.map((p) => `${p.toFixed(0)}%`).join(" and ")}. Same chunks in, and ` +
@@ -1601,7 +1678,7 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
   // thing to check before reading any number above as a result.
   const descriptions = [...new Set(rows.flatMap((r) => r.descriptionChunkIds ?? []))].sort();
 
-  const again = sameCorpusAgain(history?.records ?? [], descriptions);
+  const again = sameCorpusAgain(sameSet, descriptions);
   if (again) {
     const agreed = again.scores.length === 1;
     console.log(
@@ -1643,6 +1720,7 @@ async function main() {
   cases = applyProjectOverride(cases, args.project);
   if (args.limit > 0) cases = cases.slice(0, args.limit);
   if (!cases.length) throw new Error(`${args.set} has no cases`);
+  const fingerprint = setFingerprint(cases);
 
   const { retrieval, answer, citations, prisma } = await loadApi();
   await preflight(prisma, cases);
@@ -1761,6 +1839,11 @@ async function main() {
       {
         ranAt: new Date().toISOString(),
         set: args.set,
+        // The QUESTIONS asked, as an identity. A run scored against a
+        // different set is not a sample of this one, however much of the
+        // corpus it shares — see setFingerprint.
+        setFingerprint: fingerprint,
+        caseCount: cases.length,
         projectId,
         descriptionChunkIds: [...new Set(rows.flatMap((r) => r.descriptionChunkIds))].sort(),
         // What EXISTS, against what was reached above. A run that retrieved a
@@ -1778,7 +1861,14 @@ async function main() {
     ),
   );
 
-  report(rows, args.json, descriptionIdsOnSheet, readRunHistory(dirname(outPath), args.set), biggestDescription);
+  report(
+    rows,
+    args.json,
+    descriptionIdsOnSheet,
+    readRunHistory(dirname(outPath), args.set),
+    biggestDescription,
+    fingerprint,
+  );
   process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();
 }

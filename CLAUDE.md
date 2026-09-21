@@ -1575,6 +1575,58 @@ and the conclusion drawn from them were scored against a set with mis-attributed
 miss structure those numbers rest on has to be read again. Until that is done, treat the
 comparison as unverified rather than wrong.
 
+**The corrected set then ran and the report called its own fix a scorer bug.** Same corpus
+(project `d1d09f2e`, the same three description ids), 74% under the 205-case set and 88% under
+the 51-case one, and `runHistory` printed *"ALARM: the same descriptions have scored 74% and 88%.
+temperature: 0 means same answer out — so this is the SCORER or the chat path changing under the
+set"*. Nothing was wrong with the scorer. The SET had changed, and the report had no way to know,
+because a run was keyed on its description chunk ids alone — the identity of the CORPUS — while
+every line built on that key spoke about "this set" as though a set were a constant. It is not:
+regenerating under the ownership rule dropped 154 cases and re-derived the truth on the
+survivors. Right that something moved, wrong about what, which is worse than silence — it sends
+someone hunting a bug that is not there, in the one place the report is trusted most.
+
+`setFingerprint` is the missing half of a run's identity: a hash over each case's tag, question
+and EXPECTED answer. The truth is in it deliberately, because a set can keep every question and
+change what counts as right — which is exactly what the ownership rule did — and a run scored
+against the old answers is not a sample of the new set. The `projectId` is NOT in it, because
+`--project` repoints a set without changing a question, and two ingests asked the same questions
+are the comparison this whole file exists to make. Every history line is now scoped to runs
+sharing the fingerprint, the ones that do not are named and excluded in a line of their own, and
+a record written before this existed is LEFT OUT rather than assumed to match — an unknown set is
+not a matching set, and assuming otherwise is how the false alarm printed.
+
+That is the seventh time a measure here has read one situation as another, and the first time the
+misreading was of this file's own repair.
+
+**On the crop arm's 60%, which is not a result either.** It was scored against the 205-case set,
+so it is the same broken measurement as the 74%. What the worker log says about it matters more
+than the score: `answered 152 of 152 intersections, 90 with a value`. Sixty-two crops returned a
+line and NO value — the illegible rule behaving exactly as written, on intersections the drawing
+genuinely leaves unmarked. The broken set demanded a mark at 164 of them. So the crop arm said
+"nothing is marked here", which is true, and was scored ABSTAINED 68 times for it. A benchmark
+that invents a truth does not merely add noise; it penalises precisely the behaviour the rest of
+this file asks for.
+
+Re-scoring that corpus against the corrected set costs 51 chat calls and no ingest, and the
+prediction worth writing down BEFORE it, with its discriminator: the whole-sheet arm scored the
+colmark tag 10 of 15, and its five misses are ALL FIVE of the C2 cases — C1 five of five, C4 five
+of five, C2 zero of five, with the substitute (`C3`, four times) coming from a mark no nearer
+than 130pt when the truth sits 25pt away. One label class absent from an otherwise clean tag is a
+WITHIN-run shape, the category that survives n=1. If the crop arm reads those five, that is the
+same signature as the first sheet's `8X8`-read-as-`6X6` disappearing, on a different sheet and a
+different vocabulary. If it misses them too, cropping is not the lever for this failure and the
+next place to look is whether the description reaches row E at all. Note what would make the
+result ambiguous either way: `--crops --against` says 44 of 46 intersections have a label that can
+reach a neighbouring crop, and 90 crops returned a value where only 51 intersections own one, so
+this sheet's crops should be expected to over-report.
+
+The cost is now measured on a second sheet and it is worse than the first. 152 crops in 8 calls,
+**235 seconds for ONE page**, at `VLM_CROP_MAX=160` — raised from its default of 60 to force a
+page the gate had already refused. The gate was right on cost alone: 400 pages at this rate is
+some 26 hours and 60,800 images. The per-crop DPI is higher here (1820 against the first sheet's
+993) only because the bays are tighter, which is the same fact that makes the crops overlap.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,

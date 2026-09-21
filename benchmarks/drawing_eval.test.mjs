@@ -37,6 +37,8 @@ import {
   OUTCOMES,
   progressLine,
   sameCorpusAgain,
+  setFingerprint,
+  sameQuestions,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1410,6 +1412,42 @@ test("the report leads with the error bar and says what it forbids", () => {
   assert.match(out, /is not evidence of anything/);
 });
 
+test("the report's history lines exclude runs that asked other questions", () => {
+  // The false positive in full. One corpus, two scores, two different sets —
+  // and the old report called that the SCORER changing under a fixed set.
+  const tags = (col) => ({ "grid-column": { pct: col } });
+  const rows = [verdictRow("grid-column", "HSS8X8X3/8", "correct")];
+  const records = [
+    { ...ran("2026-09-20T10:00Z", "pA", ["d1"], 74, "off+4000", tags(52)), setFingerprint: "old" },
+    { ...ran("2026-09-21T10:00Z", "pA", ["d1"], 88, "off+4000", tags(67)), setFingerprint: "new" },
+  ];
+  const said = [];
+  const real = console.log;
+  console.log = (...a) => said.push(a.join(" "));
+  try { report(rows, false, [], runHistory(records), null, "new"); } finally { console.log = real; }
+  const out = said.join("\n");
+  assert.doesNotMatch(out, /ALARM/, "a regenerated set is not a scorer bug");
+  assert.doesNotMatch(out, /ADDED NO SAMPLE/, "a new set is a new measurement");
+  assert.match(out, /asked DIFFERENT questions/);
+  assert.doesNotMatch(out, /ERROR BAR/, "one run per set is not a repeat");
+});
+
+test("the report still raises a real re-score disagreement", () => {
+  const tags = (col) => ({ "grid-column": { pct: col } });
+  const rows = [verdictRow("grid-column", "HSS8X8X3/8", "correct")];
+  const records = [
+    { ...ran("2026-09-20T10:00Z", "pA", ["d1"], 74, "off+4000", tags(52)), setFingerprint: "new" },
+    { ...ran("2026-09-21T10:00Z", "pA", ["d1"], 88, "off+4000", tags(67)), setFingerprint: "new" },
+  ];
+  const said = [];
+  const real = console.log;
+  console.log = (...a) => said.push(a.join(" "));
+  try { report(rows, false, [], runHistory(records), null, "new"); } finally { console.log = real; }
+  const out = said.join("\n");
+  assert.match(out, /ALARM: the same descriptions/);
+  assert.match(out, /ADDED NO SAMPLE/, "a genuine re-score still adds nothing");
+});
+
 test("a dimension matches however the model spaces it", () => {
   // The drafter writes 26' - 2 1/2"; a model writes 26'-2 1/2". Escaping the
   // sheet's own spaces made the two miss each other, which scores a correct
@@ -1570,4 +1608,93 @@ test("a run with no descriptions has no corpus to repeat", () => {
   // for: every pre-vision run collapsing into one fabricated corpus.
   assert.equal(sameCorpusAgain([scored([], 40), scored([], 44)], []), null);
   assert.equal(sameCorpusAgain([scored([], 40)], undefined), null);
+});
+
+// ---------------------------------------------------------------------------
+// A percentage only means something beside another percentage from the SAME
+// QUESTIONS. Keying history on the corpus alone let a set regeneration read as
+// the harness moving under a fixed set, and the report printed ALARM naming
+// the scorer over two numbers that were never comparable.
+// ---------------------------------------------------------------------------
+
+test("a fingerprint changes when a case is dropped", () => {
+  const cases = [
+    { tag: "grid-colmark", question: "at 9/E?", expected: "C2" },
+    { tag: "grid-colmark", question: "at 10/D?", expected: "C2" },
+  ];
+  assert.notEqual(setFingerprint(cases), setFingerprint(cases.slice(0, 1)));
+});
+
+test("a fingerprint changes when the TRUTH is re-derived", () => {
+  // The ownership rule kept questions and changed answers. A run scored
+  // against the old answers is not a sample of the new set.
+  const before = [{ tag: "grid-colmark", question: "at 10/D?", expected: "C2" }];
+  const after = [{ tag: "grid-colmark", question: "at 10/D?", expected: "C1" }];
+  assert.notEqual(setFingerprint(before), setFingerprint(after));
+});
+
+test("a fingerprint changes when the QUESTION changes", () => {
+  const before = [{ tag: "grid-colmark", question: "at 9/E?", expected: "C2" }];
+  const after = [{ tag: "grid-colmark", question: "at 11/E?", expected: "C2" }];
+  assert.notEqual(setFingerprint(before), setFingerprint(after));
+});
+
+test("a fingerprint ignores case order", () => {
+  const a = [
+    { tag: "t", question: "q1", expected: "A" },
+    { tag: "t", question: "q2", expected: "B" },
+  ];
+  assert.equal(setFingerprint(a), setFingerprint([a[1], a[0]]));
+});
+
+test("repointing a set at another project does NOT change its fingerprint", () => {
+  // --project is the comparison this file exists to make: two ingests asked
+  // the same questions. If the id were in the fingerprint, no crop-vs-sheet
+  // comparison could ever be drawn.
+  const base = { tag: "t", question: "q", expected: "A" };
+  assert.equal(
+    setFingerprint([{ ...base, projectId: "aaa" }]),
+    setFingerprint([{ ...base, projectId: "bbb" }]),
+  );
+});
+
+test("runs that asked different questions are not mine", () => {
+  const records = [
+    { setFingerprint: "aaa", pct: 74 },
+    { setFingerprint: "bbb", pct: 88 },
+  ];
+  assert.deepEqual(sameQuestions(records, "bbb"), [records[1]]);
+});
+
+test("a run from before fingerprints existed is left out, not assumed to match", () => {
+  // An unknown set is not a matching set. Assuming otherwise is how the false
+  // alarm got printed in the first place.
+  const records = [{ pct: 74 }, { setFingerprint: "bbb", pct: 88 }];
+  assert.deepEqual(sameQuestions(records, "bbb"), [records[1]]);
+});
+
+test("no fingerprint matches nothing rather than everything", () => {
+  assert.deepEqual(sameQuestions([{ setFingerprint: "aaa" }], null), []);
+});
+
+test("the corpus alarm does not fire across a regenerated set", () => {
+  // The exact shape of the false positive: one unchanged corpus, two scores,
+  // two different sets. sameCorpusAgain is only ever handed same-question runs.
+  const ids = ["d1", "d2"];
+  const records = [
+    { setFingerprint: "old", descriptionChunkIds: ids, pct: 74, projectId: "p" },
+    { setFingerprint: "new", descriptionChunkIds: ids, pct: 88, projectId: "p" },
+  ];
+  assert.equal(sameCorpusAgain(sameQuestions(records, "new"), ids), null);
+});
+
+test("the corpus alarm still fires when the same questions disagree", () => {
+  const ids = ["d1", "d2"];
+  const records = [
+    { setFingerprint: "new", descriptionChunkIds: ids, pct: 74, projectId: "p" },
+    { setFingerprint: "new", descriptionChunkIds: ids, pct: 88, projectId: "p" },
+  ];
+  const again = sameCorpusAgain(sameQuestions(records, "new"), ids);
+  assert.ok(again, "a real re-score disagreement must still be caught");
+  assert.deepEqual(again.scores, [74, 88]);
 });
