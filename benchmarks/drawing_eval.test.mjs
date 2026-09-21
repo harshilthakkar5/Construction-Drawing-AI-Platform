@@ -33,6 +33,9 @@ import {
   componentSwap,
   saturation,
   caseLocation,
+  CHUNK_MAX_TOKENS,
+  OUTCOMES,
+  progressLine,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1456,4 +1459,65 @@ test("a between that names one line is not a gap", () => {
 
 test("the location is distinct per gap, because drift compares rows by it", () => {
   assert.notEqual(caseLocation({ between: ["7", "8"] }), caseLocation({ between: ["8", "9"] }));
+});
+
+test("one chunk under the cap is the correct outcome, not a warning", () => {
+  // A 604-token description is under the chunker's 800, so one chunk is what
+  // the split would produce anyway. Saying "check it" there fires on every
+  // healthy run, and a warning that is usually wrong stops being read.
+  const said = describeCoverage(["a"], ["a"], 604);
+  assert.match(said, /never going to be split/);
+  assert.doesNotMatch(said, /check it/);
+});
+
+test("one chunk over the cap says the split did not run", () => {
+  const said = describeCoverage(["a"], ["a"], 3200);
+  assert.match(said, /did not run on this ingest/);
+  assert.match(said, /3200 tokens/);
+  assert.match(said, /800-token cap/);
+});
+
+test("the boundary token count counts as within the cap", () => {
+  assert.match(describeCoverage(["a"], ["a"], CHUNK_MAX_TOKENS), /never going to be split/);
+  assert.match(describeCoverage(["a"], ["a"], CHUNK_MAX_TOKENS + 1), /did not run/);
+});
+
+test("without a token count the old wording stands", () => {
+  // A run file or a schema that cannot supply it must not get a confident
+  // verdict either way.
+  const said = describeCoverage(["a"], ["a"]);
+  assert.match(said, /check it against the chunker's cap/);
+  assert.doesNotMatch(said, /did not run/);
+});
+
+test("the one-chunk verdict never displaces the reach count", () => {
+  for (const size of [604, 3200, null]) {
+    assert.match(describeCoverage(["a"], ["a"], size), /Description chunks on the sheet: 1, of which 1 reached/);
+  }
+});
+
+test("several chunks are judged by reach, not by size", () => {
+  assert.match(describeCoverage(["a", "b"], ["a", "b"], 3200), /every piece is reachable/);
+  assert.match(describeCoverage(["a", "b"], ["a"], 100), /retrieval never surfaces them/);
+});
+
+test("a short outcome fully covers a longer one on the progress line", () => {
+  // \r rewinds without erasing: "correct" over "off-target" printed
+  // "correctget", which reads as an outcome this scorer does not have.
+  const long = progressLine(39, 40, "off-target");
+  const short = progressLine(40, 40, "correct");
+  assert.equal(short.length, long.length, "every line is the same width");
+  assert.match(short, /correct\s+\r$/);
+});
+
+test("the progress line pads to the outcome vocabulary, not a magic number", () => {
+  const width = Math.max(...OUTCOMES.map((o) => o.length));
+  for (const outcome of OUTCOMES) {
+    const line = progressLine(1, 40, outcome);
+    assert.equal(line.length, `  [1/40] `.length + width + 1, outcome);
+  }
+});
+
+test("the progress line still says where the run is", () => {
+  assert.match(progressLine(7, 40, "correct"), /\[7\/40\]/);
 });

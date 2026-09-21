@@ -1364,6 +1364,46 @@ changes nothing else. Comparing two ingests means generating ONCE and passing `-
 text now says so, since the old wording ("projectId the questions are asked against") invited
 exactly the reading that wasted the run.
 
+**The two arms finally ran side by side, one ingest each, and the honest reading is not the
+score.** `crops+minimal+4000` scored 98% (39/40, columns 21 of 21, footings 18 of 19, every miss
+bucket at zero) and `off+minimal+4000` scored 63% (25/40, columns 9 of 21 and BELOW their 52%
+baseline, footings 16 of 19, 8 wrong + 4 off-target + 3 invented). That is a 35-point gap against
+a 43-point error bar, so as a set-wide comparison it says nothing. One ingest per arm cannot beat
+the spread of asking one model twice, and this file has been wrong exactly this way five times.
+
+What does carry is the MISS STRUCTURE, which is the WITHIN-run category that survives a single
+sample. The `off` arm reproduced the documented signature line for line: `componentMisreads`
+found 10 of 12 column misses carrying the right thickness and missing only the section (`8X8`
+read as `6X6` seven times, `8X8` as `9X9` twice), and `systematicOffset` found 3 of 3 footing
+misses sharing ONE offset — one column line over. The crop arm produced none of it, because it
+produced no misses of any kind.
+
+And the advance prediction now has its contrast arm, which it did not have the first time. The
+discriminator written down BEFORE any crop run said: if the `8X8`→`6X6` collapse persists,
+confinement to the C and F rows means crop contamination and an even spread across
+non-overlapping pairs means resolution. In the `off` arm it is spread across B, C and F and
+across six different column lines — 2/B, 2/C, 4/F, 4.6/C, 6/F, 7/C, 8/B, 8/C — so on a
+whole-sheet image it is a resolution failure, exactly as predicted, and at 990 DPI it is gone.
+The footing tag also moved the way the prediction allowed rather than the way it feared: 95% with
+crops against 84% without, so the crop window is not cutting labels out.
+
+Read together: the claim this pair supports is "the failure mode this section spent its history
+on is present in the whole-sheet arm and absent in the crop arm, in the shape predicted in
+advance". The claim it does NOT support is "cropping is worth 35 points". Three to five ingests
+per arm is still the only thing that would turn the second into a measurement, and both arms are
+one.
+
+Two reporting faults surfaced in the same output. The progress line printed `correctget` — `\r`
+rewinds without erasing, so "correct" written over "off-target" left the tail of the longer word
+behind, reading as a seventh outcome this scorer does not have. `progressLine` pads to the
+longest name in `OUTCOMES` rather than to a constant, so an outcome added later is covered too.
+And `describeCoverage` told both runs to "check it against the chunker's cap" on a one-chunk
+description, which is advice that fires on every healthy run: a 604-token description is UNDER
+the 800-token cap, so one chunk is what a split would have produced anyway. It now reads the
+chunk's `tokenCount` and separates the two — under the cap it says so and stops, over the cap it
+says `split_description` did not run and names the consequence. A warning that is usually wrong
+is a warning people stop reading, which is the same failure as a refusal nobody can act on.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,

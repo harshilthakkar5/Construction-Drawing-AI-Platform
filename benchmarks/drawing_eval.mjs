@@ -295,7 +295,27 @@ export function oneProjectOrThrow(cases) {
  * actively counter-productive: a longer description then means more of the
  * sheet sitting in pieces nothing retrieves. So count what is on the page.
  */
-export function describeCoverage(onSheet, reached) {
+export const CHUNK_MAX_TOKENS = 800;
+
+/** The six outcomes, in the order the report tallies them. */
+export const OUTCOMES = ["correct", "wrong", "off-target", "invented", "hedged", "abstained"];
+
+/**
+ * The in-place progress line.
+ *
+ * `\r` rewinds the cursor without erasing what is there, so a SHORT outcome
+ * written over a longer one leaves the tail of the longer one behind:
+ * "correct" over "off-target" printed `correctget`, which reads as a seventh
+ * outcome this scorer does not have. Padding to the longest name in the
+ * vocabulary fixes it for every outcome including one added later, which a
+ * hard-coded width would not.
+ */
+export function progressLine(index, total, outcome) {
+  const width = Math.max(...OUTCOMES.map((o) => o.length));
+  return `  [${index}/${total}] ${String(outcome).padEnd(width)}\r`;
+}
+
+export function describeCoverage(onSheet, reached, biggest = null) {
   const total = onSheet.length;
   if (total === 0) {
     return "Description chunks on the sheet: NONE — the vision pass stored nothing for this ingest.";
@@ -304,6 +324,24 @@ export function describeCoverage(onSheet, reached) {
   const used = new Set([...new Set(reached)].filter((id) => present.has(id)));
   const head = `Description chunks on the sheet: ${total}, of which ${used.size} reached an answer`;
   if (total === 1) {
+    // One chunk has two meanings and only one of them is a problem. A
+    // description of 600 tokens is UNDER the chunker's cap, so one chunk is
+    // the correct outcome and there is nothing to check; saying "check it"
+    // anyway fires on every healthy run, and a warning that is usually wrong
+    // is a warning people stop reading. The token count separates them.
+    if (biggest !== null && biggest <= CHUNK_MAX_TOKENS) {
+      return (
+        `${head} — one chunk, ${biggest} tokens, under the chunker's ${CHUNK_MAX_TOKENS}-token cap, ` +
+        "so it was never going to be split."
+      );
+    }
+    if (biggest !== null) {
+      return (
+        `${head}. ONE chunk at ${biggest} tokens, over the chunker's ${CHUNK_MAX_TOKENS}-token cap: ` +
+        "`split_description` did not run on this ingest, so the whole sheet is riding in one " +
+        "oversized embedding and one retrieval slot."
+      );
+    }
     return `${head}. One chunk means the description was stored whole — check it against the chunker's cap.`;
   }
   if (used.size === total) return `${head} — every piece is reachable.`;
@@ -329,9 +367,9 @@ async function descriptionChunksOnSheets(prisma, cases) {
         kind: "description",
         page: { sheetNumber: sheet, document: { projectId, supersededAt: null } },
       },
-      select: { id: true },
+      select: { id: true, tokenCount: true },
     });
-    ids.push(...found.map((c) => c.id));
+    ids.push(...found.map((c) => ({ id: c.id, tokenCount: c.tokenCount ?? null })));
   }
   return ids;
 }
@@ -1206,7 +1244,7 @@ export function summarize(rows) {
   };
 }
 
-export function report(rows, json, onSheet, history = null) {
+export function report(rows, json, onSheet, history = null, biggestDescription = null) {
   if (json) {
     console.log(JSON.stringify({ summary: summarize(rows), cases: rows }, null, 2));
     return;
@@ -1530,7 +1568,7 @@ export function report(rows, json, onSheet, history = null) {
       `k=${RETRIEVAL_LIMIT}` +
       `\n  Project: ${rows[0]?.projectId ?? "?"}` +
       `\n  Descriptions scored: ${descriptions.length ? descriptions.join(", ") : "NONE"}` +
-      `\n  ${describeCoverage(onSheet ?? [], descriptions)}\n`,
+      `\n  ${describeCoverage(onSheet ?? [], descriptions, biggestDescription)}\n`,
   );
 }
 
@@ -1554,6 +1592,12 @@ async function main() {
   const { retrieval, answer, citations, prisma } = await loadApi();
   await preflight(prisma, cases);
   const descriptionsOnSheet = await descriptionChunksOnSheets(prisma, cases);
+  const descriptionIdsOnSheet = descriptionsOnSheet.map((c) => c.id);
+  // The largest piece, because that is the one a cap would have split.
+  const biggestDescription = descriptionsOnSheet.reduce(
+    (max, c) => (typeof c.tokenCount === "number" && c.tokenCount > (max ?? 0) ? c.tokenCount : max),
+    null,
+  );
 
   // Built from the WHOLE set, never from the sliced --limit view: a five-case
   // smoke run must score against the same vocabulary as the full one, or its
@@ -1644,7 +1688,7 @@ async function main() {
       answer: text,
     });
     if (!args.json) {
-      process.stderr.write(`  [${index + 1}/${cases.length}] ${outcome}\r`);
+      process.stderr.write(progressLine(index + 1, cases.length, outcome));
     }
   }
 
@@ -1666,7 +1710,7 @@ async function main() {
         descriptionChunkIds: [...new Set(rows.flatMap((r) => r.descriptionChunkIds))].sort(),
         // What EXISTS, against what was reached above. A run that retrieved a
         // description for every one of its cases still only ever surfaced one.
-        descriptionChunksOnSheet: [...descriptionsOnSheet].sort(),
+        descriptionChunksOnSheet: [...descriptionIdsOnSheet].sort(),
         retrievalLimit: RETRIEVAL_LIMIT,
         label: args.label ?? null,
         chatProvider: process.env.CHAT_PROVIDER ?? "claude",
@@ -1679,7 +1723,7 @@ async function main() {
     ),
   );
 
-  report(rows, args.json, descriptionsOnSheet, readRunHistory(dirname(outPath), args.set));
+  report(rows, args.json, descriptionIdsOnSheet, readRunHistory(dirname(outPath), args.set), biggestDescription);
   process.stderr.write(`  Answers: ${outPath}\n\n`);
   await prisma.$disconnect();
 }
