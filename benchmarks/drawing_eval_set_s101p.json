@@ -1,0 +1,4644 @@
+[
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "A",
+      "intersectionPt": [
+        612.8,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "B",
+      "intersectionPt": [
+        612.8,
+        1298.8
+      ],
+      "labelDistancePt": 48.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "C",
+      "intersectionPt": [
+        612.8,
+        1132.6
+      ],
+      "labelDistancePt": 87.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "D",
+      "intersectionPt": [
+        612.8,
+        1092.1
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 1 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "D",
+      "intersectionPt": [
+        612.8,
+        1092.1
+      ],
+      "labelDistancePt": 73.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "E",
+      "intersectionPt": [
+        612.8,
+        990.8
+      ],
+      "labelDistancePt": 58.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "F",
+      "intersectionPt": [
+        612.8,
+        889.6
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "G",
+      "intersectionPt": [
+        612.8,
+        687.1
+      ],
+      "labelDistancePt": 36.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 1 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "1",
+      "gridRow": "H",
+      "intersectionPt": [
+        612.8,
+        585.8
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "A",
+      "intersectionPt": [
+        1469.0,
+        1400.0
+      ],
+      "labelDistancePt": 28.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "B",
+      "intersectionPt": [
+        1469.0,
+        1298.8
+      ],
+      "labelDistancePt": 35.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "C",
+      "intersectionPt": [
+        1469.0,
+        1132.6
+      ],
+      "labelDistancePt": 60.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "D",
+      "intersectionPt": [
+        1469.0,
+        1092.1
+      ],
+      "labelDistancePt": 20.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 10 and row line D?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "D",
+      "intersectionPt": [
+        1469.0,
+        1092.1
+      ],
+      "labelDistancePt": 91.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 10 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "E",
+      "intersectionPt": [
+        1469.0,
+        990.8
+      ],
+      "labelDistancePt": 55.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "F",
+      "intersectionPt": [
+        1469.0,
+        889.6
+      ],
+      "labelDistancePt": 30.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 10 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "F",
+      "intersectionPt": [
+        1469.0,
+        889.6
+      ],
+      "labelDistancePt": 28.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "G",
+      "intersectionPt": [
+        1469.0,
+        687.1
+      ],
+      "labelDistancePt": 30.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 10 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "10",
+      "gridRow": "H",
+      "intersectionPt": [
+        1469.0,
+        585.8
+      ],
+      "labelDistancePt": 30.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "A",
+      "intersectionPt": [
+        1609.3,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "B",
+      "intersectionPt": [
+        1609.3,
+        1298.8
+      ],
+      "labelDistancePt": 38.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "C",
+      "intersectionPt": [
+        1609.3,
+        1132.6
+      ],
+      "labelDistancePt": 83.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "D",
+      "intersectionPt": [
+        1609.3,
+        1092.1
+      ],
+      "labelDistancePt": 61.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 11 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "D",
+      "intersectionPt": [
+        1609.3,
+        1092.1
+      ],
+      "labelDistancePt": 76.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "E",
+      "intersectionPt": [
+        1609.3,
+        990.8
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 11 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "E",
+      "intersectionPt": [
+        1609.3,
+        990.8
+      ],
+      "labelDistancePt": 24.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "F",
+      "intersectionPt": [
+        1609.3,
+        889.6
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 11 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "F",
+      "intersectionPt": [
+        1609.3,
+        889.6
+      ],
+      "labelDistancePt": 53.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "G",
+      "intersectionPt": [
+        1609.3,
+        687.1
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 11 and row line G?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "G",
+      "intersectionPt": [
+        1609.3,
+        687.1
+      ],
+      "labelDistancePt": 79.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 11 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "H",
+      "intersectionPt": [
+        1609.3,
+        585.8
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 11 and row line H?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "11",
+      "gridRow": "H",
+      "intersectionPt": [
+        1609.3,
+        585.8
+      ],
+      "labelDistancePt": 21.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "A",
+      "intersectionPt": [
+        1663.1,
+        1400.0
+      ],
+      "labelDistancePt": 29.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "B",
+      "intersectionPt": [
+        1663.1,
+        1298.8
+      ],
+      "labelDistancePt": 36.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "C",
+      "intersectionPt": [
+        1663.1,
+        1132.6
+      ],
+      "labelDistancePt": 60.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "D",
+      "intersectionPt": [
+        1663.1,
+        1092.1
+      ],
+      "labelDistancePt": 20.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 12 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "D",
+      "intersectionPt": [
+        1663.1,
+        1092.1
+      ],
+      "labelDistancePt": 92.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 12 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "E",
+      "intersectionPt": [
+        1663.1,
+        990.8
+      ],
+      "labelDistancePt": 57.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "F",
+      "intersectionPt": [
+        1663.1,
+        889.6
+      ],
+      "labelDistancePt": 29.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 12 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "F",
+      "intersectionPt": [
+        1663.1,
+        889.6
+      ],
+      "labelDistancePt": 28.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "G",
+      "intersectionPt": [
+        1663.1,
+        687.1
+      ],
+      "labelDistancePt": 46.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 12 and row line G?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "G",
+      "intersectionPt": [
+        1663.1,
+        687.1
+      ],
+      "labelDistancePt": 94.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 12 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "H",
+      "intersectionPt": [
+        1663.1,
+        585.8
+      ],
+      "labelDistancePt": 29.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 12 and row line H?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "12",
+      "gridRow": "H",
+      "intersectionPt": [
+        1663.1,
+        585.8
+      ],
+      "labelDistancePt": 55.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "A",
+      "intersectionPt": [
+        1801.7,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 13 and row line A?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "A",
+      "intersectionPt": [
+        1801.7,
+        1400.0
+      ],
+      "labelDistancePt": 35.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "B",
+      "intersectionPt": [
+        1801.7,
+        1298.8
+      ],
+      "labelDistancePt": 38.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "C",
+      "intersectionPt": [
+        1801.7,
+        1132.6
+      ],
+      "labelDistancePt": 83.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 13 and row line C?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "C",
+      "intersectionPt": [
+        1801.7,
+        1132.6
+      ],
+      "labelDistancePt": 12.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "D",
+      "intersectionPt": [
+        1801.7,
+        1092.1
+      ],
+      "labelDistancePt": 61.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 13 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "D",
+      "intersectionPt": [
+        1801.7,
+        1092.1
+      ],
+      "labelDistancePt": 28.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "E",
+      "intersectionPt": [
+        1801.7,
+        990.8
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 13 and row line E?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "E",
+      "intersectionPt": [
+        1801.7,
+        990.8
+      ],
+      "labelDistancePt": 24.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "F",
+      "intersectionPt": [
+        1801.7,
+        889.6
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 13 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "F",
+      "intersectionPt": [
+        1801.7,
+        889.6
+      ],
+      "labelDistancePt": 53.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "G",
+      "intersectionPt": [
+        1801.7,
+        687.1
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 13 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "13",
+      "gridRow": "H",
+      "intersectionPt": [
+        1801.7,
+        585.8
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "A",
+      "intersectionPt": [
+        1853.8,
+        1400.0
+      ],
+      "labelDistancePt": 28.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 14 and row line A?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "A",
+      "intersectionPt": [
+        1853.8,
+        1400.0
+      ],
+      "labelDistancePt": 82.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "B",
+      "intersectionPt": [
+        1853.8,
+        1298.8
+      ],
+      "labelDistancePt": 35.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "C",
+      "intersectionPt": [
+        1853.8,
+        1132.6
+      ],
+      "labelDistancePt": 60.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 14 and row line C?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "C",
+      "intersectionPt": [
+        1853.8,
+        1132.6
+      ],
+      "labelDistancePt": 51.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "D",
+      "intersectionPt": [
+        1853.8,
+        1092.1
+      ],
+      "labelDistancePt": 20.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 14 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "D",
+      "intersectionPt": [
+        1853.8,
+        1092.1
+      ],
+      "labelDistancePt": 57.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 14 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "E",
+      "intersectionPt": [
+        1853.8,
+        990.8
+      ],
+      "labelDistancePt": 55.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "F",
+      "intersectionPt": [
+        1853.8,
+        889.6
+      ],
+      "labelDistancePt": 30.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 14 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "F",
+      "intersectionPt": [
+        1853.8,
+        889.6
+      ],
+      "labelDistancePt": 28.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "G",
+      "intersectionPt": [
+        1853.8,
+        687.1
+      ],
+      "labelDistancePt": 46.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 14 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "14",
+      "gridRow": "H",
+      "intersectionPt": [
+        1853.8,
+        585.8
+      ],
+      "labelDistancePt": 30.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "A",
+      "intersectionPt": [
+        1994.0,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "B",
+      "intersectionPt": [
+        1994.0,
+        1298.8
+      ],
+      "labelDistancePt": 48.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "C",
+      "intersectionPt": [
+        1994.0,
+        1132.6
+      ],
+      "labelDistancePt": 95.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "D",
+      "intersectionPt": [
+        1994.0,
+        1092.1
+      ],
+      "labelDistancePt": 73.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 15 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "D",
+      "intersectionPt": [
+        1994.0,
+        1092.1
+      ],
+      "labelDistancePt": 76.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "E",
+      "intersectionPt": [
+        1994.0,
+        990.8
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 15 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "E",
+      "intersectionPt": [
+        1994.0,
+        990.8
+      ],
+      "labelDistancePt": 24.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "F",
+      "intersectionPt": [
+        1994.0,
+        889.6
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "G",
+      "intersectionPt": [
+        1994.0,
+        687.1
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 15 and row line G?",
+    "expected": "C1",
+    "distractor": "C3",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "G",
+      "intersectionPt": [
+        1994.0,
+        687.1
+      ],
+      "labelDistancePt": 21.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 15 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "15",
+      "gridRow": "H",
+      "intersectionPt": [
+        1994.0,
+        585.8
+      ],
+      "labelDistancePt": 72.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "A",
+      "intersectionPt": [
+        2044.3,
+        1400.0
+      ],
+      "labelDistancePt": 28.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "B",
+      "intersectionPt": [
+        2044.3,
+        1298.8
+      ],
+      "labelDistancePt": 56.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "C",
+      "intersectionPt": [
+        2044.3,
+        1132.6
+      ],
+      "labelDistancePt": 68.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "D",
+      "intersectionPt": [
+        2044.3,
+        1092.1
+      ],
+      "labelDistancePt": 31.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 16 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "D",
+      "intersectionPt": [
+        2044.3,
+        1092.1
+      ],
+      "labelDistancePt": 90.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "E",
+      "intersectionPt": [
+        2044.3,
+        990.8
+      ],
+      "labelDistancePt": 45.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 16 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "E",
+      "intersectionPt": [
+        2044.3,
+        990.8
+      ],
+      "labelDistancePt": 53.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "F",
+      "intersectionPt": [
+        2044.3,
+        889.6
+      ],
+      "labelDistancePt": 31.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "G",
+      "intersectionPt": [
+        2044.3,
+        687.1
+      ],
+      "labelDistancePt": 45.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 16 and row line G?",
+    "expected": "C1",
+    "distractor": "C3",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "G",
+      "intersectionPt": [
+        2044.3,
+        687.1
+      ],
+      "labelDistancePt": 52.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 16 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "H",
+      "intersectionPt": [
+        2044.3,
+        585.8
+      ],
+      "labelDistancePt": 31.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 16 and row line H?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "16",
+      "gridRow": "H",
+      "intersectionPt": [
+        2044.3,
+        585.8
+      ],
+      "labelDistancePt": 74.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "A",
+      "intersectionPt": [
+        2180.6,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "B",
+      "intersectionPt": [
+        2180.6,
+        1298.8
+      ],
+      "labelDistancePt": 48.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "D",
+      "intersectionPt": [
+        2180.6,
+        1092.1
+      ],
+      "labelDistancePt": 92.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "F",
+      "intersectionPt": [
+        2180.6,
+        889.6
+      ],
+      "labelDistancePt": 92.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "G",
+      "intersectionPt": [
+        2180.6,
+        687.1
+      ],
+      "labelDistancePt": 80.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 17 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "H",
+      "intersectionPt": [
+        2180.6,
+        585.8
+      ],
+      "labelDistancePt": 86.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 17 and row line H?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "17",
+      "gridRow": "H",
+      "intersectionPt": [
+        2180.6,
+        585.8
+      ],
+      "labelDistancePt": 82.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "A",
+      "intersectionPt": [
+        2244.6,
+        1400.0
+      ],
+      "labelDistancePt": 35.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "B",
+      "intersectionPt": [
+        2244.6,
+        1298.8
+      ],
+      "labelDistancePt": 65.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "C",
+      "intersectionPt": [
+        2244.6,
+        1132.6
+      ],
+      "labelDistancePt": 70.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 18 and row line C?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "C",
+      "intersectionPt": [
+        2244.6,
+        1132.6
+      ],
+      "labelDistancePt": 60.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "D",
+      "intersectionPt": [
+        2244.6,
+        1092.1
+      ],
+      "labelDistancePt": 35.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 18 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "D",
+      "intersectionPt": [
+        2244.6,
+        1092.1
+      ],
+      "labelDistancePt": 59.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "E",
+      "intersectionPt": [
+        2244.6,
+        990.8
+      ],
+      "labelDistancePt": 79.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "F",
+      "intersectionPt": [
+        2244.6,
+        889.6
+      ],
+      "labelDistancePt": 35.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "G",
+      "intersectionPt": [
+        2244.6,
+        687.1
+      ],
+      "labelDistancePt": 45.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 18 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "H",
+      "intersectionPt": [
+        2244.6,
+        585.8
+      ],
+      "labelDistancePt": 48.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 18 and row line H?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "18",
+      "gridRow": "H",
+      "intersectionPt": [
+        2244.6,
+        585.8
+      ],
+      "labelDistancePt": 79.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "A",
+      "intersectionPt": [
+        2331.5,
+        1400.0
+      ],
+      "labelDistancePt": 46.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "B",
+      "intersectionPt": [
+        2331.5,
+        1298.8
+      ],
+      "labelDistancePt": 48.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "C",
+      "intersectionPt": [
+        2331.5,
+        1132.6
+      ],
+      "labelDistancePt": 87.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 19 and row line C?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "C",
+      "intersectionPt": [
+        2331.5,
+        1132.6
+      ],
+      "labelDistancePt": 36.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "D",
+      "intersectionPt": [
+        2331.5,
+        1092.1
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 19 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "D",
+      "intersectionPt": [
+        2331.5,
+        1092.1
+      ],
+      "labelDistancePt": 35.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "E",
+      "intersectionPt": [
+        2331.5,
+        990.8
+      ],
+      "labelDistancePt": 58.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "F",
+      "intersectionPt": [
+        2331.5,
+        889.6
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "G",
+      "intersectionPt": [
+        2331.5,
+        687.1
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 19 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "19",
+      "gridRow": "H",
+      "intersectionPt": [
+        2331.5,
+        585.8
+      ],
+      "labelDistancePt": 46.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "A",
+      "intersectionPt": [
+        714.0,
+        1400.0
+      ],
+      "labelDistancePt": 46.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "B",
+      "intersectionPt": [
+        714.0,
+        1298.8
+      ],
+      "labelDistancePt": 48.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "C",
+      "intersectionPt": [
+        714.0,
+        1132.6
+      ],
+      "labelDistancePt": 72.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 2 and row line C?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "C",
+      "intersectionPt": [
+        714.0,
+        1132.6
+      ],
+      "labelDistancePt": 36.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "D",
+      "intersectionPt": [
+        714.0,
+        1092.1
+      ],
+      "labelDistancePt": 38.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 2 and row line D?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "D",
+      "intersectionPt": [
+        714.0,
+        1092.1
+      ],
+      "labelDistancePt": 35.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line F?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "F",
+      "intersectionPt": [
+        714.0,
+        889.6
+      ],
+      "labelDistancePt": 38.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "G",
+      "intersectionPt": [
+        714.0,
+        687.1
+      ],
+      "labelDistancePt": 79.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 2 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "2",
+      "gridRow": "H",
+      "intersectionPt": [
+        714.0,
+        585.8
+      ],
+      "labelDistancePt": 67.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 3 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "A",
+      "intersectionPt": [
+        862.9,
+        1400.0
+      ],
+      "labelDistancePt": 64.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 3 and row line A?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "A",
+      "intersectionPt": [
+        862.9,
+        1400.0
+      ],
+      "labelDistancePt": 79.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 3 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "B",
+      "intersectionPt": [
+        862.9,
+        1298.8
+      ],
+      "labelDistancePt": 59.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 3 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "D",
+      "intersectionPt": [
+        862.9,
+        1092.1
+      ],
+      "labelDistancePt": 80.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 3 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "E",
+      "intersectionPt": [
+        862.9,
+        990.8
+      ],
+      "labelDistancePt": 84.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 3 and row line E?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "E",
+      "intersectionPt": [
+        862.9,
+        990.8
+      ],
+      "labelDistancePt": 35.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 3 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "G",
+      "intersectionPt": [
+        862.9,
+        687.1
+      ],
+      "labelDistancePt": 83.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 3 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "3",
+      "gridRow": "H",
+      "intersectionPt": [
+        862.9,
+        585.8
+      ],
+      "labelDistancePt": 60.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "A",
+      "intersectionPt": [
+        916.6,
+        1400.0
+      ],
+      "labelDistancePt": 26.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 4 and row line A?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "A",
+      "intersectionPt": [
+        916.6,
+        1400.0
+      ],
+      "labelDistancePt": 84.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "B",
+      "intersectionPt": [
+        916.6,
+        1298.8
+      ],
+      "labelDistancePt": 48.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line C?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "C",
+      "intersectionPt": [
+        916.6,
+        1132.6
+      ],
+      "labelDistancePt": 76.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line D?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "D",
+      "intersectionPt": [
+        916.6,
+        1092.1
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 4 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "D",
+      "intersectionPt": [
+        916.6,
+        1092.1
+      ],
+      "labelDistancePt": 81.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "E",
+      "intersectionPt": [
+        916.6,
+        990.8
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 4 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "E",
+      "intersectionPt": [
+        916.6,
+        990.8
+      ],
+      "labelDistancePt": 37.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "F",
+      "intersectionPt": [
+        916.6,
+        889.6
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "G",
+      "intersectionPt": [
+        916.6,
+        687.1
+      ],
+      "labelDistancePt": 48.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 4 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "4",
+      "gridRow": "H",
+      "intersectionPt": [
+        916.6,
+        585.8
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "A",
+      "intersectionPt": [
+        1015.3,
+        1400.0
+      ],
+      "labelDistancePt": 46.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 5 and row line A?",
+    "expected": "C3",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "A",
+      "intersectionPt": [
+        1015.3,
+        1400.0
+      ],
+      "labelDistancePt": 83.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "B",
+      "intersectionPt": [
+        1015.3,
+        1298.8
+      ],
+      "labelDistancePt": 48.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 5 and row line D?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "D",
+      "intersectionPt": [
+        1015.3,
+        1092.1
+      ],
+      "labelDistancePt": 78.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "E",
+      "intersectionPt": [
+        1015.3,
+        990.8
+      ],
+      "labelDistancePt": 78.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 5 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "E",
+      "intersectionPt": [
+        1015.3,
+        990.8
+      ],
+      "labelDistancePt": 31.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "F",
+      "intersectionPt": [
+        1015.3,
+        889.6
+      ],
+      "labelDistancePt": 65.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 5 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "F",
+      "intersectionPt": [
+        1015.3,
+        889.6
+      ],
+      "labelDistancePt": 68.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "G",
+      "intersectionPt": [
+        1015.3,
+        687.1
+      ],
+      "labelDistancePt": 78.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 5 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "5",
+      "gridRow": "H",
+      "intersectionPt": [
+        1015.3,
+        585.8
+      ],
+      "labelDistancePt": 65.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "A",
+      "intersectionPt": [
+        1075.0,
+        1400.0
+      ],
+      "labelDistancePt": 33.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line B?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "B",
+      "intersectionPt": [
+        1075.0,
+        1298.8
+      ],
+      "labelDistancePt": 62.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "C",
+      "intersectionPt": [
+        1075.0,
+        1132.6
+      ],
+      "labelDistancePt": 61.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "D",
+      "intersectionPt": [
+        1075.0,
+        1092.1
+      ],
+      "labelDistancePt": 25.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 6 and row line D?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "D",
+      "intersectionPt": [
+        1075.0,
+        1092.1
+      ],
+      "labelDistancePt": 86.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 6 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "E",
+      "intersectionPt": [
+        1075.0,
+        990.8
+      ],
+      "labelDistancePt": 47.3
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "F",
+      "intersectionPt": [
+        1075.0,
+        889.6
+      ],
+      "labelDistancePt": 36.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 6 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "F",
+      "intersectionPt": [
+        1075.0,
+        889.6
+      ],
+      "labelDistancePt": 27.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "G",
+      "intersectionPt": [
+        1075.0,
+        687.1
+      ],
+      "labelDistancePt": 46.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 6 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "6",
+      "gridRow": "H",
+      "intersectionPt": [
+        1075.0,
+        585.8
+      ],
+      "labelDistancePt": 36.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "A",
+      "intersectionPt": [
+        1224.5,
+        1400.0
+      ],
+      "labelDistancePt": 46.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line A?",
+    "expected": "C1",
+    "distractor": "C3",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "A",
+      "intersectionPt": [
+        1224.5,
+        1400.0
+      ],
+      "labelDistancePt": 84.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "B",
+      "intersectionPt": [
+        1224.5,
+        1298.8
+      ],
+      "labelDistancePt": 38.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line B?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "B",
+      "intersectionPt": [
+        1224.5,
+        1298.8
+      ],
+      "labelDistancePt": 35.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "C",
+      "intersectionPt": [
+        1224.5,
+        1132.6
+      ],
+      "labelDistancePt": 83.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "D",
+      "intersectionPt": [
+        1224.5,
+        1092.1
+      ],
+      "labelDistancePt": 61.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line D?",
+    "expected": "C2",
+    "distractor": "C1",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "D",
+      "intersectionPt": [
+        1224.5,
+        1092.1
+      ],
+      "labelDistancePt": 76.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "E",
+      "intersectionPt": [
+        1224.5,
+        990.8
+      ],
+      "labelDistancePt": 65.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "E",
+      "intersectionPt": [
+        1224.5,
+        990.8
+      ],
+      "labelDistancePt": 25.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "F",
+      "intersectionPt": [
+        1224.5,
+        889.6
+      ],
+      "labelDistancePt": 72.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "F",
+      "intersectionPt": [
+        1224.5,
+        889.6
+      ],
+      "labelDistancePt": 53.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "G",
+      "intersectionPt": [
+        1224.5,
+        687.1
+      ],
+      "labelDistancePt": 65.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 7 and row line G?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "G",
+      "intersectionPt": [
+        1224.5,
+        687.1
+      ],
+      "labelDistancePt": 21.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 7 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "7",
+      "gridRow": "H",
+      "intersectionPt": [
+        1224.5,
+        585.8
+      ],
+      "labelDistancePt": 72.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "A",
+      "intersectionPt": [
+        1276.2,
+        1400.0
+      ],
+      "labelDistancePt": 28.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "B",
+      "intersectionPt": [
+        1276.2,
+        1298.8
+      ],
+      "labelDistancePt": 35.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 8 and row line B?",
+    "expected": "C1",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "B",
+      "intersectionPt": [
+        1276.2,
+        1298.8
+      ],
+      "labelDistancePt": 82.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "C",
+      "intersectionPt": [
+        1276.2,
+        1132.6
+      ],
+      "labelDistancePt": 60.2
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "D",
+      "intersectionPt": [
+        1276.2,
+        1092.1
+      ],
+      "labelDistancePt": 20.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 8 and row line D?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "D",
+      "intersectionPt": [
+        1276.2,
+        1092.1
+      ],
+      "labelDistancePt": 90.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 8 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "E",
+      "intersectionPt": [
+        1276.2,
+        990.8
+      ],
+      "labelDistancePt": 55.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "F",
+      "intersectionPt": [
+        1276.2,
+        889.6
+      ],
+      "labelDistancePt": 30.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 8 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "F",
+      "intersectionPt": [
+        1276.2,
+        889.6
+      ],
+      "labelDistancePt": 27.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "G",
+      "intersectionPt": [
+        1276.2,
+        687.1
+      ],
+      "labelDistancePt": 46.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 8 and row line G?",
+    "expected": "C1",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "G",
+      "intersectionPt": [
+        1276.2,
+        687.1
+      ],
+      "labelDistancePt": 53.6
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 8 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "8",
+      "gridRow": "H",
+      "intersectionPt": [
+        1276.2,
+        585.8
+      ],
+      "labelDistancePt": 30.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line A?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "A",
+      "intersectionPt": [
+        1416.8,
+        1400.0
+      ],
+      "labelDistancePt": 46.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line B?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "B",
+      "intersectionPt": [
+        1416.8,
+        1298.8
+      ],
+      "labelDistancePt": 38.4
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line C?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "C",
+      "intersectionPt": [
+        1416.8,
+        1132.6
+      ],
+      "labelDistancePt": 83.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line D?",
+    "expected": "PC2",
+    "distractor": "PC1",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "D",
+      "intersectionPt": [
+        1416.8,
+        1092.1
+      ],
+      "labelDistancePt": 61.8
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 9 and row line D?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "D",
+      "intersectionPt": [
+        1416.8,
+        1092.1
+      ],
+      "labelDistancePt": 76.5
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line E?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "E",
+      "intersectionPt": [
+        1416.8,
+        990.8
+      ],
+      "labelDistancePt": 64.9
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 9 and row line E?",
+    "expected": "C2",
+    "distractor": "C4",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "E",
+      "intersectionPt": [
+        1416.8,
+        990.8
+      ],
+      "labelDistancePt": 25.0
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line F?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "F",
+      "intersectionPt": [
+        1416.8,
+        889.6
+      ],
+      "labelDistancePt": 73.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-colmark",
+    "question": "On sheet S101P, which column mark is called out at the intersection of column line 9 and row line F?",
+    "expected": "C4",
+    "distractor": "C2",
+    "labelPattern": "C\\d{1,2}",
+    "sheetLabels": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "F",
+      "intersectionPt": [
+        1416.8,
+        889.6
+      ],
+      "labelDistancePt": 53.1
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line G?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "G",
+      "intersectionPt": [
+        1416.8,
+        687.1
+      ],
+      "labelDistancePt": 73.7
+    }
+  },
+  {
+    "projectId": "",
+    "tag": "grid-pilecap",
+    "question": "On sheet S101P, which pile cap mark is at the intersection of column line 9 and row line H?",
+    "expected": "PC1",
+    "distractor": "PC2",
+    "labelPattern": "PC\\d{1,2}",
+    "sheetLabels": [
+      "PC1",
+      "PC2"
+    ],
+    "derivation": {
+      "sheet": "S101P",
+      "gridColumn": "9",
+      "gridRow": "H",
+      "intersectionPt": [
+        1416.8,
+        585.8
+      ],
+      "labelDistancePt": 73.7
+    }
+  }
+]

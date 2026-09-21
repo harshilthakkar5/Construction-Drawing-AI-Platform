@@ -69,6 +69,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import NamedTuple
 
 import fitz
 
@@ -87,9 +88,6 @@ MAX_LABEL_PT = 100.0
 # The refusal radius. Larger than a drafter's label offset, smaller than half a
 # bay, so the reading moves only where it was genuinely ambiguous.
 JITTER_PT = 20.0
-
-FOOTING_MARK = re.compile(r"F\d{1,2}")
-MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 
 # The SHAPE a label of each kind takes, as an anchored token, emitted into every
 # case so the scorer can recognise a label the model INVENTED — one formed like
@@ -113,21 +111,96 @@ MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 # Every tag this generator can emit. Named here rather than derived from the
 # cases, because a tag that emitted nothing has to be reportable and a set
 # cannot name what it does not contain.
-TAGS = ("grid-footing", "grid-column", "grid-spacing")
+#
+# An INTERSECTION tag is ONE TABLE ROW, and it has to be. The three things a
+# tag needs drift apart the moment they are written apart: the pattern that
+# finds the label on the PDF, the pattern the SCORER recognises it by, and the
+# question. This file kept the first two in separate dicts and the third inline
+# in the emission loop, which was survivable while one sheet defined the
+# vocabulary and stopped being survivable the moment a second sheet marked its
+# foundations PC1 rather than F9 — three regions to edit in step, and a tag
+# whose cases carry another tag's shape is a set that scores the wrong
+# vocabulary while looking well-formed.
+class LabelClass(NamedTuple):
+    """One kind of label, and everything a case about it needs."""
 
-LABEL_PATTERN = {
-    "grid-footing": r"F\d{1,2}",
-    # A dimension as a drafter writes it: 26' - 2 1/2". Every separator is
-    # optional-whitespace tolerant for the same reason the member size is —
-    # the sheet writes "26' - 2 1/2"" and a model writes "26'-2 1/2"".
-    "grid-spacing": (
-        r"\d+\s*'\s*-?\s*\d+(?:\s*\d+\s*/\s*\d+)?\s*\""
+    # Run against the PDF's own words, via `fullmatch`. Deliberately LOOSE:
+    # whatever it matches is real by construction, because it came off the
+    # drawing.
+    extract: re.Pattern
+    # The shape the SCORER recognises, emitted into every case. The opposite
+    # problem — it sees only the model's prose, where a shape is all there is
+    # to go on — so it is strict. It is what separates a label the model
+    # INVENTED from one it declined to give.
+    shape: str
+    # Filled per case with {sheet}, {col} and {row}. It must never name a
+    # candidate answer. A question that lists the marks to choose from measures
+    # the prompt rather than the drawing, which is the same prohibition
+    # `test_the_prompt_never_seeds_an_answer_from_the_sheet_under_test` puts on
+    # the vision prompt, for the same reason.
+    question: str
+
+
+# A sheet records the SAME geometric fact in one of two notations, and which
+# one it uses is a house style rather than a difference in the drawing:
+#
+#   * the value printed at the intersection — F9, HSS8X8X3/8
+#   * a MARK keyed to a schedule elsewhere in the set — PC1, C3
+#
+# Both are the fact the text layer cannot hold: `page.get_text()` returns every
+# mark on the sheet in one run, attached to nothing, and what joins a mark to
+# its intersection is drawn rather than written. So a marked sheet asks exactly
+# the question this benchmark exists to ask, and the first sheet's vocabulary
+# simply could not see it — S101P scored ZERO cases from 329 candidates, every
+# footing candidate refused with "nearest label F2 is 444pt away", because the
+# only F-marks on it are in a detail a third of a sheet away.
+#
+# They are four tags and not two on purpose. A mark and a section are different
+# ANSWER vocabularies with different majority-class baselines, and pooling two
+# vocabularies under one tag is the pooled-baseline mistake this project has
+# already paid for once: the null model's score stops describing either half.
+INTERSECTION_TAGS: dict[str, LabelClass] = {
+    "grid-footing": LabelClass(
+        re.compile(r"F\d{1,2}"),
+        r"F\d{1,2}",
+        "On sheet {sheet}, which footing mark is at the intersection of "
+        "column line {col} and row line {row}?",
     ),
-    "grid-column": (
-        r"HSS\s*\d+(?:\.\d+)?\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?"
-        r"(?:\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?)?"
+    "grid-column": LabelClass(
+        re.compile(r"HSS[0-9.].*"),
+        (
+            r"HSS\s*\d+(?:\.\d+)?\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?"
+            r"(?:\s*X\s*\d+(?:\.\d+)?(?:\s*/\s*\d+)?)?"
+        ),
+        "On sheet {sheet}, what column section is called out at the "
+        "intersection of column line {col} and row line {row}?",
+    ),
+    "grid-pilecap": LabelClass(
+        re.compile(r"PC\d{1,2}"),
+        r"PC\d{1,2}",
+        "On sheet {sheet}, which pile cap mark is at the intersection of "
+        "column line {col} and row line {row}?",
+    ),
+    # No `\s*` in the shape, unlike the member size. "HSS 8x8x3/8" is a real
+    # way to write a section and "C 3" is not a way to write a schedule key,
+    # so allowing the space here would only let the scorer read the "C 3" in
+    # prose like "row line C 3 bays over" as a mark.
+    "grid-colmark": LabelClass(
+        re.compile(r"C\d{1,2}"),
+        r"C\d{1,2}",
+        "On sheet {sheet}, which column mark is called out at the "
+        "intersection of column line {col} and row line {row}?",
     ),
 }
+
+TAGS = tuple(INTERSECTION_TAGS) + ("grid-spacing",)
+
+# Derived, so a tag cannot exist with a shape the scorer never receives.
+LABEL_PATTERN = {tag: cls.shape for tag, cls in INTERSECTION_TAGS.items()}
+# A dimension as a drafter writes it: 26' - 2 1/2". Every separator is
+# optional-whitespace tolerant for the same reason the member size is — the
+# sheet writes "26' - 2 1/2"" and a model writes "26'-2 1/2"".
+LABEL_PATTERN["grid-spacing"] = r"\d+\s*'\s*-?\s*\d+(?:\s*\d+\s*/\s*\d+)?\s*\""
 
 
 # A dimension string as this sheet prints it. Unlike a footing mark or a member
@@ -325,6 +398,26 @@ def stable_reading(labels, x: float, y: float) -> tuple[str, float, str] | None:
     return label, distance, ""
 
 
+def names_its_own_intersection(label: str, col: str, row: str) -> bool:
+    """True when a mark cannot be told apart from its own intersection's name.
+
+    S101P marks its columns C1..C4 against a schedule, names its row lines A..H
+    and its column lines 1..19 — so the mark `C1`, at the intersection of
+    column line 1 and row line C, is the same two characters as the shorthand
+    anyone would write for that intersection. An answer of "C1" is then both
+    the truth and a restatement of the question, and nothing in the reply
+    separates them: the case would score CORRECT for a model that read the
+    question and never looked at the drawing.
+
+    So it is refused, for the same reason a label sitting equidistant between
+    two intersections is. Neither refusal says the drawing is unclear — the
+    drawing is fine, and a person reading it has the leader line to follow.
+    What is ambiguous is the ANSWER, and a benchmark cannot score an answer it
+    cannot read. Both orders are checked because a sheet may write either.
+    """
+    return label in (f"{row}{col}", f"{col}{row}")
+
+
 def runner_up(labels, x: float, y: float, exclude: str) -> str | None:
     """The nearest label carrying a DIFFERENT value — the distractor a wrong
     answer would most plausibly reach for, and what the runner scores against."""
@@ -394,8 +487,10 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         if not columns or not rows:
             refusals.append(f"page {page_index + 1}: no orthogonal grid found")
             continue
-        footings = labels_of(page, FOOTING_MARK)
-        members = labels_of(page, MEMBER_CALLOUT)
+        found = {
+            tag: labels_of(page, cls.extract)
+            for tag, cls in INTERSECTION_TAGS.items()
+        }
         dimensions = dimensions_of(page)
         sheet_name = sheet or f"page {page_index + 1}"
 
@@ -445,23 +540,18 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         # Via grid.intersections rather than a nested loop here, so the
         # generator and the vision pass cannot disagree about what "4/B" means.
         for col, row, cx, cy in grid.intersections(columns, rows):
-            for kind, labels, question in (
-                (
-                    "grid-footing",
-                    footings,
-                    f"On sheet {sheet_name}, which footing mark is at the intersection of "
-                    f"column line {col} and row line {row}?",
-                ),
-                (
-                    "grid-column",
-                    members,
-                    f"On sheet {sheet_name}, what column section is called out at the "
-                    f"intersection of column line {col} and row line {row}?",
-                ),
-            ):
+            for kind, cls in INTERSECTION_TAGS.items():
+                labels = found[kind]
+                question = cls.question.format(sheet=sheet_name, col=col, row=row)
                 label, distance, reason = stable_reading(labels, cx, cy)
                 if label is None:
                     refusals.append(f"{sheet_name} {col}/{row} {kind}: {reason}")
+                    continue
+                if names_its_own_intersection(label, col, row):
+                    refusals.append(
+                        f"{sheet_name} {col}/{row} {kind}: the mark {label} is also how "
+                        f"this intersection is written"
+                    )
                     continue
                 cases.append(
                     {
