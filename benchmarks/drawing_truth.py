@@ -67,6 +67,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import fitz
@@ -109,6 +110,11 @@ MEMBER_CALLOUT = re.compile(r"HSS[0-9.].*")
 # JavaScript, so the two languages cannot drift; `\s*` is there because a model
 # writes "HSS 8x8x3/8" for a sheet that says "HSS8X8X3/8". Both forms are valid
 # in Python's `re` and in JavaScript's RegExp.
+# Every tag this generator can emit. Named here rather than derived from the
+# cases, because a tag that emitted nothing has to be reportable and a set
+# cannot name what it does not contain.
+TAGS = ("grid-footing", "grid-column", "grid-spacing")
+
 LABEL_PATTERN = {
     "grid-footing": r"F\d{1,2}",
     # A dimension as a drafter writes it: 26' - 2 1/2". Every separator is
@@ -352,6 +358,32 @@ def _neighbour_bay(dimensions, positions, first, second, axis, exclude):
     return None
 
 
+def tally(cases: list[dict], refusals: list[str], expected_tags) -> str:
+    """The emitted count, broken down by TAG, naming any tag that died.
+
+    A total is a liveness signal only if you already know what it should be.
+    "40 cases emitted, 24 refused" looked healthy on a run where the spacing
+    tag produced ZERO — 40 is exactly the footing-plus-column count, so the
+    number that should have raised the alarm was the one that looked normal.
+    A tag with no cases is not a smaller set, it is a question the benchmark
+    has stopped asking, and it is invisible in every figure the report prints
+    afterwards.
+    """
+    counts = Counter(case["tag"] for case in cases)
+    breakdown = ", ".join(f"{tag} {counts.get(tag, 0)}" for tag in expected_tags)
+    lines = [
+        f"{len(cases)} cases emitted ({breakdown}), {len(refusals)} refused "
+        f"(run with --explain to see why)"
+    ]
+    dead = [tag for tag in expected_tags if counts.get(tag, 0) == 0]
+    if dead:
+        lines.append(
+            f"  NO CASES for {', '.join(dead)} — that tag asks nothing of this set, "
+            f"and nothing downstream will say so again."
+        )
+    return "\n".join(lines)
+
+
 def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[dict]:
     doc = fitz.open(pdf)
     cases: list[dict] = []
@@ -465,11 +497,7 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         print(f"refused {len(refusals)} candidate cases:", file=sys.stderr)
         for line in refusals:
             print(f"  - {line}", file=sys.stderr)
-    print(
-        f"{len(cases)} cases emitted, {len(refusals)} refused "
-        f"(run with --explain to see why)",
-        file=sys.stderr,
-    )
+    print(tally(cases, refusals, TAGS), file=sys.stderr)
     return cases
 
 
@@ -652,7 +680,15 @@ def dump_crops(pdf: str, against: str | None) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pdf", default=None)
-    ap.add_argument("--project", default="", help="projectId the questions are asked against")
+    ap.add_argument(
+        "--project",
+        default="",
+        help="projectId STAMPED onto every case so the scorer knows which corpus to ask. "
+        "It changes no answer: the truth is derived from the PDF and this script never "
+        "opens a database, so generating twice with two ids gives byte-identical cases "
+        "apart from that field. To compare two ingests, generate ONCE and pass "
+        "--project to drawing_eval.mjs per run.",
+    )
     ap.add_argument("--sheet", default=None, help="sheet number, e.g. S-100.0")
     ap.add_argument("--out", default=None)
     ap.add_argument("--explain", action="store_true", help="list refused cases")

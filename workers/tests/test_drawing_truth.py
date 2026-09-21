@@ -564,3 +564,52 @@ class TestOrientationOnARotatedSheet:
         for across, down in ((-1.0, 0.0), (1.0, -0.0)):
             assert drawing_truth.runs_along(across, down) == drawing_truth.ACROSS
         assert drawing_truth.runs_along(0.0, -1.0) == drawing_truth.DOWN
+
+
+class TestTheEmittedTally:
+    """A total is a liveness signal only if you know what it should be.
+
+    "40 cases emitted, 24 refused" read as healthy on a run where the spacing
+    tag produced zero, because 40 is exactly the footing-plus-column count.
+    The figure that should have raised the alarm was the one that looked
+    normal, and nothing downstream reports a tag that is simply absent.
+    """
+
+    def test_the_breakdown_names_every_tag(self):
+        said = drawing_truth.tally(
+            [{"tag": "grid-footing"}] * 19 + [{"tag": "grid-column"}] * 21,
+            ["a"] * 24,
+            drawing_truth.TAGS,
+        )
+        assert "40 cases emitted" in said
+        assert "grid-footing 19" in said and "grid-column 21" in said
+        assert "grid-spacing 0" in said
+        assert "24 refused" in said
+
+    def test_a_tag_that_emitted_nothing_is_called_out(self):
+        said = drawing_truth.tally(
+            [{"tag": "grid-footing"}] * 19 + [{"tag": "grid-column"}] * 21,
+            [],
+            drawing_truth.TAGS,
+        )
+        assert "NO CASES for grid-spacing" in said
+
+    def test_several_dead_tags_are_named_together(self):
+        said = drawing_truth.tally([{"tag": "grid-footing"}], [], drawing_truth.TAGS)
+        assert "NO CASES for grid-column, grid-spacing" in said
+
+    def test_a_full_set_says_nothing_extra(self):
+        said = drawing_truth.tally(
+            [{"tag": t} for t in drawing_truth.TAGS], [], drawing_truth.TAGS
+        )
+        assert "NO CASES" not in said
+        assert said.count("\n") == 0, "one line when every tag answered"
+
+    def test_a_tag_outside_the_vocabulary_does_not_crash_the_count(self):
+        said = drawing_truth.tally(
+            [{"tag": t} for t in drawing_truth.TAGS] + [{"tag": "grid-beam"}],
+            [],
+            drawing_truth.TAGS,
+        )
+        assert "4 cases emitted" in said
+        assert "NO CASES" not in said
