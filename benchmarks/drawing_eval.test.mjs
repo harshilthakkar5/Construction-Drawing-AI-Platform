@@ -39,6 +39,7 @@ import {
   sameCorpusAgain,
   setFingerprint,
   sameQuestions,
+  labelFromChunks,
 } from "./drawing_eval.mjs";
 
 test("matches a mark written exactly", () => {
@@ -1697,4 +1698,129 @@ test("the corpus alarm still fires when the same questions disagree", () => {
   const again = sameCorpusAgain(sameQuestions(records, "new"), ids);
   assert.ok(again, "a real re-score disagreement must still be caught");
   assert.deepEqual(again.scores, [74, 88]);
+});
+
+// ---------------------------------------------------------------------------
+// A tag that answers FEW cases, all with one label, all correct, is not a
+// frequency prior — it is coverage collapse. S101P's whole-sheet arm answered
+// 5 of 15 column marks, every one "C4", every one right, and the report said
+// its hits "ride on a frequency … while reading nothing". C4 is the truth at
+// exactly the five row-F intersections, so answering it there and only there
+// requires having located row F. A prior cannot know where its label is true.
+// ---------------------------------------------------------------------------
+
+const colmark = (expected, outcome, said = null, grid = "1/A") => ({
+  tag: "grid-colmark",
+  expected,
+  outcome,
+  said: said ?? (outcome === "correct" ? expected : ""),
+  grid,
+  labelPattern: "C\\d{1,2}",
+  descriptionChunks: 1,
+  descriptionChunkIds: ["d1"],
+  projectId: "p",
+});
+
+test("a narrow tag that is never wrong is not called a prior", () => {
+  // Five C4 answered and correct; ten others declined. Exactly the shape.
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C2", "abstained", "", `${i}/E`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C1", "abstained", "", `${i}/G`)),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.neverWrong, true);
+  assert.equal(c.prior, false, "never naming the label wrongly is not fixation");
+});
+
+test("a real fixation is still called one", () => {
+  // Names C4 everywhere, right only where C4 happens to be the truth. This is
+  // the behaviour the measure exists to catch and it must survive the fix.
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C2", "off-target", "C4", `${i}/E`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C1", "off-target", "C4", `${i}/G`)),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.neverWrong, false);
+  assert.equal(c.prior, true, "naming one label at every intersection is fixation");
+});
+
+test("one wrong reach is enough to put the prior verdict back in play", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    colmark("C2", "off-target", "C4", "9/E"),
+    ...Array.from({ length: 9 }, (_, i) => colmark("C1", "abstained", "", `${i}/G`)),
+  ];
+  assert.equal(answerConcentration(rows).neverWrong, false);
+});
+
+test("the report says COVERAGE rather than accusing a prior", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 10 }, (_, i) => colmark("C2", "abstained", "", `${i}/E`)),
+  ];
+  const said = [];
+  const real = console.log;
+  console.log = (...a) => said.push(a.join(" "));
+  try { report(rows, false, []); } finally { console.log = real; }
+  const out = said.join("\n");
+  assert.doesNotMatch(out, /while reading nothing/);
+  assert.match(out, /never once named/);
+  assert.match(out, /That is COVERAGE/);
+});
+
+// ---------------------------------------------------------------------------
+// The label a run carries should come from the CHUNKS, not from a flag typed
+// by hand off a worker log. VLM_* is read at ingest; until chunks.sourceSettings
+// existed the benchmark could not recover it, and a wrong --label manufactures
+// a measurement rather than merely lacking one.
+// ---------------------------------------------------------------------------
+
+const described = (settings, model = "gemini/gemini-3.6-flash") => ({
+  id: "d1",
+  tokenCount: 200,
+  sourceModel: model,
+  sourceSettings: settings,
+});
+
+test("the label names the model and every setting that decided the description", () => {
+  const label = labelFromChunks([
+    described({ provider: "gemini", model: "gemini-3.6-flash", VLM_CROP: "intersections", VLM_MAX_TOKENS: 4000 }),
+  ]);
+  assert.match(label, /gemini\/gemini-3\.6-flash/);
+  assert.match(label, /VLM_CROP=intersections/);
+  assert.match(label, /VLM_MAX_TOKENS=4000/);
+});
+
+test("two ingests at one configuration produce the SAME label", () => {
+  // The whole point: equal labels group as repeats, which is what turns an
+  // error bar into something the harness computes rather than something a
+  // flag asserts.
+  const a = labelFromChunks([described({ VLM_CROP: "off", VLM_MAX_TOKENS: 4000 })]);
+  const b = labelFromChunks([described({ VLM_MAX_TOKENS: 4000, VLM_CROP: "off" })]);
+  assert.equal(a, b, "key order must not change the label");
+});
+
+test("a changed setting produces a DIFFERENT label", () => {
+  const a = labelFromChunks([described({ VLM_CROP: "off" })]);
+  const b = labelFromChunks([described({ VLM_CROP: "intersections" })]);
+  assert.notEqual(a, b);
+});
+
+test("descriptions that disagree get no label at all", () => {
+  // Two configurations in one corpus is not a labelling problem — it is a page
+  // described twice under different settings, and naming it after either would
+  // assert an experiment that did not happen.
+  const label = labelFromChunks([
+    described({ VLM_CROP: "off" }),
+    described({ VLM_CROP: "intersections" }),
+  ]);
+  assert.equal(label, null);
+});
+
+test("a corpus written before the column existed has no derived label", () => {
+  assert.equal(labelFromChunks([{ id: "d1", tokenCount: 200 }]), null);
+  assert.equal(labelFromChunks([]), null);
+  assert.equal(labelFromChunks(null), null);
 });

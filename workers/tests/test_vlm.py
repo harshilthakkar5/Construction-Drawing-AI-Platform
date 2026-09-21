@@ -1155,3 +1155,109 @@ class TestTheFoundationFieldIsNotOneSpecies:
         # That it worked is luck the next sheet should not need.
         assert "column schedule" in vlm.CROP_SYSTEM.lower()
         assert "column schedule" in vlm.SYSTEM.lower()
+
+
+class TestTheGatingRule:
+    """`crop_decision` — feasibility and cost, in one place, before anything
+    is spent.
+
+    It was three refusals scattered through `describe_crops`, each logged where
+    it happened and one of them missing entirely. A rule nobody can name is a
+    rule nobody can count: "how many pages of this 400-page set were cropped?"
+    had no answer short of grepping the log.
+    """
+
+    @staticmethod
+    def _drawn_page(intersections=4):
+        """A page with vector text, so the scan gate passes."""
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        page.insert_text((100, 100), "S101P", fontsize=10)
+        return doc, page
+
+    def test_a_scan_is_refused_before_a_single_image_is_sent(self, monkeypatch):
+        """The gate that was missing. A scan is fixed at its own resolution, so
+        a crop of one is empty pixels at full price — and the cost is identical
+        to the case where cropping works."""
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)  # no text at all
+        monkeypatch.setattr(vlm, "crops", lambda p: pytest.fail("geometry before the scan gate"))
+        decision = vlm.crop_decision(page)
+        assert decision.crop is False
+        assert "vector text" in decision.reason
+        doc.close()
+
+    def test_a_page_with_no_grid_is_refused_quietly(self, monkeypatch):
+        doc, page = self._drawn_page()
+        monkeypatch.setattr(vlm, "crops", lambda p: [])
+        decision = vlm.crop_decision(page)
+        assert decision.crop is False and decision.intersections == 0
+        assert decision.loud is False, "a detail sheet with no grid is routine"
+        doc.close()
+
+    def test_a_grid_over_the_cap_is_refused_LOUDLY(self, monkeypatch):
+        """A cost cap is a decision someone may want to raise for this
+        document, and burying it among a thousand info lines is how a set
+        quietly runs the whole-sheet pass on every page it meant to crop."""
+        doc, page = self._drawn_page()
+        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * (vlm.CROP_MAX + 1))
+        decision = vlm.crop_decision(page)
+        assert decision.crop is False
+        assert decision.loud is True
+        assert "VLM_CROP_MAX" in decision.reason
+        assert str(vlm.CROP_MAX + 1) in decision.reason
+        doc.close()
+
+    def test_a_grid_at_the_cap_is_allowed(self, monkeypatch):
+        # The cap is a maximum, not a strict bound — off-by-one here silently
+        # halves the pages a borderline document crops.
+        doc, page = self._drawn_page()
+        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * vlm.CROP_MAX)
+        assert vlm.crop_decision(page).crop is True
+        doc.close()
+
+    def test_overlap_is_NOT_a_gate(self, monkeypatch):
+        """The tempting fourth rule, which the measurements forbid. On the
+        first sheet ALL 22 intersections had a neighbour's label reachable
+        inside their crop, and that is the sheet the crop pass scored 98% on
+        with no wrong answer of any kind. Gating on overlap would refuse the
+        page the mode works best on."""
+        doc, page = self._drawn_page()
+        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * 22)
+        assert vlm.crop_decision(page).crop is True
+        doc.close()
+
+
+class TestTheSettingsTravelWithTheDescription:
+    """`chunks.sourceSettings` is what replaces `--label`, typed by hand off a
+    log line. A wrong label manufactures a measurement rather than merely
+    lacking one."""
+
+    def test_the_snapshot_names_the_model_that_wrote_it(self):
+        snap = vlm.settings_snapshot()
+        assert snap["provider"] == vlm.provider()
+        assert snap["model"] and snap["model"] in vlm.source_model()
+
+    def test_the_snapshot_carries_every_setting_the_log_line_does(self, monkeypatch):
+        """The two must not drift: the log is what a person reads during a run
+        and the snapshot is what the benchmark reads afterwards, and a setting
+        in one but not the other is a run whose configuration is half
+        recoverable."""
+        monkeypatch.setattr(vlm, "CROP_MODE", "intersections")
+        snap = vlm.settings_snapshot()
+        for key in ("VLM_MAX_TOKENS", "VLM_CROP", "VLM_CROP_BAYS", "VLM_CROP_MAX"):
+            assert key in snap, key
+
+    def test_a_whole_sheet_run_does_not_claim_crop_budgets(self, monkeypatch):
+        """A settings record naming the budget that was NOT in force is the
+        same class of lie as the DPI line that reported what it rendered
+        rather than what the model read."""
+        monkeypatch.setattr(vlm, "CROP_MODE", "off")
+        snap = vlm.settings_snapshot()
+        assert "VLM_CROP_MAX" not in snap and "VLM_CROP_BATCH" not in snap
+
+    def test_two_runs_at_one_configuration_snapshot_identically(self):
+        # This is the whole point: equal snapshots are the same experiment
+        # repeated, which is what makes an error bar computable without anyone
+        # remembering to pass a flag.
+        assert vlm.settings_snapshot() == vlm.settings_snapshot()

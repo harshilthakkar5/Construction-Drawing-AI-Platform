@@ -111,6 +111,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import NamedTuple
 
 import fitz
 
@@ -806,6 +807,63 @@ def _report_crop_cost(boxes: int, calls: int, who: str, sheet_number) -> None:
     )
 
 
+class CropDecision(NamedTuple):
+    """Whether this page gets crops, and why — decided before anything is spent.
+
+    The gating rule, in one place. It was three refusals scattered through
+    `describe_crops`, each logged where it happened, and one of them missing
+    entirely; a rule nobody can name is a rule nobody can count, and "how many
+    pages of this 400-page set were cropped?" had no answer short of grepping
+    the log.
+
+    It is FEASIBILITY and COST, and deliberately nothing else. The tempting
+    fourth gate is crop overlap — refuse a page whose crops cannot separate
+    their intersections — and the measurements forbid it: on the first sheet
+    ALL 22 intersections had a neighbour's label reachable inside their crop,
+    and that is the sheet where the crop pass scored 98% with no wrong answer
+    of any kind. Overlap did not predict failure, so gating on it would refuse
+    the page the mode works best on. `_report_crop_overlap` still prints it,
+    because knowing which pairs to suspect before a run is worth having; it is
+    a warning and not a veto.
+    """
+
+    crop: bool
+    reason: str
+    intersections: int
+    # Whether the refusal is one a person might want to ACT on. A sheet with
+    # no grid is routine and belongs at INFO; a grid refused for COST is a
+    # deliberate cap someone may want to raise for this document, and burying
+    # it among a thousand info lines is how a 400-page set quietly runs the
+    # whole-sheet pass on every page it was meant to crop.
+    loud: bool = False
+
+
+def crop_decision(page: fitz.Page) -> CropDecision:
+    """Should this page be described crop-by-crop?"""
+    if not _has_vector_text(page):
+        # A scan is already fixed at its own resolution, so a crop of one is
+        # empty pixels at full price — the same reason `render` refuses to
+        # upscale it. This gate was missing: the crop pass would happily send
+        # 27 images of a scanned sheet and get 27 illegible answers, and the
+        # cost is identical to the case where it works.
+        return CropDecision(
+            False, "the page has no vector text — a scan crops to empty pixels", 0
+        )
+    boxes = crops(page)
+    if not boxes:
+        return CropDecision(False, "no orthogonal grid was found", 0)
+    if len(boxes) > CROP_MAX:
+        return CropDecision(
+            False,
+            f"{len(boxes)} intersections is over VLM_CROP_MAX ({CROP_MAX}) — that is "
+            f"{len(boxes)} images for ONE page against 1 for the whole sheet. Raise "
+            "VLM_CROP_MAX deliberately if that spend is intended",
+            len(boxes),
+            loud=True,
+        )
+    return CropDecision(True, f"{len(boxes)} intersections within VLM_CROP_MAX ({CROP_MAX})", len(boxes))
+
+
 def describe_crops(
     page: fitz.Page, *, sheet_number: str | None = None, project_id: str | None = None
 ) -> str | None:
@@ -826,27 +884,16 @@ def describe_crops(
     schedules, the layout, the parts of the drawing no grid crossing covers. That
     is the cost of the mode and the reason it is not the default.
     """
-    boxes = crops(page)
     who = f"{provider()}/{model()}"
-    if not boxes:
-        log.info(
-            "sheet %s: VLM_CROP=%s but no orthogonal grid was found — using the whole sheet",
+    decision = crop_decision(page)
+    if not decision.crop:
+        (log.warning if decision.loud else log.info)(
+            "sheet %s: no crops — %s. The whole-sheet pass runs instead.",
             sheet_number or "?",
-            CROP_MODE,
+            decision.reason,
         )
         return None
-    if len(boxes) > CROP_MAX:
-        log.warning(
-            "sheet %s: %d grid intersections is over VLM_CROP_MAX (%d) — that is %d images "
-            "for ONE page against 1 for the whole sheet, so the crop pass is skipped and the "
-            "whole-sheet pass runs instead. Raise VLM_CROP_MAX deliberately if that spend is "
-            "intended.",
-            sheet_number or "?",
-            len(boxes),
-            CROP_MAX,
-            len(boxes),
-        )
-        return None
+    boxes = crops(page)
 
     answers: dict[str, tuple[str | None, str | None]] = {}
     groups = [boxes[i : i + CROP_BATCH] for i in range(0, len(boxes), max(1, CROP_BATCH))]
@@ -980,6 +1027,59 @@ def _report_resolution(rect, zoom: float, max_edge: int) -> None:
             who,
             ceiling,
         )
+
+
+def settings_snapshot() -> dict:
+    """The settings that decide what a description says, as data.
+
+    The same facts `_report_settings` prints, in the form that can be STORED —
+    which is the whole point. `VLM_*` is read here, at ingest, so a description
+    written a week ago had no record of its own configuration and the repair
+    was `--label`, typed by hand off the log line below. That works exactly as
+    long as someone remembers and types it correctly, and a wrong label
+    manufactures a measurement rather than merely lacking one.
+
+    Stored on the chunk (`chunks.sourceSettings`), two ingests with equal
+    snapshots are the same experiment repeated, and an error bar becomes
+    something the harness can compute rather than something a flag asserts.
+
+    Only the keys that apply are present: the crop budgets are absent on a
+    whole-sheet run and the whole-sheet bays are absent on a crop run, for the
+    same reason the log line branches — a settings record naming the budget
+    that was NOT in force is the same class of lie as the DPI line that
+    reported what it rendered rather than what the model read.
+    """
+    who = provider()
+    snapshot: dict = {
+        "provider": who,
+        "model": GEMINI_MODEL if who == "gemini" else CLAUDE_MODEL,
+        "VLM_MAX_TOKENS": MAX_TOKENS,
+        "VLM_MAX_EDGE": MAX_EDGE_PX,
+        "VLM_CROP": CROP_MODE,
+    }
+    if CROP_MODE == "off":
+        snapshot["VLM_CROP_BAYS"] = CROP_BAYS
+    else:
+        snapshot.update(
+            {
+                "VLM_CROP_BAYS": CROP_BAYS,
+                "VLM_CROP_BATCH": CROP_BATCH,
+                "VLM_CROP_MAX": CROP_MAX,
+                "VLM_CROP_MAX_TOKENS": CROP_MAX_TOKENS,
+            }
+        )
+    if who == "gemini":
+        snapshot["GEMINI_THINKING_LEVEL"] = llm.GEMINI_THINKING_LEVEL
+        snapshot["GEMINI_MEDIA_RESOLUTION"] = llm.GEMINI_MEDIA_RESOLUTION
+    else:
+        snapshot["CLAUDE_THINKING"] = os.environ.get("CLAUDE_THINKING", "")
+    return snapshot
+
+
+def source_model() -> str:
+    """`<provider>/<model>`, the string stored on a description chunk."""
+    who = provider()
+    return f"{who}/{GEMINI_MODEL if who == 'gemini' else CLAUDE_MODEL}"
 
 
 def _report_settings() -> None:

@@ -323,8 +323,9 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
             kind = getattr(chunk, "kind", "text")
             conn.execute(
                 """
-                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash", kind)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash", kind,
+                                    "sourceModel", "sourceSettings")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     chunk_id,
@@ -334,6 +335,12 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
                     chunk.token_count,
                     text_hash(chunk.text),
                     kind,
+                    getattr(chunk, "source_model", None),
+                    # NULL rather than "{}" when there is nothing to record: a
+                    # text chunk has no source, and an empty object would read
+                    # downstream as "a vision pass with no settings", which is
+                    # a different claim.
+                    json.dumps(settings) if (settings := getattr(chunk, "source_settings", None)) else None,
                 ),
             )
             if kind != "text":

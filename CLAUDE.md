@@ -1687,6 +1687,117 @@ fix addresses while fabrication is not. That is the whole argument for fixing th
 than switching arms — and it stays an argument until the re-ingest lands, because both arms are
 still n=1 and the error bar is still 43 points.
 
+**The re-ingest landed, both arms, the fixed prompt, the same 51 questions — and the prediction
+held for the third time.** The crop arm's abstentions fell 16 to 11 and its selective accuracy
+stayed at 100%, which is exactly what was written down before it ran: nothing about what the
+model can READ had changed, only what it was permitted to report.
+
+| | `off` (whole sheet) | `intersections` (crops) |
+|---|---|---|
+| `grid-colmark` (15) | **5 correct, 10 abstained** — every answer `C4` | **13 correct, 2 abstained** |
+| colmark minority hits | **0 of 5** | **8 of 13** |
+| `grid-pilecap` (36) | 31 correct, 5 abstained | 27 correct, 9 abstained |
+| set-wide | 36 of 51 (71%) | 40 of 51 (78%) |
+| wrong + off-target + invented + hedged | **0** | **0** |
+| selective accuracy | 100% | 100% |
+
+Seven points set-wide is inside the 43-point error bar and is not the finding. Neither is the
+prompt's own effect: the sheet arm moved 88% to 71% and the crop arm 69% to 78% across it, both
+well inside the same bar, so **the prompt change is UNMEASURED between runs** and only its
+mechanism is established. What decides this is the one tag that can tell reading from guessing,
+and it is not close. `grid-colmark` has a flat 33% baseline over three labels: the crop arm
+answered 13 of 15 with 8 hits on labels that are not the tag's most common one, and the sheet arm
+answered 5 of 15 with none. The pile-cap tag, where the sheet arm wins by four, has an 81%
+baseline and both arms are calibrated on it — it is the tag that cannot discriminate, and it is
+the only one the sheet arm leads.
+
+**And the report got that tag wrong, which is the eighth time a measure here has read one failure
+as another.** It printed *"its hits ride on a frequency rather than on the intersection each
+question names… right by coincidence, while reading nothing"* over a tag that answered five times
+and was right five times. It cannot be a prior. `C4` is the truth at exactly the five row-F
+intersections and nowhere else on this sheet, so naming it there AND ONLY THERE requires having
+located row F; a frequency prior has no way to know where its label is true. What that tag did is
+describe ONE grid row of columns and decline the other three — a COVERAGE failure, which wants
+more of the drawing described rather than better reading of what already is.
+
+The discriminator was sitting in the function the whole time: a fixation is wrong wherever it
+goes, so it produces MISSES naming its label. That tag had none. `neverWrong` now refuses the
+prior verdict when the over-named label was never once reached for where it does not belong, and
+the report says what it is instead. The old wording survived every existing test because they all
+fed it a tag that was wrong somewhere, which is the third green test in this file that measured
+nothing.
+
+**THE CONCLUSION, and it is a decision rather than a score.**
+
+`VLM_CROP=intersections` is the right mode for a structural plan with a detectable grid. Across
+two sheets, two notations and four ingests, the evidence is all of one kind and none of it is a
+percentage:
+
+  * **It does not fabricate.** Zero wrong, off-target, invented or hedged answers in every crop
+    run ever scored — 40 of 40 on the first sheet, 51 of 51 on the second, across both prompts.
+    The whole-sheet arm produced six errors on the same 51 questions one run earlier.
+  * **It reads the label classes the sheet pass cannot.** The first sheet's `8X8`-read-as-`6X6`
+    collapse, nine occurrences in one direction, absent. The second sheet's C2 class, zero of
+    five on the sheet arm, read on the crop arm. Both were written down as advance predictions
+    with discriminators, and both held.
+  * **Its coverage is what varies, and coverage is fixable.** Every crop failure measured here is
+    an abstention traced to a cause — a prompt that named one species of foundation, a grid
+    tighter than `VLM_CROP_MAX`. Fabrication has no such fix.
+  * **The mechanism explains all of it.** 993 DPI against 73 on the first sheet, 1820 against 73
+    on the second, on precisely the compound and schedule-keyed labels that were failing, with
+    the coordinate handed over rather than counted to.
+
+What the decision does NOT extend to, stated as firmly:
+
+  * It stays **OFF by default**, and `VLM_CROP_MAX` stays at 60. S101P needed it raised to 160 to
+    run at all, and then cost 235 seconds and 152 images for ONE page — about 26 hours and 60,800
+    images for a 400-page set. The gate refusing that page was correct.
+  * **No score here is a measurement.** The 43-point error bar was measured on two whole-sheet
+    ingests at a byte-identical configuration and is wider than every set-wide gap in this
+    section. Four ingests across two sheets is not the three-to-five per arm that would change
+    that, and nothing above should be read as "crops are worth N points".
+  * The first sheet's set is **still unaudited** under the ownership rule, so the 98%/63% pair
+    that opened this argument remains unverified rather than wrong.
+
+**The three productionisation items are built, and they are the same lesson three times: a fact
+that exists only in a log is a fact nobody can act on.**
+
+`chunks.sourceModel` and `chunks.sourceSettings` end `--label`. `VLM_*` is read by the WORKER at
+ingest, so nothing downstream could recover it and the repair was a flag typed by hand off
+`_report_settings` — which works exactly as long as someone remembers and types it correctly, and
+a wrong label manufactures a measurement rather than merely lacking one. `vlm.settings_snapshot()`
+is the same facts as data, stamped onto every piece of a split description by
+`chunker.split_description`, and `drawing_eval.labelFromChunks` derives the run's label from the
+corpus itself. Two ingests with equal snapshots are the same experiment repeated, so **the error
+bar is now computable without anyone passing a flag**. Both columns are NULLABLE and stay that
+way: NULL on a text chunk means "words lifted off the sheet" and NULL on a description means "its
+settings were not recorded", and those must stay tellable apart — the report says `NOT RECORDED`
+rather than guessing. A corpus whose descriptions DISAGREE gets no derived label at all, because
+two configurations in one corpus is a page described twice under different settings, and naming
+it after either asserts an experiment that did not happen.
+
+`vlm.crop_decision(page)` is the gating rule, in one place, decided before anything is spent. It
+was three refusals scattered through `describe_crops`, each logged where it happened — and one of
+them missing: a SCAN was cropped like anything else, which is empty pixels at full price for the
+same reason `render` refuses to upscale one. It is FEASIBILITY and COST and deliberately nothing
+else, and the gate it does NOT have is the instructive one. Crop overlap is the tempting fourth
+rule, and the measurements forbid it: on the first sheet ALL 22 intersections had a neighbour's
+label reachable inside their crop, and that is the sheet the crop pass scored 98% on with no
+wrong answer of any kind. Overlap did not predict failure, so gating on it would refuse the page
+the mode works best on — `_report_crop_overlap` stays a warning and never a veto. The cost
+refusal carries `loud=True` and logs at WARNING while a sheet with no grid stays at INFO, because
+a cap someone may want to raise for this document must not be buried among a thousand info lines.
+
+`processing.DocumentSpend` is the per-document cost. The per-page line has always named the trade
+— "27 images where the whole-sheet pass sends 1" — and that is the wrong unit for the decision
+anyone actually makes, which is whether to queue a 400-page set; nobody reads four hundred info
+lines and adds them up. It counts crop pages, whole-sheet pages, images and calls, tallies WHY
+pages were refused, reports once at finalize and rides in the job result as `vlmImages` /
+`vlmCalls` / `vlmCropPages`. It is owned per document and passed down rather than kept in a
+module global, because `PROCESS_CONCURRENCY` documents run at once and a shared counter would
+bill one document for another's pages — the parameter is required, so a new caller has to decide
+where its spend is counted instead of silently losing it.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,
@@ -2016,7 +2127,10 @@ pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, ...)   // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
-chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind)  // embeddingId = Qdrant point ID; kind = text|description
+chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind,
+       sourceModel, sourceSettings)  // embeddingId = Qdrant point ID; kind = text|description;
+                                     // source* NULL on text chunks and on anything written
+                                     // before the column existed
 summaries(id, projectId, portionId, level[page|section|portion|project], summary JSON, sources)
 chat_sessions(id, projectId, createdAt)
 messages(id, sessionId, role, content JSON incl. citations, sources, createdAt)

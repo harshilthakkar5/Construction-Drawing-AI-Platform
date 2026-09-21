@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import chunker  # noqa: E402
 from chunker import (  # noqa: E402
     MAX_TOKENS,
     split_description,
@@ -362,3 +363,51 @@ def test_a_single_overlong_line_falls_back_to_word_windows():
 def test_blank_description_produces_no_chunks():
     assert split_description("", PAGE_BBOX) == []
     assert split_description("   \n\n  \n", PAGE_BBOX) == []
+
+
+class TestADescriptionCarriesItsSource:
+    """`--label` was the only record of what produced a description, typed by
+    hand off a worker log. It works exactly as long as someone remembers and
+    types it correctly, and a wrong label manufactures a measurement rather
+    than merely lacking one."""
+
+    SETTINGS = {"provider": "gemini", "VLM_CROP": "intersections", "VLM_MAX_TOKENS": 4000}
+
+    def test_every_piece_of_a_split_description_carries_it(self):
+        # The split is where it would be lost: one description becomes many
+        # chunks, and a source on only the first is a corpus that half knows
+        # where it came from.
+        text = "\n".join(f"At {n}/B: footing F{n}, column C{n}." for n in range(1, 400))
+        pieces = chunker.split_description(
+            text,
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+            source_model="gemini/gemini-3.6-flash",
+            source_settings=self.SETTINGS,
+        )
+        assert len(pieces) > 1, "this fixture must actually split"
+        assert all(p.source_model == "gemini/gemini-3.6-flash" for p in pieces)
+        assert all(p.source_settings == self.SETTINGS for p in pieces)
+
+    def test_a_long_single_line_falls_back_to_windows_and_still_carries_it(self):
+        one_line = "At 4/B: " + "footing F12 column HSS8X8X3/8 " * 400
+        pieces = chunker.split_description(
+            one_line,
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+            source_model="claude/claude-sonnet-5",
+            source_settings=self.SETTINGS,
+        )
+        assert len(pieces) > 1
+        assert all(p.source_model == "claude/claude-sonnet-5" for p in pieces)
+
+    def test_a_text_chunk_has_no_source_and_that_is_a_fact(self):
+        # None on a text chunk means "words lifted off the sheet", and None on
+        # a description means "settings not recorded". The two have to stay
+        # tellable apart, so neither gets a placeholder.
+        chunk = chunker.Chunk(text="a note", bbox={}, token_count=2)
+        assert chunk.source_model is None and chunk.source_settings is None
+
+    def test_an_unstamped_description_still_splits(self):
+        # Backward compatibility: the field is optional, and a caller that has
+        # no source must not crash the ingest over bookkeeping.
+        pieces = chunker.split_description("At 4/B: footing F1.", {"x": 0, "y": 0, "width": 1, "height": 1})
+        assert pieces and pieces[0].source_model is None
