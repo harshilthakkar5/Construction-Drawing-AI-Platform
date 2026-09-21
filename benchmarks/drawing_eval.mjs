@@ -590,7 +590,25 @@ function tagConcentration(subset, tag, drifted = []) {
   // misreading one glyph pair. Same principle as `placement`: the verdict has
   // to be the one the evidence supports.
   const components = componentMisreads(subset);
+  // And a FOURTH thing the concentration count cannot see, which is the one
+  // that fired on S101P's whole-sheet arm: a tag that never once named the
+  // over-named label WRONGLY. That run answered 5 of 15 column marks, every
+  // answer `C4`, every one of them correct — and the report called it "right by
+  // coincidence, while reading nothing". It cannot be. `C4` is the truth at
+  // exactly the five row-F intersections and nowhere else, so answering it
+  // there and only there REQUIRES having located row F; a prior has no way to
+  // know where its label is true. What that tag did is cover one grid row of
+  // columns and decline the other three, which is a COVERAGE failure and wants
+  // the opposite fix from a comprehension one.
+  //
+  // The discriminator is already computed: a fixation is WRONG most of the time
+  // by construction, because it names its label wherever it goes. Zero misses
+  // naming the label means it was never once reached for where it did not
+  // belong, and concentration is then a description of what the tag ANSWERED
+  // rather than evidence about how it chose.
+  const neverWrong = namedMisses.length === 0;
   return {
+    neverWrong,
     tag,
     label,
     named,
@@ -609,6 +627,7 @@ function tagConcentration(subset, tag, drifted = []) {
     prior:
       !placement &&
       !components?.halfRead &&
+      !neverWrong &&
       (!beatsBase || (correct ? (independent / correct) * 100 : 0) < 25),
   };
 }
@@ -1564,6 +1583,13 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
             " — so its hits ride on a frequency rather than on the intersection each question " +
             "names. Where the over-named label happens to be the truth, a fixated answer is " +
             "right by coincidence, and it counts as a minority hit while reading nothing."
+          : worst.neverWrong
+          ? `, and it never once named "${worst.label}" where that is not the truth — ` +
+            `${worst.answered} answers, no miss reaching for it. A fixation is wrong wherever ` +
+            "it goes, so this is not one: the label is concentrated because the tag answered " +
+            "only where it was sure and declined the rest. That is COVERAGE, and it wants the " +
+            "opposite fix from a prior — more of the drawing described, not better reading of " +
+            "what already is."
           : `, though ${worst.independentHits} of its ${worst.correct} correct answers name a ` +
             "label that is neither that one nor the tag's majority, which fixation does not " +
             "produce. It is leaning on one label and still reading the rest."),

@@ -1698,3 +1698,73 @@ test("the corpus alarm still fires when the same questions disagree", () => {
   assert.ok(again, "a real re-score disagreement must still be caught");
   assert.deepEqual(again.scores, [74, 88]);
 });
+
+// ---------------------------------------------------------------------------
+// A tag that answers FEW cases, all with one label, all correct, is not a
+// frequency prior — it is coverage collapse. S101P's whole-sheet arm answered
+// 5 of 15 column marks, every one "C4", every one right, and the report said
+// its hits "ride on a frequency … while reading nothing". C4 is the truth at
+// exactly the five row-F intersections, so answering it there and only there
+// requires having located row F. A prior cannot know where its label is true.
+// ---------------------------------------------------------------------------
+
+const colmark = (expected, outcome, said = null, grid = "1/A") => ({
+  tag: "grid-colmark",
+  expected,
+  outcome,
+  said: said ?? (outcome === "correct" ? expected : ""),
+  grid,
+  labelPattern: "C\\d{1,2}",
+  descriptionChunks: 1,
+  descriptionChunkIds: ["d1"],
+  projectId: "p",
+});
+
+test("a narrow tag that is never wrong is not called a prior", () => {
+  // Five C4 answered and correct; ten others declined. Exactly the shape.
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C2", "abstained", "", `${i}/E`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C1", "abstained", "", `${i}/G`)),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.neverWrong, true);
+  assert.equal(c.prior, false, "never naming the label wrongly is not fixation");
+});
+
+test("a real fixation is still called one", () => {
+  // Names C4 everywhere, right only where C4 happens to be the truth. This is
+  // the behaviour the measure exists to catch and it must survive the fix.
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C2", "off-target", "C4", `${i}/E`)),
+    ...Array.from({ length: 5 }, (_, i) => colmark("C1", "off-target", "C4", `${i}/G`)),
+  ];
+  const c = answerConcentration(rows);
+  assert.equal(c.neverWrong, false);
+  assert.equal(c.prior, true, "naming one label at every intersection is fixation");
+});
+
+test("one wrong reach is enough to put the prior verdict back in play", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    colmark("C2", "off-target", "C4", "9/E"),
+    ...Array.from({ length: 9 }, (_, i) => colmark("C1", "abstained", "", `${i}/G`)),
+  ];
+  assert.equal(answerConcentration(rows).neverWrong, false);
+});
+
+test("the report says COVERAGE rather than accusing a prior", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => colmark("C4", "correct", "C4", `${i}/F`)),
+    ...Array.from({ length: 10 }, (_, i) => colmark("C2", "abstained", "", `${i}/E`)),
+  ];
+  const said = [];
+  const real = console.log;
+  console.log = (...a) => said.push(a.join(" "));
+  try { report(rows, false, []); } finally { console.log = real; }
+  const out = said.join("\n");
+  assert.doesNotMatch(out, /while reading nothing/);
+  assert.match(out, /never once named/);
+  assert.match(out, /That is COVERAGE/);
+});
