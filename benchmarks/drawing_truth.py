@@ -133,17 +133,34 @@ LABEL_PATTERN = {
 DIMENSION = re.compile(r"\d+'\s*-?\s*\d+(?:\s+\d+/\d+)?\"")
 
 
-def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float]]:
-    """Every dimension string on the page, in DISPLAY coordinates."""
+def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float, bool]]:
+    """Every dimension string on the page: (text, x, y, horizontal).
+
+    ORIENTATION is the fourth field and it is not decoration. Containment on
+    one axis cannot tell a horizontal dimension from a vertical one, so a bay
+    dimension written across the top of the plan also sits inside every ROW
+    gap it happens to span — and would be emitted as the answer to "what is
+    between row lines B and C", which is a horizontal measurement offered for
+    a vertical distance. A drafter settles it the way a reader does: a
+    dimension measuring a horizontal distance is written horizontally, and one
+    measuring a vertical distance is rotated to run with it. `line["dir"]` is
+    the writing direction, (1, 0) across and (0, ±1) down.
+
+    If the convention does not hold on some sheet the case REFUSES for want of
+    a dimension rather than emitting a wrong one, which is the direction an
+    error here has to fall.
+    """
     to_display = ~page.derotation_matrix
     out = []
     for block in page.get_text("dict")["blocks"]:
         for line in block.get("lines", []):
+            horizontal = abs(line.get("dir", (1.0, 0.0))[0]) > abs(line.get("dir", (1.0, 0.0))[1])
             for span in line.get("spans", []):
                 text = span["text"].strip()
                 if not DIMENSION.fullmatch(text):
                     continue
-                out.append((text, *grid.centre(fitz.Rect(span["bbox"]) * to_display)))
+                x, y = grid.centre(fitz.Rect(span["bbox"]) * to_display)
+                out.append((text, x, y, horizontal))
     return out
 
 
@@ -164,10 +181,13 @@ def dimension_between(dimensions, low: float, high: float, axis: int):
     means the question "what is between 7 and 8" has more than one true answer.
     Two spans reading the SAME value are one answer written twice and are fine.
     """
+    # Items may be (text, x, y) or (text, x, y, horizontal) — the orientation
+    # filter belongs to the CALLER, which knows what the sheet's conventions
+    # are, and not to this arithmetic.
     inside = {
-        text
-        for text, x, y in dimensions
-        if low < (x, y)[axis] < high
+        item[0]
+        for item in dimensions
+        if low < (item[1], item[2])[axis] < high
     }
     if not inside:
         return None, "no dimension printed inside this gap"
@@ -180,9 +200,9 @@ def dimension_between(dimensions, low: float, high: float, axis: int):
     # belongs to whichever side the rounding fell on, which is not an answer.
     for grow in (-JITTER_PT, JITTER_PT):
         moved = {
-            text
-            for text, x, y in dimensions
-            if low - grow < (x, y)[axis] < high + grow
+            item[0]
+            for item in dimensions
+            if low - grow < (item[1], item[2])[axis] < high + grow
         }
         if moved != {value}:
             return None, (
@@ -305,8 +325,11 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         for axis, (name, positions, other) in enumerate(
             (("column line", columns, "row"), ("row line", rows, "column")),
         ):
+            # A column gap is a horizontal distance, so only horizontally
+            # written dimensions can measure it, and vice versa.
+            on_axis = [d for d in dimensions if d[3] == (axis == 0)]
             for first, second, low, high in adjacent_pairs(positions):
-                value, reason = dimension_between(dimensions, low, high, axis)
+                value, reason = dimension_between(on_axis, low, high, axis)
                 if value is None:
                     refusals.append(f"{sheet_name} {first}-{second} grid-spacing: {reason}")
                     continue
@@ -322,9 +345,9 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
                         # The neighbouring bay: the value a model reaching one
                         # gap over would name, which is the drift this tag can
                         # see and the one a crop run cannot commit at all.
-                        "distractor": _neighbour_bay(dimensions, positions, first, second, axis, value),
+                        "distractor": _neighbour_bay(on_axis, positions, first, second, axis, value),
                         "labelPattern": LABEL_PATTERN["grid-spacing"],
-                        "sheetLabels": sorted({text for text, _, _ in dimensions}),
+                        "sheetLabels": sorted({d[0] for d in dimensions}),
                         "derivation": {
                             "sheet": sheet_name,
                             "axis": name,

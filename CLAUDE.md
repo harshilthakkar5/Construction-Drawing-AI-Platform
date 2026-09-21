@@ -1291,6 +1291,25 @@ dimension on the sheet in one run, attached to nothing. And a crop description h
 and one line per intersection — nothing about what lies between them — so this is the narrowest
 question that separates the two vision modes. It is what the retrieval set could not be.
 
+Its first regeneration against the real sheet emitted **no spacing case and, more tellingly, no
+spacing REFUSAL** — 40 cases and 14 refusals, every one of them a footing or a column, which is
+the old generator's output exactly. Ten candidate gaps producing neither an answer nor a reason is
+the signature of a loop that never ran, and here it had not: the commit was on the branch and not
+in the checkout being run. A refusal count is a liveness signal as much as a diagnostic, and it is
+the only thing in that output that could have said so.
+
+It also exposed a gap the unit tests could not reach, which is why `build` is now exercised
+end to end against a PDF made in the test. Every decision `dimension_between` makes was covered
+and the LOOP calling it was not, so no assertion in the file could have failed on a loop that
+never executed. The synthetic page then found a real bug on its first run: containment on ONE axis
+cannot tell a horizontal dimension from a vertical one, so a bay dimension written across the plan
+also sits inside every row gap it spans and was emitted as the answer to "what is between row
+lines B and C" — a horizontal measurement offered for a vertical distance, derived from the PDF
+and therefore carrying every appearance of ground truth. `dimensions_of` now reports which way the
+text RUNS (`line["dir"]`, the writing direction) and each axis takes only the dimensions written
+along it, the way a drafter writes them. Where that convention fails the case refuses for want of
+a dimension rather than emitting a wrong one, which is the direction an error here has to fall.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,
