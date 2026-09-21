@@ -132,9 +132,37 @@ LABEL_PATTERN = {
 # approximation this file refuses everywhere else.
 DIMENSION = re.compile(r"\d+'\s*-?\s*\d+(?:\s+\d+/\d+)?\"")
 
+# Which way a dimension is written, in DISPLAY space: a column gap is a
+# horizontal distance, so only a run going ACROSS can measure it.
+ACROSS = "across"
+DOWN = "down"
 
-def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float, bool]]:
-    """Every dimension string on the page: (text, x, y, horizontal).
+# How much the dominant component must beat the other for a run to count as
+# along an axis at all. 2 admits about 27 degrees of slop and refuses the rest.
+AXIS_RATIO = 2.0
+
+
+def runs_along(across: float, down: float) -> str | None:
+    """Which axis a text run lies along, or None if it is not clearly on one.
+
+    Pure, and separate from `dimensions_of`, because the boundary is the part
+    worth pinning and it cannot be reached through a PDF: constructing a page
+    whose text sits at exactly `atan(1/AXIS_RATIO)` is a floating-point
+    coincidence, not a test. Here the numbers go in directly.
+
+    The threshold is inclusive — twice IS twice — and a run at 30 degrees,
+    where the ratio is 1.73, belongs to neither axis.
+    """
+    across, down = abs(across), abs(down)
+    if across >= down * AXIS_RATIO and across > 0:
+        return ACROSS
+    if down >= across * AXIS_RATIO and down > 0:
+        return DOWN
+    return None
+
+
+def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float, str | None]]:
+    """Every dimension string on the page: (text, x, y, which way it runs).
 
     ORIENTATION is the fourth field and it is not decoration. Containment on
     one axis cannot tell a horizontal dimension from a vertical one, so a bay
@@ -149,18 +177,43 @@ def dimensions_of(page: fitz.Page) -> list[tuple[str, float, float, bool]]:
     If the convention does not hold on some sheet the case REFUSES for want of
     a dimension rather than emitting a wrong one, which is the direction an
     error here has to fall.
+
+    The direction is MAPPED into display space like the bbox is, and that is
+    the whole of what this function gets wrong if it is skipped. `get_text`
+    reports in the page's unrotated system — the same reason a clip has to be
+    multiplied by `derotation_matrix` — so on a /Rotate 90 sheet a line reading
+    across the drawing comes back as `dir=(1, 0)` while its bbox, once mapped,
+    runs down the display. Position in one space and orientation in the other
+    is not an approximation, it is an exact 90-degree inversion: every column
+    gap then looks for text that is vertical on the sheet and every row gap for
+    text that is horizontal. A `dir` is a VECTOR, so only the matrix's linear
+    part applies; translating it would move a direction to a place.
+
+    The fourth field is `"across"`, `"down"` or None, and None is not a
+    formality. A run that is not clearly along one axis belongs to NEITHER —
+    forcing it onto the nearer one would let a rotated note or a skewed callout
+    answer a bay question, and this module refuses everywhere else it cannot
+    tell. `runs_along` is what "clearly" means: the dominant component must be
+    at least twice the other, so a run within about 27 degrees of an axis
+    counts and anything more diagonal is dropped. It stays in `sheetLabels` either way,
+    since it IS written on the drawing and the scorer would otherwise call it
+    invented.
     """
     to_display = ~page.derotation_matrix
     out = []
     for block in page.get_text("dict")["blocks"]:
         for line in block.get("lines", []):
-            horizontal = abs(line.get("dir", (1.0, 0.0))[0]) > abs(line.get("dir", (1.0, 0.0))[1])
+            dx, dy = line.get("dir", (1.0, 0.0))
+            runs = runs_along(
+                dx * to_display.a + dy * to_display.c,
+                dx * to_display.b + dy * to_display.d,
+            )
             for span in line.get("spans", []):
                 text = span["text"].strip()
                 if not DIMENSION.fullmatch(text):
                     continue
                 x, y = grid.centre(fitz.Rect(span["bbox"]) * to_display)
-                out.append((text, x, y, horizontal))
+                out.append((text, x, y, runs))
     return out
 
 
@@ -327,7 +380,7 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
         ):
             # A column gap is a horizontal distance, so only horizontally
             # written dimensions can measure it, and vice versa.
-            on_axis = [d for d in dimensions if d[3] == (axis == 0)]
+            on_axis = [d for d in dimensions if d[3] == (ACROSS if axis == 0 else DOWN)]
             for first, second, low, high in adjacent_pairs(positions):
                 value, reason = dimension_between(on_axis, low, high, axis)
                 if value is None:

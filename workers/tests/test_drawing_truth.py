@@ -11,6 +11,7 @@ filing the most dangerous outcome as the safest.
 import json
 import re
 import fitz
+import pytest
 import sys
 from pathlib import Path
 
@@ -411,7 +412,10 @@ class TestTheSpacingLoopActuallyRuns:
         pdf = self._sheet(tmp_path, [("26'-2 1/2\"", 200.0, 300.0), ("12'-0\"", 600.0, 300.0, 90)])
         doc = fitz.open(pdf)
         by_text = {d[0]: d[3] for d in drawing_truth.dimensions_of(doc[0])}
-        assert by_text == {"26'-2 1/2\"": True, "12'-0\"": False}
+        assert by_text == {
+            "26'-2 1/2\"": drawing_truth.ACROSS,
+            "12'-0\"": drawing_truth.DOWN,
+        }
         doc.close()
 
     def test_dimensions_are_read_off_the_page_itself(self, tmp_path):
@@ -422,3 +426,141 @@ class TestTheSpacingLoopActuallyRuns:
         text, x, y, _ = found[0]
         assert 200.0 < x < 300.0, "the span's centre, not its origin"
         doc.close()
+
+
+class TestOrientationOnARotatedSheet:
+    """The bug the real sheet found, and the reason it looked like absence.
+
+    `get_text` reports in the page's UNROTATED system — the same fact that
+    makes a clip need `derotation_matrix` — so reading `dir` raw while mapping
+    the bbox to display space is an exact 90-degree inversion on a /Rotate 90
+    sheet. Seven of eight column gaps then reported "no dimension printed
+    inside this gap" on a drawing that visibly carries a dimension chain,
+    because every column gap was hunting text that runs down the sheet.
+
+    What is asserted is AGREEMENT rather than a fixed answer, and the first
+    version of this class got that wrong: it demanded that a given string stay
+    horizontal at every rotation, which is false and is not the claim. Rotating
+    a page genuinely changes which way its text reads on the display. The
+    invariant is that the two readings describe ONE drawing — a run classified
+    horizontal has a display bbox wider than it is tall — because the gap
+    boundaries it will be compared against are display coordinates.
+    """
+
+    @staticmethod
+    def _sheet(tmp_path, rotation):
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        page.insert_text((200.0, 300.0), "26'-2 1/2\"", fontsize=8)
+        page.insert_text((600.0, 300.0), "12'-0\"", fontsize=8, rotate=90)
+        page.set_rotation(rotation)
+        path = tmp_path / f"rot{rotation}.pdf"
+        doc.save(str(path))
+        doc.close()
+        return str(path)
+
+    @staticmethod
+    def _display_boxes(page):
+        """Each dimension's bbox in DISPLAY space, read independently of `dir`."""
+        to_display = ~page.derotation_matrix
+        out = {}
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = span["text"].strip()
+                    if drawing_truth.DIMENSION.fullmatch(text):
+                        out[text] = fitz.Rect(span["bbox"]) * to_display
+        return out
+
+    @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+    def test_the_direction_agrees_with_the_shape_of_the_box(self, tmp_path, rotation):
+        # The bug in one assertion: before the fix, at /Rotate 90 every run was
+        # called horizontal while its display box was taller than it was wide.
+        doc = fitz.open(self._sheet(tmp_path, rotation))
+        page = doc[0]
+        boxes = self._display_boxes(page)
+        for text, x, y, runs in drawing_truth.dimensions_of(page):
+            box = boxes[text]
+            expected = drawing_truth.ACROSS if box.width > box.height else drawing_truth.DOWN
+            assert runs == expected, (
+                f"/Rotate {rotation}: {text!r} called {runs} "
+                f"but its display box is {box.width:.0f}x{box.height:.0f}"
+            )
+        doc.close()
+
+    @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+    def test_the_two_runs_never_share_an_orientation(self, tmp_path, rotation):
+        # One reads across the sheet and one down it, whatever the rotation, so
+        # a classifier that has collapsed to a constant is caught here.
+        doc = fitz.open(self._sheet(tmp_path, rotation))
+        flags = sorted(str(d[3]) for d in drawing_truth.dimensions_of(doc[0]))
+        assert flags == [drawing_truth.ACROSS, drawing_truth.DOWN], f"/Rotate {rotation}"
+        doc.close()
+
+    def test_an_unrotated_sheet_reads_the_way_it_is_drawn(self, tmp_path):
+        # The anchor: with no rotation, display space IS the page's own space.
+        doc = fitz.open(self._sheet(tmp_path, 0))
+        by_text = {d[0]: d[3] for d in drawing_truth.dimensions_of(doc[0])}
+        assert by_text == {
+            "26'-2 1/2\"": drawing_truth.ACROSS,
+            "12'-0\"": drawing_truth.DOWN,
+        }
+        doc.close()
+
+    def test_a_diagonal_run_belongs_to_neither_axis(self, tmp_path):
+        # Not clearly along either one, so it answers neither gap. Forcing it
+        # onto the nearer axis would let a skewed callout answer a bay
+        # question, which is the one thing a refusal is cheaper than.
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        page.insert_text((200.0, 300.0), "26'-2 1/2\"", fontsize=8, morph=(
+            fitz.Point(200.0, 300.0), fitz.Matrix(45),
+        ))
+        path = tmp_path / "skew.pdf"
+        doc.save(str(path))
+        doc.close()
+        opened = fitz.open(str(path))
+        assert [d[3] for d in drawing_truth.dimensions_of(opened[0])] == [None]
+        opened.close()
+
+    def test_a_diagonal_dimension_is_still_part_of_the_sheets_vocabulary(self, tmp_path, monkeypatch):
+        # Dropping it from sheetLabels would make the scorer call it INVENTED —
+        # the outcome that accuses the model of fabricating something that is
+        # printed on the drawing.
+        doc = fitz.open()
+        page = doc.new_page(width=800, height=600)
+        page.insert_text((200.0, 300.0), "26'-2 1/2\"", fontsize=8, morph=(
+            fitz.Point(200.0, 300.0), fitz.Matrix(45),
+        ))
+        page.insert_text((250.0, 300.0), "9'-0\"", fontsize=8)
+        path = tmp_path / "mixed.pdf"
+        doc.save(str(path))
+        doc.close()
+        monkeypatch.setattr(
+            drawing_truth.grid, "axes", lambda _: ({"7": 100.0, "8": 400.0}, {"B": 100.0, "C": 500.0})
+        )
+        spacing = [
+            c for c in drawing_truth.build(str(path), "p1", "S-100.0", False)
+            if c["tag"] == "grid-spacing"
+        ]
+        assert spacing, "the horizontal dimension still answers its gap"
+        assert "26'-2 1/2\"" in spacing[0]["sheetLabels"]
+        assert spacing[0]["expected"] == "9'-0\""
+
+    def test_the_axis_threshold_is_pinned_at_its_boundary(self):
+        # Reachable only as numbers: a page whose text sits at exactly
+        # atan(1/2) is a floating-point coincidence rather than a fixture.
+        assert drawing_truth.runs_along(1.0, 0.0) == drawing_truth.ACROSS
+        assert drawing_truth.runs_along(0.0, 1.0) == drawing_truth.DOWN
+        assert drawing_truth.runs_along(2.0, 1.0) == drawing_truth.ACROSS, "twice is twice"
+        assert drawing_truth.runs_along(1.0, 2.0) == drawing_truth.DOWN
+        # 30 degrees: 1.73x, dominant but not dominant enough.
+        assert drawing_truth.runs_along(0.866, 0.5) is None
+        assert drawing_truth.runs_along(1.0, 1.0) is None, "45 degrees is neither"
+        assert drawing_truth.runs_along(0.0, 0.0) is None, "no direction at all"
+
+    def test_the_threshold_ignores_the_sign_of_the_direction(self):
+        # Text running right-to-left or bottom-to-top measures the same axis.
+        for across, down in ((-1.0, 0.0), (1.0, -0.0)):
+            assert drawing_truth.runs_along(across, down) == drawing_truth.ACROSS
+        assert drawing_truth.runs_along(0.0, -1.0) == drawing_truth.DOWN
