@@ -1404,6 +1404,46 @@ chunk's `tokenCount` and separates the two — under the cap it says so and stop
 says `split_description` did not run and names the consequence. A warning that is usually wrong
 is a warning people stop reading, which is the same failure as a refusal nobody can act on.
 
+Both commands were then re-run, and both produced BYTE-IDENTICAL output — same description
+chunk ids, same tallies, same miss list. That is what `temperature: 0` promises and the report
+said nothing about it: `rescored` only fires when one corpus scores DIFFERENTLY, which is the
+loud case where the harness has moved. The quiet case — same corpus, same score, scored again —
+had no line at all, so a full page of analysis printed over a run that added nothing.
+`sameCorpusAgain` now says so FIRST: these descriptions have been scored N times before, a
+re-score is arithmetic, and **a new sample needs a new INGEST** — the worker re-run so
+`replace_page_chunks` mints fresh ids. No amount of re-scoring can stand in for one. A benchmark
+that cannot tell a measurement from a repeat of one invites exactly the round that produced it.
+
+The improved coverage line paid for itself in the same output, with a fact nothing had ever
+printed: the crop description is **216 tokens** against the whole-sheet arm's **601**. The
+better-scoring arm writes a THIRD as much. Every length hypothesis in this section — the 1285
+and 2231 token runs, the 307-against-601 puzzle, `VLM_MAX_TOKENS` as "a large lever in a
+direction nobody predicted" — was chasing a number that does not decide anything. 216 tokens of
+`At 4/B: …` lines beat 601 tokens of prose because of WHAT is in them, not how much.
+
+**The conclusion, stated as a decision rather than a score.** `VLM_CROP=intersections` is the
+right mode for a structural plan with a detectable grid, and the evidence for that is the miss
+structure plus the advance prediction plus a mechanism that explains both — 993 DPI against 73 on
+precisely the compound label that was failing. It is NOT "worth 35 points", and no further
+re-scoring of these two corpora can make it so.
+
+What the decision does not extend to: it stays OFF by default. One image per page becomes 27,
+about 60 seconds of wall clock per page, so a 400-page set is a different order of spend and this
+is a per-sheet choice for sheets whose geometry is the question. And the crop arm's OWN
+run-to-run spread is unmeasured — the 43-point error bar was measured on two WHOLE-SHEET ingests,
+so it bounds that arm and is merely the best available guess for this one. The argument that it
+should be narrower is mechanical rather than measured: the whole-sheet pass asks one call to find
+the grid, name it, enumerate it and read it, and the variance compounds across all four, while a
+crop pass is handed its coordinate and asked 27 nearly identical small questions. The failures
+that produced the 43-point spread — a row labelled with its neighbour's letter, an enumeration
+walked off by one, a truncated grid — are structurally unavailable to it. That is an argument,
+and it is written here as one.
+
+What is left is not more benchmark runs. It is the `sourceModel` column this file has wanted
+since the vision pass began, so a description's configuration travels with it and `--label` stops
+being the only record; the gating rule for which pages get crops; and per-document cost
+reporting. Those make the decision operable. Another score against a spent 40-case set does not.
+
 It cost one change in the scorer, and that change was a latent bug rather than new support.
 `mentions` escaped every non-alphanumeric character in the expectation INCLUDING the spaces, so the
 sheet's own spacing was mandatory: a drafter writes `26' - 2 1/2"` and a model writes `26'-2 1/2"`,

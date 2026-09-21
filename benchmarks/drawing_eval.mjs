@@ -946,6 +946,40 @@ export function tally(subset) {
 // different setting; the tail is the part anyone is comparing against.
 const RECENT_INGESTS = 5;
 
+/**
+ * Whether this run is a RE-SCORE of a corpus already measured.
+ *
+ * `rescored` catches the loud case — one corpus, two different scores, which
+ * `temperature: 0` says the model cannot produce, so the harness moved. The
+ * QUIET case had no line at all: one corpus, the same score, scored again.
+ * That is not a second sample, it is arithmetic, and the report happily
+ * printed a full page of analysis over it while the only honest summary was
+ * "you learned nothing this run".
+ *
+ * It cost a real round. Two commands were re-run expecting a repeat
+ * measurement; both hit corpora already scored, both reproduced their tallies
+ * to the case, and the output looked exactly like a fresh result. A new sample
+ * needs a new INGEST — the worker re-run, `replace_page_chunks` minting fresh
+ * ids — and nothing the benchmark does can manufacture one.
+ *
+ * `records` INCLUDES the run being reported, because the run file is written
+ * before the history is read, so a corpus seen once is a first scoring and
+ * anything beyond that is a repeat.
+ */
+export function sameCorpusAgain(records, currentIds) {
+  const key = [...(currentIds ?? [])].sort().join(",");
+  if (!key) return null;
+  const mine = (records ?? []).filter(
+    (r) => [...(r.descriptionChunkIds ?? [])].sort().join(",") === key,
+  );
+  if (mine.length < 2) return null;
+  return {
+    before: mine.length - 1,
+    scores: [...new Set(mine.map((r) => r.pct))].sort((a, b) => a - b),
+    projectId: mine[mine.length - 1].projectId ?? "unknown",
+  };
+}
+
 export function runHistory(records) {
   const byCorpus = new Map();
   for (const r of records) {
@@ -1029,6 +1063,10 @@ export function runHistory(records) {
   const scores = recent.map((i) => i.pct);
   return {
     runs: records.length,
+    // Kept so the report can ask whether THIS run repeats a corpus already
+    // scored. The grouped views above cannot answer that: they say what the
+    // set has scored, never whether the run in front of you added to it.
+    records,
     ingests,
     recent,
     rescored,
@@ -1562,6 +1600,23 @@ export function report(rows, json, onSheet, history = null, biggestDescription =
   // not reach the corpus leaves these ids untouched, and that is the first
   // thing to check before reading any number above as a result.
   const descriptions = [...new Set(rows.flatMap((r) => r.descriptionChunkIds ?? []))].sort();
+
+  const again = sameCorpusAgain(history?.records ?? [], descriptions);
+  if (again) {
+    const agreed = again.scores.length === 1;
+    console.log(
+      `\n  THIS RUN ADDED NO SAMPLE. These exact descriptions (project ${again.projectId}) ` +
+        `have been scored ${again.before} time${again.before === 1 ? "" : "s"} before` +
+        (agreed
+          ? `, every one of them ${again.scores[0].toFixed(0)}%`
+          : ` — and disagreed: ${again.scores.map((p) => `${p.toFixed(0)}%`).join(", ")}`) +
+        `.\n  temperature: 0 means same chunks in, same answer out, so re-running this command ` +
+        "is arithmetic and not a measurement. A new sample needs a new INGEST — re-run the " +
+        "worker so the descriptions are written again — and no amount of re-scoring can " +
+        "stand in for one.",
+    );
+  }
+
   console.log(
     `\n  Config: CHAT_PROVIDER=${process.env.CHAT_PROVIDER ?? "claude"} ` +
       `HYBRID_RETRIEVAL=${process.env.HYBRID_RETRIEVAL ?? "true"} ` +
