@@ -9,7 +9,7 @@ export const prisma = new PrismaClient();
  * 'findMany')", which says nothing about the real cause. Check for them up
  * front so the error names the fix instead.
  */
-const REQUIRED_MODELS = ["usageEvent", "supportTicket", "sheetRegion"] as const;
+const REQUIRED_MODELS = ["usageEvent", "supportTicket", "sheetRegion", "rfi"] as const;
 
 export function missingPrismaModels(): string[] {
   const client = prisma as unknown as Record<string, unknown>;

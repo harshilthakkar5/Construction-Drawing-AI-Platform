@@ -2134,6 +2134,19 @@ chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind,
 summaries(id, projectId, portionId, level[page|section|portion|project], summary JSON, sources)
 chat_sessions(id, projectId, createdAt)
 messages(id, sessionId, role, content JSON incl. citations, sources, createdAt)
+rfis(id, projectId, number, subject, question, status, priority, discipline,
+     dueAt, createdById, assignedToId, answer, answeredById, answeredAt, closedAt)
+     // UNIQUE(projectId, number); numbers come from projects.rfiCounter,
+     // incremented INSIDE the create transaction — count()+1 races, and a
+     // duplicate RFI number is quoted in someone's email before anyone notices
+rfi_locations(id, rfiId, documentId, pageNumber, combinedPageNumber, bbox,
+     sheetNumber, drawingRevised, supersededById)
+     // pinned to (documentId, pageNumber, bbox) and NEVER a chunkId:
+     // replace_page_chunks re-mints chunk uuids on every ingest. sheetNumber
+     // and combinedPageNumber are SNAPSHOTS; the document FK is SetNull so an
+     // RFI outlives the drawing it was asked about
+rfi_events(id, rfiId, actorId, kind, detail JSON, createdAt)  // kind is TEXT,
+     // not an enum: the vocabulary grows per phase and nothing branches on it
 ```
 
 PostgreSQL is the single source of truth for references; Qdrant holds vectors only.

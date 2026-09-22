@@ -19,6 +19,7 @@ import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { regionRouter } from "./routes/region.js";
+import { rfisRouter } from "./routes/rfis.js";
 import { summariesRouter } from "./routes/summaries.js";
 import { supportRouter } from "./routes/support.js";
 
@@ -111,6 +112,10 @@ export function createApp() {
   app.use("/projects/:projectId/chat", chatRouter);
   app.use("/projects/:projectId/summaries", summariesRouter);
   app.use("/projects/:projectId/chunks", chunksRouter);
+  // requireGeneratedModels: the RFI tables arrived after the Phase 5 schema,
+  // so a client generated before them answers with the fix rather than a
+  // TypeError from inside a handler.
+  app.use("/projects/:projectId/rfis", requireGeneratedModels, rfisRouter);
   app.use("/projects/:projectId", pagesRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

@@ -11,7 +11,10 @@ import { redis } from "./redis.js";
 /**
  * Project deletion cleanup: a deleted project must disappear from EVERY
  * store, not just PostgreSQL (whose cascade handles documents/pages/chunks/
- * portions/summaries/chat rows, and the project's sheet_regions row):
+ * portions/summaries/chat rows, the project's sheet_regions row, and its
+ * rfis with their locations and events — RFIs hold no objects of their own in
+ * Phase 1, since the Excel export is streamed to the caller and never stored,
+ * so a future attachment or stored export MUST add its prefix below):
  *
  *   1. Object storage — every object under projects/{id}/ (original PDFs,
  *      page PNGs, thumbnails, extracted text).

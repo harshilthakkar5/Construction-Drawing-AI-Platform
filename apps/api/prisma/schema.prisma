@@ -55,6 +55,30 @@ enum ProjectRole {
   member
 }
 
+/// An RFI's lifecycle. `draft` is private to its author; everything from
+/// `open` on is a record other people quote by number, which is why a number
+/// is allocated at CREATE and never reused — see Project.rfiCounter.
+///
+/// `voided` rather than the industry's "void": the word is a TypeScript
+/// keyword everywhere this enum is mirrored, and an RFI withdrawn after it was
+/// issued still has to keep its number so the gap in the log is explainable.
+enum RfiStatus {
+  draft
+  open
+  answered
+  closed
+  voided
+}
+
+/// Drives the log's sort and the overdue highlight, nothing else. It is the
+/// asker's claim about urgency, not a computed field.
+enum RfiPriority {
+  low
+  normal
+  high
+  critical
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -74,6 +98,10 @@ model User {
   supportTickets SupportTicket[]
   sheetRegions   SheetRegion[]
   requestedPortionSummaries Portion[]
+  createdRfis    Rfi[] @relation("RfiCreatedBy")
+  assignedRfis   Rfi[] @relation("RfiAssignedTo")
+  answeredRfis   Rfi[] @relation("RfiAnsweredBy")
+  rfiEvents      RfiEvent[]
 
   @@map("users")
 }
@@ -154,6 +182,14 @@ model Project {
   ownerId     String?
   createdAt   DateTime @default(now())
 
+  /// Last RFI number handed out for this project. Incremented INSIDE the
+  /// create transaction, never derived from count(): two people pressing "New
+  /// RFI" at once both read the same count and both write number N, and a
+  /// duplicate RFI number is worse than a missing one because it is already
+  /// quoted in someone's email. Numbers are never reused, so a voided RFI
+  /// leaves a visible gap rather than letting the next one take its place.
+  rfiCounter  Int      @default(0)
+
   owner        User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   members      ProjectMember[]
   documents    Document[]
@@ -162,6 +198,7 @@ model Project {
   chatSessions ChatSession[]
   usageEvents  UsageEvent[]
   sheetRegion  SheetRegion?
+  rfis         Rfi[]
 
   @@map("projects")
 }
@@ -230,6 +267,7 @@ model Document {
   nextVersion     Document? @relation("DocumentRevisions")
   pageRows        Page[]
   regionSamples   SheetRegion[]
+  rfiLocations    RfiLocation[]
 
   @@index([projectId])
   @@map("documents")
@@ -416,4 +454,121 @@ model Message {
 
   @@index([sessionId])
   @@map("messages")
+}
+
+/// A Request For Information: a question about the drawings, pinned to where
+/// it was asked, carrying a formal answer.
+///
+/// The answer is HUMAN-AUTHORED, always. An RFI response is a contractual
+/// instruction that gets built from — a wrong one gets poured — so no model
+/// writes into `answer`. What a model may do (later phases) is draft the
+/// QUESTION and surface supporting chunks; that is a different field and a
+/// different risk.
+model Rfi {
+  id        String @id @default(uuid())
+  projectId String
+  /// Per-project, monotonic, never reused. Unique with projectId so a racing
+  /// allocator fails the insert rather than issuing a duplicate.
+  number    Int
+
+  subject  String
+  question String
+  status   RfiStatus   @default(draft)
+  priority RfiPriority @default(normal)
+  /// The `Discipline` vocabulary (@cdip/shared), same as pages.discipline and
+  /// projects.roles. A plain String for the same reason those are: the list
+  /// belongs to the shared package and adding one must not need a migration.
+  discipline String?
+
+  dueAt        DateTime?
+  createdById  String?
+  assignedToId String?
+
+  /// Written only by a person. Null until someone answers.
+  answer       String?
+  answeredById String?
+  answeredAt   DateTime?
+  closedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User?         @relation("RfiCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  assignedTo User?         @relation("RfiAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  answeredBy User?         @relation("RfiAnsweredBy", fields: [answeredById], references: [id], onDelete: SetNull)
+  locations  RfiLocation[]
+  events     RfiEvent[]
+
+  @@unique([projectId, number])
+  @@index([projectId, status])
+  @@index([assignedToId])
+  @@map("rfis")
+}
+
+/// Where on the drawings the question was asked.
+///
+/// Pinned to (documentId, pageNumber, bbox) and NEVER to a chunkId:
+/// `db.replace_page_chunks` deletes a page's chunks and reinserts them with
+/// fresh uuids on every ingest, so a chunk-pinned RFI breaks the next time its
+/// page is re-processed.
+///
+/// `sheetNumber` and `combinedPageNumber` are SNAPSHOTS taken at pin time, not
+/// joins. They are what the export prints and what a reader needs if the
+/// document is later deleted — the FK is SetNull precisely so an RFI outlives
+/// the drawing it was asked about, degrading to a text reference rather than
+/// vanishing with it.
+model RfiLocation {
+  id    String @id @default(uuid())
+  rfiId String
+
+  documentId         String?
+  /// Page within its own document (the viewer jump uses combinedPageNumber).
+  pageNumber         Int
+  combinedPageNumber Int?
+  /// {x, y, width, height} in PDF points — the same shape as chunks.bbox.
+  bbox               Json?
+  sheetNumber        String?
+
+  /// FR-4: set when a newer revision supersedes the pinned document. The RFI
+  /// is NOT repointed automatically — the geometry may have moved, and that
+  /// move may be the very thing the RFI is about. A person confirms the
+  /// re-pin; until then the UI shows "this sheet has been revised".
+  drawingRevised Boolean @default(false)
+  supersededById String?
+
+  createdAt DateTime @default(now())
+
+  rfi      Rfi       @relation(fields: [rfiId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([rfiId])
+  @@index([documentId])
+  @@map("rfi_locations")
+}
+
+/// Append-only audit trail (the FR-23 habit, applied to RFIs).
+///
+/// `kind` is a String and not an enum on purpose, which is the opposite of the
+/// choice made for RfiStatus. A status is a small closed set that the API,
+/// the shared union and the UI all branch on, so drift there is a bug. Event
+/// kinds GROW with every phase that touches an RFI — the AI-drafting and
+/// export phases each add their own — and an enum would mean a migration per
+/// phase for a column nothing branches on. The vocabulary lives in
+/// RFI_EVENT_KINDS in @cdip/shared.
+model RfiEvent {
+  id      String @id @default(uuid())
+  rfiId   String
+  actorId String?
+  kind    String
+  /// Shape depends on kind, e.g. { from, to } for a status change.
+  detail  Json?
+
+  createdAt DateTime @default(now())
+
+  rfi   Rfi   @relation(fields: [rfiId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([rfiId, createdAt])
+  @@map("rfi_events")
 }
