@@ -2178,6 +2178,15 @@ clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking
 "Structural") switches the summary panel, jumps the viewer to the portion's start page, and
 optionally filters chat retrieval to that portion.
 
+The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). An
+RFI is raised, pinned to a sheet, answered and exported from there, and clicking a pin drives
+the same `requestJump` the chat citations use. The panel keeps its OWN copy of the status
+transition table so it can render only buttons that will work — a duplicate, so
+`rfiStatus.uiMirror.test.ts` reads the panel's source and fails on a drift in either direction:
+a button the API would 409, or a legal action whose button quietly vanished. The answer box
+appears only on an `open` RFI, because `draft → answered` is not a legal transition, and it says
+in the UI that the response is written by a person: nothing generated may reach that field.
+
 ### Design system
 
 Every colour is a semantic token defined for both themes in `apps/web/src/index.css`

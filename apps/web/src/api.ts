@@ -13,6 +13,9 @@ import type {
   ProjectDto,
   RegionBox,
   RegionPreviewDto,
+  RfiDto,
+  RfiPriority,
+  RfiStatus,
   SheetRegionDto,
   SummaryDto,
   SummaryEstimateDto,
@@ -304,6 +307,87 @@ export const api = {
   /** Replay one past conversation (FR-23). */
   chatMessages: (projectId: string, sessionId: string) =>
     request<ChatMessageDto[]>(`/projects/${projectId}/chat/${sessionId}/messages`),
+
+  // --- RFIs ---------------------------------------------------------------
+
+  listRfis: (projectId: string, filters?: { status?: RfiStatus; discipline?: string }) => {
+    const query = new URLSearchParams();
+    if (filters?.status) query.set("status", filters.status);
+    if (filters?.discipline) query.set("discipline", filters.discipline);
+    const suffix = query.toString() ? `?${query}` : "";
+    return request<RfiDto[]>(`/projects/${projectId}/rfis${suffix}`);
+  },
+
+  /** The detail read is the only one carrying the audit trail. */
+  getRfi: (projectId: string, rfiId: string) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}`),
+
+  createRfi: (
+    projectId: string,
+    body: {
+      subject: string;
+      question: string;
+      discipline?: string | null;
+      priority?: RfiPriority;
+      dueAt?: string | null;
+      issue?: boolean;
+      locations?: { documentId: string; pageNumber: number }[];
+    },
+  ) =>
+    request<RfiDto>(`/projects/${projectId}/rfis`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateRfi: (
+    projectId: string,
+    rfiId: string,
+    body: {
+      subject?: string;
+      question?: string;
+      discipline?: string | null;
+      priority?: RfiPriority;
+      dueAt?: string | null;
+    },
+  ) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /** Every transition except answering, which carries content of its own. */
+  setRfiStatus: (projectId: string, rfiId: string, status: RfiStatus) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+
+  /** Human-authored, always — nothing generated is ever posted here. */
+  answerRfi: (projectId: string, rfiId: string, answer: string) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}/answer`, {
+      method: "POST",
+      body: JSON.stringify({ answer }),
+    }),
+
+  addRfiLocation: (
+    projectId: string,
+    rfiId: string,
+    body: { documentId: string; pageNumber: number },
+  ) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}/locations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  removeRfiLocation: (projectId: string, rfiId: string, locationId: string) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}/locations/${locationId}`, {
+      method: "DELETE",
+    }),
+
+  /** A browser download, so it goes through the ?token= path like the media
+   * GETs: an <a download> cannot set an Authorization header either. */
+  rfiExportUrl: (projectId: string) =>
+    withToken(`${API_URL}/projects/${projectId}/rfis/export.xlsx`),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   documentFileUrl: (projectId: string, documentId: string) =>

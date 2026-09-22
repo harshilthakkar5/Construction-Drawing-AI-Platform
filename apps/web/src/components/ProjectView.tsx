@@ -6,6 +6,7 @@ import {
   LayersIcon,
   LayoutGridIcon,
   ListChecksIcon,
+  MessageCircleQuestionIcon,
   MessageSquareIcon,
   XIcon,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import {
 } from "@/components/ProjectSetup";
 import { PageLoading } from "@/components/shared";
 import { PortionsPanel } from "@/components/PortionsPanel";
+import { RfiPanel } from "@/components/RfiPanel";
 import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { Tour, tourSeen, WORKSPACE_TOUR } from "@/components/Tour";
@@ -300,6 +302,10 @@ export function ProjectView({ projectId }: { projectId: string }) {
                     <LayoutGridIcon />
                     Summary &amp; categories
                   </TabsTrigger>
+                  <TabsTrigger value="rfis">
+                    <MessageCircleQuestionIcon />
+                    RFIs
+                  </TabsTrigger>
                 </TabsList>
               </div>
               {/* One tab: picking a category swaps the summary above it, so
@@ -317,6 +323,9 @@ export function ProjectView({ projectId }: { projectId: string }) {
               </TabsContent>
               <TabsContent value="documents" className="mt-4">
                 <DocumentsPanel projectId={projectId} />
+              </TabsContent>
+              <TabsContent value="rfis" className="mt-4">
+                <RfiPanel projectId={projectId} />
               </TabsContent>
             </Tabs>
           </Card>
