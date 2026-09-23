@@ -25,6 +25,7 @@
     "bullmq": "^5.34.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^5.0.1",
     "express-rate-limit": "^8.6.2",
     "ioredis": "^5.4.2",

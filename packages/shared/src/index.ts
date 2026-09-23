@@ -572,3 +572,105 @@ export interface SummaryStatusDto {
   documents: Record<string, number>;
   hint: string;
 }
+
+// --- RFIs ---
+
+/**
+ * An RFI's lifecycle. Mirrored from the `RfiStatus` enum in schema.prisma, and
+ * `rfi.test.ts` reads that file to fail on a drift.
+ *
+ * The mirror is checked rather than trusted because this repo has already paid
+ * for the unchecked version: `rerank` lived in the `UsageKind` enum and was
+ * missing from its union here, so reranker spend reached the dashboard with no
+ * label to render it under, silently, for as long as the feature existed.
+ *
+ * `voided` and not the industry's "void": the word is a TypeScript keyword, and
+ * an RFI withdrawn after issue still keeps its number so the gap in the log
+ * stays explainable.
+ */
+export type RfiStatus = "draft" | "open" | "answered" | "closed" | "voided";
+
+export type RfiPriority = "low" | "normal" | "high" | "critical";
+
+export const RFI_STATUSES: RfiStatus[] = ["draft", "open", "answered", "closed", "voided"];
+export const RFI_PRIORITIES: RfiPriority[] = ["low", "normal", "high", "critical"];
+
+/**
+ * Audit vocabulary for `rfi_events.kind`, which is a TEXT column rather than a
+ * Postgres enum. That is the opposite of the choice made for RfiStatus, and
+ * deliberately: a status is a closed set that the API, this union and the UI
+ * all branch on, while event kinds GROW with every phase that touches an RFI
+ * and nothing branches on them. An enum would mean a migration per phase for a
+ * column that is only ever read back as a list.
+ */
+export const RFI_EVENT_KINDS = [
+  "created",
+  "updated",
+  "status_changed",
+  "answered",
+  "reopened",
+  "location_added",
+  "location_removed",
+  "exported",
+] as const;
+export type RfiEventKind = (typeof RFI_EVENT_KINDS)[number];
+
+/**
+ * Where an RFI was asked, pinned to (documentId, pageNumber, bbox) and never
+ * to a chunkId — chunk uuids are re-minted on every ingest.
+ *
+ * `sheetNumber` and `combinedPageNumber` are snapshots taken when the pin was
+ * made, not joins: they are what the Excel export prints, and what survives
+ * the pinned document being deleted.
+ */
+export interface RfiLocationDto {
+  id: string;
+  documentId: string | null;
+  filename: string | null;
+  pageNumber: number;
+  combinedPageNumber: number | null;
+  bbox: BBox | null;
+  sheetNumber: string | null;
+  /** FR-4: the pinned sheet has a newer revision. A person confirms the re-pin;
+   * the geometry may have moved, and that move may be what the RFI is about. */
+  drawingRevised: boolean;
+  supersededById: string | null;
+  createdAt: string;
+}
+
+export interface RfiEventDto {
+  id: string;
+  kind: string;
+  detail: unknown;
+  actorId: string | null;
+  actorName: string | null;
+  createdAt: string;
+}
+
+export interface RfiDto {
+  id: string;
+  projectId: string;
+  /** Per-project, monotonic, never reused — it is quoted in correspondence. */
+  number: number;
+  subject: string;
+  question: string;
+  status: RfiStatus;
+  priority: RfiPriority;
+  discipline: string | null;
+  dueAt: string | null;
+  createdById: string | null;
+  createdByName: string | null;
+  assignedToId: string | null;
+  assignedToName: string | null;
+  /** Human-authored, always. No model writes here. */
+  answer: string | null;
+  answeredById: string | null;
+  answeredByName: string | null;
+  answeredAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  locations: RfiLocationDto[];
+  /** Only on the detail read; the list endpoint leaves it out. */
+  events?: RfiEventDto[];
+}
