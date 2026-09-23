@@ -16,6 +16,7 @@ PROCESS_DOCUMENT_QUEUE = "process-document"
 SCRAPE_REGION_QUEUE = "scrape-region"
 SUMMARIZE_PORTION_QUEUE = "summarize-portion"
 SUMMARIZE_PROJECT_QUEUE = "summarize-project"
+RFI_SCAN_QUEUE = "rfi-scan"
 
 # --- Object keys (Spaces/MinIO bucket layout) ---
 
@@ -53,5 +54,9 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
     ),
     "summarizeProject": (
         ("projectId", "project_id", False, "str"),
+    ),
+    "rfiScan": (
+        ("projectId", "project_id", False, "str"),
+        ("scanId", "scan_id", False, "str"),
     ),
 }

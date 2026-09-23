@@ -3,6 +3,7 @@ import {
   QUEUES,
   type ProcessDocumentJob,
   type RegionPreviewJob,
+  type RfiScanJob,
   type ScrapeRegionJob,
   type SummarizePortionJob,
   type SummarizeProjectJob,
@@ -63,4 +64,16 @@ export const summarizePortionQueue = new Queue<SummarizePortionJob>(QUEUES.summa
 export const summarizeProjectQueue = new Queue<SummarizeProjectJob>(QUEUES.summarizeProject, {
   connection: redis,
   defaultJobOptions: { attempts: 1, removeOnComplete: { count: 200 }, removeOnFail: false },
+});
+
+/** One press of "Find RFIs in drawings". Not retried behind the user's back:
+ * a scan spends model calls, and a failure is written into its rfi_scans row
+ * where the button can show it and offer to run again. */
+export const rfiScanQueue = new Queue<RfiScanJob>(QUEUES.rfiScan, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { count: 200 },
+    removeOnFail: false,
+  },
 });

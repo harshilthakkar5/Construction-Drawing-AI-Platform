@@ -3,17 +3,23 @@ import { z } from "zod";
 import {
   RFI_PRIORITIES,
   RFI_STATUSES,
-  type RfiDto,
-  type RfiEventDto,
-  type RfiLocationDto,
   type RfiPriority,
   type RfiStatus,
 } from "@cdip/shared";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { env } from "../env.js";
-import { buildWorkbook, buildWorkbookRows } from "../rfiExport.js";
+import { buildFindingRows, buildWorkbook, buildWorkbookRows } from "../rfiExport.js";
 import { canEditQuestion, canTransition, refusalReason } from "../rfiStatus.js";
+import {
+  createRfi,
+  ForeignDocumentError,
+  RFI_INCLUDE,
+  recordEvent,
+  resolvePins,
+  toCandidateDto,
+  toDto,
+} from "../rfiStore.js";
 
 /**
  * RFIs — Phase 1: the log itself, written entirely by people.
@@ -95,111 +101,11 @@ const listQuery = z.object({
   assignedToId: z.string().uuid().optional(),
 });
 
-/** What every read returns — locations joined, events only on the detail read. */
-const RFI_INCLUDE = {
-  createdBy: { select: { id: true, name: true } },
-  assignedTo: { select: { id: true, name: true } },
-  answeredBy: { select: { id: true, name: true } },
-  locations: {
-    orderBy: { createdAt: "asc" },
-    include: { document: { select: { filename: true } } },
-  },
-} as const;
-
-type RfiRow = Awaited<ReturnType<typeof readRfi>>;
-
 async function readRfi(projectId: string, rfiId: string) {
   return prisma.rfi.findFirstOrThrow({
     where: { id: rfiId, projectId },
     include: RFI_INCLUDE,
   });
-}
-
-function toLocationDto(loc: {
-  id: string;
-  documentId: string | null;
-  pageNumber: number;
-  combinedPageNumber: number | null;
-  bbox: unknown;
-  sheetNumber: string | null;
-  drawingRevised: boolean;
-  supersededById: string | null;
-  createdAt: Date;
-  document: { filename: string } | null;
-}): RfiLocationDto {
-  return {
-    id: loc.id,
-    documentId: loc.documentId,
-    filename: loc.document?.filename ?? null,
-    pageNumber: loc.pageNumber,
-    combinedPageNumber: loc.combinedPageNumber,
-    bbox: (loc.bbox as RfiLocationDto["bbox"]) ?? null,
-    sheetNumber: loc.sheetNumber,
-    drawingRevised: loc.drawingRevised,
-    supersededById: loc.supersededById,
-    createdAt: loc.createdAt.toISOString(),
-  };
-}
-
-function toDto(rfi: RfiRow, events?: RfiEventDto[]): RfiDto {
-  return {
-    id: rfi.id,
-    projectId: rfi.projectId,
-    number: rfi.number,
-    subject: rfi.subject,
-    question: rfi.question,
-    status: rfi.status as RfiStatus,
-    priority: rfi.priority as RfiPriority,
-    discipline: rfi.discipline,
-    dueAt: rfi.dueAt?.toISOString() ?? null,
-    createdById: rfi.createdById,
-    createdByName: rfi.createdBy?.name ?? null,
-    assignedToId: rfi.assignedToId,
-    assignedToName: rfi.assignedTo?.name ?? null,
-    answer: rfi.answer,
-    answeredById: rfi.answeredById,
-    answeredByName: rfi.answeredBy?.name ?? null,
-    answeredAt: rfi.answeredAt?.toISOString() ?? null,
-    closedAt: rfi.closedAt?.toISOString() ?? null,
-    createdAt: rfi.createdAt.toISOString(),
-    updatedAt: rfi.updatedAt.toISOString(),
-    locations: rfi.locations.map(toLocationDto),
-    ...(events ? { events } : {}),
-  };
-}
-
-/**
- * Resolve a pin's page metadata at the moment it is made.
- *
- * `combinedPageNumber` and `sheetNumber` are copied onto the location rather
- * than joined on read, because both can move under it: a re-scrape rewrites
- * sheet numbers, a new upload renumbers the combined sequence, and the
- * document itself may later be deleted. What the RFI needs to keep is where
- * the question was asked WHEN it was asked.
- */
-async function pageSnapshot(projectId: string, documentId: string, pageNumber: number) {
-  const page = await prisma.page.findFirst({
-    where: { pageNumber, document: { id: documentId, projectId } },
-    select: { combinedPageNumber: true, sheetNumber: true },
-  });
-  return {
-    combinedPageNumber: page?.combinedPageNumber ?? null,
-    sheetNumber: page?.sheetNumber ?? null,
-  };
-}
-
-/** Append-only; never blocks the action it records. */
-async function recordEvent(
-  rfiId: string,
-  actorId: string | null,
-  kind: string,
-  detail?: unknown,
-) {
-  await prisma.rfiEvent
-    .create({
-      data: { rfiId, actorId, kind, detail: (detail ?? undefined) as never },
-    })
-    .catch((err) => console.error(`[rfis] audit write failed for ${rfiId} (${kind})`, err));
 }
 
 // --- Export -----------------------------------------------------------------
@@ -247,7 +153,13 @@ rfisRouter.get("/export.xlsx", async (req, res) => {
     },
   );
 
-  const workbook = buildWorkbook(log, evidence);
+  const pending = await prisma.rfiCandidate.findMany({
+    where: { projectId, status: "pending" },
+    take: EXPORT_MAX,
+  });
+  const findings = buildFindingRows(pending.map(toCandidateDto), projectId, env.APP_URL);
+
+  const workbook = buildWorkbook(log, evidence, findings);
 
   const filename = `RFI-log-${slug(project.name)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   res.setHeader(
@@ -290,12 +202,8 @@ rfisRouter.get("/", async (req, res) => {
 });
 
 /**
- * Create. The number is allocated by incrementing the project's counter inside
- * the transaction, which takes a row lock and serializes concurrent creates.
- * `@@unique([projectId, number])` is the backstop: a race that somehow gets
- * past the lock fails the insert rather than issuing a duplicate number, which
- * is the right way round — a number is quoted in correspondence long before
- * anyone would notice it had been handed out twice.
+ * Create by hand. The number comes from `rfiStore.createRfi`, the one
+ * allocator both this route and accepting a generated candidate use.
  */
 rfisRouter.post("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
@@ -303,43 +211,34 @@ rfisRouter.post("/", async (req, res) => {
   const actor = currentUser(req);
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
 
-  // Snapshots are read outside the transaction: they are reference data, and
+  // Pins are resolved outside the transaction: they are reference data, and
   // holding the counter's row lock across these reads would serialize creates
   // behind page lookups for no benefit.
-  const locations = await Promise.all(
-    body.locations.map(async (loc) => ({
-      documentId: loc.documentId,
-      pageNumber: loc.pageNumber,
-      bbox: (loc.bbox ?? undefined) as never,
-      ...(await pageSnapshot(projectId, loc.documentId, loc.pageNumber)),
-    })),
+  let pins;
+  try {
+    ({ pins } = await resolvePins(projectId, body.locations));
+  } catch (err) {
+    if (err instanceof ForeignDocumentError) {
+      return void res.status(404).json({ error: err.message });
+    }
+    throw err;
+  }
+
+  const created = await prisma.$transaction((tx) =>
+    createRfi(tx, projectId, {
+      subject: body.subject,
+      question: body.question,
+      discipline: body.discipline ?? null,
+      priority: body.priority,
+      status: body.issue ? "open" : "draft",
+      assignedToId: body.assignedToId ?? null,
+      dueAt: body.dueAt ?? null,
+      createdById: actor.id,
+      pins,
+    }),
   );
 
-  const created = await prisma.$transaction(async (tx) => {
-    const project = await tx.project.update({
-      where: { id: projectId },
-      data: { rfiCounter: { increment: 1 } },
-      select: { rfiCounter: true },
-    });
-    return tx.rfi.create({
-      data: {
-        projectId,
-        number: project.rfiCounter,
-        subject: body.subject,
-        question: body.question,
-        discipline: body.discipline ?? null,
-        priority: body.priority,
-        status: body.issue ? "open" : "draft",
-        assignedToId: body.assignedToId ?? null,
-        dueAt: body.dueAt ?? null,
-        createdById: actor.id,
-        locations: { create: locations },
-      },
-      include: RFI_INCLUDE,
-    });
-  });
-
-  await recordEvent(created.id, actor.id, "created", { number: created.number });
+  await recordEvent(created.id, actor.id, "created", { number: created.number, source: "manual" });
   if (body.issue) {
     await recordEvent(created.id, actor.id, "status_changed", { from: "draft", to: "open" });
   }
@@ -482,27 +381,17 @@ rfisRouter.post("/:rfiId/locations", async (req, res) => {
   const actor = currentUser(req);
   await readRfi(projectId, rfiId);
 
-  // The document must belong to THIS project: the id comes from the client,
-  // and requireProjectMember guards the project in the path, not one named in
-  // a body. Without this check a member of project A could pin an RFI to a
-  // page of project B and read its sheet number back out of the export.
-  const document = await prisma.document.findFirst({
-    where: { id: body.documentId, projectId },
-    select: { id: true },
-  });
-  if (!document) {
-    return void res.status(404).json({ error: "document not found in this project" });
+  // resolvePins refuses a document outside this project — see its comment.
+  let pins;
+  try {
+    ({ pins } = await resolvePins(projectId, [body]));
+  } catch (err) {
+    if (err instanceof ForeignDocumentError) {
+      return void res.status(404).json({ error: "document not found in this project" });
+    }
+    throw err;
   }
-
-  await prisma.rfiLocation.create({
-    data: {
-      rfiId,
-      documentId: body.documentId,
-      pageNumber: body.pageNumber,
-      bbox: (body.bbox ?? undefined) as never,
-      ...(await pageSnapshot(projectId, body.documentId, body.pageNumber)),
-    },
-  });
+  await prisma.rfiLocation.create({ data: { rfiId, ...pins[0]! } });
   await recordEvent(rfiId, actor.id, "location_added", {
     documentId: body.documentId,
     pageNumber: body.pageNumber,

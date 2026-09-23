@@ -13,8 +13,12 @@ import type {
   ProjectDto,
   RegionBox,
   RegionPreviewDto,
+  RfiCandidateDto,
+  RfiCandidateStatus,
+  RfiConfidence,
   RfiDto,
   RfiPriority,
+  RfiScanDto,
   RfiStatus,
   SheetRegionDto,
   SummaryDto,
@@ -382,6 +386,48 @@ export const api = {
   removeRfiLocation: (projectId: string, rfiId: string, locationId: string) =>
     request<RfiDto>(`/projects/${projectId}/rfis/${rfiId}/locations/${locationId}`, {
       method: "DELETE",
+    }),
+
+  // --- Generated RFIs ------------------------------------------------------
+
+  /** The most recent scan, or null if this project has never been scanned. */
+  latestRfiScan: (projectId: string) =>
+    request<RfiScanDto | null>(`/projects/${projectId}/rfis/generated/scan`),
+
+  startRfiScan: (projectId: string) =>
+    request<RfiScanDto>(`/projects/${projectId}/rfis/generated/scan`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  listRfiCandidates: (projectId: string, status: RfiCandidateStatus = "pending") =>
+    request<{ candidates: RfiCandidateDto[]; counts: Partial<Record<RfiCandidateStatus, number>> }>(
+      `/projects/${projectId}/rfis/generated?status=${status}`,
+    ),
+
+  /** Keep a finding: it becomes a numbered, open RFI pinned where it was found. */
+  acceptRfiCandidate: (projectId: string, candidateId: string) =>
+    request<RfiDto>(`/projects/${projectId}/rfis/generated/${candidateId}/accept`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  acceptAllRfiCandidates: (projectId: string, minConfidence: RfiConfidence) =>
+    request<{ accepted: RfiDto[]; skipped: number }>(
+      `/projects/${projectId}/rfis/generated/accept-all`,
+      { method: "POST", body: JSON.stringify({ minConfidence }) },
+    ),
+
+  dismissRfiCandidate: (projectId: string, candidateId: string) =>
+    request<{ dismissed: true }>(`/projects/${projectId}/rfis/generated/${candidateId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  restoreRfiCandidate: (projectId: string, candidateId: string) =>
+    request<{ restored: true }>(`/projects/${projectId}/rfis/generated/${candidateId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({}),
     }),
 
   /** A browser download, so it goes through the ?token= path like the media

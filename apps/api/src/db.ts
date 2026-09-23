@@ -9,7 +9,16 @@ export const prisma = new PrismaClient();
  * 'findMany')", which says nothing about the real cause. Check for them up
  * front so the error names the fix instead.
  */
-const REQUIRED_MODELS = ["usageEvent", "supportTicket", "sheetRegion", "rfi"] as const;
+const REQUIRED_MODELS = [
+  "usageEvent",
+  "supportTicket",
+  "sheetRegion",
+  "rfi",
+  // Generated after the RFI log: a client from between the two has `rfi` and
+  // not these, which is exactly the half-updated state this list exists for.
+  "rfiScan",
+  "rfiCandidate",
+] as const;
 
 export function missingPrismaModels(): string[] {
   const client = prisma as unknown as Record<string, unknown>;

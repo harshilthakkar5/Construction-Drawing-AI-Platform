@@ -19,6 +19,7 @@ import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { regionRouter } from "./routes/region.js";
+import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
 import { rfisRouter } from "./routes/rfis.js";
 import { summariesRouter } from "./routes/summaries.js";
 import { supportRouter } from "./routes/support.js";
@@ -115,6 +116,9 @@ export function createApp() {
   // requireGeneratedModels: the RFI tables arrived after the Phase 5 schema,
   // so a client generated before them answers with the fix rather than a
   // TypeError from inside a handler.
+  // Mounted BEFORE the RFI router: under it, "generated" would be read as an
+  // RFI id and refused as a malformed uuid.
+  app.use("/projects/:projectId/rfis/generated", requireGeneratedModels, rfiGeneratedRouter);
   app.use("/projects/:projectId/rfis", requireGeneratedModels, rfisRouter);
   app.use("/projects/:projectId", pagesRouter);
 

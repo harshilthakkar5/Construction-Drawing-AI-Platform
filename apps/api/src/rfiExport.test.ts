@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { RfiDto, RfiLocationDto } from "@cdip/shared";
+import type { RfiCandidateDto, RfiDto, RfiLocationDto } from "@cdip/shared";
 import ExcelJS from "exceljs";
 import {
   buildEvidenceRows,
+  buildFindingRows,
   buildWorkbook,
+  FINDING_COLUMNS,
+  sourceLabel,
   buildLogRow,
   buildWorkbookRows,
   EVIDENCE_COLUMNS,
@@ -47,6 +50,8 @@ function rfi(over: Partial<RfiDto> = {}): RfiDto {
     createdByName: "A Contractor",
     assignedToId: "engineer",
     assignedToName: "An Engineer",
+    source: "manual",
+    checkType: null,
     answer: null,
     answeredById: null,
     answeredByName: null,
@@ -229,8 +234,15 @@ describe("buildEvidenceRows", () => {
     expect(buildEvidenceRows(revised, "p", "")[0]!["Drawing Revised"]).toContain("re-pin");
   });
 
-  it("marks Phase 1 rows as manually authored", () => {
+  it("marks a typed RFI as manual", () => {
     expect(buildEvidenceRows(rfi(), "p", "")[0]!.Source).toBe("manual");
+  });
+
+  it("names the check behind a generated RFI", () => {
+    const generated = rfi({ source: "generated", checkType: "unscheduled_mark" });
+    expect(buildEvidenceRows(generated, "p", "")[0]!.Source).toBe(
+      "generated — Mark with no row in its schedule",
+    );
   });
 
   it("emits one row per location", () => {
@@ -308,9 +320,13 @@ describe("buildWorkbook", () => {
     return read;
   }
 
-  it("writes both sheets, named so a reader knows which is which", async () => {
+  it("writes every sheet, named so a reader knows which is which", async () => {
     const book = await roundTrip([rfi()]);
-    expect(book.worksheets.map((s) => s.name)).toEqual(["RFI Log", "Evidence"]);
+    expect(book.worksheets.map((s) => s.name)).toEqual([
+      "RFI Log",
+      "Evidence",
+      "Unreviewed findings",
+    ]);
   });
 
   it("puts the declared headers in row 1", async () => {
@@ -351,7 +367,7 @@ describe("buildWorkbook", () => {
 
   it("produces a valid workbook for a project with no RFIs at all", async () => {
     const book = await roundTrip([]);
-    expect(book.worksheets).toHaveLength(2);
+    expect(book.worksheets).toHaveLength(3);
     // Header only — an empty log is a legitimate export, not an error.
     expect(book.getWorksheet("RFI Log")!.rowCount).toBe(1);
   });
@@ -360,5 +376,109 @@ describe("buildWorkbook", () => {
     const book = await roundTrip([rfi({ locations: [] })]);
     expect(book.getWorksheet("RFI Log")!.rowCount).toBe(2);
     expect(book.getWorksheet("Evidence")!.rowCount).toBe(1);
+  });
+});
+
+function candidate(over: Partial<RfiCandidateDto> = {}): RfiCandidateDto {
+  return {
+    id: "cand-1",
+    checkType: "dangling_reference",
+    confidence: "high",
+    subject: "Sheet S-501 referenced but not in the drawing set",
+    question: "S-101 references sheet S-501, but no sheet S-501 is in the set.",
+    questionSource: "model",
+    evidence: [
+      {
+        documentId: "doc-1",
+        pageNumber: 3,
+        combinedPageNumber: 17,
+        sheetNumber: "S-101",
+        bbox: null,
+        chunkId: null,
+        quote: "PILE CAP PER 5/S-501",
+        role: "finding",
+      },
+      {
+        documentId: "doc-1",
+        pageNumber: 9,
+        combinedPageNumber: 23,
+        sheetNumber: "S-500",
+        bbox: null,
+        chunkId: null,
+        quote: "PILE CAP SCHEDULE: lists PC1, PC2",
+        role: "context",
+      },
+    ],
+    status: "pending",
+    rfiId: null,
+    createdAt: "2026-05-01T00:00:00.000Z",
+    ...over,
+  };
+}
+
+describe("sourceLabel", () => {
+  it("is manual unless the RFI was generated", () => {
+    expect(sourceLabel({ source: "manual", checkType: null })).toBe("manual");
+  });
+
+  it("falls back to the raw key for a check the labels do not know", () => {
+    expect(sourceLabel({ source: "generated", checkType: "future_check" })).toBe(
+      "generated — future_check",
+    );
+  });
+});
+
+describe("buildFindingRows", () => {
+  it("fills every declared column", () => {
+    const [row] = buildFindingRows([candidate()], "proj-1", "https://app.example.com");
+    expect(Object.keys(row!).sort()).toEqual([...FINDING_COLUMNS].sort());
+  });
+
+  it("lists where the gap IS, not what it was checked against", () => {
+    // The schedule a mark is missing from is context; listing its sheet
+    // beside the finding's would send a reader to the wrong drawing.
+    const [row] = buildFindingRows([candidate()], "p", "");
+    expect(row!["Sheet(s)"]).toBe("S-101");
+    expect(row!["Page(s)"]).toBe("17");
+    expect(row!["Drawing Says"]).toBe("PILE CAP PER 5/S-501");
+  });
+
+  it("says whether the AI or the template wrote the question", () => {
+    expect(buildFindingRows([candidate()], "p", "")[0]!["Question Written By"]).toBe("AI");
+    expect(
+      buildFindingRows([candidate({ questionSource: "template" })], "p", "")[0]![
+        "Question Written By"
+      ],
+    ).toBe("template");
+  });
+
+  it("orders the strongest findings first", () => {
+    const rows = buildFindingRows(
+      [
+        candidate({ id: "a", confidence: "low" }),
+        candidate({ id: "b", confidence: "high" }),
+        candidate({ id: "c", confidence: "medium" }),
+      ],
+      "p",
+      "",
+    );
+    expect(rows.map((r) => r.Confidence)).toEqual(["high", "medium", "low"]);
+  });
+
+  it("links to the page, since a finding has no RFI number yet", () => {
+    const [row] = buildFindingRows([candidate()], "proj-1", "https://app.example.com/");
+    expect(row!["Open In Viewer"]).toBe("https://app.example.com/projects/proj-1?page=17");
+  });
+
+  it("writes no link without a base url", () => {
+    expect(buildFindingRows([candidate()], "p", "")[0]!["Open In Viewer"]).toBe("");
+  });
+
+  it("round-trips onto its own sheet, never into the log", async () => {
+    const book = new ExcelJS.Workbook();
+    const buffer = await buildWorkbook([], [], buildFindingRows([candidate()], "p", "")).xlsx.writeBuffer();
+    await book.xlsx.load(buffer as ArrayBuffer);
+    expect(book.getWorksheet("RFI Log")!.rowCount).toBe(1);
+    expect(book.getWorksheet("Unreviewed findings")!.rowCount).toBe(2);
   });
 });

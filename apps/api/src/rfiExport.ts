@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { RfiDto, RfiLocationDto } from "@cdip/shared";
+import { RFI_CHECK_LABELS, type RfiCandidateDto, type RfiDto, type RfiLocationDto } from "@cdip/shared";
 import { ballInCourt, isOverdue } from "./rfiStatus.js";
 
 /**
@@ -61,7 +61,26 @@ export const EVIDENCE_COLUMNS = [
   "Open In Viewer",
 ] as const;
 
+/**
+ * Sheet 3: what a scan found that nobody has reviewed yet. Kept on its own
+ * sheet, never mixed into the log: a finding has no number and has not been
+ * issued to anyone, and a reader of the log must never mistake one for an RFI
+ * that went out.
+ */
+export const FINDING_COLUMNS = [
+  "Confidence",
+  "Check",
+  "Subject",
+  "Question",
+  "Question Written By",
+  "Sheet(s)",
+  "Page(s)",
+  "Drawing Says",
+  "Open In Viewer",
+] as const;
+
 export type LogRow = Record<(typeof LOG_COLUMNS)[number], string | number | null>;
+export type FindingRow = Record<(typeof FINDING_COLUMNS)[number], string | number | null>;
 export type EvidenceRow = Record<(typeof EVIDENCE_COLUMNS)[number], string | number | null>;
 
 /** Resolve a user id to a name for the export, falling back to the id. */
@@ -164,10 +183,9 @@ export function buildLogRow(rfi: RfiDto, nameOf: NameLookup, now: Date): LogRow 
  * which claims are backed, and a row that exists but points nowhere reads as
  * backing.
  *
- * `Source` is "manual" throughout Phase 1 — every RFI here was written by a
- * person. It exists now so that when generated RFIs arrive the column is
- * already in the format people have been reading, and a reader can tell at a
- * glance which questions a machine proposed.
+ * `Source` says who proposed the question: "manual" for one a person typed,
+ * and for one accepted from a scan, "generated" plus the check that found it.
+ * A reader deciding how hard to scrutinise a row needs to know that.
  */
 export function buildEvidenceRows(
   rfi: RfiDto,
@@ -179,7 +197,7 @@ export function buildEvidenceRows(
     return {
       "RFI No.": rfi.number,
       Subject: rfi.subject,
-      Source: "manual",
+      Source: sourceLabel(rfi),
       Document: loc.filename ?? "",
       Sheet: loc.sheetNumber ?? "",
       "Page (in document)": loc.pageNumber,
@@ -195,6 +213,62 @@ export function buildEvidenceRows(
       "Open In Viewer": viewerLink(baseUrl, projectId, rfi.number, loc.combinedPageNumber),
     };
   });
+}
+
+export function checkLabel(checkType: string | null): string {
+  if (!checkType) return "";
+  return (RFI_CHECK_LABELS as Record<string, string>)[checkType] ?? checkType;
+}
+
+export function sourceLabel(rfi: Pick<RfiDto, "source" | "checkType">): string {
+  if (rfi.source !== "generated") return "manual";
+  return rfi.checkType ? `generated — ${checkLabel(rfi.checkType)}` : "generated";
+}
+
+/**
+ * One row per unreviewed finding. "Question Written By" says AI or template,
+ * because a reader weighing a generated question should know whether a model
+ * phrased it; "Drawing Says" carries the drawing's own words, which is what
+ * they check it against.
+ */
+export function buildFindingRows(
+  candidates: RfiCandidateDto[],
+  projectId: string,
+  baseUrl: string,
+): FindingRow[] {
+  const rank = { high: 0, medium: 1, low: 2 } as const;
+  return [...candidates]
+    .sort((a, b) => rank[a.confidence] - rank[b.confidence])
+    .map((c) => {
+      const found = c.evidence.filter((e) => e.role !== "context");
+      const first = found[0] ?? c.evidence[0];
+      const sheets = [
+        ...new Set(found.map((e) => e.sheetNumber ?? `(page ${e.combinedPageNumber ?? e.pageNumber})`)),
+      ];
+      const pages = [
+        ...new Set(
+          found
+            .map((e) => e.combinedPageNumber ?? e.pageNumber)
+            .filter((n): n is number => typeof n === "number"),
+        ),
+      ].sort((a, b) => a - b);
+      return {
+        Confidence: c.confidence,
+        Check: checkLabel(c.checkType),
+        Subject: c.subject,
+        Question: c.question,
+        "Question Written By": c.questionSource === "model" ? "AI" : "template",
+        "Sheet(s)": sheets.join(", "),
+        "Page(s)": pages.join(", "),
+        "Drawing Says": found.map((e) => e.quote).join(" | "),
+        // No RFI number yet, so the link opens the page rather than an RFI.
+        "Open In Viewer":
+          first && baseUrl
+            ? `${baseUrl.replace(/\/+$/, "")}/projects/${projectId}` +
+              (first.combinedPageNumber !== null ? `?page=${first.combinedPageNumber}` : "")
+            : "",
+      };
+    });
 }
 
 function round2(value: number): number {
@@ -225,11 +299,22 @@ export function buildWorkbookRows(
  * shapes above were unit-tested while the file assembly was not, which is the
  * arrangement that produces a green suite over a broken download.
  */
-export function buildWorkbook(log: LogRow[], evidence: EvidenceRow[]): ExcelJS.Workbook {
+export function buildWorkbook(
+  log: LogRow[],
+  evidence: EvidenceRow[],
+  findings: FindingRow[] = [],
+): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
   workbook.created = new Date();
   writeSheet(workbook.addWorksheet("RFI Log", FROZEN_HEADER), LOG_COLUMNS, log);
   writeSheet(workbook.addWorksheet("Evidence", FROZEN_HEADER), EVIDENCE_COLUMNS, evidence);
+  // Always present, even empty, so the file's shape does not depend on
+  // whether a scan has run — a reader who looks for the sheet should find it.
+  writeSheet(
+    workbook.addWorksheet("Unreviewed findings", FROZEN_HEADER),
+    FINDING_COLUMNS,
+    findings,
+  );
   return workbook;
 }
 
@@ -239,7 +324,7 @@ const FROZEN_HEADER = { views: [{ state: "frozen" as const, ySplit: 1 }] };
 function writeSheet(
   sheet: ExcelJS.Worksheet,
   columns: readonly string[],
-  rows: (LogRow | EvidenceRow)[],
+  rows: (LogRow | EvidenceRow | FindingRow)[],
 ): void {
   sheet.columns = columns.map((header) => ({
     header,
@@ -256,4 +341,4 @@ function writeSheet(
 }
 
 /** Columns holding sentences rather than values: wrapped, and given room. */
-const PROSE_COLUMNS: readonly string[] = ["Question", "Answer"];
+const PROSE_COLUMNS: readonly string[] = ["Question", "Answer", "Drawing Says"];
