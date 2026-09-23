@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  RFI_CANDIDATE_STATUSES,
+  RFI_CONFIDENCES,
   RFI_EVENT_KINDS,
   RFI_PRIORITIES,
+  RFI_SCAN_STATUSES,
   RFI_STATUSES,
   type RfiPriority,
   type RfiStatus,
@@ -88,5 +91,22 @@ describe("RFI_EVENT_KINDS", () => {
     for (const kind of ["created", "status_changed", "answered"]) {
       expect(RFI_EVENT_KINDS).toContain(kind);
     }
+  });
+});
+
+/**
+ * The generation vocabularies. The WORKER writes these values (a scan moving
+ * to `running`, a candidate inserted as `pending` at `high`), so a drift here
+ * is an INSERT failing inside a job that has already paid for its model calls
+ * — the exact shape of the `vlm` usage-kind failure. The Python side is checked
+ * against the same enums in workers/tests/test_rfi_scan.py.
+ */
+describe.each([
+  ["RfiScanStatus", RFI_SCAN_STATUSES],
+  ["RfiCandidateStatus", RFI_CANDIDATE_STATUSES],
+  ["RfiConfidence", RFI_CONFIDENCES],
+] as const)("%s", (name, values) => {
+  it("matches the Prisma enum exactly", () => {
+    expect(enumMembers(name).sort()).toEqual([...values].sort());
   });
 });

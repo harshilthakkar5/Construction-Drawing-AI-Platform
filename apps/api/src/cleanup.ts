@@ -2,6 +2,7 @@ import { deletePrefix } from "./s3.js";
 import { deleteProjectPoints } from "./qdrant.js";
 import {
   processDocumentQueue,
+  rfiScanQueue,
   scrapeRegionQueue,
   summarizePortionQueue,
   summarizeProjectQueue,
@@ -37,6 +38,7 @@ export async function purgeProjectData(projectId: string): Promise<void> {
       scrapeRegionQueue,
       summarizePortionQueue,
       summarizeProjectQueue,
+      rfiScanQueue,
     ]) {
       const jobs = [
         ...(await queue.getWaiting(0, 999)),

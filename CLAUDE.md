@@ -63,10 +63,12 @@ worker venv):
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
 - Workers: `cd workers && python src/worker.py` (consumes process-document, scrape-region,
-  summarize-portion and summarize-project; deps in `requirements.txt`;
+  summarize-portion, summarize-project and rfi-scan; deps in `requirements.txt`;
   PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
   does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
+  — set `RFI_TEST_DATABASE_URL` to a MIGRATED database to also run the rfi-scan job against real
+  SQL (`tests/test_rfi_scan.py`); without it those tests skip
 
 Key invariant: the combined-numbering rule (documents ordered by `createdAt` then `id`, pages
 1..N within each) is implemented twice — `apps/api/src/manifest.ts` and the recompute SQL in
@@ -2109,6 +2111,83 @@ past conversations by LAST activity (1h|24h|7d|30d|3m|all|custom from/to), and t
 remembers the last session per project in `localStorage` so leaving a project and returning
 resumes the thread instead of showing a blank panel.
 
+## Generated RFIs — checks decide, the model only words
+
+"Find RFIs in drawings" (`POST /projects/:id/rfis/generated/scan` → the `rfi-scan` job →
+`workers/src/rfi_scan.py`) proposes RFIs the user did not type. The split of work is the whole
+design: `workers/src/rfi_checks.py` DECIDES what is missing from the project's own data, and a
+model only WORDS each finding as a question. A model asked "what is missing from these drawings"
+writes a fluent, confident list with nothing to tell the real items from the invented ones, and
+an RFI that is not real costs an engineer an afternoon.
+
+Three checks, each built for precision before recall — a missed gap is found the normal way, a
+false one is a question someone has to answer:
+
+  * `dangling_reference` — "SEE 5/S-501", "REFER TO SHEET A-301", with no S-501 in the set. Only
+    references with a POINTER count (a callout slash or SEE/REFER TO/SHEET); a bare sheet number
+    is a sheet naming itself. The reference must match the set's numbering by DIGIT COUNT
+    ("5/C3" in a set numbered S-101 is a column mark), its prefix must be a discipline prefix
+    (`classify.PREFIX_TO_DISCIPLINE`, not a second table), and it must not appear in any page's
+    scraped title-block text (the sheet may be there with its number misread). A callout number
+    must stand alone: without that lookbehind `ASTM A36/A572` is detail 36 on sheet A572.
+    Confidence: high when other sheets of that discipline are in the set, medium when some pages
+    have no sheet number read (one of them may be it), low when the whole discipline is absent
+    (probably not uploaded) or the suffix differs from every sheet ("S-501" in a set numbered
+    S-101P — possibly another package). The suffix case was first written to DROP the finding,
+    and the first screenshot of the review list is what showed a real reference missing.
+  * `unscheduled_mark` — PC4 on a plan, and a PILE CAP SCHEDULE listing PC1..PC3. Marks come from
+    `chunk_identifiers` (the one identifier definition), never a re-derived regex. A family needs
+    two scheduled marks before it counts as a schedule; the SCHEDULE PAGE counts, not just the
+    chunk carrying the word, because schedules split across chunks; a mark must share the
+    schedule's shape (a slab schedule of S1, S2 says nothing about S501) and must not be a sheet
+    number (a small set numbered P1..P3 beside a P4..P6 fixture schedule). High when called out
+    in two places. The cost of the page rule is blindness on a plan sheet that carries its own
+    schedule — a missed finding, the direction an error here is allowed to fall.
+  * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
+    (medium), V.I.F. / VERIFY IN FIELD (low: often boilerplate). Grouped by the NOTE, so a TBD in
+    the general notes of forty sheets is one finding with up to five evidence locations.
+
+Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
+built on one would be a model's claim wearing a check's confidence. Each check caps at 100
+findings strongest-first and SAYS so in the scan's `notes`, which also record every check that
+could not run and why ("no sheet numbers read yet"), because "found nothing" and "could not look"
+are otherwise the same empty list.
+
+The model (`RFI_PROVIDER` / `RFI_MODEL`, cheap tier by default; `RFI_AI_WORDING=false` for none)
+sees a batch of findings with their facts and quotes and returns `{"items":[{index, subject,
+question}]}`. `parse_wording` drops an index outside the batch and BOTH answers to an index given
+twice, and `wording_is_grounded` then rejects any item that names an identifier or a number found
+in neither the finding's facts nor the drawing's own words — falling back to the check's template,
+never through to the RFI. Page numbers are allowed ONLY as "page N" for a page the evidence is on:
+the first version allowed them bare, and since the evidence sat on page 12, "the 12 inch pile cap"
+passed — on a 400-page set nearly every small number is somebody's page number. The end-to-end
+run proved the guard with a stub that invented a sheet: that finding kept its template wording.
+
+What lands is a CANDIDATE (`rfi_candidates`), not an RFI: no number, not issued. UNIQUE on
+`(projectId, fingerprint)` — built from the check and the identifiers, never the wording — makes
+a re-scan idempotent: a dismissed finding stays dismissed, an accepted one is not re-proposed,
+only NEW findings are worded (a re-scan of an unchanged set makes zero model calls), and a pending
+finding the scan no longer produces is deleted because a revision resolved it. Accept
+(`routes/rfiGenerated.ts`) CLAIMS the candidate with a conditional `pending → accepted` update in
+the same transaction that allocates the number, so two people accepting one finding get one RFI
+and one 409. It becomes an OPEN RFI pinned by page and bbox at every evidence location, filed
+under its sheet's discipline, `source = "generated"`. The review step stays even though the goal
+is "the system writes the RFIs": a check cannot know a sheet was left out of the upload on
+purpose, and an issued number is quoted in correspondence. "Accept all high" is the one-click path.
+
+Both creation paths — typed and accepted — go through `apps/api/src/rfiStore.ts`: one number
+allocator, one `resolvePins`. Writing it found the drift it exists to prevent: the add-location
+route refused a document from another project, and the CREATE route did not, so a member of one
+project could pin a page of another and read its filename back out of the export.
+
+The export's third sheet, "Unreviewed findings", carries pending candidates with the drawing's
+own words and whether AI or the template wrote each question — never mixed into the log, since a
+finding was not issued to anyone. The usage kind `rfi` exists in the three places `vlm` taught:
+`usage.KINDS`, the `UsageKind` enum and the `@cdip/shared` union (whose `Record<UsageKind, …>`
+dashboard label makes the third a compile error). A scan stuck `queued`/`running` for 30 minutes
+is presumed dead (`rfiScanRules.scanIsActive`) — otherwise a worker that died mid-scan would
+disable the button for the life of the project.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2147,6 +2226,12 @@ rfi_locations(id, rfiId, documentId, pageNumber, combinedPageNumber, bbox,
      // RFI outlives the drawing it was asked about
 rfi_events(id, rfiId, actorId, kind, detail JSON, createdAt)  // kind is TEXT,
      // not an enum: the vocabulary grows per phase and nothing branches on it
+rfis.source (manual|generated), rfis.checkType   // who proposed the QUESTION
+rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, error, ...)
+rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subject,
+     question, questionSource, evidence JSON, status, rfiId)
+     // UNIQUE(projectId, fingerprint): a finding, NOT an RFI — no number until a
+     // person accepts it, so a dismissed finding never burns one
 ```
 
 PostgreSQL is the single source of truth for references; Qdrant holds vectors only.
@@ -2178,9 +2263,10 @@ clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking
 "Structural") switches the summary panel, jumps the viewer to the portion's start page, and
 optionally filters chat retrieval to that portion.
 
-The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). An
-RFI is raised, pinned to a sheet, answered and exported from there, and clicking a pin drives
-the same `requestJump` the chat citations use. The panel keeps its OWN copy of the status
+The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). The
+tab opens on "Find RFIs in drawings" (`components/RfiReview.tsx`, see Generated RFIs below): the
+review list, then the log, then "Add manually" as the secondary path. Clicking any pin or piece
+of evidence drives the same `requestJump` the chat citations use. The panel keeps its OWN copy of the status
 transition table so it can render only buttons that will work — a duplicate, so
 `rfiStatus.uiMirror.test.ts` reads the panel's source and fails on a drift in either direction:
 a button the API would 409, or a legal action whose button quietly vanished. The answer box

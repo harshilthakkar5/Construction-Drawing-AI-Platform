@@ -15,6 +15,7 @@ from dataclasses import dataclass, fields as dataclass_fields
 from generated import (  # noqa: F401 — re-exported for the worker's imports
     JOB_FIELDS,
     PROCESS_DOCUMENT_QUEUE,
+    RFI_SCAN_QUEUE,
     SCRAPE_REGION_QUEUE,
     SUMMARIZE_PORTION_QUEUE,
     SUMMARIZE_PROJECT_QUEUE,
@@ -104,8 +105,22 @@ class ProcessDocumentJob:
         return _build(cls, "processDocument", data)
 
 
+@dataclass(frozen=True)
+class RfiScanJob:
+    """Scan a project for RFI-worthy gaps, reporting into an rfi_scans row the
+    API created — and the UI is already polling — before the job was queued."""
+
+    project_id: str
+    scan_id: str
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "RfiScanJob":
+        return _build(cls, "rfiScan", data)
+
+
 for _cls, _job in (
     (ProcessDocumentJob, "processDocument"),
+    (RfiScanJob, "rfiScan"),
     (ScrapeRegionJob, "scrapeRegion"),
     (SummarizePortionJob, "summarizePortion"),
     (SummarizeProjectJob, "summarizeProject"),

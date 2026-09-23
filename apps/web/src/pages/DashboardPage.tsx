@@ -59,6 +59,7 @@ const KIND_LABEL: Record<UsageKind, string> = {
   embedding: "Embeddings",
   rerank: "Reranked searches",
   vlm: "Drawing descriptions",
+  rfi: "RFI question wording",
 };
 
 const DISCIPLINE_LABEL = (slug: string) =>

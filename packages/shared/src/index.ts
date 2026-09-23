@@ -344,6 +344,7 @@ export const QUEUES = {
   scrapeRegion: "scrape-region",
   summarizePortion: "summarize-portion",
   summarizeProject: "summarize-project",
+  rfiScan: "rfi-scan",
 } as const;
 
 export interface ProcessDocumentJob {
@@ -383,6 +384,14 @@ export interface SummarizePortionJob {
 
 export interface SummarizeProjectJob {
   projectId: string;
+}
+
+/** Scan a project's drawings for RFI-worthy gaps. The API creates the
+ * rfi_scans row first and passes its id, so the worker reports into a row the
+ * UI is already polling rather than inventing one. */
+export interface RfiScanJob {
+  projectId: string;
+  scanId: string;
 }
 
 /**
@@ -433,6 +442,7 @@ export const JOB_FIELDS = {
     ["requestedById"],
   ),
   summarizeProject: jobFields<SummarizeProjectJob>()(["projectId"]),
+  rfiScan: jobFields<RfiScanJob>()(["projectId", "scanId"]),
 } as const;
 
 /** Field types the generator needs to emit a correct Python cast. */
@@ -521,7 +531,8 @@ export type UsageKind =
   | "classification"
   | "embedding"
   | "rerank"
-  | "vlm";
+  | "vlm"
+  | "rfi";
 
 export interface DashboardProjectRow {
   id: string;
@@ -662,6 +673,10 @@ export interface RfiDto {
   createdByName: string | null;
   assignedToId: string | null;
   assignedToName: string | null;
+  /** "manual" or "generated" — see RfiCandidateDto. */
+  source: string;
+  /** For a generated RFI, the check that found it (RFI_CHECK_LABELS). */
+  checkType: string | null;
   /** Human-authored, always. No model writes here. */
   answer: string | null;
   answeredById: string | null;
@@ -673,4 +688,79 @@ export interface RfiDto {
   locations: RfiLocationDto[];
   /** Only on the detail read; the list endpoint leaves it out. */
   events?: RfiEventDto[];
+}
+
+// --- Generated RFIs ---
+
+/** Mirrors the `RfiScanStatus` enum; rfi.test.ts fails on a drift. */
+export type RfiScanStatus = "queued" | "running" | "completed" | "failed";
+export const RFI_SCAN_STATUSES: RfiScanStatus[] = ["queued", "running", "completed", "failed"];
+
+/** Mirrors `RfiCandidateStatus`. A candidate has no number until accepted. */
+export type RfiCandidateStatus = "pending" | "accepted" | "dismissed";
+export const RFI_CANDIDATE_STATUSES: RfiCandidateStatus[] = ["pending", "accepted", "dismissed"];
+
+/** Mirrors `RfiConfidence`. Set by which CHECK fired and its guards, never by
+ * a model rating itself. */
+export type RfiConfidence = "high" | "medium" | "low";
+export const RFI_CONFIDENCES: RfiConfidence[] = ["high", "medium", "low"];
+
+/**
+ * What each check looks for, in the words the review list shows. The keys are
+ * written by workers/src/rfi_checks.py (CHECK_TYPES there), and the worker's
+ * test reads this file to fail when the two disagree — a check the UI cannot
+ * name would render as its raw key.
+ */
+export const RFI_CHECK_LABELS = {
+  dangling_reference: "Sheet referenced but not in the set",
+  unscheduled_mark: "Mark with no row in its schedule",
+  open_item_note: "Note left open on the drawing (TBD / verify)",
+} as const;
+export type RfiCheckType = keyof typeof RFI_CHECK_LABELS;
+
+/** Where a finding sits on the drawings — page + bbox, like rfi_locations. */
+export interface RfiEvidenceDto {
+  documentId: string;
+  pageNumber: number;
+  combinedPageNumber: number | null;
+  sheetNumber: string | null;
+  bbox: BBox | null;
+  /** Informational only: chunk ids are re-minted on every ingest. */
+  chunkId: string | null;
+  /** The drawing's own words at that spot — what a reviewer checks. */
+  quote: string;
+  /** "finding" is where the gap is; "context" is what it was checked against
+   * (the schedule a mark is missing from). */
+  role?: "finding" | "context";
+}
+
+export interface RfiCandidateDto {
+  id: string;
+  checkType: string;
+  confidence: RfiConfidence;
+  subject: string;
+  question: string;
+  /** "model" when the AI worded it, "template" when the check's own
+   * sentence was used (no key, a refused reply, or a reply naming something
+   * the evidence does not contain). */
+  questionSource: string;
+  evidence: RfiEvidenceDto[];
+  status: RfiCandidateStatus;
+  rfiId: string | null;
+  createdAt: string;
+}
+
+export interface RfiScanDto {
+  id: string;
+  status: RfiScanStatus;
+  findings: number;
+  modelWorded: number;
+  byCheck: Record<string, number> | null;
+  /** Checks that did not run, and why — shown, because "found nothing" and
+   * "could not look" otherwise read the same. */
+  notes: string[];
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
 }

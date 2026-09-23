@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { ManifestEntryDto, RfiDto, RfiPriority, RfiStatus } from "@cdip/shared";
 import { RFI_PRIORITIES, RFI_STATUSES } from "@cdip/shared";
 import { api } from "@/api";
+import { FileSpreadsheetIcon, PlusIcon, SparklesIcon } from "lucide-react";
+import { RfiReview } from "@/components/RfiReview";
 import { Modal, Notice, TextArea, TextField } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,13 +13,15 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
 /**
- * The RFI log (Phase 1).
+ * The RFI tab: find them, review them, keep a log of them.
  *
- * Everything here is written by a person. No model drafts a question and
- * nothing generated reaches an answer — an RFI response is a contractual
- * instruction someone builds from. When generated CANDIDATES arrive in a later
- * phase they come in as drafts a person accepts, and they will be labelled as
- * such rather than blending into this list.
+ * The primary action is the scan (RfiReview) — the system finds the gaps and
+ * words the questions, and a person accepts or dismisses each. Typing one by
+ * hand is still possible and deliberately secondary.
+ *
+ * Whoever proposed the QUESTION, the ANSWER is always written by a person:
+ * an RFI response is a contractual instruction someone builds from, so no
+ * model writes into it and the answer box says so.
  *
  * Clicking a pinned location jumps the viewer to that page, which is the same
  * FR-18 path a chat citation takes.
@@ -90,17 +94,22 @@ export function RfiPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="px-4">
+      <RfiReview projectId={projectId} />
+
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => setComposing(true)}>
-          New RFI
-        </Button>
+        <h4 className="text-sm font-semibold">RFI log</h4>
         {/* A plain link, not fetch(): the browser saves the file itself, and
             the endpoint takes the session token as a query parameter for the
             same reason the media GETs do — a download cannot set a header. */}
         <Button size="sm" variant="outline" asChild>
           <a href={api.rfiExportUrl(projectId)} download>
+            <FileSpreadsheetIcon />
             Export Excel
           </a>
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setComposing(true)}>
+          <PlusIcon />
+          Add manually
         </Button>
         <select
           className="border-input bg-background ml-auto rounded-md border px-2 py-1 text-xs"
@@ -124,7 +133,7 @@ export function RfiPanel({ projectId }: { projectId: string }) {
       {rfis.data?.length === 0 && (
         <p className="text-muted-foreground py-6 text-center text-sm">
           {statusFilter === "all"
-            ? "No RFIs yet. Raise one when the drawings do not answer a question."
+            ? "No RFIs in the log yet. Accept a finding above, or add one manually."
             : `No ${STATUS_CHIP[statusFilter as RfiStatus].label.toLowerCase()} RFIs.`}
         </p>
       )}
@@ -151,6 +160,12 @@ export function RfiPanel({ projectId }: { projectId: string }) {
               <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-xs">
                 {rfi.priority !== "normal" && (
                   <Badge variant={PRIORITY_CHIP[rfi.priority]}>{rfi.priority}</Badge>
+                )}
+                {rfi.source === "generated" && (
+                  <span className="flex items-center gap-1" title="Found by a drawing scan">
+                    <SparklesIcon className="size-3" />
+                    found by scan
+                  </span>
                 )}
                 {rfi.discipline && <span>{rfi.discipline}</span>}
                 {rfi.locations.length > 0 && (

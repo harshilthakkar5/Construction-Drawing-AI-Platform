@@ -133,6 +133,11 @@ PAGE_CONCURRENCY = _int("PAGE_CONCURRENCY", 4)
 SCRAPE_CONCURRENCY = _int("SCRAPE_CONCURRENCY", WORKER_CONCURRENCY)
 SUMMARIZE_PORTION_CONCURRENCY = _int("SUMMARIZE_PORTION_CONCURRENCY", WORKER_CONCURRENCY)
 SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
+# One scan per project is enforced by the API; this bounds scans across
+# projects. A scan is a few SQL reads plus a handful of batched wording calls,
+# so one at a time keeps it off the provider's rate limit without making anyone
+# wait long.
+RFI_SCAN_CONCURRENCY = _int("RFI_SCAN_CONCURRENCY", 1)
 
 # Postgres connections held by this process. Every db helper borrows one for
 # the length of a single statement, so the pool has to cover the threads that

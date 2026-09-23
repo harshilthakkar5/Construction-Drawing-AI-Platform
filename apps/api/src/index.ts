@@ -5,6 +5,7 @@ import { missingPrismaModels, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
 import {
   processDocumentQueue,
+  rfiScanQueue,
   scrapeRegionQueue,
   summarizePortionQueue,
   summarizeProjectQueue,
@@ -67,6 +68,7 @@ if (workers === 1) {
     scrapeRegionQueue,
     summarizePortionQueue,
     summarizeProjectQueue,
+    rfiScanQueue,
   ]);
   reportStaleModels();
   await serve(null);
@@ -81,6 +83,7 @@ if (workers === 1) {
     scrapeRegionQueue,
     summarizePortionQueue,
     summarizeProjectQueue,
+    rfiScanQueue,
   ]);
   console.log(
     `API primary: forking ${workers} workers; queue metrics on :${metricsPort}/metrics`,

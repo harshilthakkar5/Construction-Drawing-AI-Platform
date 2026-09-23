@@ -22,7 +22,7 @@ log = logutil.get("usage")
 # the first vision pass lost a description it had already bought: 200 OK from
 # the API, 26 seconds of latency, then "unknown usage kind 'vlm'" and a
 # discarded answer.
-KINDS = ("chat", "summary", "classification", "embedding", "rerank", "vlm")
+KINDS = ("chat", "summary", "classification", "embedding", "rerank", "vlm", "rfi")
 
 
 def record(

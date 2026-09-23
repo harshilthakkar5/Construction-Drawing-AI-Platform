@@ -79,6 +79,33 @@ enum RfiPriority {
   critical
 }
 
+/// One press of "Find RFIs in drawings". The API writes `queued`; the worker
+/// moves it through `running` to `completed` or `failed`.
+enum RfiScanStatus {
+  queued
+  running
+  completed
+  failed
+}
+
+/// A generated finding waiting on a person. `accepted` means it became a real,
+/// numbered RFI; `dismissed` is remembered so a re-scan does not propose it
+/// again. A candidate has NO number: numbers are quoted in correspondence and
+/// never reused, so they are spent only on findings a person kept.
+enum RfiCandidateStatus {
+  pending
+  accepted
+  dismissed
+}
+
+/// How sure the CHECK is that the finding is real — set by which rule fired
+/// and the guards around it, never by a model's opinion of itself.
+enum RfiConfidence {
+  high
+  medium
+  low
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -102,6 +129,8 @@ model User {
   assignedRfis   Rfi[] @relation("RfiAssignedTo")
   answeredRfis   Rfi[] @relation("RfiAnsweredBy")
   rfiEvents      RfiEvent[]
+  rfiScans       RfiScan[]
+  rfiDecisions   RfiCandidate[]
 
   @@map("users")
 }
@@ -117,6 +146,9 @@ enum UsageKind {
   /// The vision pass (workers/src/vlm.py). Priced by model like any other
   /// call, so RATES needs no vlm-specific entry.
   vlm
+  /// RFI question wording (workers/src/rfi_scan.py). The model only WORDS a
+  /// finding the deterministic checks already made; it never decides one.
+  rfi
 }
 
 model UsageEvent {
@@ -199,6 +231,8 @@ model Project {
   usageEvents  UsageEvent[]
   sheetRegion  SheetRegion?
   rfis         Rfi[]
+  rfiScans      RfiScan[]
+  rfiCandidates RfiCandidate[]
 
   @@map("projects")
 }
@@ -484,6 +518,13 @@ model Rfi {
   createdById  String?
   assignedToId String?
 
+  /// "manual" (typed by a person) or "generated" (accepted from a scan
+  /// candidate). TEXT for the reason rfi_events.kind is: later phases add
+  /// sources, and nothing branches on the value beyond displaying it.
+  source    String  @default("manual")
+  /// Which check produced it, for a generated RFI — e.g. "dangling_reference".
+  checkType String?
+
   /// Written only by a person. Null until someone answers.
   answer       String?
   answeredById String?
@@ -499,6 +540,7 @@ model Rfi {
   answeredBy User?         @relation("RfiAnsweredBy", fields: [answeredById], references: [id], onDelete: SetNull)
   locations  RfiLocation[]
   events     RfiEvent[]
+  candidate  RfiCandidate?
 
   @@unique([projectId, number])
   @@index([projectId, status])
@@ -571,4 +613,76 @@ model RfiEvent {
 
   @@index([rfiId, createdAt])
   @@map("rfi_events")
+}
+
+/// One scan of a project's drawings for RFI-worthy gaps.
+///
+/// `notes` records which checks did NOT run and why ("no sheet numbers have
+/// been read yet"), because a scan that finds nothing and a scan that could
+/// not look are the same empty list to a reader otherwise.
+model RfiScan {
+  id            String        @id @default(uuid())
+  projectId     String
+  status        RfiScanStatus @default(queued)
+  requestedById String?
+  jobId         String?
+  /// Findings per check, e.g. {"dangling_reference": 3}.
+  byCheck       Json?
+  notes         Json?
+  findings      Int           @default(0)
+  /// How many questions the model worded vs the template wrote — so a scan
+  /// that ran with no API key says so instead of looking identical.
+  modelWorded   Int           @default(0)
+  error         String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime      @default(now())
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy User?          @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  candidates  RfiCandidate[]
+
+  @@index([projectId, createdAt])
+  @@map("rfi_scans")
+}
+
+/// A generated finding, not yet an RFI.
+///
+/// UNIQUE on (projectId, fingerprint) is what makes a re-scan safe: the same
+/// gap found twice is one row, a dismissed one stays dismissed, and an
+/// accepted one is not proposed again. The fingerprint is built from the
+/// FINDING (check + the identifiers involved), never from the model's
+/// wording, which changes every time it is asked.
+model RfiCandidate {
+  id          String             @id @default(uuid())
+  projectId   String
+  scanId      String?
+  fingerprint String
+  checkType   String
+  confidence  RfiConfidence
+  subject     String
+  question    String
+  /// "model" or "template" — whether the AI worded this or the check's own
+  /// template did (no key, a refused reply, or a reply that named something
+  /// the evidence does not contain).
+  questionSource String
+  /// [{documentId, pageNumber, combinedPageNumber, sheetNumber, bbox,
+  ///   chunkId, quote}] — where the finding is on the drawings. Pinned by
+  /// page and bbox like rfi_locations; chunkId is informational only.
+  evidence    Json
+  status      RfiCandidateStatus @default(pending)
+  rfiId       String?            @unique
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan      RfiScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  rfi       Rfi?     @relation(fields: [rfiId], references: [id], onDelete: SetNull)
+  decidedBy User?    @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, fingerprint])
+  @@index([projectId, status])
+  @@map("rfi_candidates")
 }
