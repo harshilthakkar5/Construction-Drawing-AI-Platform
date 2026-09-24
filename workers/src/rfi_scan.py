@@ -1,6 +1,8 @@
 """The rfi-scan job: find gaps, word them as questions, hand them to a person.
 
-    1. load     every live page and every `kind="text"` chunk of the project
+    1. load     every live page and every `kind="text"` chunk of the project,
+                and the grid bubbles on each page (load_grids — the one input
+                read from the PDFs, cached per page in Redis)
     2. check    rfi_checks.run_all decides what is missing — no model involved
     3. word     a model turns each NEW finding into a professional RFI; a reply
                 that fails any guard falls back to the check's own template
@@ -24,14 +26,23 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
 
+import fitz
+import redis as redis_lib
+
+import config
 import db
+import grid
 import llm
 import logutil
 import rfi_checks
+import storage
 from rfi_checks import Chunk, Finding, Page
+from rfi_grid import GridSystem
 
 log = logutil.get("rfi_scan")
 
@@ -50,6 +61,13 @@ AI_WORDING = os.environ.get("RFI_AI_WORDING", "true").lower() != "false"
 # its wall clock on — the same lesson as the batched sheet reader.
 BATCH_SIZE = int(os.environ.get("RFI_WORDING_BATCH", "15"))
 _TOKENS_PER_FINDING = 220
+# The grid check reads each PDF (rfi_grid.py). "false" skips it — the other
+# three checks need nothing but Postgres.
+GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
+# Bump when grid.styled_systems changes what it reads: cached reads are keyed
+# on it, and a stale one would compare grids the new code would not find.
+GRID_CACHE_VERSION = 1
+_redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
 # schema.prisma and checked against it by test_rfi_scan — a drift here is an
@@ -338,7 +356,7 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
         page_rows = conn.execute(
             """
             SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber",
-                   p."sheetNumber", p."sheetRegionText"
+                   p."sheetNumber", p."sheetRegionText", p.discipline::text
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
@@ -359,12 +377,124 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
             """,
             (project_id,),
         ).fetchall()
-    pages = [Page(r[0], r[1], r[2], r[3], r[4], r[5]) for r in page_rows]
+    pages = [Page(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in page_rows]
     chunks = [
         Chunk(r[0], r[1], r[2] or "", r[3] if isinstance(r[3], dict) else None, tuple(r[4] or ()))
         for r in chunk_rows
     ]
     return pages, chunks
+
+
+def _grid_cache():
+    """Redis for grid reads, or None — the scan still runs, it re-reads PDFs."""
+    global _redis
+    if _redis is None:
+        try:
+            _redis = redis_lib.Redis.from_url(config.REDIS_URL)
+            _redis.ping()
+        except Exception as exc:
+            log.warning("rfi scan: Redis unavailable, grid reads will not be cached: %s", exc)
+            _redis = False
+    return _redis or None
+
+
+def _grid_key(document_id: str, page_number: int) -> str:
+    return f"rfi:grid:v{GRID_CACHE_VERSION}:{document_id}:{page_number}"
+
+
+def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | None, str | None]:
+    """Every grid on every live page, read from the PDFs themselves.
+
+    The only check input that is not in Postgres: a grid bubble is a circle
+    and a word, and neither survives into a chunk. So this downloads each
+    document once and reads its pages — the costly part of a scan, which is
+    why a page's result is cached in Redis by (document, page). A document's
+    bytes never change (a revision is a NEW document), so the cache has no
+    reason to expire except a change to how grids are read, which bumps
+    GRID_CACHE_VERSION.
+
+    Returns (None, note) when the check is off or a document cannot be read —
+    a partial read would compare half the sheets and report the silence of
+    the other half as agreement.
+    """
+    if not GRID_CHECK:
+        return None, "Grid check is off (RFI_GRID_CHECK=false)."
+    cache = _grid_cache()
+    by_document: dict[str, list[Page]] = {}
+    for page in pages:
+        by_document.setdefault(page.document_id, []).append(page)
+
+    raw: dict[str, list[dict]] = {}
+    missing: dict[str, list[Page]] = {}
+    for document_id, doc_pages in by_document.items():
+        for page in doc_pages:
+            cached = None
+            if cache is not None:
+                try:
+                    cached = cache.get(_grid_key(document_id, page.page_number))
+                except Exception:
+                    cached = None
+            if cached is not None:
+                raw[page.id] = json.loads(cached)
+            else:
+                missing.setdefault(document_id, []).append(page)
+
+    if missing:
+        with db.connect() as conn:
+            keys = dict(
+                conn.execute(
+                    'SELECT id, "spacesKey" FROM documents WHERE id = ANY(%s::text[])',
+                    (list(missing),),
+                ).fetchall()
+            )
+        read = 0
+        started = time.monotonic()
+        for document_id, doc_pages in missing.items():
+            key = keys.get(document_id)
+            if not key:
+                return None, "Grid check did not run: a document's PDF could not be located."
+            with tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "original.pdf")
+                try:
+                    storage.download_to_file(key, path)
+                except Exception as exc:
+                    log.warning("rfi scan: grid check could not download %s: %s", document_id[:8], exc)
+                    return None, "Grid check did not run: a document's PDF could not be downloaded."
+                pdf = fitz.open(path)
+                try:
+                    for page in doc_pages:
+                        index = page.page_number - 1
+                        found: list[dict] = []
+                        if 0 <= index < pdf.page_count:
+                            try:
+                                found = grid.styled_systems(pdf.load_page(index))
+                            except Exception as exc:
+                                # One unreadable page is a sheet with no grid,
+                                # not a failed scan.
+                                log.warning(
+                                    "rfi scan: grid read failed on %s page %d: %s",
+                                    document_id[:8], page.page_number, exc,
+                                )
+                        raw[page.id] = found
+                        read += 1
+                        if cache is not None:
+                            try:
+                                cache.set(_grid_key(document_id, page.page_number), json.dumps(found))
+                            except Exception:
+                                pass
+                finally:
+                    pdf.close()
+        log.info(
+            "rfi scan: read grids on %d page(s) in %.1fs (%d from cache)",
+            read, time.monotonic() - started, len(raw) - read,
+        )
+
+    systems = [
+        GridSystem(page_id, s["style"], s["along_x"], s["along_y"], s.get("bubbles") or {})
+        for page_id, found in raw.items()
+        for s in found
+    ]
+    return systems, None
 
 
 # --- Persisting ------------------------------------------------------------------
@@ -427,7 +557,12 @@ def _now(conn):
 def _run(project_id: str, scan_id: str) -> dict:
     pages, chunks = load(project_id)
     log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
-    findings, notes = rfi_checks.run_all(pages, chunks)
+    grids, grid_note = load_grids(project_id, pages)
+    findings, notes = rfi_checks.run_all(pages, chunks, grids)
+    if grid_note:
+        # Replaces run_all's generic "did not run" with the actual reason.
+        notes = [n for n in notes if not n.startswith("Grid check did not run: the drawings'")]
+        notes.append(grid_note)
 
     with db.connect() as conn:
         fresh = bool(

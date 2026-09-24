@@ -10,7 +10,7 @@ is the design, not a convenience:
     its credibility, so every finding here comes from the project's own data
     and carries the evidence a person needs to check it in one click.
 
-Three checks, each precise before it is thorough — a missed gap is found the
+Four checks, each precise before it is thorough — a missed gap is found the
 normal way, a false one is a question someone has to answer:
 
   dangling_reference   a sheet the drawings point at ("SEE 5/S-501") that is
@@ -19,6 +19,9 @@ normal way, a false one is a question someone has to answer:
                        the set (PC1, PC2, PC3) with no row for it.
   open_item_note       text the drafter left open: TBD, TO BE DETERMINED,
                        ???, verify in field.
+  grid_mismatch        one grid line named differently by two drawings
+                       (rfi_grid.py — read from the PDF's geometry, the one
+                       check that is not built on text).
 
 Everything here is pure — pages and chunks in, findings out — so every rule
 and every guard is tested without a database or a PDF. Only `kind="text"`
@@ -38,7 +41,7 @@ from classify import PREFIX_TO_DISCIPLINE
 # Keys written into rfi_candidates.checkType. Mirrored as RFI_CHECK_LABELS in
 # @cdip/shared, and test_rfi_checks reads that file to fail on a drift — a
 # check the UI has no label for renders as its raw key.
-CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note")
+CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch")
 
 # Evidence kept per finding. A TBD repeated in the general notes of forty
 # sheets is ONE open item; forty evidence rows would bury the one that matters.
@@ -66,6 +69,9 @@ class Page:
     # classifier failed to extract still usually has it in here, which is the
     # last guard before calling a reference to it dangling.
     region_text: str | None = None
+    # pages.discipline, from the sheet number. The grid check compares grids
+    # ACROSS disciplines; None (no sheet number read) compares with anything.
+    discipline: str | None = None
 
 
 @dataclass(frozen=True)
@@ -584,12 +590,29 @@ def _cap(check_type: str, findings: list[Finding], notes: list[str]) -> list[Fin
     return findings
 
 
-def run_all(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Finding], list[str]]:
-    """Every check, in a fixed order. Returns (findings, notes)."""
+def run_all(
+    pages: list[Page], chunks: list[Chunk], grids: list | None = None
+) -> tuple[list[Finding], list[str]]:
+    """Every check, in a fixed order. Returns (findings, notes).
+
+    `grids` is what `rfi_scan.load_grids` read out of the PDFs — the one check
+    that needs geometry rather than text. None means it could not be read
+    (the check is switched off, or storage failed), which is reported rather
+    than confused with "no grids found".
+    """
+    # Imported here: rfi_grid builds on this module's Finding and helpers.
+    import rfi_grid
+
     findings: list[Finding] = []
     notes: list[str] = []
     for check in (dangling_references, unscheduled_marks, open_item_notes):
         found, said = check(pages, chunks)
+        findings.extend(found)
+        notes.extend(said)
+    if grids is None:
+        notes.append("Grid check did not run: the drawings' grid bubbles were not read for this scan.")
+    else:
+        found, said = rfi_grid.grid_mismatches(pages, grids)
         findings.extend(found)
         notes.extend(said)
     return findings, notes

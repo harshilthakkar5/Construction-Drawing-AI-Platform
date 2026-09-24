@@ -715,6 +715,7 @@ export const RFI_CHECK_LABELS = {
   dangling_reference: "Sheet referenced but not in the set",
   unscheduled_mark: "Mark with no row in its schedule",
   open_item_note: "Note left open on the drawing (TBD / verify)",
+  grid_mismatch: "Grid line named differently between drawings",
 } as const;
 export type RfiCheckType = keyof typeof RFI_CHECK_LABELS;
 
