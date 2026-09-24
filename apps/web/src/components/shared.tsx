@@ -1,4 +1,4 @@
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMark } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 
@@ -246,5 +247,28 @@ export function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Maximize / restore a pane — the same control the chat header already had. */
+export function FullViewButton({
+  expanded,
+  label,
+  onClick,
+}: {
+  expanded: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  const text = expanded ? "Exit full view (Esc)" : `Full view of ${label}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={text} aria-pressed={expanded}>
+          {expanded ? <Minimize2Icon /> : <Maximize2Icon />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{text}</TooltipContent>
+    </Tooltip>
   );
 }

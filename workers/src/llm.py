@@ -94,6 +94,73 @@ class Reply:
     # by the output cap. Callers act on that (retry shorter, with more room)
     # rather than re-sending a request that will truncate identically.
     stop_reason: str | None = None
+    # What this ONE call cost, as the provider reported it. usage_events holds
+    # the same numbers per project and kind; these exist so a caller can
+    # attribute spend to the unit of work it is doing (one RFI scan) rather
+    # than to a project's whole history. `output_tokens` INCLUDES the
+    # reasoning, because that is how both vendors bill it; `thinking_tokens`
+    # is the part of it that was reasoning, or None where the provider does
+    # not say (Anthropic reports one output figure).
+    model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    thinking_tokens: int | None = None
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # The thinking setting that was actually SENT, after any refusal ladder —
+    # "thinking_level=low" where "minimal" was asked for and refused. What was
+    # configured and what ran are different facts, and only this one explains
+    # a bill.
+    thinking: str | None = None
+    # True when a STAGE setting was asked for and the model would not take
+    # it, so something else ran. Comparing the two strings cannot tell: a
+    # 2048-token budget IS what "low" means on Haiku, and says nothing like it.
+    thinking_adjusted: bool = False
+
+
+# --- Per-stage thinking ------------------------------------------------------
+
+# One vocabulary for both vendors, so a stage's switch reads the same whichever
+# provider it points at. `off` is the floor the model allows, not a promise of
+# zero: Gemini 3 has no "none" level (minimal is the bottom rung) and Claude
+# Opus 5.5 refuses to disable thinking at all.
+THINKING_SETTINGS = ("off", "minimal", "low", "medium", "high")
+
+
+def stage_thinking(env_var: str) -> str | None:
+    """A stage's own thinking setting (e.g. RFI_THINKING), or None to leave the
+    transport's global defaults (CLAUDE_THINKING / GEMINI_THINKING_LEVEL) in
+    charge. Read per call, like `resolve`, so tests and a config change need
+    no restart. A typo is refused to None with a warning rather than guessed
+    at: an unrecognised value must not quietly buy the top of the scale."""
+    raw = (os.environ.get(env_var) or "").strip().lower()
+    if not raw:
+        return None
+    if raw in ("none", "false", "0", "disabled"):
+        return "off"
+    if raw not in THINKING_SETTINGS:
+        log.warning(
+            "%s=%r is not one of %s — using the global thinking defaults",
+            env_var, raw, ", ".join(THINKING_SETTINGS),
+        )
+        return None
+    return raw
+
+
+def describe_thinking(thinking: dict | None, output_config: dict | None = None) -> str:
+    """A thinking config as one short, loggable, storable string."""
+    if thinking is None:
+        return "omitted"
+    if "thinking_level" in thinking:
+        return f"thinking_level={thinking['thinking_level']}"
+    if "thinking_budget" in thinking:
+        return f"thinking_budget={thinking['thinking_budget']}"
+    kind = thinking.get("type", "?")
+    if kind == "enabled":
+        return f"budget_tokens={thinking.get('budget_tokens')}"
+    if kind == "adaptive" and output_config and output_config.get("effort"):
+        return f"adaptive, effort={output_config['effort']}"
+    return str(kind)
 
 
 # --- Claude ---------------------------------------------------------------
@@ -158,6 +225,44 @@ def _claude_thinking(model: str) -> dict | None:
     return {"type": "disabled"}
 
 
+_CLAUDE_VERSION = re.compile(r"^claude-[a-z]+-(\d+)(?:-(\d+))?")
+
+# Budgets for the models that still take one. 1024 is the API's minimum.
+_CLAUDE_BUDGETS = {"minimal": 1024, "low": 2048, "medium": 4096, "high": 8192}
+
+
+def _claude_takes_effort(model: str) -> bool:
+    """Whether this model is steered by adaptive thinking + effort rather than
+    `budget_tokens`. From 4.6 on it is effort — and from 4.7 on a budget is a
+    400 — while Haiku 4.5 and older still take a budget. A version sniff, for
+    the reason `_takes_thinking_level` gives: a list of names expires. A name
+    in the old `claude-3-5-sonnet` shape is budget; one that parses as nothing
+    is assumed current."""
+    if re.match(r"^claude-\d", model or ""):
+        return False
+    found = _CLAUDE_VERSION.match(model or "")
+    if not found:
+        return True
+    major = int(found.group(1))
+    minor = int(found.group(2)) if found.group(2) and len(found.group(2)) <= 2 else 0
+    return major > 4 or (major == 4 and minor >= 6)
+
+
+def _claude_stage_thinking(model: str, setting: str) -> tuple[dict, dict | None, int]:
+    """(thinking, output_config, extra max_tokens) for an explicit stage setting.
+
+    A budget is spent from max_tokens before the answer is written, so the
+    caller's max_tokens — sized for the JSON — grows by the budget, or turning
+    thinking on would truncate the very reply it was meant to improve.
+    """
+    if setting == "off":
+        return {"type": "disabled"}, None, 0
+    if _claude_takes_effort(model):
+        return {"type": "adaptive"}, {"effort": "low" if setting == "minimal" else setting}, 0
+    budget = _CLAUDE_BUDGETS[setting]
+    return {"type": "enabled", "budget_tokens": budget}, None, budget
+
+
 def _describe_blocks(content) -> str:
     """What the reply was made of. Reached only when it held no text, and that
     is the whole point: a response of one thinking block and a response the
@@ -213,26 +318,33 @@ def _user_content_claude(user: str, images: list[bytes] | None) -> str | list[di
 
 
 def _complete_claude(
-    system, user, *, model, max_tokens, kind, project_id, cache_system, images=None
+    system, user, *, model, max_tokens, kind, project_id, cache_system, images=None,
+    thinking_setting: str | None = None,
 ) -> Reply:
     client = anthropic_client()
     if client is None:
         return Reply(text="", stop_reason="unavailable")
 
-    def call(thinking: dict | None):
+    def call(thinking: dict | None, output_config: dict | None, extra: int):
         request = dict(
             model=model,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens + extra,
             system=_system_blocks(system, cache_system),
             messages=[{"role": "user", "content": _user_content_claude(user, images)}],
         )
         if thinking is not None:
             request["thinking"] = thinking
+        if output_config is not None:
+            request["output_config"] = output_config
         return client.messages.create(**request)
 
-    thinking = _claude_thinking(model)
+    if thinking_setting is None:
+        thinking, output_config, extra = _claude_thinking(model), None, 0
+    else:
+        thinking, output_config, extra = _claude_stage_thinking(model, thinking_setting)
+    adjusted = False
     try:
-        response = call(thinking)
+        response = call(thinking, output_config, extra)
     except Exception as exc:
         # Only the field itself can be at fault here: its value is a constant.
         # Drop it, and latch the model so the rest of the project skips straight
@@ -240,9 +352,29 @@ def _complete_claude(
         # opposite lesson the same way.
         if thinking is None or not _is_thinking_refusal(exc):
             raise
-        log.warning("%s rejected thinking=%s (%s) — omitting it from now on", model, thinking, exc)
-        response = call(None)
-        _no_thinking_param.add(model)
+        if thinking_setting is None:
+            log.warning("%s rejected thinking=%s (%s) — omitting it from now on", model, thinking, exc)
+            _no_thinking_param.add(model)
+            thinking, output_config = None, None
+        else:
+            # An explicit stage setting is not latched: it is one stage's
+            # choice, and another stage calling this model may ask for
+            # something the model accepts. The one refusal worth expecting is
+            # Opus 5.5 declining "disabled", where the nearest thing it allows
+            # is its default thinking at the lowest effort.
+            output_config = (
+                {"effort": "low"}
+                if thinking_setting in ("off", "minimal") and _claude_takes_effort(model)
+                else output_config
+            )
+            log.warning(
+                "%s rejected thinking=%s (%s) — retrying with it omitted%s",
+                model, thinking, exc,
+                f" and effort={output_config['effort']}" if output_config else "",
+            )
+            thinking = None
+            adjusted = True
+        response = call(thinking, output_config, 0)
 
     import usage
 
@@ -258,7 +390,18 @@ def _complete_claude(
             thinking,
             _describe_blocks(response.content),
         )
-    return Reply(text=text, stop_reason=getattr(response, "stop_reason", None))
+    meta = response.usage
+    return Reply(
+        text=text,
+        stop_reason=getattr(response, "stop_reason", None),
+        model=model,
+        input_tokens=getattr(meta, "input_tokens", 0) or 0,
+        output_tokens=getattr(meta, "output_tokens", 0) or 0,
+        cache_read_tokens=getattr(meta, "cache_read_input_tokens", 0) or 0,
+        cache_write_tokens=getattr(meta, "cache_creation_input_tokens", 0) or 0,
+        thinking=describe_thinking(thinking, output_config),
+        thinking_adjusted=adjusted,
+    )
 
 
 # --- Gemini ---------------------------------------------------------------
@@ -364,8 +507,37 @@ _no_thinking_config: set[str] = set()
 _THINKING_REFUSALS = ("thinking", "thought")
 
 
-def _thinking_config(model: str) -> dict | None:
-    """Thinking settings for this model, or None to omit the field entirely."""
+# An explicit stage setting (RFI_THINKING) as Gemini fields. `off` on a level
+# model is `minimal`, the bottom rung — Gemini 3 has no zero. A budget model
+# takes a number, and 0 is genuinely off where the model allows it.
+_GEMINI_STAGE_BUDGETS = {"off": 0, "minimal": 512, "low": 1024, "medium": 4096, "high": 8192}
+# Output headroom an explicit setting adds, because Gemini spends its reasoning
+# from max_output_tokens BEFORE the answer: a caller sizes max_tokens for its
+# JSON, and asking for more thinking inside the same cap truncates the JSON.
+_GEMINI_STAGE_HEADROOM = {"off": 0, "minimal": 0, "low": 1024, "medium": 4096, "high": 8192}
+
+# What a model accepted for a given STAGE setting, keyed (model, setting). Kept
+# apart from _thinking_latched on purpose: one stage asking for `high` and
+# being stepped somewhere must not change what every other stage sends.
+_stage_thinking_latched: dict[tuple[str, str], dict | None] = {}
+
+
+def _stage_thinking_intended(model: str, setting: str) -> dict:
+    """What a stage setting means on this model, before any refusal."""
+    if _takes_thinking_level(model):
+        return {"thinking_level": "minimal" if setting == "off" else setting}
+    return {"thinking_budget": _GEMINI_STAGE_BUDGETS[setting]}
+
+
+def _thinking_config(model: str, setting: str | None = None) -> dict | None:
+    """Thinking settings for this model, or None to omit the field entirely.
+
+    `setting` is a stage's own choice (see `stage_thinking`); None means the
+    global GEMINI_THINKING_LEVEL / GEMINI_THINKING_BUDGET decide."""
+    if setting is not None:
+        if (model, setting) in _stage_thinking_latched:
+            return _stage_thinking_latched[(model, setting)]
+        return _stage_thinking_intended(model, setting)
     if model in _no_thinking_config:
         return None
     if model in _thinking_latched:
@@ -377,7 +549,7 @@ def _thinking_config(model: str) -> dict | None:
     return {"thinking_budget": GEMINI_THINKING_BUDGET}
 
 
-def _thinking_ladder(model: str) -> list[dict | None]:
+def _thinking_ladder(model: str, setting: str | None = None) -> list[dict | None]:
     """What to try, in order, when a model refuses the thinking setting.
 
     Omission is LAST and, on a level-taking model, is a defeat rather than a
@@ -386,7 +558,7 @@ def _thinking_ladder(model: str) -> list[dict | None]:
     not take `minimal` may well take `low`, and `low` still leaves most of the
     budget for the answer.
     """
-    first = _thinking_config(model)
+    first = _thinking_config(model, setting)
     if first is None:
         return [None]
     if "thinking_level" not in first:
@@ -397,8 +569,15 @@ def _thinking_ladder(model: str) -> list[dict | None]:
     return [first, {"thinking_level": nxt}, None] if nxt else [first, None]
 
 
-def _latch_thinking(model: str, thinking: dict | None) -> None:
+def _latch_thinking(model: str, thinking: dict | None, setting: str | None = None) -> None:
     """Remember what this model actually accepted, and say what it costs."""
+    if setting is not None:
+        _stage_thinking_latched[(model, setting)] = thinking
+        log.warning(
+            "%s refused the stage's thinking setting %r — it will be sent %s for it from now on",
+            model, setting, describe_thinking(thinking),
+        )
+        return
     if thinking is not None:
         _thinking_latched[model] = thinking
         log.warning("%s will be called with thinking=%s from now on", model, thinking)
@@ -656,11 +835,14 @@ def _user_content_gemini(user: str, images: list[bytes] | None, *, model: str = 
 
 
 def _complete_gemini(
-    system, user, *, model, max_tokens, kind, project_id, json_only, images=None
+    system, user, *, model, max_tokens, kind, project_id, json_only, images=None,
+    thinking_setting: str | None = None,
 ) -> Reply:
     client = gemini_client()
     if client is None:
         return Reply(text="", stop_reason="unavailable")
+    if thinking_setting is not None:
+        max_tokens += _GEMINI_STAGE_HEADROOM[thinking_setting]
 
     def send(thinking: bool | dict, *, media_model: str):
         return client.models.generate_content(
@@ -692,9 +874,10 @@ def _complete_gemini(
     # used to be the whole fallback, and on a level-taking model that asks for
     # MORE thinking than the setting it replaced — the failure this transport
     # is supposed to prevent, reached by the code that prevents it.
-    ladder = _thinking_ladder(model)
+    ladder = _thinking_ladder(model, thinking_setting)
     first_error: Exception | None = None
     response = None
+    sent: dict | None = None
     for step, thinking in enumerate(ladder):
         try:
             response = call(thinking if thinking is not None else False)
@@ -714,16 +897,32 @@ def _complete_gemini(
         # It worked: latch it so the rest of the project's pages skip straight
         # to the shape that works.
         if step:
-            _latch_thinking(model, thinking)
+            _latch_thinking(model, thinking, thinking_setting)
+        sent = thinking
         break
 
-    _record_gemini_usage(
-        getattr(response, "usage_metadata", None),
-        kind=kind,
+    meta = getattr(response, "usage_metadata", None)
+    _record_gemini_usage(meta, kind=kind, model=model, project_id=project_id)
+    cached = getattr(meta, "cached_content_token_count", 0) or 0
+    thoughts = getattr(meta, "thoughts_token_count", 0) or 0
+    return Reply(
+        text=response.text or "",
+        stop_reason=_gemini_stop_reason(response),
         model=model,
-        project_id=project_id,
+        # The same arithmetic _record_gemini_usage writes, so a scan's total
+        # and the dashboard's agree to the token.
+        input_tokens=max(0, (getattr(meta, "prompt_token_count", 0) or 0) - cached),
+        output_tokens=(getattr(meta, "candidates_token_count", 0) or 0) + thoughts,
+        thinking_tokens=thoughts,
+        cache_read_tokens=cached,
+        thinking=describe_thinking(sent),
+        # Against the setting's own mapping, not the ladder's first rung: a
+        # latched step skips the refused rung entirely on later calls, and it
+        # is still not what was asked for.
+        thinking_adjusted=(
+            thinking_setting is not None and sent != _stage_thinking_intended(model, thinking_setting)
+        ),
     )
-    return Reply(text=response.text or "", stop_reason=_gemini_stop_reason(response))
 
 
 def _gemini_stop_reason(response) -> str | None:
@@ -1071,8 +1270,14 @@ def complete(
     json_only: bool = False,
     cache_system: bool = True,
     images: list[bytes] | None = None,
+    thinking: str | None = None,
 ) -> Reply | None:
     """Ask the given provider for a completion.
+
+    `thinking` is the call site's own setting from THINKING_SETTINGS (read it
+    with `stage_thinking("RFI_THINKING")`); None leaves the global
+    CLAUDE_THINKING / GEMINI_THINKING_LEVEL defaults in charge, which is what
+    every call site sent before the parameter existed.
 
     `images` are PNG bytes shown to the model alongside `user`. Every caller
     that passes none sends exactly the request it sent before this parameter
@@ -1096,6 +1301,7 @@ def complete(
                 project_id=project_id,
                 json_only=json_only,
                 images=images,
+                thinking_setting=thinking,
             )
         else:
             reply = _complete_claude(
@@ -1107,6 +1313,7 @@ def complete(
                 project_id=project_id,
                 cache_system=cache_system,
                 images=images,
+                thinking_setting=thinking,
             )
     except Exception as exc:
         _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)

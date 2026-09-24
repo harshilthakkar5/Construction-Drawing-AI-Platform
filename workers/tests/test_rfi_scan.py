@@ -192,14 +192,10 @@ def test_word_batches_and_keys_by_fingerprint(monkeypatch):
     monkeypatch.setattr(rfi_scan.llm, "available", lambda provider: True)
     calls = []
 
-    class Reply:
-        def __init__(self, text):
-            self.text = text
-
     def fake_complete(system, user, **kwargs):
         calls.append(kwargs)
         n = user.count("<finding>")
-        return Reply(reply(*[good(index=i) for i in range(n)]))
+        return rfi_scan.llm.Reply(reply(*[good(index=i) for i in range(n)]))
 
     monkeypatch.setattr(rfi_scan.llm, "complete", fake_complete)
     findings = [finding(fingerprint=f"dangling_reference:{i}") for i in range(5)]
@@ -214,7 +210,80 @@ def test_a_failed_call_leaves_that_batch_on_templates(monkeypatch):
     monkeypatch.setattr(rfi_scan, "AI_WORDING", True)
     monkeypatch.setattr(rfi_scan.llm, "available", lambda provider: True)
     monkeypatch.setattr(rfi_scan.llm, "complete", lambda *a, **k: None)
-    assert rfi_scan.word([finding()], "project") == ({}, None)
+    usage = rfi_scan.WordingUsage()
+    assert rfi_scan.word([finding()], "project", usage) == ({}, None)
+    assert usage.calls == 0 and usage.failed_calls == 1, "a failed call is counted, not hidden"
+
+
+# --- what the wording cost -------------------------------------------------------
+
+
+def test_every_call_is_summed_into_the_scans_usage(monkeypatch):
+    """The scan row reports what THIS scan spent — tokens per call added up,
+    the thinking that was really sent, and the model — because RFI_THINKING is
+    judged per run and usage_events can only say what the project spent."""
+    monkeypatch.setattr(rfi_scan, "AI_WORDING", True)
+    monkeypatch.setattr(rfi_scan, "BATCH_SIZE", 2)
+    monkeypatch.setattr(rfi_scan.llm, "available", lambda provider: True)
+    monkeypatch.setenv("RFI_PROVIDER", "gemini")
+    monkeypatch.setenv("RFI_THINKING", "minimal")
+    seen = []
+
+    def fake_complete(system, user, **kwargs):
+        seen.append(kwargs["thinking"])
+        n = user.count("<finding>")
+        return rfi_scan.llm.Reply(
+            reply(*[good(index=i) for i in range(n)]),
+            model="gemini-3.1-pro-preview",
+            input_tokens=1000,
+            output_tokens=300,
+            thinking_tokens=200,
+            cache_read_tokens=50,
+            thinking="thinking_level=low",
+            thinking_adjusted=True,
+        )
+
+    monkeypatch.setattr(rfi_scan.llm, "complete", fake_complete)
+    usage = rfi_scan.WordingUsage()
+    rfi_scan.word([finding(fingerprint=f"dangling_reference:{i}") for i in range(3)], "p", usage)
+
+    assert seen == ["minimal", "minimal"], "RFI_THINKING reaches every call"
+    assert usage.as_json() == {
+        "provider": "gemini",
+        "model": "gemini-3.1-pro-preview",
+        "thinkingSetting": "minimal",
+        # What ran, which is not what was asked for: this model has no minimal.
+        "thinkingSent": ["thinking_level=low"],
+        "thinkingAdjusted": True,
+        "calls": 2,
+        "failedCalls": 0,
+        "inputTokens": 2000,
+        "outputTokens": 600,
+        "thinkingTokens": 400,
+        "cacheReadTokens": 100,
+        "cacheWriteTokens": 0,
+    }
+
+
+def test_thinking_tokens_stay_unknown_when_the_provider_does_not_report_them(monkeypatch):
+    """Anthropic folds reasoning into output_tokens. Zero would claim the model
+    did not think; None says nobody was told."""
+    usage = rfi_scan.WordingUsage()
+    usage.add(rfi_scan.llm.Reply("x", model="claude-haiku-4-5", input_tokens=10, output_tokens=5))
+    assert usage.thinking_tokens is None
+    assert usage.as_json()["thinkingTokens"] is None
+
+
+def test_unset_rfi_thinking_leaves_the_global_defaults(monkeypatch):
+    monkeypatch.setattr(rfi_scan, "AI_WORDING", True)
+    monkeypatch.setattr(rfi_scan.llm, "available", lambda provider: True)
+    monkeypatch.delenv("RFI_THINKING", raising=False)
+    seen = []
+    monkeypatch.setattr(
+        rfi_scan.llm, "complete", lambda *a, **k: seen.append(k["thinking"]) or None
+    )
+    rfi_scan.word([finding()], "p")
+    assert seen == [None]
 
 
 # --- the values the worker writes into Postgres enums ---------------------------
@@ -350,6 +419,50 @@ def test_a_scan_writes_candidates_and_reports_into_its_row(database):
 
 
 @needs_db
+def test_the_scan_row_records_what_its_wording_cost(database, monkeypatch):
+    """The RFIs tab reads this column to say what a scan spent and which
+    thinking setting actually ran — and a re-scan with nothing new to word
+    records zero calls rather than nothing, because "this cost nothing" is
+    the answer to the question the user is asking."""
+    monkeypatch.setattr(rfi_scan, "AI_WORDING", True)
+    monkeypatch.setattr(rfi_scan.llm, "available", lambda provider: True)
+    monkeypatch.setenv("RFI_PROVIDER", "claude")
+    monkeypatch.setenv("RFI_THINKING", "low")
+
+    def fake_complete(system, user, **kwargs):
+        assert kwargs["thinking"] == "low"
+        return rfi_scan.llm.Reply(
+            '{"items": []}', model="claude-haiku-4-5-20251001", input_tokens=900,
+            output_tokens=2400, thinking="budget_tokens=2048",
+        )
+
+    monkeypatch.setattr(rfi_scan.llm, "complete", fake_complete)
+    project, _ = _seed(database)
+    first = _scan(database, project)
+    rfi_scan.run(project, first)
+    second = _scan(database, project)
+    rfi_scan.run(project, second)
+
+    with database.connect() as conn:
+        usage = dict(conn.execute('SELECT id, usage FROM rfi_scans WHERE "projectId" = %s', (project,)).fetchall())
+    assert usage[first] == {
+        "provider": "claude",
+        "model": "claude-haiku-4-5-20251001",
+        "thinkingSetting": "low",
+        "thinkingSent": ["budget_tokens=2048"],
+        "thinkingAdjusted": False,
+        "calls": 1,
+        "failedCalls": 0,
+        "inputTokens": 900,
+        "outputTokens": 2400,
+        "thinkingTokens": None,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+    }
+    assert usage[second]["calls"] == 0 and usage[second]["inputTokens"] == 0
+
+
+@needs_db
 def test_a_rescan_is_idempotent_and_respects_decisions(database):
     project, _ = _seed(database)
     rfi_scan.run(project, _scan(database, project))
@@ -377,7 +490,7 @@ def test_a_rescan_words_only_what_is_new(database, monkeypatch):
     # for free — and a finding added since is the only one sent.
     sent: list[list[str]] = []
 
-    def fake_word(findings, project_id):
+    def fake_word(findings, project_id, usage=None):
         sent.append(sorted(f.check_type for f in findings))
         return {}, None
 

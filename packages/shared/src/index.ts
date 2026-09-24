@@ -759,8 +759,47 @@ export interface RfiScanDto {
   /** Checks that did not run, and why — shown, because "found nothing" and
    * "could not look" otherwise read the same. */
   notes: string[];
+  /** What the wording step cost — null when it never ran (no new findings,
+   * AI wording off, a scan from before this was recorded). */
+  usage: RfiScanUsageDto | null;
   error: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+}
+
+/** One scan's wording calls, written by the worker (workers/src/rfi_scan.py
+ * WordingUsage.as_json) and priced by the API. */
+export interface RfiScanUsageDto {
+  provider: string | null;
+  model: string | null;
+  /** RFI_THINKING as configured; null means the global defaults decided. */
+  thinkingSetting: string | null;
+  /** What was really sent after any refusal ladder, e.g. "thinking_level=low". */
+  thinkingSent: string[];
+  /** The model refused thinkingSetting and ran at the nearest one it takes. */
+  thinkingAdjusted: boolean;
+  calls: number;
+  failedCalls: number;
+  inputTokens: number;
+  /** Includes the thinking — both vendors bill reasoning as output. */
+  outputTokens: number;
+  /** The reasoning share of outputTokens; null where the provider does not
+   * report it separately (Anthropic). */
+  thinkingTokens: number | null;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Estimated from the model's published rate (apps/api/src/usage.ts). */
+  costUsd: number;
+}
+
+/** Everything the project has spent on RFI wording, from usage_events. */
+export interface RfiUsageTotalsDto {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+  byModel: { model: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number }[];
 }

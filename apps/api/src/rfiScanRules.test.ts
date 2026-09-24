@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meetsConfidence, scanIsActive, STALE_SCAN_MS, toScanDto } from "./rfiScanRules.js";
+import { meetsConfidence, scanIsActive, scanUsage, STALE_SCAN_MS, toScanDto } from "./rfiScanRules.js";
 
 const NOW = new Date("2026-06-01T12:00:00Z");
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
@@ -76,3 +76,79 @@ describe("toScanDto", () => {
     expect(dto.notes).toEqual([]);
   });
 });
+
+describe("scanUsage", () => {
+  const fromWorker = {
+    provider: "gemini",
+    model: "gemini-3.1-pro-preview",
+    thinkingSetting: "minimal",
+    thinkingSent: ["thinking_level=low"],
+    thinkingAdjusted: true,
+    calls: 1,
+    failedCalls: 0,
+    inputTokens: 2400,
+    outputTokens: 3100,
+    thinkingTokens: 2200,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+
+  it("passes the worker's figures through and prices them", () => {
+    const priced: unknown[] = [];
+    const usage = scanUsage(fromWorker, (row) => {
+      priced.push(row);
+      return 0.25;
+    });
+    expect(usage).toEqual({ ...fromWorker, costUsd: 0.25 });
+    expect(priced).toHaveLength(1);
+  });
+
+  it("keeps an unreported thinking count as null, not zero", () => {
+    // Anthropic folds reasoning into output. Zero would claim it did not think.
+    expect(scanUsage({ ...fromWorker, thinkingTokens: null }, () => 0)!.thinkingTokens).toBeNull();
+  });
+
+  it("costs nothing, without pricing anything, when no call was made", () => {
+    const usage = scanUsage({ ...fromWorker, calls: 0 }, () => {
+      throw new Error("should not price a scan that made no call");
+    });
+    expect(usage!.costUsd).toBe(0);
+  });
+
+  it("reads a malformed record as numbers it can trust, never a crash", () => {
+    const usage = scanUsage(
+      { model: 7, calls: "2", inputTokens: -5, outputTokens: Number.NaN, thinkingSent: "low" },
+      () => 1,
+    );
+    expect(usage).toMatchObject({
+      model: null,
+      calls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      thinkingSent: [],
+      thinkingAdjusted: false,
+      costUsd: 0,
+    });
+  });
+
+  it("is null for a scan with no record at all", () => {
+    expect(scanUsage(null, () => 0)).toBeNull();
+    expect(scanUsage([], () => 0)).toBeNull();
+    expect(toScanDto({ ...baseRow(), usage: undefined }).usage).toBeNull();
+  });
+});
+
+function baseRow() {
+  return {
+    id: "s",
+    status: "completed",
+    findings: 0,
+    modelWorded: 0,
+    byCheck: null,
+    notes: [],
+    error: null,
+    startedAt: null,
+    finishedAt: null,
+    createdAt: NOW,
+  };
+}

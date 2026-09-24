@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckIcon,
   ChevronDownIcon,
+  CoinsIcon,
   RotateCcwIcon,
   ScanSearchIcon,
   SparklesIcon,
@@ -15,6 +16,8 @@ import {
   type RfiConfidence,
   type RfiEvidenceDto,
   type RfiScanDto,
+  type RfiScanUsageDto,
+  type RfiUsageTotalsDto,
 } from "@cdip/shared";
 import { api } from "@/api";
 import { Notice, Spinner } from "@/components/shared";
@@ -67,6 +70,27 @@ function evidenceLabel(e: RfiEvidenceDto): string {
   return e.sheetNumber ? `${e.sheetNumber} · page ${page}` : `page ${page}`;
 }
 
+const tokens = (n: number) => n.toLocaleString();
+
+function dollars(n: number): string {
+  if (n === 0) return "$0";
+  return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
+}
+
+/** "thinking_level=low" / "adaptive, effort=low" / "budget_tokens=2048" as a
+ * reader would say it. */
+function thinkingLabel(sent: string): string {
+  const level = /^thinking_level=(\w+)$/.exec(sent);
+  if (level) return level[1]!;
+  const effort = /effort=(\w+)/.exec(sent);
+  if (effort) return `adaptive, ${effort[1]} effort`;
+  const budget = /^(?:thinking_budget|budget_tokens)=(\d+)$/.exec(sent);
+  if (budget) return budget[1] === "0" ? "off" : `${tokens(Number(budget[1]))}-token budget`;
+  if (sent === "disabled") return "off";
+  if (sent === "omitted") return "model default";
+  return sent;
+}
+
 function scanSummary(scan: RfiScanDto): string {
   const when = scan.finishedAt ? new Date(scan.finishedAt).toLocaleString() : "";
   const found = `${scan.findings} ${scan.findings === 1 ? "finding" : "findings"}`;
@@ -87,6 +111,12 @@ export function RfiReview({ projectId }: { projectId: string }) {
     },
   });
   const scanning = scan.data?.status === "queued" || scan.data?.status === "running";
+  const [showUsage, setShowUsage] = useState(false);
+  const usageTotals = useQuery({
+    queryKey: ["rfi-usage", projectId],
+    queryFn: () => api.rfiUsage(projectId),
+    enabled: showUsage,
+  });
 
   const pending = useQuery({
     queryKey: ["rfi-candidates", projectId, "pending"],
@@ -99,6 +129,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
   });
 
   const refreshAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ["rfi-usage", projectId] });
     void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
     void queryClient.invalidateQueries({ queryKey: ["rfis", projectId] });
   };
@@ -156,6 +187,14 @@ export function RfiReview({ projectId }: { projectId: string }) {
             row in their schedule, and notes left open (TBD, verify in field). Each finding is
             written up as an RFI question for you to accept or dismiss.
           </p>
+        )}
+        {scan.data?.status === "completed" && scan.data.usage && (
+          <ScanUsage
+            usage={scan.data.usage}
+            totals={usageTotals.data}
+            open={showUsage}
+            onToggle={() => setShowUsage((v) => !v)}
+          />
         )}
         {scan.data?.status === "failed" && (
           <Notice tone="error">The last scan failed: {scan.data.error ?? "unknown error"}</Notice>
@@ -259,6 +298,107 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * What the last scan's wording cost, and — opened — what every scan has.
+ *
+ * The thinking line shows what was SENT, beside what RFI_THINKING asked for
+ * when the two differ: a model that refuses the asked-for level is stepped
+ * to the nearest one it takes, and the bill follows what ran.
+ */
+function ScanUsage({
+  usage,
+  totals,
+  open,
+  onToggle,
+}: {
+  usage: RfiScanUsageDto;
+  totals: RfiUsageTotalsDto | undefined;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const sent = usage.thinkingSent.map(thinkingLabel);
+  const asked = usage.thinkingSetting;
+  const summary =
+    usage.calls === 0
+      ? "No AI calls this scan"
+      : `${tokens(usage.inputTokens + usage.outputTokens)} tokens · ${dollars(usage.costUsd)}`;
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        className="text-muted-foreground flex items-center gap-1 text-xs hover:underline"
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        <CoinsIcon className="size-3" />
+        {summary}
+        <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <dl className="text-muted-foreground mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+          {usage.model && (
+            <>
+              <dt>Model</dt>
+              <dd className="text-foreground truncate">{usage.model}</dd>
+            </>
+          )}
+          <dt>Thinking</dt>
+          <dd className="text-foreground">
+            {sent.length > 0 ? sent.join(", ") : asked ? thinkingLabel(asked) : "global default"}
+            <span className="text-muted-foreground">
+              {asked ? ` (RFI_THINKING=${asked})` : " (RFI_THINKING not set)"}
+            </span>
+            {usage.thinkingAdjusted && (
+              <span className="text-warning block">
+                This model does not accept {asked}; the nearest setting it takes was used.
+              </span>
+            )}
+          </dd>
+          <dt>Calls</dt>
+          <dd className="text-foreground">
+            {usage.calls}
+            {usage.failedCalls > 0 && (
+              <span className="text-destructive"> · {usage.failedCalls} failed</span>
+            )}
+          </dd>
+          <dt>Input</dt>
+          <dd className="text-foreground tabular-nums">
+            {tokens(usage.inputTokens)}
+            {usage.cacheReadTokens > 0 && ` (+${tokens(usage.cacheReadTokens)} cached)`}
+          </dd>
+          <dt>Output</dt>
+          <dd className="text-foreground tabular-nums">
+            {tokens(usage.outputTokens)}
+            {usage.thinkingTokens !== null && usage.thinkingTokens > 0 && (
+              <span className="text-muted-foreground">
+                {" "}
+                — {tokens(usage.thinkingTokens)} thinking,{" "}
+                {tokens(Math.max(0, usage.outputTokens - usage.thinkingTokens))} answer
+              </span>
+            )}
+            {usage.thinkingTokens === null && usage.calls > 0 && (
+              <span className="text-muted-foreground"> (includes any thinking)</span>
+            )}
+          </dd>
+          <dt>Cost</dt>
+          <dd className="text-foreground">{dollars(usage.costUsd)} estimated</dd>
+          {totals && totals.calls > 0 && (
+            <>
+              <dt className="pt-1">All scans</dt>
+              <dd className="text-foreground pt-1">
+                {totals.calls} call{totals.calls === 1 ? "" : "s"} ·{" "}
+                {tokens(totals.inputTokens + totals.outputTokens)} tokens ·{" "}
+                {dollars(totals.costUsd)}
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+    </div>
   );
 }
 

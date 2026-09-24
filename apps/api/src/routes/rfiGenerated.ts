@@ -6,12 +6,14 @@ import {
   type RfiCandidateStatus,
   type RfiConfidence,
   type RfiEvidenceDto,
+  type RfiUsageTotalsDto,
 } from "@cdip/shared";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { rfiScanQueue } from "../queues.js";
 import { summaryLimiter } from "../rateLimit.js";
 import { meetsConfidence, scanIsActive, toScanDto } from "../rfiScanRules.js";
+import { estimateCostUsd } from "../usage.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
 
 /**
@@ -58,7 +60,53 @@ rfiGeneratedRouter.get("/scan", async (req, res) => {
     where: { projectId },
     orderBy: { createdAt: "desc" },
   });
-  res.json(latest ? toScanDto(latest) : null);
+  res.json(latest ? toScanDto(latest, estimateCostUsd) : null);
+});
+
+/**
+ * Everything this project has spent on RFI wording, across every scan —
+ * read from usage_events, the same rows the dashboard prices, so the two
+ * figures cannot disagree. Thinking is inside outputTokens here: usage_events
+ * has no separate column for it (both vendors bill it as output). The
+ * per-scan figure, which does split it out where the provider reports it,
+ * rides on GET /scan.
+ */
+rfiGeneratedRouter.get("/usage", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const rows = await prisma.usageEvent.groupBy({
+    by: ["model"],
+    where: { projectId, kind: "rfi" },
+    _count: { _all: true },
+    _sum: { inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheWriteTokens: true },
+  });
+  const byModel = rows.map((r) => {
+    const tokens = {
+      model: r.model,
+      inputTokens: r._sum.inputTokens ?? 0,
+      outputTokens: r._sum.outputTokens ?? 0,
+      cacheReadTokens: r._sum.cacheReadTokens ?? 0,
+      cacheWriteTokens: r._sum.cacheWriteTokens ?? 0,
+    };
+    return { ...tokens, calls: r._count._all, costUsd: estimateCostUsd(tokens) };
+  });
+  const sum = (key: "calls" | "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "costUsd") =>
+    byModel.reduce((total, m) => total + m[key], 0);
+  const totals: RfiUsageTotalsDto = {
+    calls: sum("calls"),
+    inputTokens: sum("inputTokens"),
+    outputTokens: sum("outputTokens"),
+    cacheReadTokens: sum("cacheReadTokens"),
+    cacheWriteTokens: sum("cacheWriteTokens"),
+    costUsd: sum("costUsd"),
+    byModel: byModel.map(({ model, calls, inputTokens, outputTokens, costUsd }) => ({
+      model,
+      calls,
+      inputTokens,
+      outputTokens,
+      costUsd,
+    })),
+  };
+  res.json(totals);
 });
 
 /**
@@ -97,7 +145,7 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
     data: { jobId: job.id ?? null },
   });
   console.log(`[rfis] scan ${scan.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)}`);
-  res.status(202).json(toScanDto(updated));
+  res.status(202).json(toScanDto(updated, estimateCostUsd));
 });
 
 // --- Reviewing --------------------------------------------------------------

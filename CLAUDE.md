@@ -2188,6 +2188,29 @@ dashboard label makes the third a compile error). A scan stuck `queued`/`running
 is presumed dead (`rfiScanRules.scanIsActive`) — otherwise a worker that died mid-scan would
 disable the button for the life of the project.
 
+`RFI_THINKING=off|minimal|low|medium|high` is the stage's own reasoning switch, read per scan by
+`llm.stage_thinking` and passed as `llm.complete(thinking=…)`; unset leaves the global
+`CLAUDE_THINKING` / `GEMINI_THINKING_LEVEL` in charge, which is exactly what every other call
+site still sends. One vocabulary maps onto four API shapes: a Gemini 3 LEVEL (`off` is `minimal`,
+the bottom rung — there is no zero), a Gemini 2.5 BUDGET, adaptive thinking + `output_config.effort`
+on Claude 4.6 and later, and `budget_tokens` on Haiku 4.5 and older (both version-sniffed, never
+a model list). A budget or a raised level is spent from the SAME output cap as the JSON, so an
+explicit setting ADDS its headroom to `max_tokens` — otherwise turning thinking up truncates the
+reply it was meant to improve. A refused setting walks the same ladder the global one does
+(gemini-3.1-pro-preview has no `minimal` and runs at `low`; Opus 5.5 cannot disable and runs at
+low effort), but is latched per (model, setting) in `_stage_thinking_latched`, never in the global
+latch: one stage's choice must not change what the summaries on the same model send.
+
+Every `Reply` now carries its own tokens, model and the thinking config actually SENT, plus
+`thinking_adjusted` — which cannot be derived by comparing strings, since a 2048-token budget IS
+what `low` means on Haiku and reads nothing like it. `rfi_scan.WordingUsage` sums them onto
+`rfi_scans.usage` (JSON: provider, model, asked vs sent thinking, calls, failed calls, input,
+output, thinking tokens, cache reads), and the RFIs tab shows it under the scan button with the
+API's price (`rfiScanRules.scanUsage` + `usage.estimateCostUsd`) and the project's all-scan total
+from `usage_events` (`GET /rfis/generated/usage`). Thinking tokens are `null`, not 0, on Claude:
+Anthropic folds reasoning into `output_tokens`, and 0 would claim the model did not think. A
+re-scan with nothing new records `calls: 0` — "this cost nothing" is the answer being asked for.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2227,7 +2250,8 @@ rfi_locations(id, rfiId, documentId, pageNumber, combinedPageNumber, bbox,
 rfi_events(id, rfiId, actorId, kind, detail JSON, createdAt)  // kind is TEXT,
      // not an enum: the vocabulary grows per phase and nothing branches on it
 rfis.source (manual|generated), rfis.checkType   // who proposed the QUESTION
-rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, error, ...)
+rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, usage, error, ...)
+     // usage: JSON cost of THIS scan's wording (tokens, asked vs sent thinking)
 rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subject,
      question, questionSource, evidence JSON, status, rfiId)
      // UNIQUE(projectId, fingerprint): a finding, NOT an RFI — no number until a
@@ -2262,6 +2286,16 @@ Inside a project, three panes: Sidebar (project summary + portion list) | Middle
 clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g.
 "Structural") switches the summary panel, jumps the viewer to the portion's start page, and
 optionally filters chat retrieval to that portion.
+
+Any pane can go FULL VIEW (the maximize button in its header; Esc leaves) and take the whole
+workspace. The other panes are hidden with CSS, not unmounted, so a chat thread, the viewer's
+scroll and an open RFI survive the round trip, and a jump requested from a hidden-viewer state
+(a citation, a piece of RFI evidence) brings the viewer back first. Below `lg` (1024px) three panes
+do not fit, so the same one-pane state is chosen by a Work | Chat | Drawings switcher instead of a
+button. The chat toggle lives at the left of the viewer's toolbar (`data-tour="chat-toggle"`)
+and as an X in the chat header — it used to float over the drawing, covering the sheet and the
+scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
+COLUMN's width, which the divider changes independently of the window's.
 
 The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). The
 tab opens on "Find RFIs in drawings" (`components/RfiReview.tsx`, see Generated RFIs below): the

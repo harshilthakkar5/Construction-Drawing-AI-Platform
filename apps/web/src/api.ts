@@ -20,6 +20,7 @@ import type {
   RfiPriority,
   RfiScanDto,
   RfiStatus,
+  RfiUsageTotalsDto,
   SheetRegionDto,
   SummaryDto,
   SummaryEstimateDto,
@@ -393,6 +394,10 @@ export const api = {
   /** The most recent scan, or null if this project has never been scanned. */
   latestRfiScan: (projectId: string) =>
     request<RfiScanDto | null>(`/projects/${projectId}/rfis/generated/scan`),
+
+  /** Everything the project has spent on RFI wording, across every scan. */
+  rfiUsage: (projectId: string) =>
+    request<RfiUsageTotalsDto>(`/projects/${projectId}/rfis/generated/usage`),
 
   startRfiScan: (projectId: string) =>
     request<RfiScanDto>(`/projects/${projectId}/rfis/generated/scan`, {

@@ -633,6 +633,11 @@ model RfiScan {
   /// How many questions the model worded vs the template wrote — so a scan
   /// that ran with no API key says so instead of looking identical.
   modelWorded   Int           @default(0)
+  /// What this scan's wording calls cost: provider, model, the RFI_THINKING
+  /// setting and what was really sent after refusals, calls, and tokens
+  /// (thinking tokens separately where the provider reports them). NULL on a
+  /// scan that never reached the wording step, or ran before this existed.
+  usage         Json?
   error         String?
   startedAt     DateTime?
   finishedAt    DateTime?
