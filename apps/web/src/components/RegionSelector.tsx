@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { RegionBox } from "@cdip/shared";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -171,7 +172,11 @@ export function RegionSelector({
 
   const current = pages.find((p) => p.combinedPageNumber === page);
 
-  return (
+  // Portalled to <body>: this opens from the app header (RegionBanner inline),
+  // and the header's backdrop-blur makes it the containing block for anything
+  // `fixed` inside it — so an in-place overlay was clipped to the header's
+  // 56px strip instead of covering the screen.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-card shadow-xl">
         <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
@@ -347,6 +352,7 @@ export function RegionSelector({
           </p>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
