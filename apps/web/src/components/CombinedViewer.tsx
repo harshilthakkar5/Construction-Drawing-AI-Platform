@@ -3,8 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
 import { api } from "@/api";
 import { useAppStore, type Highlight } from "@/store";
-import { FilterIcon, ListRestartIcon, MinusIcon, PlusIcon } from "lucide-react";
-import { PageLoading } from "@/components/shared";
+import { FilterIcon, ListRestartIcon, MessageSquareIcon, MinusIcon, PlusIcon } from "lucide-react";
+import { FullViewButton, PageLoading } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,22 @@ const ZOOM_KEY = "cdip-viewer-zoom";
  * DigitalOcean Spaces. Pages lazy-load via a shared IntersectionObserver; the
  * low-res thumbnail shows as a placeholder until the full image arrives.
  */
-export function CombinedViewer({ projectId }: { projectId: string }) {
+export function CombinedViewer({
+  projectId,
+  expanded = false,
+  onToggleExpand,
+  chatShown = false,
+  onToggleChat,
+}: {
+  projectId: string;
+  /** Full view: the viewer is the only pane. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  /** Whether the chat pane is open beside the viewer, for the Chat button. */
+  chatShown?: boolean;
+  /** Show / hide the chat pane. Absent when there is no pane to toggle. */
+  onToggleChat?: () => void;
+}) {
   const jumpToPage = useAppStore((s) => s.jumpToPage);
   const highlight = useAppStore((s) => s.highlight);
   const requestJump = useAppStore((s) => s.requestJump);
@@ -211,7 +226,27 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
 
   return (
     <div className="bg-card @container/viewer flex h-full flex-col overflow-hidden rounded-xl border">
-      <div className="flex items-center gap-x-3 border-b px-4 py-2.5 text-sm" data-tour="viewer-toolbar">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2.5 text-sm" data-tour="viewer-toolbar">
+        {/* Chat lives here, at the edge the pane opens from, rather than in
+            a button floating over the drawing — where it covered the sheet
+            and sat on top of the scrollbar. */}
+        {onToggleChat && (
+          <Button
+            variant={chatShown ? "secondary" : "default"}
+            size="sm"
+            className="shrink-0"
+            data-tour="chat-toggle"
+            onClick={onToggleChat}
+            aria-pressed={chatShown}
+            aria-label={chatShown ? "Hide chat" : "Show chat"}
+            title={chatShown ? "Hide the chat pane and widen the viewer" : "Ask about the drawings"}
+          >
+            <MessageSquareIcon />
+            <span className="@[520px]/viewer:inline hidden">
+              {chatShown ? "Hide chat" : "Chat"}
+            </span>
+          </Button>
+        )}
         {/* Left group truncates; the controls on the right never do. */}
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground @[420px]/viewer:inline hidden shrink-0 text-xs font-semibold tracking-wide uppercase">
@@ -257,7 +292,7 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           <Button
             variant="ghost"
             size="sm"
-            className="w-14 px-1 text-xs tabular-nums"
+            className="@[440px]/viewer:inline-flex hidden w-14 px-1 text-xs tabular-nums"
             onClick={() => applyZoom(1)}
             title="Reset to 100%"
           >
@@ -313,11 +348,15 @@ export function CombinedViewer({ projectId }: { projectId: string }) {
           />
           <span className="text-muted-foreground text-xs tabular-nums">/ {total || "–"}</span>
         </form>
+        {onToggleExpand && (
+          <FullViewButton expanded={expanded} label="the drawings" onClick={onToggleExpand} />
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* Thumbnail rail (FR-20) */}
-        <div className="bg-card w-28 shrink-0 overflow-y-auto border-r p-2">
+        {/* Thumbnail rail (FR-20). Hidden on a phone-width viewer, where it
+            would take a third of the drawing; the page box still navigates. */}
+        <div className="bg-card @[480px]/viewer:block hidden w-28 shrink-0 overflow-y-auto border-r p-2">
           {entries.map((e) => (
             <button
               key={e.combinedPageNumber}

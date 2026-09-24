@@ -980,3 +980,219 @@ class TestMediaResolution:
         assert llm._is_media_refusal("Unknown field: media resolution")
         assert not llm._is_media_refusal("400 INVALID_ARGUMENT")
         assert not llm._is_media_refusal("429 rate limit exceeded")
+
+
+class TestStageThinking:
+    """RFI_THINKING and any later per-stage switch: one vocabulary for both
+    vendors, an honest record of what was really sent, and no leak into the
+    settings every OTHER stage uses."""
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            (None, None),
+            ("", None),
+            ("low", "low"),
+            (" HIGH ", "high"),
+            ("false", "off"),
+            ("none", "off"),
+            ("adaptive", None),  # not a setting: refused, never guessed at
+        ],
+    )
+    def test_the_setting_is_read_strictly(self, monkeypatch, raw, expected):
+        if raw is None:
+            monkeypatch.delenv("RFI_THINKING", raising=False)
+        else:
+            monkeypatch.setenv("RFI_THINKING", raw)
+        assert llm.stage_thinking("RFI_THINKING") == expected
+
+    @pytest.mark.parametrize(
+        "model, takes_effort",
+        [
+            ("claude-haiku-4-5-20251001", False),
+            ("claude-sonnet-4-5", False),
+            ("claude-sonnet-4-20250514", False),  # a date is not a minor version
+            ("claude-3-5-sonnet-20241022", False),
+            ("claude-sonnet-4-6", True),
+            ("claude-sonnet-5", True),
+            ("claude-opus-5-5", True),
+            ("claude-fable-5-1", True),
+        ],
+    )
+    def test_which_claude_models_take_effort_rather_than_a_budget(self, model, takes_effort):
+        assert llm._claude_takes_effort(model) is takes_effort
+
+    # --- Claude -------------------------------------------------------------
+
+    class _Block:
+        def __init__(self, text):
+            self.type, self.text = "text", text
+
+    def _claude(self, monkeypatch, responder):
+        sent = []
+
+        def create(**kwargs):
+            sent.append(kwargs)
+            return responder(kwargs)
+
+        monkeypatch.setattr(usage, "record_message", lambda *a, **k: None)
+        monkeypatch.setattr(
+            llm,
+            "anthropic_client",
+            lambda: types.SimpleNamespace(messages=types.SimpleNamespace(create=create)),
+        )
+        return sent
+
+    def _ok(self, **usage_fields):
+        return types.SimpleNamespace(
+            content=[self._Block("{}")],
+            stop_reason="end_turn",
+            usage=types.SimpleNamespace(input_tokens=120, output_tokens=40, **usage_fields),
+        )
+
+    def _call_claude(self, model, setting, max_tokens=1000):
+        return llm._complete_claude(
+            "sys", "user", model=model, max_tokens=max_tokens, kind="rfi",
+            project_id=None, cache_system=False, thinking_setting=setting,
+        )
+
+    def test_a_budget_model_gets_a_budget_and_room_for_the_answer(self, monkeypatch):
+        """The budget is spent from max_tokens BEFORE the answer; a cap sized
+        for the JSON would be eaten by the thinking it just paid for."""
+        sent = self._claude(monkeypatch, lambda kw: self._ok())
+        reply = self._call_claude("claude-haiku-4-5", "low", max_tokens=1000)
+        assert sent[0]["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+        assert sent[0]["max_tokens"] == 3048
+        assert "output_config" not in sent[0]
+        assert reply.thinking == "budget_tokens=2048"
+        assert reply.thinking_adjusted is False, "a budget IS what low means here"
+
+    def test_an_effort_model_gets_adaptive_thinking_at_that_effort(self, monkeypatch):
+        sent = self._claude(monkeypatch, lambda kw: self._ok())
+        reply = self._call_claude("claude-sonnet-5", "minimal")
+        assert sent[0]["thinking"] == {"type": "adaptive"}
+        assert sent[0]["output_config"] == {"effort": "low"}, "effort has no 'minimal'"
+        assert sent[0]["max_tokens"] == 1000
+        assert reply.thinking == "adaptive, effort=low"
+
+    def test_off_on_a_model_that_cannot_disable_falls_to_the_lowest_effort(self, monkeypatch):
+        """Opus 5.5 400s on {type: disabled}. The nearest thing it allows is its
+        default thinking at the lowest effort — and it is not latched, because
+        another stage may ask this model for something it accepts."""
+        monkeypatch.setattr(llm, "_no_thinking_param", set())
+
+        def responder(kw):
+            if kw.get("thinking") == {"type": "disabled"}:
+                raise RuntimeError("400 invalid_request_error: thinking.type disabled is not supported")
+            return self._ok()
+
+        sent = self._claude(monkeypatch, responder)
+        reply = self._call_claude("claude-opus-5-5", "off")
+        assert len(sent) == 2
+        assert "thinking" not in sent[1] and sent[1]["output_config"] == {"effort": "low"}
+        assert reply.thinking == "omitted"
+        assert reply.thinking_adjusted is True
+        assert "claude-opus-5-5" not in llm._no_thinking_param
+
+    def test_the_reply_carries_what_the_call_cost(self, monkeypatch):
+        self._claude(
+            monkeypatch,
+            lambda kw: self._ok(cache_read_input_tokens=30, cache_creation_input_tokens=7),
+        )
+        reply = self._call_claude("claude-haiku-4-5", "off")
+        assert (reply.model, reply.input_tokens, reply.output_tokens) == ("claude-haiku-4-5", 120, 40)
+        assert (reply.cache_read_tokens, reply.cache_write_tokens) == (30, 7)
+        assert reply.thinking_tokens is None, "Anthropic does not split reasoning out"
+
+    def test_no_setting_sends_exactly_what_it_always_sent(self, monkeypatch):
+        monkeypatch.setattr(llm, "_CLAUDE_THINKING", "off")
+        monkeypatch.setattr(llm, "_no_thinking_param", set())
+        sent = self._claude(monkeypatch, lambda kw: self._ok())
+        self._call_claude("claude-sonnet-5", None)
+        assert sent[0]["thinking"] == {"type": "disabled"}
+        assert "output_config" not in sent[0] and sent[0]["max_tokens"] == 1000
+
+    # --- Gemini -------------------------------------------------------------
+
+    def _gemini(self, monkeypatch, responder):
+        sent = []
+
+        class _Models:
+            def generate_content(self, *, model, contents, config):
+                sent.append(config)
+                return responder(config)
+
+        monkeypatch.setattr(llm, "gemini_client", lambda: type("C", (), {"models": _Models()})())
+        monkeypatch.setattr(usage, "record", lambda *a, **k: None)
+        monkeypatch.setattr(llm, "_stage_thinking_latched", {})
+        monkeypatch.setattr(llm, "_thinking_latched", {})
+        monkeypatch.setattr(llm, "_no_thinking_config", set())
+        return sent
+
+    @staticmethod
+    def _gemini_ok():
+        meta = types.SimpleNamespace(
+            prompt_token_count=900,
+            cached_content_token_count=100,
+            candidates_token_count=250,
+            thoughts_token_count=600,
+        )
+        return types.SimpleNamespace(text="{}", usage_metadata=meta, candidates=[])
+
+    def _call_gemini(self, model, setting, max_tokens=1000):
+        return llm._complete_gemini(
+            "sys", "user", model=model, max_tokens=max_tokens, kind="rfi",
+            project_id=None, json_only=True, thinking_setting=setting,
+        )
+
+    def test_a_level_model_gets_the_stage_level_and_headroom(self, monkeypatch):
+        sent = self._gemini(monkeypatch, lambda c: self._gemini_ok())
+        reply = self._call_gemini("gemini-3.6-flash", "medium", max_tokens=1000)
+        assert sent[0]["thinking_config"] == {"thinking_level": "medium"}
+        assert sent[0]["max_output_tokens"] == 5096
+        # Same arithmetic as the usage_events row: cache reads out of input,
+        # thinking into output, and the thinking share reported on its own.
+        assert (reply.input_tokens, reply.output_tokens, reply.thinking_tokens) == (800, 850, 600)
+        assert reply.cache_read_tokens == 100
+        assert reply.thinking == "thinking_level=medium"
+        assert reply.thinking_adjusted is False
+
+    def test_off_on_a_level_model_is_the_bottom_rung(self, monkeypatch):
+        sent = self._gemini(monkeypatch, lambda c: self._gemini_ok())
+        self._call_gemini("gemini-3.6-flash", "off")
+        assert sent[0]["thinking_config"] == {"thinking_level": "minimal"}
+
+    def test_off_on_a_budget_model_is_zero(self, monkeypatch):
+        sent = self._gemini(monkeypatch, lambda c: self._gemini_ok())
+        self._call_gemini("gemini-2.5-flash", "off")
+        assert sent[0]["thinking_config"] == {"thinking_budget": 0}
+
+    def test_a_refused_stage_level_steps_up_and_is_latched_for_that_stage_only(
+        self, monkeypatch
+    ):
+        """The log that asked for this switch: gemini-3.1-pro-preview refuses
+        `minimal` and the scan ran at `low`. The reply must SAY low — and the
+        latch must not change what the summaries, on the same model, send."""
+        def responder(config):
+            if config.get("thinking_config") == {"thinking_level": "minimal"}:
+                raise RuntimeError("400 INVALID_ARGUMENT: Thinking level MINIMAL is not supported")
+            return self._gemini_ok()
+
+        sent = self._gemini(monkeypatch, responder)
+        reply = self._call_gemini("gemini-3.1-pro-preview", "minimal")
+        assert [c["thinking_config"] for c in sent] == [
+            {"thinking_level": "minimal"},
+            {"thinking_level": "low"},
+        ]
+        assert reply.thinking == "thinking_level=low"
+        assert reply.thinking_adjusted is True
+        assert llm._stage_thinking_latched == {
+            ("gemini-3.1-pro-preview", "minimal"): {"thinking_level": "low"}
+        }
+        assert llm._thinking_latched == {}, "the global ladder is untouched"
+
+        sent.clear()
+        again = self._call_gemini("gemini-3.1-pro-preview", "minimal")
+        assert len(sent) == 1 and sent[0]["thinking_config"] == {"thinking_level": "low"}
+        # Latched calls skip the refused rung and are STILL not what was asked.
+        assert again.thinking_adjusted is True

@@ -9,6 +9,7 @@ import {
   SendHorizonalIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
+  XIcon,
 } from "lucide-react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -115,11 +116,14 @@ export function ChatPanel({
   projectId,
   expanded = false,
   onToggleExpand,
+  onHide,
 }: {
   projectId: string;
   /** Full-page mode: the chat is the only pane, so it gets more room. */
   expanded?: boolean;
   onToggleExpand?: () => void;
+  /** Close the pane and give the width to the viewer. */
+  onHide?: () => void;
 }) {
   const requestJump = useAppStore((s) => s.requestJump);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -274,10 +278,15 @@ export function ChatPanel({
         </IconAction>
         {onToggleExpand && (
           <IconAction
-            label={expanded ? "Exit full page" : "Full page chat"}
+            label={expanded ? "Exit full view (Esc)" : "Full view of the chat"}
             onClick={onToggleExpand}
           >
             {expanded ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
+          </IconAction>
+        )}
+        {onHide && (
+          <IconAction label="Hide the chat and widen the viewer" onClick={onHide}>
+            <XIcon className="size-4" />
           </IconAction>
         )}
       </div>

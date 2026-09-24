@@ -8,7 +8,7 @@ import {
   ListChecksIcon,
   MessageCircleQuestionIcon,
   MessageSquareIcon,
-  XIcon,
+  PanelsTopLeftIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { roleLabel, type DocumentDto } from "@cdip/shared";
@@ -24,7 +24,7 @@ import {
   skipSetup,
   useSetupProgress,
 } from "@/components/ProjectSetup";
-import { PageLoading } from "@/components/shared";
+import { FullViewButton, PageLoading } from "@/components/shared";
 import { PortionsPanel } from "@/components/PortionsPanel";
 import { RfiPanel } from "@/components/RfiPanel";
 import { RegionBanner } from "@/components/RegionBanner";
@@ -36,14 +36,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { cn } from "@/lib/utils";
 import { StatusPill } from "@/pages/DashboardPage";
 import { useAppStore } from "@/store";
 
 /**
  * FR-17 project workspace: a project header, then the left work column
- * (summary / categories / documents, tabbed) beside the combined viewer. Chat
- * is the third pane and is toggled from the button floating over the viewer,
- * so a wide drawing can have the whole width when nobody is asking questions.
+ * (summary / categories / documents / RFIs, tabbed) beside the combined
+ * viewer. Chat is the third pane, shown or hidden from the Chat button in the
+ * viewer's toolbar, so a wide drawing can have the whole width when nobody is
+ * asking questions.
+ *
+ * Any pane can go FULL VIEW (its maximize button) and take the whole
+ * workspace. The other panes are hidden with CSS rather than unmounted, so a
+ * chat thread, a viewer's scroll position and an open RFI all survive the
+ * round trip. Below the `lg` breakpoint three panes do not fit side by side,
+ * so the workspace shows one at a time behind a switcher — the same
+ * one-pane-visible state, chosen by width instead of a button.
  *
  * Both dividers are draggable and the widths persist per browser.
  */
@@ -54,6 +64,42 @@ const CHAT_HIDDEN_KEY = "cdip-chat-hidden";
 function stored(key: string, fallback: number) {
   const value = Number(localStorage.getItem(key));
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+type Pane = "work" | "chat" | "viewer";
+
+const PANES: { id: Pane; label: string; icon: typeof FilesIcon }[] = [
+  { id: "work", label: "Work", icon: PanelsTopLeftIcon },
+  { id: "chat", label: "Chat", icon: MessageSquareIcon },
+  { id: "viewer", label: "Drawings", icon: FileTextIcon },
+];
+
+/** One-pane-at-a-time switcher for narrow screens. */
+function PaneSwitcher({ value, onChange }: { value: Pane; onChange: (pane: Pane) => void }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Workspace pane"
+      className="bg-muted text-muted-foreground grid shrink-0 grid-cols-3 gap-1 rounded-lg p-1"
+    >
+      {PANES.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={value === id}
+          onClick={() => onChange(id)}
+          className={cn(
+            "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition",
+            value === id ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
+          )}
+        >
+          <Icon className="size-4" />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** Roles shown before the list is trimmed — a full set is 15 chips. */
@@ -158,10 +204,38 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const [chatHidden, setChatHidden] = useState(
     () => localStorage.getItem(CHAT_HIDDEN_KEY) === "1",
   );
-  // Deliberately NOT persisted: full page is a reading mode you enter for one
-  // long answer, not a layout preference. Coming back to a project on the
-  // drawings is the right default.
-  const [chatExpanded, setChatExpanded] = useState(false);
+  // Deliberately NOT persisted: full view is a reading mode you enter for one
+  // long answer or one long review, not a layout preference. Coming back to a
+  // project on the three panes is the right default.
+  const [focus, setFocus] = useState<Pane | null>(null);
+  // Three panes need about 1024px; below that the workspace shows one.
+  const wide = useMediaQuery("(min-width: 1024px)");
+  const [mobilePane, setMobilePane] = useState<Pane>("work");
+  const only: Pane | null = wide ? focus : mobilePane;
+  const visible = (pane: Pane) => (only ? only === pane : pane !== "chat" || !chatHidden);
+  const toggleFocus = (pane: Pane) => setFocus((current) => (current === pane ? null : pane));
+
+  // A citation, a summary item or a piece of RFI evidence asks the viewer to
+  // jump. If the viewer is hidden behind a full-view pane (or the phone
+  // switcher), bring it back — the viewer's own effect retries its scroll for
+  // 1.5s, which is time enough for it to be shown.
+  const jumpToPage = useAppStore((s) => s.jumpToPage);
+  const viewerHidden = !visible("viewer");
+  useEffect(() => {
+    if (jumpToPage === null || !viewerHidden) return;
+    if (wide) setFocus(null);
+    else setMobilePane("viewer");
+  }, [jumpToPage, viewerHidden, wide]);
+
+  // Escape leaves full view, the way it closes every other overlay here.
+  useEffect(() => {
+    if (!focus) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) setFocus(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focus]);
 
   useEffect(() => localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth)), [sidebarWidth]);
   useEffect(() => localStorage.setItem(CHAT_KEY, String(chatWidth)), [chatWidth]);
@@ -270,43 +344,45 @@ export function ProjectView({ projectId }: { projectId: string }) {
         </CardContent>
       </Card>
 
-      {/* Full-page chat replaces the three panes rather than overlaying them:
-          reading a long answer next to a 66%-zoom drawing is the problem this
-          solves, so the drawing has to actually go away. */}
-      {chatExpanded ? (
-        <div className="flex min-h-0 flex-1">
-          <Card className="h-full w-full gap-0 overflow-hidden py-0">
-            <ChatPanel
-              projectId={projectId}
-              expanded
-              onToggleExpand={() => setChatExpanded(false)}
-            />
-          </Card>
-        </div>
-      ) : (
+      {!wide && <PaneSwitcher value={mobilePane} onChange={setMobilePane} />}
+
       <div className="flex min-h-0 flex-1">
-        {/* Work column: one scroll, tabs over the three panels. */}
+        {/* Work column: one scroll, tabs over the panels. A container, so the
+            tab labels shorten with the COLUMN's width, which the divider
+            changes independently of the window's. */}
         <aside
-          className="flex min-h-0 shrink-0 flex-col gap-4 overflow-y-auto pr-3"
-          style={{ width: sidebarWidth }}
+          className={cn(
+            "@container/work flex min-h-0 flex-col gap-4 overflow-y-auto",
+            only ? "w-full" : "shrink-0 pr-3",
+            !visible("work") && "hidden",
+          )}
+          style={only ? undefined : { width: sidebarWidth }}
         >
           <Card className="gap-0 py-4" data-tour="summary">
             <Tabs defaultValue="summary">
-              <div className="px-4">
-                <TabsList className="w-full">
-                  <TabsTrigger value="documents">
+              <div className="flex items-center gap-2 px-4">
+                <TabsList className="min-w-0 flex-1">
+                  <TabsTrigger value="documents" title="Documents">
                     <FilesIcon />
-                    Docs
+                    <span className="@[16rem]/work:inline hidden">Docs</span>
                   </TabsTrigger>
-                  <TabsTrigger value="summary">
+                  <TabsTrigger value="summary" title="Summary & categories">
                     <LayoutGridIcon />
-                    Summary &amp; categories
+                    <span className="@[16rem]/work:inline hidden @[26rem]/work:hidden">Summary</span>
+                    <span className="@[26rem]/work:inline hidden">Summary &amp; categories</span>
                   </TabsTrigger>
-                  <TabsTrigger value="rfis">
+                  <TabsTrigger value="rfis" title="RFIs">
                     <MessageCircleQuestionIcon />
-                    RFIs
+                    <span className="@[16rem]/work:inline hidden">RFIs</span>
                   </TabsTrigger>
                 </TabsList>
+                {wide && (
+                  <FullViewButton
+                    expanded={focus === "work"}
+                    label="the work column"
+                    onClick={() => toggleFocus("work")}
+                  />
+                )}
               </div>
               {/* One tab: picking a category swaps the summary above it, so
                   splitting them made you flip back and forth to read it. */}
@@ -330,51 +406,55 @@ export function ProjectView({ projectId }: { projectId: string }) {
             </Tabs>
           </Card>
         </aside>
-        <DragDivider
-          width={sidebarWidth}
-          onResize={setSidebarWidth}
-          min={300}
-          max={620}
-          title="Drag to resize the work column"
-        />
-
-        {!chatHidden && (
-          <>
-            <section className="min-h-0 shrink-0 pl-3" style={{ width: chatWidth }}>
-              <Card className="h-full gap-0 overflow-hidden py-0">
-                <ChatPanel
-                  projectId={projectId}
-                  onToggleExpand={() => setChatExpanded(true)}
-                />
-              </Card>
-            </section>
-            <DragDivider
-              width={chatWidth}
-              onResize={setChatWidth}
-              min={280}
-              max={800}
-              title="Drag to resize the chat pane / viewer"
-            />
-          </>
+        {!only && (
+          <DragDivider
+            width={sidebarWidth}
+            onResize={setSidebarWidth}
+            min={300}
+            max={620}
+            title="Drag to resize the work column"
+          />
         )}
 
-        <section className="relative min-w-0 flex-1 pl-3">
-          <CombinedViewer projectId={projectId} />
-          {/* Chat lives behind this button so the viewer can take the width. */}
-          <Button
-            size="icon"
-            variant={chatHidden ? "default" : "secondary"}
-            className="absolute right-6 bottom-16 size-11 rounded-full shadow-lg"
-            data-tour="chat-toggle"
-            onClick={() => setChatHidden((hidden) => !hidden)}
-            title={chatHidden ? "Show the chat pane" : "Hide the chat pane and widen the viewer"}
-          >
-            {chatHidden ? <MessageSquareIcon /> : <XIcon />}
-            <span className="sr-only">{chatHidden ? "Show chat" : "Hide chat"}</span>
-          </Button>
+        <section
+          className={cn(
+            "min-h-0",
+            only ? "w-full" : "shrink-0 pl-3",
+            !visible("chat") && "hidden",
+          )}
+          style={only ? undefined : { width: chatWidth }}
+        >
+          <Card className="h-full gap-0 overflow-hidden py-0">
+            <ChatPanel
+              projectId={projectId}
+              expanded={only === "chat"}
+              onToggleExpand={wide ? () => toggleFocus("chat") : undefined}
+              onHide={wide && !only ? () => setChatHidden(true) : undefined}
+            />
+          </Card>
+        </section>
+        {!only && visible("chat") && (
+          <DragDivider
+            width={chatWidth}
+            onResize={setChatWidth}
+            min={280}
+            max={800}
+            title="Drag to resize the chat pane / viewer"
+          />
+        )}
+
+        <section
+          className={cn("min-w-0 flex-1", !only && "pl-3", !visible("viewer") && "hidden")}
+        >
+          <CombinedViewer
+            projectId={projectId}
+            expanded={only === "viewer"}
+            onToggleExpand={wide ? () => toggleFocus("viewer") : undefined}
+            chatShown={visible("chat")}
+            onToggleChat={wide && !only ? () => setChatHidden((hidden) => !hidden) : undefined}
+          />
         </section>
       </div>
-      )}
 
       {tourOpen && (
         <Tour steps={WORKSPACE_TOUR} storageKey="workspace" onClose={() => setTourOpen(false)} />

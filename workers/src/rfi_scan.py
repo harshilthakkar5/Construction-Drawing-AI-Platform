@@ -25,6 +25,7 @@ import json
 import os
 import re
 import uuid
+from dataclasses import dataclass, field
 
 import db
 import llm
@@ -36,6 +37,13 @@ log = logutil.get("rfi_scan")
 
 RFI_MODEL = os.environ.get("RFI_MODEL", "claude-haiku-4-5-20251001")
 RFI_GEMINI_MODEL = os.environ.get("RFI_GEMINI_MODEL", "gemini-3.6-flash")
+# RFI_THINKING=off|minimal|low|medium|high sets this stage's own reasoning,
+# read per scan through llm.stage_thinking. Unset leaves the global
+# CLAUDE_THINKING / GEMINI_THINKING_LEVEL in charge. Wording three facts into
+# two sentences is not reasoning, so `off` is the setting to start from — and
+# on a model that cannot go that low (Gemini 3 Pro has no `minimal`, Opus 5.5
+# cannot disable thinking) the transport steps to the nearest level it takes
+# and the scan records what was really sent.
 # "false" keeps every question on its template: no model call, no spend.
 AI_WORDING = os.environ.get("RFI_AI_WORDING", "true").lower() != "false"
 # Findings per wording call. Round trips, not tokens, are what a scan spends
@@ -208,18 +216,80 @@ def parse_wording(raw: str, batch: list[Finding]) -> dict[int, tuple[str, str]]:
     return worded
 
 
-def word(findings: list[Finding], project_id: str) -> tuple[dict[str, tuple[str, str]], str | None]:
+@dataclass
+class WordingUsage:
+    """What one scan's wording calls cost, stored on its rfi_scans row.
+
+    usage_events already records every call per project and kind, which is the
+    dashboard's view. This is the SCAN's view — "that button press cost 6,800
+    tokens, 4,100 of them thinking" — because a thinking setting is judged per
+    run, and a project-wide total cannot say which run it came from.
+    """
+
+    provider: str | None = None
+    model: str | None = None
+    thinking_setting: str | None = None
+    thinking_sent: list[str] = field(default_factory=list)
+    # The model refused RFI_THINKING and ran at the nearest setting it takes.
+    thinking_adjusted: bool = False
+    calls: int = 0
+    failed_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    # None until a provider reports it; Anthropic folds reasoning into output.
+    thinking_tokens: int | None = None
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    def add(self, reply) -> None:
+        self.calls += 1
+        self.model = reply.model or self.model
+        self.input_tokens += reply.input_tokens
+        self.output_tokens += reply.output_tokens
+        self.cache_read_tokens += reply.cache_read_tokens
+        self.cache_write_tokens += reply.cache_write_tokens
+        if reply.thinking_tokens is not None:
+            self.thinking_tokens = (self.thinking_tokens or 0) + reply.thinking_tokens
+        self.thinking_adjusted = self.thinking_adjusted or reply.thinking_adjusted
+        if reply.thinking and reply.thinking not in self.thinking_sent:
+            self.thinking_sent.append(reply.thinking)
+
+    def as_json(self) -> dict:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "thinkingSetting": self.thinking_setting,
+            "thinkingSent": self.thinking_sent,
+            "thinkingAdjusted": self.thinking_adjusted,
+            "calls": self.calls,
+            "failedCalls": self.failed_calls,
+            "inputTokens": self.input_tokens,
+            "outputTokens": self.output_tokens,
+            "thinkingTokens": self.thinking_tokens,
+            "cacheReadTokens": self.cache_read_tokens,
+            "cacheWriteTokens": self.cache_write_tokens,
+        }
+
+
+def word(
+    findings: list[Finding], project_id: str, usage: WordingUsage | None = None
+) -> tuple[dict[str, tuple[str, str]], str | None]:
     """{fingerprint: (subject, question)} for the findings the model worded.
 
     Anything missing from the result keeps its template. Returns a note when
     the model was not used at all, so the scan can say why every question
-    reads like a template.
+    reads like a template. Every call's tokens are added to `usage`.
     """
+    usage = usage if usage is not None else WordingUsage()
     if not findings:
         return {}, None
     if not AI_WORDING:
         return {}, "AI wording is off (RFI_AI_WORDING=false); every question uses its template."
     chosen = provider()
+    thinking = llm.stage_thinking("RFI_THINKING")
+    usage.provider = chosen
+    usage.model = llm.model_for(chosen, RFI_MODEL, RFI_GEMINI_MODEL)
+    usage.thinking_setting = thinking
     if not llm.available(chosen):
         key = "GEMINI_API_KEY" if chosen == "gemini" else "ANTHROPIC_API_KEY"
         return {}, f"{key} is not set on the worker, so every question uses its template wording."
@@ -238,9 +308,19 @@ def word(findings: list[Finding], project_id: str) -> tuple[dict[str, tuple[str,
             kind="rfi",
             project_id=project_id,
             json_only=True,
+            thinking=thinking,
         )
         if reply is None:
+            usage.failed_calls += 1
             continue
+        usage.add(reply)
+        if reply.stop_reason == "max_tokens":
+            log.warning(
+                "rfi wording batch of %d was cut off at the output cap (thinking sent: %s, "
+                "%s of %d output tokens were thinking) — the findings it did not finish keep "
+                "their template wording. Lower RFI_THINKING, or RFI_WORDING_BATCH.",
+                len(batch), reply.thinking, reply.thinking_tokens, reply.output_tokens,
+            )
         for index, wording in parse_wording(reply.text, batch).items():
             result[batch[index].fingerprint] = wording
     return result, None
@@ -327,7 +407,8 @@ def _run(project_id: str, scan_id: str) -> dict:
     # is theirs, and one still pending keeps the question it was shown with —
     # so a re-scan costs a model call only for what actually changed.
     new = [f for f in findings if f.fingerprint not in existing]
-    worded, wording_note = word(new, project_id)
+    usage = WordingUsage()
+    worded, wording_note = word(new, project_id, usage)
     if wording_note:
         notes.append(wording_note)
 
@@ -391,6 +472,7 @@ def _run(project_id: str, scan_id: str) -> dict:
             modelWorded=len(worded),
             byCheck=json.dumps(by_check),
             notes=json.dumps(notes),
+            usage=json.dumps(usage.as_json()),
             finishedAt=_now(conn),
         )
 
@@ -400,6 +482,7 @@ def _run(project_id: str, scan_id: str) -> dict:
         "modelWorded": len(worded),
         "byCheck": by_check,
         "resolved": resolved,
+        "usage": usage.as_json(),
     }
     log.info("rfi scan %s: %s", scan_id[:8], result)
     return result
