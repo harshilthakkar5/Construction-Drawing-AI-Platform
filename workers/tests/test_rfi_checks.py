@@ -335,9 +335,25 @@ def test_the_cap_keeps_the_strongest_and_says_so(monkeypatch):
 
 
 def test_run_all_runs_every_check():
+    from rfi_grid import GridSystem
+
     pages, chunks = mark_project([("p1", "PC4 AT 7/D. SEE 5/S-509. PILE TIP TBD", ["PC4"])])
-    findings, _ = run_all(pages, chunks)
+    rows = {"1": 100.0, "2": 330.0, "3": 470.0, "4": 800.0}
+    grids = [
+        GridSystem(pages[0].id, "blue 27pt", {}, rows),
+        GridSystem(pages[0].id, "grey 18pt", {}, {"2": 100.0, "3": 330.0, "4": 470.0, "5": 800.0}),
+    ]
+    findings, _ = run_all(pages, chunks, grids)
     assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES)
+
+
+def test_run_all_says_when_the_grid_check_could_not_look():
+    """No grids read and no grids found are different answers."""
+    pages, chunks = mark_project([("p1", "PILE TIP TBD", [])])
+    _, notes = run_all(pages, chunks, None)
+    assert any("Grid check did not run" in n for n in notes)
+    _, notes = run_all(pages, chunks, [])
+    assert any("found no grid bubbles" in n for n in notes)
 
 
 def test_check_types_match_the_labels_the_ui_renders():

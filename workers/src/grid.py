@@ -196,3 +196,121 @@ def spacing(values: list[float]) -> float:
     gaps.sort()
     middle = len(gaps) // 2
     return gaps[middle] if len(gaps) % 2 else (gaps[middle - 1] + gaps[middle]) / 2
+
+
+# --- Every grid on a sheet, by drawing style ----------------------------------
+#
+# `bubbles` answers "where is THIS sheet's grid" for the vision pass and the
+# eval, and its size window was set on one ARCH E1 sheet. The RFI grid check
+# asks a different question — "does this sheet carry TWO grids that disagree"
+# — and needs two things `bubbles` deliberately throws away.
+#
+# Size. A 36x24 sheet draws its bubbles at 27pt, and an architectural
+# background referenced into a structural plan draws them at 18pt, greyed.
+# Both fall under BUBBLE_MIN_PT, so `bubbles` sees no grid at all on the set
+# that motivated this. The window here is wide; what keeps it honest is the
+# axis rule (three bubbles on one line) and the comparison that follows.
+#
+# Style. Those two grids sit on the SAME lines with DIFFERENT labels: row 6 of
+# the structural grid is row 9 of the architectural one. Pooled into one axis,
+# `axes` keys by label and cannot tell the two apart. Grouped by (size,
+# colour) first, each becomes its own system, and the disagreement is a fact
+# the drawing states rather than an inference.
+
+STYLED_MIN_PT = 12.0
+STYLED_MAX_PT = 48.0
+# Words on a sheet shaped like a grid label. A page with fewer cannot hold a
+# grid on two axes, and skipping its vector scan is most of the cost saved on
+# a set that is mostly details and schedules.
+MIN_GRID_WORDS = 6
+SIZE_TOL_PT = 2.0
+# Wider than GRID_LABEL by one shape: a secondary line between two lettered
+# ones ("C.1", "F.7", "B1.5"). `bubbles` refuses those on purpose — its callers
+# ask about intersections of primary lines — but a secondary line sitting
+# where the other drawing puts a primary one is exactly a naming mismatch.
+STYLED_LABEL = re.compile(r"\d+(?:\.\d+)?|[A-Z]{1,2}(?:\d*\.\d+)?")
+
+
+def _colour_name(rgb) -> str:
+    if not rgb:
+        return "black"
+    r, g, b = (float(v) for v in rgb[:3])
+    if max(r, g, b) - min(r, g, b) < 0.12:
+        if max(r, g, b) < 0.25:
+            return "black"
+        return "grey"
+    if b > r and b > g:
+        return "blue"
+    if r > g and r > b:
+        return "red" if g < 0.5 else "orange"
+    if g > r and g > b:
+        return "green"
+    return "coloured"
+
+
+def styled_systems(page: fitz.Page) -> list[dict]:
+    """Every grid on the page, one per bubble STYLE, in display coordinates.
+
+    Each is {"style": "blue 27pt", "along_x": {label: x}, "along_y": {label: y},
+    "bubbles": {label: [[x0, y0, x1, y1], ...]}}. `along_x` holds lines whose bubbles
+    share a y — their position is an x — and `along_y` the other way round.
+    Deliberately NOT called columns and rows: which is which is a convention
+    (`transposed`), and comparing two grids only needs the geometry.
+    """
+    words = page.get_text("words")
+    if sum(1 for w in words if STYLED_LABEL.fullmatch(w[4])) < MIN_GRID_WORDS:
+        return []
+    to_display = ~page.derotation_matrix
+    by_colour: dict[str, list[tuple[str, float, float, fitz.Rect, float]]] = {}
+    for drawing in page.get_cdrawings():
+        rect = fitz.Rect(drawing["rect"])
+        if rect.width <= 0 or rect.height <= 0:
+            continue
+        if not STYLED_MIN_PT < rect.width < STYLED_MAX_PT:
+            continue
+        if not BUBBLE_ASPECT[0] < rect.width / rect.height < BUBBLE_ASPECT[1]:
+            continue
+        if not any(item[0] == "c" for item in drawing["items"]):
+            continue
+        inside = [
+            w[4]
+            for w in words
+            if rect.x0 <= (w[0] + w[2]) / 2 <= rect.x1 and rect.y0 <= (w[1] + w[3]) / 2 <= rect.y1
+        ]
+        if len(inside) != 1 or not STYLED_LABEL.fullmatch(inside[0]):
+            continue
+        colour = _colour_name(drawing.get("color") or drawing.get("fill"))
+        shown = rect * to_display
+        by_colour.setdefault(colour, []).append((inside[0], *centre(shown), shown, rect.width))
+
+    # Sizes are CLUSTERED per colour, never bucketed: one drafter's bubble is
+    # one size give or take the stroke (26.9 beside 27.0), and a fixed bucket
+    # edge between those splits one grid into two systems. Two grids a drafter
+    # meant to tell apart differ by far more than SIZE_TOL_PT.
+    groups: dict[str, list[tuple[str, float, float, fitz.Rect]]] = {}
+    for colour, found in by_colour.items():
+        found.sort(key=lambda item: item[4])
+        clusters: list[list] = []
+        for item in found:
+            if clusters and item[4] - clusters[-1][-1][4] <= SIZE_TOL_PT:
+                clusters[-1].append(item)
+            else:
+                clusters.append([item])
+        for cluster in clusters:
+            size = sorted(item[4] for item in cluster)[len(cluster) // 2]
+            groups[f"{colour} {round(size)}pt"] = [item[:4] for item in cluster]
+
+    systems = []
+    for style, found in sorted(groups.items()):
+        along_x, along_y = axes([(label, x, y) for label, x, y, _ in found])
+        if not along_x and not along_y:
+            continue
+        # Every bubble of a label, not their union: a grid line is bubbled at
+        # BOTH ends, and one box around both is a highlight the width of the
+        # sheet. The caller picks one end.
+        boxes: dict[str, list[list[float]]] = {}
+        for label, _, _, shown in found:
+            if label in along_x or label in along_y:
+                boxes.setdefault(label, []).append([shown.x0, shown.y0, shown.x1, shown.y1])
+        systems.append({"style": style, "along_x": along_x, "along_y": along_y, "bubbles": boxes})
+    return systems

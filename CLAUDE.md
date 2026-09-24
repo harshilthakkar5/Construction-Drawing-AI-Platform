@@ -2120,7 +2120,7 @@ model only WORDS each finding as a question. A model asked "what is missing from
 writes a fluent, confident list with nothing to tell the real items from the invented ones, and
 an RFI that is not real costs an engineer an afternoon.
 
-Three checks, each built for precision before recall — a missed gap is found the normal way, a
+Four checks, each built for precision before recall — a missed gap is found the normal way, a
 false one is a question someone has to answer:
 
   * `dangling_reference` — "SEE 5/S-501", "REFER TO SHEET A-301", with no S-501 in the set. Only
@@ -2146,6 +2146,30 @@ false one is a question someone has to answer:
   * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
     (medium), V.I.F. / VERIFY IN FIELD (low: often boilerplate). Grouped by the NOTE, so a TBD in
     the general notes of forty sheets is one finding with up to five evidence locations.
+  * `grid_mismatch` (`workers/src/rfi_grid.py`) — one grid line named differently by two
+    drawings: the structural sheet's row 6 is the architectural sheet's row 9. Built from a real
+    client RFI ("CONFIRM THE GRID LAYOUT", S2.105 against A3.01) that the three text checks
+    scanned and found nothing in, because the fact is not text: a grid bubble is a circle and a
+    word, and neither survives into a chunk. So it is the one check that reads the PDFs —
+    `rfi_scan.load_grids` downloads each document, `grid.styled_systems` finds every grid on a
+    page GROUPED BY DRAWING STYLE (colour + clustered size), and the result is cached in Redis per
+    (document, page) under `GRID_CACHE_VERSION`, since a document's bytes never change.
+    Style grouping is what makes the strongest form visible: that structural sheet draws its own
+    grid in blue 27pt bubbles and the architectural background in grey 18pt ones ON THE SAME
+    LINES, and pooled into one axis the two are indistinguishable. `grid.bubbles` could not have
+    been reused — its 30-45pt window was set on one ARCH E1 sheet and saw NO grid on this 36x24
+    set, and it refuses secondary labels like `F.7`, which is exactly where one naming put a line
+    the other called `G`. Sizes are clustered, not bucketed: 26.9 beside 27.0 is one drafter's
+    bubble, and a 2pt bucket edge between them split one grid into two. Two grids are laid over
+    each other by TRANSLATION only (no scale search; a different scale is a missed finding), and
+    the offset must be unambiguous — a regular bay lines up with a copy of itself shifted one bay
+    nearly as well as with the original, and that shift renames every line, so the best offset
+    must beat the runner-up by `MIN_MARGIN` lines and cover half the smaller grid. On ONE page
+    the offset must be zero. Across pages only DIFFERENT disciplines are compared (or a sheet
+    with no discipline read) — two structural levels whose grids differ are usually two parts of
+    a building. Fingerprinted on the unordered renamed pairs, so the grey background on S2.105
+    and A3.01 itself are one finding with both as evidence. The highlight is ONE END of the
+    renamed lines, never their union, which spans the sheet. `RFI_GRID_CHECK=false` skips it.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100

@@ -375,6 +375,9 @@ def database(monkeypatch):
     monkeypatch.setattr(db, "_pool", None)
     monkeypatch.setattr(db, "_pool_unavailable", True)  # one connection per call
     monkeypatch.setattr(rfi_scan, "AI_WORDING", False)
+    # The seeded documents have no PDF behind them; the grid check reads PDFs
+    # and is tested on its own (test_rfi_grid.py).
+    monkeypatch.setattr(rfi_scan, "GRID_CHECK", False)
     return db
 
 
