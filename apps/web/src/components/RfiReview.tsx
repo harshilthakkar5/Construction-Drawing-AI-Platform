@@ -3,6 +3,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CoinsIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
   ScanSearchIcon,
   SparklesIcon,
@@ -20,7 +21,7 @@ import {
   type RfiUsageTotalsDto,
 } from "@cdip/shared";
 import { api } from "@/api";
-import { Notice, Spinner } from "@/components/shared";
+import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -94,7 +95,7 @@ function thinkingLabel(sent: string): string {
 function scanSummary(scan: RfiScanDto): string {
   const when = scan.finishedAt ? new Date(scan.finishedAt).toLocaleString() : "";
   const found = `${scan.findings} ${scan.findings === 1 ? "finding" : "findings"}`;
-  return `Last scan ${when} — ${found}`;
+  return `Last ${scan.fresh ? "full rescan" : "scan"} ${when} — ${found}`;
 }
 
 export function RfiReview({ projectId }: { projectId: string }) {
@@ -112,6 +113,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
   });
   const scanning = scan.data?.status === "queued" || scan.data?.status === "running";
   const [showUsage, setShowUsage] = useState(false);
+  const [confirmFresh, setConfirmFresh] = useState(false);
   const usageTotals = useQuery({
     queryKey: ["rfi-usage", projectId],
     queryFn: () => api.rfiUsage(projectId),
@@ -143,8 +145,11 @@ export function RfiReview({ projectId }: { projectId: string }) {
   }, [scan.data?.status]);
 
   const start = useMutation({
-    mutationFn: () => api.startRfiScan(projectId),
-    onSuccess: (started) => queryClient.setQueryData(["rfi-scan", projectId], started),
+    mutationFn: (fresh: boolean) => api.startRfiScan(projectId, { fresh }),
+    onSuccess: (started) => {
+      queryClient.setQueryData(["rfi-scan", projectId], started);
+      setConfirmFresh(false);
+    },
   });
   const accept = useMutation({
     mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id),
@@ -167,16 +172,39 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const highCount = candidates.filter((c) => c.confidence === "high").length;
   const dismissedCount = pending.data?.counts.dismissed ?? 0;
   const busy = accept.isPending || dismiss.isPending || acceptAll.isPending;
-  const error = start.error ?? accept.error ?? dismiss.error ?? acceptAll.error ?? restore.error;
+  const error = (confirmFresh ? null : start.error) ?? accept.error ?? dismiss.error ?? acceptAll.error ?? restore.error;
 
   return (
     <section className="mb-4">
       <div className="bg-muted/40 rounded-lg border p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => start.mutate()} disabled={scanning || start.isPending}>
+          <Button
+            size="sm"
+            onClick={() => start.mutate(false)}
+            disabled={scanning || start.isPending}
+            title={scan.data ? "Look for gaps added since the last scan" : undefined}
+          >
             {scanning ? <Spinner /> : <ScanSearchIcon />}
-            {scanning ? "Scanning drawings…" : scan.data ? "Scan again" : "Find RFIs in drawings"}
+            {scanning
+              ? scan.data?.fresh
+                ? "Rescanning from scratch…"
+                : "Scanning drawings…"
+              : scan.data
+                ? "Scan again"
+                : "Find RFIs in drawings"}
           </Button>
+          {scan.data && !scanning && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmFresh(true)}
+              disabled={start.isPending}
+              title="Re-check every sheet and re-word every open finding, including ones you dismissed"
+            >
+              <RefreshCwIcon />
+              Rescan from scratch
+            </Button>
+          )}
           {scan.data?.status === "completed" && (
             <span className="text-muted-foreground text-xs">{scanSummary(scan.data)}</span>
           )}
@@ -257,8 +285,35 @@ export function RfiReview({ projectId }: { projectId: string }) {
       {scan.data?.status === "completed" && candidates.length === 0 && (
         <p className="text-muted-foreground mt-3 text-center text-xs">
           Nothing waiting for review.
-          {scan.data.findings === 0 && " The scan found no gaps these checks can see."}
+          {scan.data.findings === 0
+            ? " The scan found no gaps these checks can see."
+            : " Every finding has been accepted or dismissed — use Rescan from scratch to look at them again."}
         </p>
+      )}
+
+      {confirmFresh && (
+        <ConfirmDialog
+          title="Rescan from scratch?"
+          message={
+            <>
+              <p>
+                Every sheet is checked again and every open finding gets a newly written question.
+                Findings you dismissed come back for review, and so does any finding whose RFI was
+                voided.
+              </p>
+              <p className="mt-2">
+                RFIs already in the log are left exactly as they are — they have numbers, so they
+                are never proposed twice. This uses AI calls for every finding it re-words.
+              </p>
+            </>
+          }
+          confirmLabel="Rescan from scratch"
+          busyLabel="Starting…"
+          busy={start.isPending}
+          error={start.error}
+          onConfirm={() => start.mutate(true)}
+          onCancel={() => setConfirmFresh(false)}
+        />
       )}
 
       {dismissedCount > 0 && (

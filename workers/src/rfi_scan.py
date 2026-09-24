@@ -375,6 +375,40 @@ def _set_scan(conn, scan_id: str, **fields) -> None:
     conn.execute(f"UPDATE rfi_scans SET {columns} WHERE id = %s", (*fields.values(), scan_id))
 
 
+def plan_wording(
+    findings: list[Finding], existing: dict[str, tuple[str, str | None]], fresh: bool
+) -> tuple[list[Finding], set[str]]:
+    """Which findings to send for wording, and which decided ones to reopen.
+
+    `existing` maps fingerprint -> (candidate status, status of its RFI).
+
+    An ordinary scan words only findings it has never seen: a pending one
+    keeps the question it was shown with, and a decided one is a person's.
+
+    A FULL rescan re-words every finding the drawings still produce, except
+    one that is a live RFI in the log — that has a number and may already be
+    in someone's inbox, so proposing it again would issue a duplicate. It
+    reopens a DISMISSED finding (the user asked to look at everything again)
+    and an accepted one whose RFI was VOIDED (the question was withdrawn, not
+    answered). A finding the drawings no longer produce is not reopened: there
+    is nothing left to ask.
+    """
+    if not fresh:
+        return [f for f in findings if f.fingerprint not in existing], set()
+    reopened: set[str] = set()
+    to_word: list[Finding] = []
+    for finding in findings:
+        state = existing.get(finding.fingerprint)
+        if state is None or state[0] == "pending":
+            to_word.append(finding)
+            continue
+        status, rfi_status = state
+        if status == "dismissed" or (status == "accepted" and rfi_status in (None, "voided")):
+            reopened.add(finding.fingerprint)
+            to_word.append(finding)
+    return to_word, reopened
+
+
 def run(project_id: str, scan_id: str) -> dict:
     with db.connect() as conn:
         _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
@@ -396,28 +430,54 @@ def _run(project_id: str, scan_id: str) -> dict:
     findings, notes = rfi_checks.run_all(pages, chunks)
 
     with db.connect() as conn:
-        existing = dict(
-            conn.execute(
-                "SELECT fingerprint, status FROM rfi_candidates WHERE \"projectId\" = %s",
+        fresh = bool(
+            (conn.execute('SELECT fresh FROM rfi_scans WHERE id = %s', (scan_id,)).fetchone() or [False])[0]
+        )
+        # The candidate's own status, and — for an accepted one — the status
+        # of the RFI it became, because a VOIDED RFI means the question was
+        # withdrawn and a full rescan may ask it again.
+        existing = {
+            row[0]: (row[1], row[2])
+            for row in conn.execute(
+                """
+                SELECT c.fingerprint, c.status::text, r.status::text
+                  FROM rfi_candidates c
+                  LEFT JOIN rfis r ON r.id = c."rfiId"
+                 WHERE c."projectId" = %s
+                """,
                 (project_id,),
             ).fetchall()
-        )
+        }
 
-    # Only NEW findings are worded. One a person already accepted or dismissed
-    # is theirs, and one still pending keeps the question it was shown with —
-    # so a re-scan costs a model call only for what actually changed.
-    new = [f for f in findings if f.fingerprint not in existing]
+    to_word, reopened = plan_wording(findings, existing, fresh)
     usage = WordingUsage()
-    worded, wording_note = word(new, project_id, usage)
+    worded, wording_note = word(to_word, project_id, usage)
     if wording_note:
         notes.append(wording_note)
+    if fresh:
+        notes.append(
+            f"Full rescan: {len(to_word)} finding(s) re-worded"
+            + (f", {len(reopened)} reopened (dismissed, or their RFI was voided)" if reopened else "")
+            + ". Findings already issued as a live RFI were left alone."
+        )
 
     by_check: dict[str, int] = {}
     with db.connect() as conn:
+        if reopened:
+            conn.execute(
+                """
+                UPDATE rfi_candidates
+                   SET status = 'pending', "rfiId" = NULL, "decidedById" = NULL,
+                       "decidedAt" = NULL, "updatedAt" = now()
+                 WHERE "projectId" = %s AND fingerprint = ANY(%s::text[])
+                """,
+                (project_id, sorted(reopened)),
+            )
         for finding in findings:
             by_check[finding.check_type] = by_check.get(finding.check_type, 0) + 1
             subject, question = worded.get(finding.fingerprint, (finding.subject, finding.question))
             source = "model" if finding.fingerprint in worded else "template"
+            replace = fresh and finding.fingerprint in worded
             conn.execute(
                 """
                 INSERT INTO rfi_candidates
@@ -430,6 +490,13 @@ def _run(project_id: str, scan_id: str) -> dict:
                    SET "scanId" = EXCLUDED."scanId",
                        confidence = EXCLUDED.confidence,
                        evidence = EXCLUDED.evidence,
+                       -- Wording is replaced only by a full rescan that
+                       -- actually re-worded this finding: a failed call must
+                       -- not swap a good AI question for the template.
+                       subject = CASE WHEN %s THEN EXCLUDED.subject ELSE rfi_candidates.subject END,
+                       question = CASE WHEN %s THEN EXCLUDED.question ELSE rfi_candidates.question END,
+                       "questionSource" = CASE WHEN %s THEN EXCLUDED."questionSource"
+                                               ELSE rfi_candidates."questionSource" END,
                        "updatedAt" = now()
                  WHERE rfi_candidates.status = 'pending'
                 """,
@@ -444,6 +511,9 @@ def _run(project_id: str, scan_id: str) -> dict:
                     question,
                     source,
                     json.dumps(finding.evidence),
+                    replace,
+                    replace,
+                    replace,
                 ),
             )
 
@@ -478,7 +548,9 @@ def _run(project_id: str, scan_id: str) -> dict:
 
     result = {
         "findings": len(findings),
-        "new": len(new),
+        "new": len([f for f in findings if f.fingerprint not in existing]),
+        "fresh": fresh,
+        "reopened": len(reopened),
         "modelWorded": len(worded),
         "byCheck": by_check,
         "resolved": resolved,

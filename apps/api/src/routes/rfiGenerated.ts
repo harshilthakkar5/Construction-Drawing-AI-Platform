@@ -42,6 +42,11 @@ const listQuery = z.object({
     .enum(RFI_CANDIDATE_STATUSES as [RfiCandidateStatus, ...RfiCandidateStatus[]])
     .default("pending"),
 });
+const scanBody = z.object({
+  /** Rescan from scratch: re-word every open finding, reopen dismissed ones
+   * and those whose RFI was voided. Never touches a live RFI. */
+  fresh: z.boolean().default(false),
+});
 const acceptAllBody = z.object({
   minConfidence: z.enum(RFI_CONFIDENCES as [RfiConfidence, ...RfiConfidence[]]).default("high"),
 });
@@ -117,6 +122,7 @@ rfiGeneratedRouter.get("/usage", async (req, res) => {
  */
 rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
+  const { fresh } = scanBody.parse(req.body ?? {});
   const actor = currentUser(req);
 
   const documents = await prisma.document.count({
@@ -137,14 +143,16 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   }
 
   const scan = await prisma.rfiScan.create({
-    data: { projectId, requestedById: actor.id },
+    data: { projectId, requestedById: actor.id, fresh },
   });
   const job = await rfiScanQueue.add("scan", { projectId, scanId: scan.id });
   const updated = await prisma.rfiScan.update({
     where: { id: scan.id },
     data: { jobId: job.id ?? null },
   });
-  console.log(`[rfis] scan ${scan.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)}`);
+  console.log(
+    `[rfis] ${fresh ? "full rescan" : "scan"} ${scan.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)}`,
+  );
   res.status(202).json(toScanDto(updated, estimateCostUsd));
 });
 

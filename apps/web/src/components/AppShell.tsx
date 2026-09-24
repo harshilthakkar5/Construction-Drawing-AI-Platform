@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { createContext, useContext, useState } from "react";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -68,6 +69,18 @@ const NAV: { group: string; items: { view: View; label: string; icon: React.Elem
   },
 ];
 
+/**
+ * Where a page puts its own header content: the element right of the
+ * breadcrumb. The project view portals its status, facts and quick actions
+ * into it, so they sit in the one bar that is always on screen instead of a
+ * card that pushed the workspace down. Null until the header has mounted.
+ */
+const HeaderSlotContext = createContext<HTMLElement | null>(null);
+
+export function useHeaderSlot(): HTMLElement | null {
+  return useContext(HeaderSlotContext);
+}
+
 const TITLES: Record<View, string> = {
   dashboard: "Dashboard",
   projects: "Projects",
@@ -85,6 +98,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const view = useAppStore((s) => s.view);
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const openProject = useAppStore((s) => s.openProject);
 
@@ -120,19 +134,24 @@ export function AppShell({
               >
                 Projects
               </button>
-              <ChevronRightIcon className="text-muted-foreground/60 size-4" />
-              <span className="truncate text-sm font-medium">{project.data?.name ?? "…"}</span>
+              <ChevronRightIcon className="text-muted-foreground/60 size-4 shrink-0" />
+              <span className="max-w-[40vw] shrink-0 truncate text-sm font-medium">
+                {project.data?.name ?? "…"}
+              </span>
             </>
           ) : (
             <span className="text-sm font-medium">{TITLES[view]}</span>
           )}
-          <div className="ml-auto flex items-center gap-1">
+          <div ref={setHeaderSlot} className="flex min-w-0 flex-1 items-center gap-3" />
+          <div className="flex shrink-0 items-center gap-1">
             <ModeToggle />
             <UserMenu user={user} onSignOut={onSignOut} align="end" compact />
           </div>
         </header>
         {/* Pages own their scrolling so the project view can fill the height. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+        <HeaderSlotContext.Provider value={headerSlot}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+        </HeaderSlotContext.Provider>
       </SidebarInset>
     </SidebarProvider>
   );

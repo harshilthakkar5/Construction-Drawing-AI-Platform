@@ -249,7 +249,7 @@ export function CombinedViewer({
         )}
         {/* Left group truncates; the controls on the right never do. */}
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-muted-foreground @[420px]/viewer:inline hidden shrink-0 text-xs font-semibold tracking-wide uppercase">
+          <span className="text-muted-foreground @[600px]/viewer:inline hidden shrink-0 text-xs font-semibold tracking-wide uppercase">
             Combined set
           </span>
           <span className="text-muted-foreground @[640px]/viewer:inline hidden shrink-0 text-xs">

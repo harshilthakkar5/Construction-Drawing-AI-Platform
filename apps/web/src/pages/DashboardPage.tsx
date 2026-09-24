@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   FileStackIcon,
   FolderKanbanIcon,
   MessagesSquareIcon,
@@ -400,10 +402,22 @@ function StatCard({
   );
 }
 
-/** The per-project breakdown — the table view that relieves the chart colors. */
+/** Rows per page of the per-project table — enough to scan, few enough that
+ * the card stays level with "Recent projects" beside it. */
+const USAGE_PAGE_SIZE = 8;
+
+/** The per-project breakdown — the table view that relieves the chart colors.
+ * Paged on the client: the dashboard already carries every project, and the
+ * ordering (heaviest spend first) has to be across all of them, not per page. */
 function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] }) {
   const openProject = useAppStore((s) => s.openProject);
-  const rows = [...projects].sort((a, b) => b.tokens.totalTokens - a.tokens.totalTokens);
+  const [page, setPage] = useState(0);
+  const sorted = [...projects].sort((a, b) => b.tokens.totalTokens - a.tokens.totalTokens);
+  const pageCount = Math.max(1, Math.ceil(sorted.length / USAGE_PAGE_SIZE));
+  // A refetch can shrink the list under an open page; show the last real one.
+  const current = Math.min(page, pageCount - 1);
+  const first = current * USAGE_PAGE_SIZE;
+  const rows = sorted.slice(first, first + USAGE_PAGE_SIZE);
   return (
     <Card>
       <CardHeader>
@@ -453,6 +467,36 @@ function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] })
           </TableBody>
         </Table>
       </CardContent>
+      {pageCount > 1 && (
+        <CardFooter className="justify-between gap-2 border-t pt-4 text-sm">
+          <span className="text-muted-foreground tabular-nums">
+            {first + 1}–{first + rows.length} of {sorted.length} projects
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setPage(current - 1)}
+              disabled={current === 0}
+              aria-label="Previous page"
+            >
+              <ChevronLeftIcon />
+            </Button>
+            <span className="text-muted-foreground px-2 text-xs tabular-nums">
+              Page {current + 1} of {pageCount}
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setPage(current + 1)}
+              disabled={current >= pageCount - 1}
+              aria-label="Next page"
+            >
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </CardFooter>
+      )}
     </Card>
   );
 }

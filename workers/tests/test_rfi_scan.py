@@ -286,6 +286,42 @@ def test_unset_rfi_thinking_leaves_the_global_defaults(monkeypatch):
     assert seen == [None]
 
 
+# --- plan_wording: what a scan sends, and what a full rescan reopens -----------
+
+
+def _f(fp: str):
+    return finding(fingerprint=fp)
+
+
+def test_an_ordinary_scan_words_only_what_it_has_never_seen():
+    existing = {"a": ("pending", None), "b": ("dismissed", None), "c": ("accepted", "open")}
+    to_word, reopened = rfi_scan.plan_wording([_f(x) for x in "abcd"], existing, fresh=False)
+    assert [f.fingerprint for f in to_word] == ["d"] and reopened == set()
+
+
+def test_a_full_rescan_rewords_open_findings_and_reopens_withdrawn_ones():
+    existing = {
+        "pending": ("pending", None),
+        "dismissed": ("dismissed", None),
+        "live": ("accepted", "open"),
+        "answered": ("accepted", "answered"),
+        "voided": ("accepted", "voided"),
+    }
+    names = ["pending", "dismissed", "live", "answered", "voided", "new"]
+    to_word, reopened = rfi_scan.plan_wording([_f(x) for x in names], existing, fresh=True)
+    assert [f.fingerprint for f in to_word] == ["pending", "dismissed", "voided", "new"]
+    # A live RFI has a number someone may already have quoted: proposing it
+    # again would issue a duplicate, whatever state the RFI is in.
+    assert reopened == {"dismissed", "voided"}
+
+
+def test_a_full_rescan_does_not_reopen_what_the_drawings_no_longer_show():
+    to_word, reopened = rfi_scan.plan_wording(
+        [], {"gone": ("dismissed", None)}, fresh=True
+    )
+    assert to_word == [] and reopened == set()
+
+
 # --- the values the worker writes into Postgres enums ---------------------------
 
 
@@ -382,10 +418,13 @@ def _seed(db) -> tuple[str, str]:
     return project, document
 
 
-def _scan(db, project) -> str:
+def _scan(db, project, fresh: bool = False) -> str:
     scan = str(uuid.uuid4())
     with db.connect() as conn:
-        conn.execute('INSERT INTO rfi_scans (id, "projectId") VALUES (%s, %s)', (scan, project))
+        conn.execute(
+            'INSERT INTO rfi_scans (id, "projectId", fresh) VALUES (%s, %s, %s)',
+            (scan, project, fresh),
+        )
     return scan
 
 
@@ -460,6 +499,86 @@ def test_the_scan_row_records_what_its_wording_cost(database, monkeypatch):
         "cacheWriteTokens": 0,
     }
     assert usage[second]["calls"] == 0 and usage[second]["inputTokens"] == 0
+
+
+@needs_db
+def test_a_full_rescan_reopens_and_rewords_but_never_touches_a_live_rfi(database, monkeypatch):
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))  # templates: AI wording is off
+    with database.connect() as conn:
+        by_check = dict(
+            conn.execute(
+                'SELECT "checkType", id FROM rfi_candidates WHERE "projectId" = %s', (project,)
+            ).fetchall()
+        )
+        live, voided = str(uuid.uuid4()), str(uuid.uuid4())
+        for rfi_id, number, status in ((live, 1, "open"), (voided, 2, "voided")):
+            conn.execute(
+                'INSERT INTO rfis (id, "projectId", number, subject, question, status, "updatedAt") '
+                "VALUES (%s, %s, %s, 'kept subject', 'kept question', %s::\"RfiStatus\", now())",
+                (rfi_id, project, number, status),
+            )
+        # unscheduled_mark became a live RFI; dangling_reference became an RFI
+        # that was later voided; open_item_note was dismissed.
+        conn.execute(
+            "UPDATE rfi_candidates SET status = 'accepted', \"rfiId\" = %s, subject = 'live one' WHERE id = %s",
+            (live, by_check["unscheduled_mark"]),
+        )
+        conn.execute(
+            "UPDATE rfi_candidates SET status = 'accepted', \"rfiId\" = %s WHERE id = %s",
+            (voided, by_check["dangling_reference"]),
+        )
+        conn.execute(
+            "UPDATE rfi_candidates SET status = 'dismissed' WHERE id = %s",
+            (by_check["open_item_note"],),
+        )
+
+    sent: list[str] = []
+
+    def fake_word(findings, project_id, usage=None):
+        sent.extend(sorted(f.check_type for f in findings))
+        return {f.fingerprint: ("Reworded subject", "A reworded question, please advise.") for f in findings}, None
+
+    monkeypatch.setattr(rfi_scan, "word", fake_word)
+    scan = _scan(database, project, fresh=True)
+    result = rfi_scan.run(project, scan)
+
+    assert sent == ["dangling_reference", "open_item_note"], "the live RFI is not re-worded"
+    assert result["fresh"] is True and result["reopened"] == 2
+    with database.connect() as conn:
+        rows = {
+            r[0]: r[1:]
+            for r in conn.execute(
+                'SELECT "checkType", status, "rfiId", subject, "questionSource", "scanId" '
+                'FROM rfi_candidates WHERE "projectId" = %s',
+                (project,),
+            ).fetchall()
+        }
+        notes = conn.execute("SELECT notes FROM rfi_scans WHERE id = %s", (scan,)).fetchone()[0]
+    assert rows["unscheduled_mark"][:3] == ("accepted", live, "live one")
+    assert rows["dangling_reference"][:4] == ("pending", None, "Reworded subject", "model")
+    assert rows["open_item_note"][:4] == ("pending", None, "Reworded subject", "model")
+    assert rows["open_item_note"][4] == scan
+    assert any("Full rescan" in n for n in notes)
+
+
+@needs_db
+def test_a_full_rescan_keeps_the_old_wording_when_the_model_fails(database, monkeypatch):
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        conn.execute(
+            "UPDATE rfi_candidates SET subject = 'good AI subject', \"questionSource\" = 'model' "
+            'WHERE "projectId" = %s',
+            (project,),
+        )
+    monkeypatch.setattr(rfi_scan, "word", lambda findings, project_id, usage=None: ({}, None))
+    rfi_scan.run(project, _scan(database, project, fresh=True))
+    with database.connect() as conn:
+        rows = conn.execute(
+            'SELECT subject, "questionSource" FROM rfi_candidates WHERE "projectId" = %s', (project,)
+        ).fetchall()
+    assert rows and all(r == ("good AI subject", "model") for r in rows)
 
 
 @needs_db

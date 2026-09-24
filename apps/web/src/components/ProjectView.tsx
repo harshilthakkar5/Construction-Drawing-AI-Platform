@@ -11,8 +11,10 @@ import {
   PanelsTopLeftIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { roleLabel, type DocumentDto } from "@cdip/shared";
 import { api } from "@/api";
+import { useHeaderSlot } from "@/components/AppShell";
 import { ChatPanel } from "@/components/ChatPanel";
 import { CombinedViewer } from "@/components/CombinedViewer";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
@@ -103,12 +105,12 @@ function PaneSwitcher({ value, onChange }: { value: Pane; onChange: (pane: Pane)
 }
 
 /** Roles shown before the list is trimmed — a full set is 15 chips. */
-const ROLES_SHOWN = 3;
+const ROLES_SHOWN = 2;
 
 /**
- * The disciplines this project was created for. Labelled, because a bare row
- * of chips beside the project name reads as tags of unknown meaning — and
- * capped, because picking every role flooded the header.
+ * The disciplines this project was created for, as a labelled row of chips
+ * for the top header. Capped, because picking every role flooded it, and
+ * hidden where the header has no room — the full list is one hover away.
  */
 function ProjectRoles({ roles }: { roles: string[] }) {
   if (roles.length === 0) return null;
@@ -117,50 +119,33 @@ function ProjectRoles({ roles }: { roles: string[] }) {
   const rest = roles.slice(ROLES_SHOWN);
 
   return (
-    <div className="hidden min-w-0 lg:block">
-      <p className="text-muted-foreground text-xs font-medium">Roles</p>
-
-      <div
-        className="mt-1.5 flex max-w-xs flex-wrap items-center gap-1.5"
-        // title={`Summaries lead with what matters to ${roles
-        //   .map(roleLabel)
-        //   .join(", ")}`}
-      >
-        {shown.map((role) => (
-          <Badge key={role} variant="secondary" className="font-normal">
-            {roleLabel(role)}
-          </Badge>
-        ))}
-
-        {rest.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button type="button">
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer font-normal hover:bg-muted"
-                >
-                  +{rest.length} more
+    <div className="hidden min-w-0 shrink items-center gap-1.5 2xl:flex">
+      <span className="text-muted-foreground text-xs">Roles</span>
+      {shown.map((role) => (
+        <Badge key={role} variant="secondary" className="font-normal">
+          {roleLabel(role)}
+        </Badge>
+      ))}
+      {rest.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button">
+              <Badge variant="outline" className="hover:bg-muted cursor-pointer font-normal">
+                +{rest.length}
+              </Badge>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <div className="flex flex-wrap gap-1.5">
+              {rest.map((role) => (
+                <Badge key={role} variant="secondary" className="font-normal">
+                  {roleLabel(role)}
                 </Badge>
-              </button>
-            </TooltipTrigger>
-
-            <TooltipContent className="max-w-xs">
-              <div className="flex flex-wrap gap-1.5">
-                {rest.map((role) => (
-                  <Badge
-                    key={role}
-                    variant="secondary"
-                    className="font-normal"
-                  >
-                    {roleLabel(role)}
-                  </Badge>
-                ))}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }
@@ -193,6 +178,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
   // user press "Open the workspace". null = not decided yet.
   const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const headerSlot = useHeaderSlot();
 
   useEffect(() => {
     if (setupOpen !== null || setup.loading) return;
@@ -272,77 +258,72 @@ export function ProjectView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-4">
-      {/* Project header — identity and state, above both columns. */}
-      <Card className="shrink-0 py-4">
-        <CardContent className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-          <div className="flex min-w-[15rem] flex-1 items-center gap-4">
-            <span className="bg-muted text-muted-foreground grid size-12 shrink-0 place-items-center rounded-xl">
-              <FileTextIcon className="size-5" />
+      {/* Project identity and quick actions live in the app's top header
+          (AppShell's slot), not in a card above the panes: the card cost the
+          workspace ~130px of height to repeat a name the breadcrumb already
+          shows. */}
+      {headerSlot &&
+        createPortal(
+          <>
+            <StatusPill status={rollupStatus(documents.data)} />
+            <span className="text-muted-foreground hidden truncate text-xs lg:inline">
+              {project.data?.createdAt &&
+                `Created ${new Date(project.data.createdAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}`}
+              {documents.data && (
+                <>
+                  {" · "}
+                  {live.length} document{live.length === 1 ? "" : "s"} ·{" "}
+                  {pages.toLocaleString()} page{pages === 1 ? "" : "s"}
+                </>
+              )}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-xl font-semibold tracking-tight">
-                  {project.data?.name ?? "…"}
-                </h1>
-                <StatusPill status={rollupStatus(documents.data)} />
-              </div>
-              <p className="text-muted-foreground mt-0.5 truncate text-sm">
-                {project.data?.createdAt &&
-                  `Created on ${new Date(project.data.createdAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}`}
-                {documents.data && (
-                  <>
-                    {" · "}
-                    {live.length} document{live.length === 1 ? "" : "s"} ·{" "}
-                    {pages.toLocaleString()} page{pages === 1 ? "" : "s"}
-                  </>
-                )}
-              </p>
+            <ProjectRoles roles={project.data?.roles ?? []} />
+            {/* Everything you can DO to the project: finish setup, the
+                title-block region, and the walkthrough. */}
+            <div className="ml-auto flex min-w-0 items-center">
+              <RegionBanner
+                projectId={projectId}
+                inline
+                actions={
+                  !setup.complete && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        resumeSetup(projectId);
+                        setSetupOpen(true);
+                      }}
+                    >
+                      <ListChecksIcon />
+                      <span className="hidden sm:inline">Finish setup</span>
+                    </Button>
+                  )
+                }
+                trailing={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setTourOpen(true)}
+                        aria-label="Show me around"
+                      >
+                        <CircleHelpIcon />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Show me around — replay the tour</TooltipContent>
+                  </Tooltip>
+                }
+              />
             </div>
-          </div>
-          <ProjectRoles roles={project.data?.roles ?? []} />
-
-          {/* One labelled group for everything you can DO to the project:
-              finishing setup, the title-block region, and the walkthrough. */}
-          <RegionBanner
-            projectId={projectId}
-            heading="Quick actions"
-            actions={
-              !setup.complete && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    resumeSetup(projectId);
-                    setSetupOpen(true);
-                  }}
-                >
-                  <ListChecksIcon />
-                  Finish setup
-                </Button>
-              )
-            }
-            trailing={
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setTourOpen(true)}
-                    aria-label="Show me around"
-                  >
-                    <CircleHelpIcon />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Show me around replay the tour</TooltipContent>
-              </Tooltip>
-            }
-          />
-        </CardContent>
-      </Card>
+          </>,
+          headerSlot,
+        )}
 
       {!wide && <PaneSwitcher value={mobilePane} onChange={setMobilePane} />}
 

@@ -8,6 +8,13 @@ import { RfiReview } from "@/components/RfiReview";
 import { Modal, Notice, TextArea, TextField } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -96,35 +103,50 @@ export function RfiPanel({ projectId }: { projectId: string }) {
     <div className="px-4">
       <RfiReview projectId={projectId} />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-semibold">RFI log</h4>
-        {/* A plain link, not fetch(): the browser saves the file itself, and
-            the endpoint takes the session token as a query parameter for the
-            same reason the media GETs do — a download cannot set a header. */}
-        <Button size="sm" variant="outline" asChild>
-          <a href={api.rfiExportUrl(projectId)} download>
-            <FileSpreadsheetIcon />
-            Export Excel
-          </a>
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setComposing(true)}>
-          <PlusIcon />
-          Add manually
-        </Button>
-        <select
-          className="border-input bg-background ml-auto rounded-md border px-2 py-1 text-xs"
+      {/* One row: the log, its filter as a dropdown like every other filter
+          in the app, and the two actions — which drop their labels when the
+          work column is narrow rather than pushing the filter onto a row of
+          its own. */}
+      <div className="mb-3 flex items-center gap-2">
+        <h4 className="shrink-0 text-sm font-semibold">RFI log</h4>
+        <Select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as RfiStatus | "all")}
-          aria-label="Filter by status"
+          onValueChange={(value) => setStatusFilter(value as RfiStatus | "all")}
         >
-          <option value="all">All statuses</option>
-          {RFI_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {STATUS_CHIP[status].label}
-              {counts?.[status] ? ` (${counts[status]})` : ""}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="sm" className="max-w-40 min-w-0 text-xs" aria-label="Filter by status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {RFI_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {STATUS_CHIP[status].label}
+                {counts?.[status] ? ` (${counts[status]})` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {/* A plain link, not fetch(): the browser saves the file itself, and
+              the endpoint takes the session token as a query parameter for the
+              same reason the media GETs do — a download cannot set a header. */}
+          <Button size="sm" variant="outline" asChild>
+            <a href={api.rfiExportUrl(projectId)} download title="Export the RFI log to Excel" aria-label="Export Excel">
+              <FileSpreadsheetIcon />
+              <span className="@[26rem]/work:inline hidden">Export Excel</span>
+            </a>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setComposing(true)}
+            title="Add an RFI by hand"
+            aria-label="Add manually"
+          >
+            <PlusIcon />
+            <span className="@[26rem]/work:inline hidden">Add manually</span>
+          </Button>
+        </div>
       </div>
 
       {rfis.isLoading && <p className="text-muted-foreground text-sm">Loading RFIs…</p>}

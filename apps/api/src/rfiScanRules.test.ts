@@ -66,6 +66,11 @@ describe("toScanDto", () => {
     createdAt: NOW,
   };
 
+  it("reports a full rescan, and an ordinary scan when the flag is absent", () => {
+    expect(toScanDto({ ...row, fresh: true }).fresh).toBe(true);
+    expect(toScanDto(row).fresh).toBe(false);
+  });
+
   it("keeps only string notes", () => {
     expect(toScanDto(row).notes).toEqual(["one", "three"]);
   });
