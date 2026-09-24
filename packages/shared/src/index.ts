@@ -762,6 +762,8 @@ export interface RfiScanDto {
   /** What the wording step cost — null when it never ran (no new findings,
    * AI wording off, a scan from before this was recorded). */
   usage: RfiScanUsageDto | null;
+  /** A "Rescan from scratch" rather than an ordinary scan. */
+  fresh: boolean;
   error: string | null;
   startedAt: string | null;
   finishedAt: string | null;

@@ -18,6 +18,7 @@ export function RegionBanner({
   heading,
   actions,
   trailing,
+  inline = false,
 }: {
   projectId: string;
   /** "end" in the project header, "start" inside the setup stepper. */
@@ -28,6 +29,10 @@ export function RegionBanner({
   actions?: React.ReactNode;
   /** Same, but after the region buttons — help sits at the end of the row. */
   trailing?: React.ReactNode;
+  /** One row for the app's top header: the status line shrinks to a short
+   * note beside the button (hidden when there is no room) and the long
+   * explanation becomes the button's tooltip. */
+  inline?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -64,6 +69,59 @@ export function RegionBanner({
       void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
     }
   }, [status, projectId, queryClient]);
+
+  if (inline) {
+    const scanning = status === "running" || status === "pending";
+    const empty = region.data && status === "completed" ? region.data.notFoundPages : 0;
+    return (
+      <div data-tour="quick-actions" className="flex min-w-0 items-center gap-2">
+        {actions}
+        {region.data && (
+          <span
+            className={cn(
+              "hidden truncate text-xs xl:inline",
+              status === "failed" ? "text-destructive" : "text-muted-foreground",
+            )}
+            title={status === "failed" ? region.data.lastError ?? undefined : undefined}
+          >
+            {scanning &&
+              `Reading sheets… ${region.data.scrapedPages}/${region.data.totalPages || "?"}`}
+            {status === "completed" &&
+              `${region.data.scrapedPages - empty} of ${region.data.scrapedPages} sheets read`}
+            {status === "failed" && "Sheet scan failed"}
+          </span>
+        )}
+        {empty > 0 && (
+          <button
+            type="button"
+            className="text-warning hidden shrink-0 text-xs underline xl:inline"
+            onClick={() => setEditing(true)}
+          >
+            {empty} empty — adjust
+          </button>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setEditing(true)}
+          disabled={!region.data && !hasProcessedDocument}
+          title={
+            region.data
+              ? `Title-block region v${region.data.version} — drag the box again to re-read every sheet number`
+              : hasProcessedDocument
+                ? "Draw a box over one sheet's number; it is applied to every page to sort the drawings into disciplines"
+                : "Upload a PDF and let it finish processing first"
+          }
+        >
+          <SquareDashedIcon />
+          <span className="hidden sm:inline">{region.data ? "Edit region" : "Define region"}</span>
+        </Button>
+        {trailing}
+        {editing && <RegionSelector projectId={projectId} onClose={() => setEditing(false)} />}
+      </div>
+    );
+  }
 
   return (
     <div

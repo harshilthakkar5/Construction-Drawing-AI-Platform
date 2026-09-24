@@ -2211,6 +2211,17 @@ from `usage_events` (`GET /rfis/generated/usage`). Thinking tokens are `null`, n
 Anthropic folds reasoning into `output_tokens`, and 0 would claim the model did not think. A
 re-scan with nothing new records `calls: 0` — "this cost nothing" is the answer being asked for.
 
+"Rescan from scratch" (`POST /scan {fresh: true}` → `rfi_scans.fresh`, read by the worker off the
+scan row rather than added to the job contract) exists because the ordinary scan is idempotent by
+design and therefore looks broken once every finding is decided: nothing to review, 0 AI calls.
+`rfi_scan.plan_wording` decides it in one pure function. It re-words every finding the drawings
+still produce, REOPENS a dismissed one and an accepted one whose RFI was VOIDED (a withdrawn
+question, not an answered one), and never touches a finding that is a live RFI in the log — that
+RFI has a number someone may already have quoted, so proposing it again issues a duplicate. A
+finding the drawings no longer produce is not reopened: there is nothing left to ask. The
+upsert replaces wording only where THIS scan actually worded the finding, so a failed model call
+on a full rescan keeps the previous AI question instead of downgrading it to the template.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2250,7 +2261,7 @@ rfi_locations(id, rfiId, documentId, pageNumber, combinedPageNumber, bbox,
 rfi_events(id, rfiId, actorId, kind, detail JSON, createdAt)  // kind is TEXT,
      // not an enum: the vocabulary grows per phase and nothing branches on it
 rfis.source (manual|generated), rfis.checkType   // who proposed the QUESTION
-rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, usage, error, ...)
+rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, usage, fresh, error, ...)
      // usage: JSON cost of THIS scan's wording (tokens, asked vs sent thinking)
 rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subject,
      question, questionSource, evidence JSON, status, rfiId)
@@ -2279,7 +2290,11 @@ shown once per browser and replayable from the ? button in the project header.
 
 Signed-in chrome is shadcn's inset sidebar shell (`apps/web/src/components/AppShell.tsx`):
 collapsible sidebar (brand, grouped nav, user menu) + a sticky header carrying the sidebar
-trigger, the page name, the light/dark toggle and the account menu. Navigation is store state
+trigger, the page name, the light/dark toggle and the account menu. The header has a SLOT right
+of the breadcrumb (`useHeaderSlot`, a context holding the element); the project view portals its
+status, facts, roles and quick actions (Finish setup, Define/Edit region via `RegionBanner
+inline`, the tour) into it. That replaced a project card above the panes, which spent ~130px of
+workspace height repeating a name the breadcrumb already showed. Navigation is store state
 (`view` + `selectedProjectId`), not a router.
 
 Inside a project, three panes: Sidebar (project summary + portion list) | Middle (chat with

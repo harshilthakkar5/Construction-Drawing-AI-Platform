@@ -638,6 +638,10 @@ model RfiScan {
   /// (thinking tokens separately where the provider reports them). NULL on a
   /// scan that never reached the wording step, or ran before this existed.
   usage         Json?
+  /// A "Rescan from scratch": re-word every open finding, reopen dismissed
+  /// ones and findings whose RFI was voided. False is the ordinary scan, which
+  /// words only findings it has never seen.
+  fresh         Boolean       @default(false)
   error         String?
   startedAt     DateTime?
   finishedAt    DateTime?

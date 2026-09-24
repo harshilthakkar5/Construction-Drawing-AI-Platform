@@ -87,6 +87,7 @@ export function toScanDto(
   byCheck: unknown;
   notes: unknown;
   usage?: unknown;
+  fresh?: boolean;
   error: string | null;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -106,6 +107,7 @@ export function toScanDto(
     byCheck,
     notes: Array.isArray(row.notes) ? row.notes.filter((n): n is string => typeof n === "string") : [],
     usage: scanUsage(row.usage, costOf),
+    fresh: row.fresh === true,
     error: row.error,
     startedAt: row.startedAt?.toISOString() ?? null,
     finishedAt: row.finishedAt?.toISOString() ?? null,

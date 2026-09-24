@@ -399,10 +399,10 @@ export const api = {
   rfiUsage: (projectId: string) =>
     request<RfiUsageTotalsDto>(`/projects/${projectId}/rfis/generated/usage`),
 
-  startRfiScan: (projectId: string) =>
+  startRfiScan: (projectId: string, options: { fresh?: boolean } = {}) =>
     request<RfiScanDto>(`/projects/${projectId}/rfis/generated/scan`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ fresh: options.fresh ?? false }),
     }),
 
   listRfiCandidates: (projectId: string, status: RfiCandidateStatus = "pending") =>
