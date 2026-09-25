@@ -62,6 +62,7 @@ def _assert_matches(cls, job: str) -> None:
 @dataclass(frozen=True)
 class SummarizeProjectJob:
     project_id: str
+    detail: str | None = None
 
     @classmethod
     def from_payload(cls, data: dict) -> "SummarizeProjectJob":
@@ -88,6 +89,7 @@ class SummarizePortionJob:
     project_id: str
     portion_id: str
     requested_by_id: str | None = None
+    detail: str | None = None
 
     @classmethod
     def from_payload(cls, data: dict) -> "SummarizePortionJob":

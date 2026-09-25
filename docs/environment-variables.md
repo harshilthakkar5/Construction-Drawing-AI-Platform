@@ -149,7 +149,12 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `SUMMARY_GEMINI_MODEL` | `models/gemini-3.1-pro-preview` | API, Worker | Gemini summary model. |
 | `SUMMARY_USE_BATCH` | `false` in code, `true` in `.env.example` | API, Worker | Page summaries through the half-price batch API. |
 | `SUMMARY_BATCH_MIN_PAGES` | `4` | Worker | Fewer pages than this skip the batch API. |
-| `SUMMARY_MAX_TOKENS` | `2000` | Worker | Output cap per summary call. A cut-off answer is retried once at double. |
+| `SUMMARY_MAX_TOKENS` | `2000` | Worker | Output cap per summary call (a floor: bigger sizes raise their rollups' cap). A cut-off answer is retried once at double. |
+| `SUMMARY_DETAIL` | `standard` | API, Worker | Default summary size: `brief` (5 points), `standard` (8), `detailed` (15), `full` (25). The dialog can pick per run. |
+| `SUMMARY_THINKING` | — (global setting) | API, Worker | `off`/`minimal`/`low`/`medium`/`high` for summary calls only, direct and batch. The API shows it in the dialog. |
+| `SUMMARY_HEARTBEAT_SECONDS` | `60` | Worker | How often a running summary reports it is alive. |
+| `SUMMARY_STALE_MINUTES` | `10` | API | A running summary silent this long is treated as dead, so it can be started again. |
+| `SUMMARY_QUEUED_STALE_MINUTES` | `360` | API | Same, for a run that never left the queue. |
 
 ## 10. Generated RFIs
 

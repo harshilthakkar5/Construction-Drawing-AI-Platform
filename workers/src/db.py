@@ -619,12 +619,24 @@ def set_portion_summary_status(
 ) -> None:
     sets = ['"summaryStatus" = %s::"PortionSummaryStatus"', '"summaryError" = %s']
     params: list = [status, error]
+    if status == "running":
+        # The first beat: a run that dies before the heartbeat thread's first
+        # tick is still timed from when it started, not from when it queued.
+        sets.append('"summaryHeartbeatAt" = NOW()')
     if completed:
         sets.append('"summaryCompletedAt" = NOW()')
     params.append(portion_id)
     with connect() as conn:
         conn.execute(
             f'UPDATE portions SET {", ".join(sets)} WHERE id = %s', tuple(params)
+        )
+
+
+def touch_portion_heartbeat(portion_id: str) -> None:
+    """A running summary is still alive (summarize._heartbeat)."""
+    with connect() as conn:
+        conn.execute(
+            'UPDATE portions SET "summaryHeartbeatAt" = NOW() WHERE id = %s', (portion_id,)
         )
 
 

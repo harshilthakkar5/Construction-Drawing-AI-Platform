@@ -1,6 +1,12 @@
-import type { SummaryEstimateDto } from "@cdip/shared";
+import {
+  SUMMARY_DETAIL_KEYS,
+  SUMMARY_DETAILS,
+  type SummaryDetail,
+  type SummaryEstimateDto,
+} from "@cdip/shared";
 import { Modal, Spinner } from "@/components/shared";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 /**
  * Confirmation before a summary run. Summaries are the most expensive thing a
@@ -24,6 +30,8 @@ export function SummaryConfirm({
   isLoading,
   error,
   busy,
+  detail,
+  onDetailChange,
   onConfirm,
   onCancel,
 }: {
@@ -32,6 +40,9 @@ export function SummaryConfirm({
   isLoading: boolean;
   error: unknown;
   busy: boolean;
+  /** The size being priced and requested. */
+  detail: SummaryDetail;
+  onDetailChange: (detail: SummaryDetail) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -53,6 +64,31 @@ export function SummaryConfirm({
         </>
       }
     >
+      <div className="mt-3">
+        <p className="text-xs font-medium text-foreground">Summary size</p>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          className="mt-1.5 w-full"
+          value={detail}
+          onValueChange={(value) => value && onDetailChange(value as SummaryDetail)}
+          disabled={busy}
+          aria-label="Summary size"
+        >
+          {SUMMARY_DETAIL_KEYS.map((key) => (
+            <ToggleGroupItem key={key} value={key} className="flex-1 text-xs">
+              {SUMMARY_DETAILS[key].label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+          Up to {SUMMARY_DETAILS[detail].points} highlights and a{" "}
+          {SUMMARY_DETAILS[detail].overview} overview. Bigger sizes cost more in the
+          rollups only — page summaries are shared and reused at one size.
+        </p>
+      </div>
+
       {isLoading && (
         <p className="mt-3 text-sm text-muted-foreground">Working out the cost…</p>
       )}
@@ -122,11 +158,23 @@ export function SummaryConfirm({
                     value={estimate.model}
                     detail={estimate.batched && "batched · half price"}
                   />
+                  <Row
+                    label="Thinking"
+                    value={estimate.thinking ?? "default"}
+                    detail={
+                      estimate.thinking
+                        ? "SUMMARY_THINKING"
+                        : "SUMMARY_THINKING not set"
+                    }
+                  />
                 </dl>
               </div>
               <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
                 The call count is exact; the length of each answer is estimated
                 from previous runs, so the real cost will differ somewhat.
+                {estimate.thinking && estimate.thinking !== "off" && (
+                  <> Thinking is billed as output and is not included — expect more.</>
+                )}
               </p>
             </>
           )}

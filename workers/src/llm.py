@@ -229,6 +229,8 @@ _CLAUDE_VERSION = re.compile(r"^claude-[a-z]+-(\d+)(?:-(\d+))?")
 
 # Budgets for the models that still take one. 1024 is the API's minimum.
 _CLAUDE_BUDGETS = {"minimal": 1024, "low": 2048, "medium": 4096, "high": 8192}
+# Output headroom for adaptive thinking at each effort (Claude 4.6 and later).
+_CLAUDE_EFFORT_HEADROOM = {"low": 1024, "medium": 4096, "high": 8192}
 
 
 def _claude_takes_effort(model: str) -> bool:
@@ -258,7 +260,11 @@ def _claude_stage_thinking(model: str, setting: str) -> tuple[dict, dict | None,
     if setting == "off":
         return {"type": "disabled"}, None, 0
     if _claude_takes_effort(model):
-        return {"type": "adaptive"}, {"effort": "low" if setting == "minimal" else setting}, 0
+        # Adaptive thinking has no budget to add, but it is still spent from
+        # max_tokens before the answer — so an effort setting gets the same
+        # headroom a Gemini level does, or `high` truncates the JSON.
+        effort = "low" if setting == "minimal" else setting
+        return {"type": "adaptive"}, {"effort": effort}, _CLAUDE_EFFORT_HEADROOM[effort]
     budget = _CLAUDE_BUDGETS[setting]
     return {"type": "enabled", "budget_tokens": budget}, None, budget
 
@@ -952,26 +958,98 @@ def _gemini_stop_reason(response) -> str | None:
 
 
 def _batch_claude(
-    prompts: dict[str, str], *, system, model, max_tokens, kind, project_id, cache_system
+    prompts: dict[str, str],
+    *,
+    system,
+    model,
+    max_tokens,
+    kind,
+    project_id,
+    cache_system,
+    thinking_setting: str | None = None,
 ) -> dict[str, str]:
+    """Run the batch with the SAME thinking fields a single call would send.
+
+    It used to send none at all, and on this generation of models that is not
+    neutral: Sonnet 5 runs ADAPTIVE thinking when the field is omitted. So
+    CLAUDE_THINKING=off held for every direct summary call and silently did
+    not for the half-price batch path, which is the one a large discipline
+    takes — reasoning billed as output and spent from the same max_tokens the
+    JSON needs.
+    """
+    if thinking_setting is None:
+        thinking, output_config, extra = _claude_thinking(model), None, 0
+    else:
+        thinking, output_config, extra = _claude_stage_thinking(model, thinking_setting)
+    results, errored = _run_claude_batch(
+        prompts, system=system, model=model, max_tokens=max_tokens + extra, kind=kind,
+        project_id=project_id, cache_system=cache_system,
+        thinking=thinking, output_config=output_config,
+    )
+    if results or not errored or thinking is None:
+        return results
+    # Every entry errored and a thinking field was sent: the one field this
+    # module adds that a model can refuse. A batch has no exception to catch —
+    # it is accepted and fails entry by entry — so resubmit once without it
+    # rather than report "no page summaries could be generated".
+    log.warning(
+        "anthropic batch: all %d entries errored with thinking=%s — resubmitting "
+        "once with the field omitted",
+        len(prompts), thinking,
+    )
+    fallback = {"effort": "low"} if (
+        thinking_setting in ("off", "minimal") and _claude_takes_effort(model)
+    ) else None
+    results, _ = _run_claude_batch(
+        prompts, system=system, model=model, max_tokens=max_tokens, kind=kind,
+        project_id=project_id, cache_system=cache_system,
+        thinking=None, output_config=fallback,
+    )
+    if results and thinking_setting is None:
+        _no_thinking_param.add(model)
+    return results
+
+
+def _run_claude_batch(
+    prompts: dict[str, str],
+    *,
+    system,
+    model,
+    max_tokens,
+    kind,
+    project_id,
+    cache_system,
+    thinking: dict | None,
+    output_config: dict | None,
+) -> tuple[dict[str, str], bool]:
+    """One submit-and-collect pass. Returns (results, every_entry_errored)."""
     client = anthropic_client()
     if client is None:
-        return {}
+        return {}, False
+
+    def params(prompt: str) -> dict:
+        body = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": _system_blocks(system, cache_system),
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if thinking is not None:
+            body["thinking"] = thinking
+        if output_config is not None:
+            body["output_config"] = output_config
+        return body
+
     batch = client.messages.batches.create(
         requests=[
-            {
-                "custom_id": custom_id,
-                "params": {
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "system": _system_blocks(system, cache_system),
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            }
+            {"custom_id": custom_id, "params": params(prompt)}
             for custom_id, prompt in prompts.items()
         ]
     )
-    log.info("anthropic batch %s submitted (%d requests)", batch.id, len(prompts))
+    log.info(
+        "anthropic batch %s submitted (%d requests, thinking=%s)",
+        batch.id, len(prompts), describe_thinking(thinking, output_config),
+    )
     await_batch(
         f"anthropic batch {batch.id}",
         lambda: client.messages.batches.retrieve(batch.id),
@@ -981,18 +1059,23 @@ def _batch_claude(
     import usage
 
     results: dict[str, str] = {}
+    entries = errored = 0
     for entry in client.messages.batches.results(batch.id):
+        entries += 1
         if entry.result.type != "succeeded":
-            log.warning(
-                "batch entry %s failed (%s)", entry.custom_id, entry.result.type
-            )
+            if entry.result.type == "errored":
+                errored += 1
+            if entries - len(results) <= 3:
+                log.warning(
+                    "batch entry %s failed (%s)", entry.custom_id, entry.result.type
+                )
             continue
         message = entry.result.message
         usage.record_message(project_id, kind, model, message.usage)
         results[entry.custom_id] = "".join(
             b.text for b in message.content if b.type == "text"
         )
-    return results
+    return results, entries > 0 and errored == entries
 
 
 # Terminal job states. PARTIALLY_SUCCEEDED is terminal AND has results worth
@@ -1012,7 +1095,15 @@ def gemini_state(job) -> str:
 
 
 def _batch_gemini(
-    prompts: dict[str, str], *, system, model, max_tokens, kind, project_id, json_only
+    prompts: dict[str, str],
+    *,
+    system,
+    model,
+    max_tokens,
+    kind,
+    project_id,
+    json_only,
+    thinking_setting: str | None = None,
 ) -> dict[str, str]:
     """Run the batch, and re-run it once without the thinking budget if that is
     what the whole batch was rejected for.
@@ -1028,17 +1119,24 @@ def _batch_gemini(
     so it never costs a batch that partly worked; a model it rescues is latched
     so the rest of the project's tiers skip straight to the shape that works.
     """
+    ladder = _thinking_ladder(model, thinking_setting)
+    if thinking_setting is not None:
+        # The same headroom a single call gets: thinking is spent from the
+        # output cap before the JSON is written.
+        max_tokens += _GEMINI_STAGE_HEADROOM[thinking_setting]
+        first: bool | dict = ladder[0] if ladder[0] is not None else False
+    else:
+        first = True
     results, rejected = _run_gemini_batch(
         prompts, system=system, model=model, max_tokens=max_tokens,
-        kind=kind, project_id=project_id, json_only=json_only, thinking=True,
+        kind=kind, project_id=project_id, json_only=json_only, thinking=first,
     )
-    if results or not rejected or model in _no_thinking_config:
+    if results or not rejected or (thinking_setting is None and model in _no_thinking_config):
         return results
 
     # One rung, not off the end: a batch is expensive enough that the retry
     # should be the setting most likely to WORK, and on a level-taking model
     # omitting the field asks for the most thinking rather than none.
-    ladder = _thinking_ladder(model)
     retry = ladder[1] if len(ladder) > 1 else None
     log.warning(
         "gemini batch: all %d entries were rejected as invalid arguments — "
@@ -1052,7 +1150,7 @@ def _batch_gemini(
         thinking=retry if retry is not None else False,
     )
     if results:
-        _latch_thinking(model, retry)
+        _latch_thinking(model, retry, thinking_setting)
     else:
         log.error(
             "gemini batch: %s rejected every entry with and without a thinking "
@@ -1073,7 +1171,7 @@ def _run_gemini_batch(
     kind,
     project_id,
     json_only,
-    thinking: bool,
+    thinking: bool | dict,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_was_rejected)."""
     client = gemini_client()
@@ -1179,8 +1277,12 @@ def complete_batch(
     project_id: str | None = None,
     json_only: bool = False,
     cache_system: bool = True,
+    thinking: str | None = None,
 ) -> dict[str, str]:
     """Run many prompts as one batch. {custom_id: prompt} -> {custom_id: text}.
+
+    `thinking` is a stage setting exactly as for `complete`: the batch sends
+    the same fields, with the same output headroom, as one call would.
 
     Entries the provider could not complete are absent from the result rather
     than raising, so one bad page never costs the whole run. A batch that never
@@ -1204,6 +1306,7 @@ def complete_batch(
             kind=kind,
             project_id=project_id,
             json_only=json_only,
+            thinking_setting=thinking,
         )
     return _batch_claude(
         prompts,
@@ -1213,6 +1316,7 @@ def complete_batch(
         kind=kind,
         project_id=project_id,
         cache_system=cache_system,
+        thinking_setting=thinking,
     )
 
 

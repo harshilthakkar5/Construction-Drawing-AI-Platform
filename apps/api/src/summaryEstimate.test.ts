@@ -4,8 +4,11 @@ import {
   MAX_OUTPUT_TOKENS,
   SECTION_SIZE,
   TYPICAL_OUTPUT_TOKENS,
+  defaultDetail,
   estimateProjectRollup,
   estimateSummaryRun,
+  rollupOutputTokens,
+  summaryThinking,
 } from "./summaryEstimate.js";
 import { rateFor } from "./usage.js";
 
@@ -201,5 +204,59 @@ describe("batch discount", () => {
     expect(batched.inputTokens).toBe(sequential.inputTokens);
     expect(batched.outputTokens).toBe(sequential.outputTokens);
     expect(batched.totalCalls).toBe(sequential.totalCalls);
+  });
+});
+
+describe("summary size", () => {
+  const pages = (n: number) => Array.from({ length: n }, () => 900);
+
+  it("prices standard exactly as before sizes existed", () => {
+    const implicit = estimateSummaryRun({ pageTokens: pages(25), reusedPages: 0 });
+    const standard = estimateSummaryRun({ pageTokens: pages(25), reusedPages: 0, detail: "standard" });
+    expect(standard).toEqual(implicit);
+    expect(rollupOutputTokens("standard")).toBe(TYPICAL_OUTPUT_TOKENS);
+  });
+
+  it("charges a bigger size in the rollups and never in the page tier", () => {
+    const standard = estimateSummaryRun({ pageTokens: pages(25), reusedPages: 0, detail: "standard" });
+    const full = estimateSummaryRun({ pageTokens: pages(25), reusedPages: 0, detail: "full" });
+    expect(full.totalCalls).toBe(standard.totalCalls);
+    expect(full.outputTokens).toBeGreaterThan(standard.outputTokens);
+    expect(full.costUsd).toBeGreaterThan(standard.costUsd);
+    // 25 pages = 3 sections + 1 portion rollup; only those 4 answers grow.
+    const growth = rollupOutputTokens("full") - rollupOutputTokens("standard");
+    expect(full.outputTokens - standard.outputTokens).toBe(4 * growth);
+    expect(full.detail).toBe("full");
+  });
+
+  it("a brief size costs less", () => {
+    const standard = estimateSummaryRun({ pageTokens: [], reusedPages: 30, detail: "standard" });
+    const brief = estimateSummaryRun({ pageTokens: [], reusedPages: 30, detail: "brief" });
+    expect(brief.costUsd).toBeLessThan(standard.costUsd);
+  });
+
+  it("scales the project rollup too", () => {
+    expect(estimateProjectRollup(4, "detailed").outputTokens).toBeGreaterThan(
+      estimateProjectRollup(4, "standard").outputTokens,
+    );
+  });
+
+  it("uses SUMMARY_DETAIL when nothing is asked for, and ignores a typo", () => {
+    process.env.SUMMARY_DETAIL = "detailed";
+    expect(defaultDetail()).toBe("detailed");
+    expect(estimateSummaryRun({ pageTokens: pages(3), reusedPages: 0 }).detail).toBe("detailed");
+    process.env.SUMMARY_DETAIL = "enormous";
+    expect(defaultDetail()).toBe("standard");
+  });
+
+  it("names SUMMARY_THINKING for the dialog and refuses a typo", () => {
+    delete process.env.SUMMARY_THINKING;
+    expect(summaryThinking()).toBeNull();
+    process.env.SUMMARY_THINKING = "HIGH";
+    expect(summaryThinking()).toBe("high");
+    process.env.SUMMARY_THINKING = "disabled";
+    expect(summaryThinking()).toBe("off");
+    process.env.SUMMARY_THINKING = "maximum";
+    expect(summaryThinking()).toBeNull();
   });
 });

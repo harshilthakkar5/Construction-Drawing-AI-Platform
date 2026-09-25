@@ -157,7 +157,10 @@ async def summarize_portion(job, job_token: str):
     try:
         with telemetry.observe_job(SUMMARIZE_PORTION_QUEUE):
             result = await asyncio.to_thread(
-                summarize.run_portion, payload.project_id, payload.portion_id
+                summarize.run_portion,
+                payload.project_id,
+                payload.portion_id,
+                detail=payload.detail,
             )
         log.info("summarize-portion job %s done: %s", job.id, result)
         return result
@@ -183,7 +186,9 @@ async def summarize_project(job, job_token: str):
     try:
         with telemetry.observe_job(SUMMARIZE_PROJECT_QUEUE):
             result = await asyncio.to_thread(
-                summarize.run if full_rebuild else summarize.run_project, payload.project_id
+                summarize.run if full_rebuild else summarize.run_project,
+                payload.project_id,
+                detail=payload.detail,
             )
         log.info("summarize-project job %s done: %s", job.id, result)
         return result

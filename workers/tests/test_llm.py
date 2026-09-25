@@ -1072,8 +1072,16 @@ class TestStageThinking:
         reply = self._call_claude("claude-sonnet-5", "minimal")
         assert sent[0]["thinking"] == {"type": "adaptive"}
         assert sent[0]["output_config"] == {"effort": "low"}, "effort has no 'minimal'"
-        assert sent[0]["max_tokens"] == 1000
+        # Adaptive thinking is spent from max_tokens before the answer, so the
+        # effort buys headroom on top of the 1000 the JSON was sized for.
+        assert sent[0]["max_tokens"] == 1000 + llm._CLAUDE_EFFORT_HEADROOM["low"]
         assert reply.thinking == "adaptive, effort=low"
+
+    def test_a_higher_effort_gets_more_headroom(self, monkeypatch):
+        sent = self._claude(monkeypatch, lambda kw: self._ok())
+        self._call_claude("claude-sonnet-5", "high")
+        assert sent[0]["output_config"] == {"effort": "high"}
+        assert sent[0]["max_tokens"] == 1000 + llm._CLAUDE_EFFORT_HEADROOM["high"]
 
     def test_off_on_a_model_that_cannot_disable_falls_to_the_lowest_effort(self, monkeypatch):
         """Opus 5.5 400s on {type: disabled}. The nearest thing it allows is its
