@@ -8,8 +8,10 @@ that is an RFI a contractor really did send ("CONFIRM THE GRID LAYOUT").
 
 It is found from the PDF's GEOMETRY, never from text or a model. `grid.py`
 reads each grid bubble — a drawn circle holding one label — and groups them by
-drawing style, so a sheet that carries two grids (its own in blue, an
-architectural background in grey) yields two systems. Two systems are then
+drawing style, so a sheet that carries two grids (its own, and an
+architectural background in another colour) yields two systems. Annotations
+are stripped before any of it (`grid.without_markup`): a finding comes from the
+drawings as issued, never from someone's markup of them. Two systems are then
 laid over each other, and a line that sits in the same place in both under two
 different names is the finding. The evidence is the drawing itself: a bubble,
 a position, a label.

@@ -66,7 +66,7 @@ _TOKENS_PER_FINDING = 220
 GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # Bump when grid.styled_systems changes what it reads: cached reads are keyed
 # on it, and a stale one would compare grids the new code would not find.
-GRID_CACHE_VERSION = 1
+GRID_CACHE_VERSION = 2
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
@@ -467,7 +467,7 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
                         found: list[dict] = []
                         if 0 <= index < pdf.page_count:
                             try:
-                                found = grid.styled_systems(pdf.load_page(index))
+                                found = grid.styled_systems(grid.without_markup(pdf.load_page(index)))
                             except Exception as exc:
                                 # One unreadable page is a sheet with no grid,
                                 # not a failed scan.

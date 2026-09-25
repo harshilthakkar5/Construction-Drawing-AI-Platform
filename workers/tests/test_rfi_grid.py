@@ -289,3 +289,25 @@ def test_a_handful_of_coincident_lines_is_not_an_alignment():
     a = {str(n): p for n, p in enumerate([100, 230, 390, 520, 700, 810, 1000, 1170, 1300, 1480], 1)}
     b = {chr(64 + n): p for n, p in enumerate([100, 230, 390, 520, 875, 1085, 1183, 1372, 1393, 1512], 1)}
     assert align(a, b) is None
+
+
+def test_markup_is_not_read_as_part_of_the_drawing():
+    """A client's markup must not become a grid the check compares. PyMuPDF
+    reads annotation appearances as page content — a pasted snapshot of the
+    architectural grid on a structural sheet read as a second grid drawn by the
+    engineer — so the annotations go before anything is read."""
+    doc = fitz.open()
+    pg = doc.new_page(width=2592, height=1728)
+    for y in ARCH_ROWS.values():
+        pg.add_circle_annot(fitz.Rect(172, y - 9, 190, y + 9))
+    for label, y in STRUCT_ROWS.items():
+        pg.draw_circle((228, y), 13.5, color=(0, 0, 1))
+        pg.insert_text((225, y + 3), label, fontsize=9)
+
+    def circles(page):
+        return sum(1 for d in page.get_cdrawings() if 17 < fitz.Rect(d["rect"]).width < 19)
+
+    assert circles(pg) == len(ARCH_ROWS), "fixture: annotation circles read as drawings"
+    cleaned = grid.without_markup(pg)
+    assert circles(cleaned) == 0
+    assert [s["style"] for s in grid.styled_systems(cleaned)] == ["blue 27pt"]
