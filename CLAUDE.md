@@ -2154,9 +2154,18 @@ false one is a question someone has to answer:
     `rfi_scan.load_grids` downloads each document, `grid.styled_systems` finds every grid on a
     page GROUPED BY DRAWING STYLE (colour + clustered size), and the result is cached in Redis per
     (document, page) under `GRID_CACHE_VERSION`, since a document's bytes never change.
-    Style grouping is what makes the strongest form visible: that structural sheet draws its own
-    grid in blue 27pt bubbles and the architectural background in grey 18pt ones ON THE SAME
-    LINES, and pooled into one axis the two are indistinguishable. `grid.bubbles` could not have
+    Style grouping keeps two grids on ONE sheet apart (a structural plan drawn over an
+    architectural background, each in its own bubble style) — pooled into one axis, `axes` keys
+    by label and the two are indistinguishable. Annotations are stripped first
+    (`grid.without_markup`), and that rule was paid for: PyMuPDF reads annotation appearances as
+    page content, and the client's marked-up copy of S2.105 carried a pasted "Snapshot" STAMP of
+    the architectural grid beside the structural one. The check read it as a second grid the
+    engineer had drawn and reported a within-sheet finding that the issued drawing does not
+    contain. A finding must come from the drawings as issued — the clients send them unmarked,
+    and a marked set and a clean one must give the same answer (they now do: both sheets,
+    identical fingerprints). Stripping is on the in-memory copy of a temp download only; it
+    bumped `GRID_CACHE_VERSION` to 2. The same leak affects `get_text` at ingest (a FreeText
+    markup note lands in the chunks) and is NOT fixed there. `grid.bubbles` could not have
     been reused — its 30-45pt window was set on one ARCH E1 sheet and saw NO grid on this 36x24
     set, and it refuses secondary labels like `F.7`, which is exactly where one naming put a line
     the other called `G`. Sizes are clustered, not bucketed: 26.9 beside 27.0 is one drafter's
@@ -2167,8 +2176,9 @@ false one is a question someone has to answer:
     must beat the runner-up by `MIN_MARGIN` lines and cover half the smaller grid. On ONE page
     the offset must be zero. Across pages only DIFFERENT disciplines are compared (or a sheet
     with no discipline read) — two structural levels whose grids differ are usually two parts of
-    a building. Fingerprinted on the unordered renamed pairs, so the grey background on S2.105
-    and A3.01 itself are one finding with both as evidence. The highlight is ONE END of the
+    a building, and the flip side is that ONE sheet alone finds nothing: the structural and the
+    architectural plan both have to be in the project. Fingerprinted on the unordered renamed
+    pairs, so the same disagreement seen from several sheets is one finding. The highlight is ONE END of the
     renamed lines, never their union, which spans the sheet. `RFI_GRID_CHECK=false` skips it.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding

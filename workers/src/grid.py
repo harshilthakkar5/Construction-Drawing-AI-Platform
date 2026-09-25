@@ -202,20 +202,20 @@ def spacing(values: list[float]) -> float:
 #
 # `bubbles` answers "where is THIS sheet's grid" for the vision pass and the
 # eval, and its size window was set on one ARCH E1 sheet. The RFI grid check
-# asks a different question — "does this sheet carry TWO grids that disagree"
-# — and needs two things `bubbles` deliberately throws away.
+# asks a different question — "do two grids disagree about a line's name" —
+# and needs two things `bubbles` deliberately throws away.
 #
-# Size. A 36x24 sheet draws its bubbles at 27pt, and an architectural
-# background referenced into a structural plan draws them at 18pt, greyed.
-# Both fall under BUBBLE_MIN_PT, so `bubbles` sees no grid at all on the set
-# that motivated this. The window here is wide; what keeps it honest is the
-# axis rule (three bubbles on one line) and the comparison that follows.
+# Size. The 36x24 structural sheet that motivated this draws its bubbles at
+# 27pt and its architectural companion at 18pt. Both fall under BUBBLE_MIN_PT,
+# so `bubbles` sees no grid at all on that set. The window here is wide; what
+# keeps it honest is the axis rule (three bubbles on one line) and the
+# comparison that follows.
 #
-# Style. Those two grids sit on the SAME lines with DIFFERENT labels: row 6 of
-# the structural grid is row 9 of the architectural one. Pooled into one axis,
-# `axes` keys by label and cannot tell the two apart. Grouped by (size,
-# colour) first, each becomes its own system, and the disagreement is a fact
-# the drawing states rather than an inference.
+# Style. A sheet can carry two grids — its own, and another discipline's drawn
+# in as a background — on the SAME lines with DIFFERENT labels. Pooled into one
+# axis, `axes` keys by label and cannot tell them apart. Grouped by (size,
+# colour) first, each becomes its own system. Callers strip annotations first
+# (`without_markup`): a grid pasted on as markup is not one the drawing has.
 
 STYLED_MIN_PT = 12.0
 STYLED_MAX_PT = 48.0
@@ -246,6 +246,27 @@ def _colour_name(rgb) -> str:
     if g > r and g > b:
         return "green"
     return "coloured"
+
+
+def without_markup(page: fitz.Page) -> fitz.Page:
+    """The page with every annotation removed — IN MEMORY, on the caller's copy.
+
+    PyMuPDF reads annotation appearances as though they were drawn on the
+    sheet: `get_text` returns a FreeText note's words and `get_cdrawings` a
+    stamp's circles. That is how a client's RFI markup became part of a grid:
+    the structural sheet it came back on carried a pasted "Snapshot" stamp of
+    the ARCHITECTURAL grid bubbles beside the structural ones, and the check
+    compared the two as though the engineer had drawn both. A finding has to
+    come from the drawings as issued, not from someone's markup of them —
+    otherwise a marked-up set and a clean one give different answers, and the
+    marked one answers questions the reviewer has already asked.
+
+    Only for a document opened from a temporary download: this mutates the
+    in-memory document, and saving it would strip the file.
+    """
+    for annot in list(page.annots()):
+        page.delete_annot(annot)
+    return page
 
 
 def styled_systems(page: fitz.Page) -> list[dict]:
