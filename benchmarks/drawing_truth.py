@@ -544,7 +544,9 @@ def build(pdf: str, project_id: str, sheet: str | None, explain: bool) -> list[d
     refusals: list[str] = []
 
     for page_index, page in enumerate(doc):
-        columns, rows = grid.axes(grid.bubbles(page))
+        # grid.page_grid, the same reading the vision pass crops from: two
+        # readers of one definition, or "4/B" can mean two different points.
+        columns, rows = grid.page_grid(page)
         if not columns or not rows:
             refusals.append(f"page {page_index + 1}: no orthogonal grid found")
             continue

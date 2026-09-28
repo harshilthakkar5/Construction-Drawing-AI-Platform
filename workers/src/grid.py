@@ -335,3 +335,42 @@ def styled_systems(page: fitz.Page) -> list[dict]:
                 boxes.setdefault(label, []).append([shown.x0, shown.y0, shown.x1, shown.y1])
         systems.append({"style": style, "along_x": along_x, "along_y": along_y, "bubbles": boxes})
     return systems
+
+
+def page_grid(page: fitz.Page) -> tuple[dict[str, float], dict[str, float]]:
+    """THE sheet's grid, as (columns {label: x}, rows {label: y}) — the one
+    definition the vision pass crops from and the eval generator derives from.
+
+    Read with the styled reader rather than `bubbles`, because `bubbles` is
+    blind on most of the sets this product is actually given: its 30-45pt
+    window was set on one ARCH E1 sheet, and a client's 36x24 structural set
+    draws its bubbles at 27pt — `VLM_CROP=intersections` found no grid on it,
+    logged that at INFO, and ran the whole-sheet pass on every page. It also
+    refused secondary lines (`C.1`, `B1.6`), so a column on one had no crop.
+
+    When a sheet carries more than one grid style (its own grid plus another
+    discipline's drawn in as a background), the one with the most
+    intersections is taken, whole, rather than pooling them: pooled, `axes`
+    keys by label and two grids naming different lines "6" collapse into one
+    line at whichever position was read last. A sheet whose bubbles differ in
+    style between its two axes has no single style with both, and falls back
+    to the pooled `bubbles` reading it always had.
+    """
+    systems = [s for s in styled_systems(page) if s["along_x"] and s["along_y"]]
+    if systems:
+        best = max(
+            systems,
+            key=lambda s: (len(s["along_x"]) * len(s["along_y"]), s["style"]),
+        )
+        return dict(best["along_x"]), dict(best["along_y"])
+    return axes(bubbles(page))
+
+
+def is_secondary(label: str) -> bool:
+    """A line between two others: `4.6`, `C.1`, `B1.5` — anything with a point.
+
+    Real grid lines, and on a dense set most of them: the client's structural
+    sheet carries 8 lettered and 6 numbered primary lines (48 intersections)
+    and 360 once every secondary is counted.
+    """
+    return "." in label

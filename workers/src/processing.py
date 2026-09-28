@@ -274,7 +274,7 @@ def _describe_page(
             # of this set were cropped?" had no answer short of grepping a log.
             decision = vlm.crop_decision(page)
             if decision.crop:
-                described = vlm.describe_crops(page, project_id=project_id)
+                described = vlm.describe_crops(page, project_id=project_id, decision=decision)
                 if described:
                     spend.cropped(decision.intersections, vlm.CROP_BATCH)
                     return described

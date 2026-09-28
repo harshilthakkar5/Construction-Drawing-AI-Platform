@@ -152,3 +152,61 @@ class TestAxes:
             doc, page = sheet(rotation=rotation)
             assert len(grid.bubbles(page)) == 7, f"rotation {rotation}"
             doc.close()
+
+
+class TestThePageGrid:
+    """`page_grid` — the ONE reading both the vision pass and the eval use.
+
+    It exists because `bubbles` was blind on the sets this product is actually
+    given: a client's 36x24 structural sheet draws its bubbles at 27pt, under
+    the 30pt floor, so crop mode found no grid there and quietly ran the
+    whole-sheet pass on every page.
+    """
+
+    @staticmethod
+    def _grid(page, columns, rows, radius, colour=(0, 0, 0), x0=300, y0=400):
+        for i, label in enumerate(columns):
+            x = x0 + 130 * i
+            page.draw_circle(fitz.Point(x, 200), radius, color=colour)
+            page.insert_text((x - 5, 204), label, fontsize=8)
+        for j, label in enumerate(rows):
+            y = y0 + 150 * j
+            page.draw_circle(fitz.Point(200, y), radius, color=colour)
+            page.insert_text((195, y + 4), label, fontsize=8)
+
+    def test_a_27pt_bubble_grid_is_found(self):
+        doc = fitz.open()
+        page = doc.new_page(width=36 * 72, height=24 * 72)
+        self._grid(page, ["1", "2", "3", "4"], ["A", "B", "C"], radius=13.5)
+        assert grid.axes(grid.bubbles(page)) == ({}, {}), "the old window really was blind"
+        columns, rows = grid.page_grid(page)
+        assert sorted(columns) == ["1", "2", "3", "4"] and sorted(rows) == ["A", "B", "C"]
+        doc.close()
+
+    def test_secondary_lines_are_read(self):
+        doc = fitz.open()
+        page = doc.new_page(width=36 * 72, height=24 * 72)
+        self._grid(page, ["1", "1.5", "2", "3"], ["A", "C.1", "B1.6"], radius=13.5)
+        columns, rows = grid.page_grid(page)
+        assert "1.5" in columns and {"C.1", "B1.6"} <= set(rows)
+        assert grid.is_secondary("C.1") and grid.is_secondary("4.6")
+        assert not grid.is_secondary("C") and not grid.is_secondary("12")
+        doc.close()
+
+    def test_two_grid_styles_are_never_pooled(self):
+        """A structural grid over an architectural background, both labelling
+        a line "2" at different places. Pooled, one position silently wins."""
+        doc = fitz.open()
+        page = doc.new_page(width=36 * 72, height=24 * 72)
+        self._grid(page, ["1", "2", "3", "4"], ["A", "B", "C"], radius=13.5, colour=(0, 0, 1))
+        self._grid(page, ["1", "2", "3"], ["A", "B", "C"], radius=9, x0=365, y0=475)
+        columns, rows = grid.page_grid(page)
+        assert sorted(columns) == ["1", "2", "3", "4"]
+        assert all(abs(columns[k] - x) < 1 for k, x in {"1": 300, "2": 430, "3": 560, "4": 690}.items())
+        assert abs(rows["B"] - 550) < 1, "the larger grid, whole — not a mix of both"
+        doc.close()
+
+    def test_an_ordinary_arch_e1_grid_reads_as_it_always_did(self):
+        doc, page = sheet()
+        assert grid.page_grid(page) == grid.axes(grid.bubbles(page))
+        doc.close()
