@@ -170,3 +170,34 @@ describe("no raw chunk id ever reaches a reader", () => {
     expect(sources).toHaveLength(2);
   });
 });
+
+describe("an answer cut off in the middle of a citation", () => {
+  it("never shows the fragment of an id it stopped inside", () => {
+    // The exact tail a reader saw: the answer hit the output cap while the
+    // model was writing a citation, so neither the group pattern nor the
+    // stray sweep (both want a WHOLE id) could match it.
+    const answer = `Column C-5 sits at 6/B [chunk:${ID_A}]. The rest appear in the raw sheet text [chunk:8eb7546e-eb96-`;
+    const { text, sources } = buildSources(answer, records);
+    expect(text).not.toMatch(/chunk/i);
+    expect(text).not.toMatch(/8eb7546e/);
+    expect(text).toBe("Column C-5 sits at 6/B [1]. The rest appear in the raw sheet text");
+    expect(sources).toHaveLength(1);
+  });
+
+  it("removes a bracket cut off before the id began", () => {
+    for (const tail of ["[chunk:", "[chunk", "[ chunk: "]) {
+      const { text } = buildSources(`Footing F9 at 2/B ${tail}`, records);
+      expect(text).toBe("Footing F9 at 2/B");
+    }
+  });
+
+  it("removes a partial id anywhere, not only at the end", () => {
+    const { text } = buildSources(`A [chunk:1234abcd-ef] and B [chunk:${ID_B}].`, records);
+    expect(text).toBe("A and B [1].");
+  });
+
+  it("leaves ordinary prose alone", () => {
+    const answer = `Pour in one chunk of work per bay [chunk:${ID_A}].`;
+    expect(buildSources(answer, records).text).toBe("Pour in one chunk of work per bay [1].");
+  });
+});

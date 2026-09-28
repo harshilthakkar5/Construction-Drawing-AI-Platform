@@ -96,6 +96,8 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `CHAT_PROVIDER` | `claude` | API | `claude` / `gemini`. |
 | `CHAT_MODEL` | `claude-sonnet-5` | API | Claude chat model. |
 | `CHAT_GEMINI_MODEL` | `models/gemini-3.1-pro-preview` | API | Gemini chat model. |
+| `CHAT_THINKING` | `off` | API | `off`/`low`/`medium`/`high`. Always sent — omitting it lets Sonnet 5 / Gemini 3 reason and cut the answer off. |
+| `CHAT_MAX_TOKENS` | `2048` | API | Answer length cap. A cut-off answer ends with a note saying so. |
 | `CHAT_SCOPE` | `construction` | API | `construction` also answers general construction questions (labelled); `documents` answers only from the drawings. |
 
 ## 6. Sheet-number and discipline detection
@@ -133,11 +135,12 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `VLM_GEMINI_MODEL` | `gemini-3.6-flash` | Worker | Gemini vision model. |
 | `VLM_MAX_EDGE` | `2576` | Worker | Rendered image size. Above 3072 buys nothing — the providers shrink it. |
 | `VLM_MAX_TOKENS` | `4000` | Worker | Output cap per page description (thinking counts against it). |
+| `VLM_THINKING` | — (global setting) | Worker | `off`/`minimal`/`low`/`medium`/`high` for the vision pass only. A crop batch that writes nothing is retried with thinking off regardless. |
 | `VLM_CROP` | `off` | Worker | `intersections` = one crop per grid intersection instead of the whole sheet. |
 | `VLM_CROP_BAYS` | `0.6` | Worker | Crop size, in grid bays. |
 | `VLM_CROP_BATCH` | `6` | Worker | Crops per model call. |
 | `VLM_CROP_MAX` | `60` | Worker | Most crops per page. Over it, secondary grid lines (4.3, C.1) are dropped and only the primary crossings are cropped; if those still exceed it, the page falls back to the whole-sheet pass. |
-| `VLM_CROP_MAX_TOKENS` | `1500` | Worker | Output cap per crop batch. |
+| `VLM_CROP_MAX_TOKENS` | `1500` | Worker | Minimum output cap per crop batch; grows to ~60 tokens per crop for larger `VLM_CROP_BATCH`. |
 
 ## 9. Summaries
 

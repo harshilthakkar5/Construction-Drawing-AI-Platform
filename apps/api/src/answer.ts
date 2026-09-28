@@ -1,4 +1,4 @@
-import { complete, chatAvailable, type Turn } from "./llm.js";
+import { complete, chatAvailable, chatThinking, type Turn } from "./llm.js";
 import { recordUsage } from "./usage.js";
 
 /**
@@ -10,8 +10,25 @@ import { recordUsage } from "./usage.js";
  * is identical whichever provider serves the request.
  */
 
-/** Cap on answer length, shared by both providers. */
-const MAX_ANSWER_TOKENS = 1024;
+/**
+ * Cap on answer length, shared by both providers (CHAT_MAX_TOKENS). 1024 was
+ * enough for prose and not for the answers the vision pass makes possible: a
+ * question about a grid line lists every intersection on it, each with a
+ * citation tag that is ~20 tokens on its own. Reasoning, when CHAT_THINKING
+ * turns it on, gets its own headroom on top of this in ./llm.ts.
+ */
+export function maxAnswerTokens(): number {
+  const value = Number(process.env.CHAT_MAX_TOKENS);
+  return Number.isFinite(value) && value >= 256 ? Math.floor(value) : 2048;
+}
+
+/**
+ * Appended to an answer that stopped at the cap. The text before it is real
+ * and cited; what is missing is the rest, and a reader who is not told reads
+ * the last half-sentence as the model's whole account.
+ */
+export const TRUNCATED_NOTE =
+  "(This answer was cut off at the length limit. Ask about fewer items at a time to see the rest.)";
 
 export const chatModelAvailable = chatAvailable;
 
@@ -184,7 +201,7 @@ export async function answerFromChunks(
     history,
     context,
     question: `Question: ${question}`,
-    maxTokens: MAX_ANSWER_TOKENS,
+    maxTokens: maxAnswerTokens(),
   });
 
   // FR-23 adjacent: the dashboard reports spend per project and per stage.
@@ -193,7 +210,13 @@ export async function answerFromChunks(
   // silently merged into the previous model's total.
   await recordUsage(projectId ?? null, "chat", result.model, result.tokens);
 
-  return stripPromptScaffolding(result.text);
+  const text = stripPromptScaffolding(result.text);
+  if (!result.truncated) return text;
+  console.warn(
+    `[chat] ${result.model} stopped at the output cap (${maxAnswerTokens()} tokens, CHAT_THINKING=${chatThinking()}) — ` +
+      "the reader is told the answer is incomplete. Raise CHAT_MAX_TOKENS if this is common.",
+  );
+  return `${text.trimEnd()}\n\n${TRUNCATED_NOTE}`;
 }
 
 /**
