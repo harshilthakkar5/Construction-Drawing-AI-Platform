@@ -1119,6 +1119,45 @@ halves — an unknown kind does not raise, and `KINDS` is checked against the en
 the vocabulary cannot drift again. (It already had: `rerank` was in the enum and missing from
 the shared union, so reranker spend reached the dashboard with no label.)
 
+**The crop mode had never run on a client's drawings, and the reply parser could erase a correct
+reading.** An accuracy review against the client's RFI_002 set (S2.105 structural, A3.01
+architectural, 36x24) found four defects, none visible in any score, because every benchmark in
+this section ran on sheets drawn the way `grid.bubbles` expects:
+
+  * `crops()` read `grid.bubbles`, whose 30-45pt window saw NO grid on sheets whose bubbles are
+    27pt and 18pt — `VLM_CROP=intersections` logged "no orthogonal grid" at INFO and ran the
+    whole-sheet pass on every page. It also refused secondary labels (`C.1`, `B1.6`). Both the
+    vision pass and `drawing_truth.py` now read `grid.page_grid` — the styled reader the RFI grid
+    check already used, taking the LARGEST single style rather than pooling two grids on one
+    sheet (pooled, `axes` keys by label and two different lines "6" collapse to one position).
+    A sheet whose axes differ in style falls back to the old pooled reading.
+  * Reading secondaries made the cost gate refuse the sheet instead: S2.105 is 48 primary
+    crossings and 360 in all. `crop_plan` now drops secondary lines FIRST when over
+    `VLM_CROP_MAX`, crops the primaries (sized off the PRIMARY bay — a secondary's gap would cut
+    a primary crossing's own labels out), warns, and writes a line into the description naming
+    the undescribed lines, because the chunk is all the chat sees and a question about 4.3/C
+    must read "not described", never "nothing there".
+  * `_CROP_LINE` matched only the prompt's own example. `footing: F9` — the commonest variation
+    — captured ": F9", refused it as prose and stored "nothing legible": a correct reading
+    turned into a claim of absence, silently, since the line still counted as answered (and
+    `grid_coverage` counted it as covered). Bold, bullets, backticks, `=`, `;` and a dash after
+    the coordinate were each a way to lose a batch. Alignment (index + coordinate) stays exactly
+    as strict; only the punctuation is forgiven.
+  * Values with a space were all refused, including `PC1 (-1'-0")` (S101P's pile cap over its
+    elevation — a plausible share of that sheet's 11 pile-cap abstentions) and `C-6 (14 x 30)`
+    (the client's column mark over its size). A trailing parenthetical of numbers is now kept
+    beside the mark; one of WORDS ("(illegible)") is still a hedge and still refused.
+
+And a batch where every crop aligned and none carried a value now falls back to the whole-sheet
+pass instead of storing "nothing legible" at every crossing of a structural grid — that shape is
+far likelier to be a reply the parser misread than a drawing with nothing on it.
+
+Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
+line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
+`C-6 (14 x 30)` legible inside. A3.01 plans 72 primary crossings and is refused on cost, loudly.
+What this does NOT establish is a score: no labelled set exists for either sheet, and no model
+was asked.
+
 A failure is never a failed page. An unavailable provider, a refusal, an empty or too-short
 reply all return None and the page keeps everything else it produced — a page without a
 description is exactly as good as it was before this existed. A reply under

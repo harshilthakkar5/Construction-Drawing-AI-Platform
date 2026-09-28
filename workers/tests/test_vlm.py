@@ -784,6 +784,112 @@ class TestCropAlignment:
         assert vlm._crop_value("HSS8X8X3/8.") == "HSS8X8X3/8"
 
 
+class TestTheReplyShapesAModelActuallyWrites:
+    """Alignment stays strict; punctuation around it does not.
+
+    The parser matched only the prompt's own example. "footing: F9" — the
+    commonest variation there is — captured ": F9", rejected it as prose, and
+    stored the intersection as "nothing legible": a correct reading turned into
+    a claim that nothing is there, with no warning, because the line still
+    counted as answered.
+    """
+
+    @pytest.mark.parametrize(
+        "line, want",
+        [
+            ("1. 2/B: footing: F9, column: HSS8X8X3/8", ("F9", "HSS8X8X3/8")),
+            ("1. 2/B: footing:F9, column:C3", ("F9", "C3")),
+            ("**1. 2/B:** footing F9, column C3", ("F9", "C3")),
+            ("1. 2/B: Footing = F9, Column = C3", ("F9", "C3")),
+            ("1. 2/B: footing `F9`, column `C3`", ("F9", "C3")),
+            ("- 1. 2/B: footing F9, column C3", ("F9", "C3")),
+            ("1. 2/B — footing F9; column C3", ("F9", "C3")),
+            ("1. 2/B: footing W12 x 26, column HSS 8X8X3/8", ("W12X26", "HSS8X8X3/8")),
+            # How S101P prints a pile cap, and how the client's sheet prints a
+            # column: a mark over its elevation or size. Both halves are kept.
+            ("1. 2/B: footing PC1 (-1'-0\"), column C-6 (14 x 30)", ("PC1 (-1'-0\")", "C-6 (14X30)")),
+        ],
+    )
+    def test_is_read(self, line, want):
+        assert vlm.parse_crop_batch(line, ["2/B"]) == {"2/B": want}
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "1. 2/B: footing F9 (illegible), column appears to be C3",
+            "1. 2/B: footing F9 (approx. 3), column HSS8X8 (not clear)",
+            "1. 2/B: footing -, column none",
+        ],
+    )
+    def test_a_hedge_is_still_no_value(self, line):
+        assert vlm.parse_crop_batch(line, ["2/B"]) == {"2/B": (None, None)}
+
+    def test_forgiving_the_format_does_not_forgive_the_coordinate(self):
+        assert vlm.parse_crop_batch("**1. 9/F:** footing: F9, column: C3", ["2/B"]) == {}
+
+
+class TestSecondaryLinesOnADenseGrid:
+    """The client's structural sheet: 8 lettered and 6 numbered primary lines
+    (48 crossings), 360 once every secondary line is counted. Counting them all
+    put the page over VLM_CROP_MAX and it got no crops at all."""
+
+    @staticmethod
+    def _dense():
+        doc = fitz.open()
+        page = doc.new_page(width=36 * 72, height=24 * 72)
+        page.insert_text((72, 72), "S2.105", fontsize=9)
+        columns = ["1", "1.5", "2", "2.5", "3", "3.5", "4"]
+        rows = ["A", "A.5", "B", "B.5", "C", "C.5", "D", "D.5", "E"]
+        for i, label in enumerate(columns):
+            x = 300 + 100 * i
+            page.draw_circle(fitz.Point(x, 150), 13.5)
+            page.insert_text((x - 6, 154), label, fontsize=8)
+        for j, label in enumerate(rows):
+            y = 300 + 80 * j
+            page.draw_circle(fitz.Point(150, y), 13.5)
+            page.insert_text((144, y + 4), label, fontsize=8)
+        return doc, page
+
+    def test_under_the_cap_every_line_is_cropped(self, monkeypatch):
+        doc, page = self._dense()
+        plan = vlm.crop_plan(page, limit=100)
+        assert len(plan.boxes) == 63 and plan.skipped == ()
+        doc.close()
+
+    def test_over_the_cap_the_primary_lines_are_cropped_and_the_rest_named(self):
+        doc, page = self._dense()
+        plan = vlm.crop_plan(page, limit=30)
+        assert len(plan.boxes) == 4 * 5
+        assert set(plan.skipped) == {"1.5", "2.5", "3.5", "A.5", "B.5", "C.5", "D.5"}
+        assert plan.all_intersections == 63
+        # Sized off the PRIMARY bay (200pt), not the 100pt gap to a secondary
+        # line, which would cut a primary crossing's own labels out.
+        assert abs(plan.boxes[0][1].width - 2 * 0.6 * 200) < 1
+        doc.close()
+
+    def test_the_decision_says_so_out_loud(self, monkeypatch):
+        doc, page = self._dense()
+        monkeypatch.setattr(vlm, "CROP_MAX", 30)
+        decision = vlm.crop_decision(page)
+        assert decision.crop is True and decision.intersections == 20
+        assert decision.loud is True
+        assert "63" in decision.reason and "A.5" in decision.reason
+        doc.close()
+
+    def test_the_description_names_what_it_did_not_describe(self, monkeypatch):
+        """The chunk is all the chat sees. Without this line a question about
+        2.5/B finds the grid, misses its line, and concludes nothing is there."""
+        doc, page = self._dense()
+        monkeypatch.setattr(vlm, "CROP_MAX", 30)
+        TestDescribeFromCrops._answering(monkeypatch)
+        text = vlm.describe_crops(page)
+        assert "Secondary grid lines" in text and "2.5" in text
+        assert "not described" in text
+        assert vlm.grid_coverage(text) == (4, 5, 20)
+        assert "At 2.5/" not in text
+        doc.close()
+
+
 class TestCropResolution:
     def test_a_crop_spends_the_same_ceiling_on_far_less_drawing(self):
         """The whole argument for the mode, as a number. Same cap, same page —
@@ -913,14 +1019,40 @@ class TestDescribeFromCrops:
         def fake_complete(system, user, **kwargs):
             labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
             return llm.Reply(
-                text="\n".join(f"{i}. {label}: footing -, column -" for i, label in labels),
+                text="\n".join(
+                    f"{i}. {label}: footing {'F9' if label == '2/B' else '-'}, column -"
+                    for i, label in labels
+                ),
                 stop_reason="end_turn",
             )
 
         monkeypatch.setattr(vlm.llm, "complete", fake_complete)
         doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
         text = vlm.describe_crops(page)
-        assert text.count("nothing legible") == len(columns) * len(rows)
+        # One legible crossing is enough to keep the page: every other line is
+        # owed and says so.
+        assert text.count("nothing legible") == len(columns) * len(rows) - 1
+        assert "At 2/B: footing F9." in text
+        doc.close()
+
+    def test_a_page_where_NO_crop_carried_a_value_falls_back(self, monkeypatch, caplog):
+        """Every line aligned, none carried a value. Stored, that is "nothing
+        legible" at every intersection of a structural grid, served by
+        retrieval as though it were a reading — and it is exactly what a reply
+        shape the parser misreads produces. The whole-sheet pass instead."""
+
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            return llm.Reply(
+                text="\n".join(f"{i}. {label}: footing -, column -" for i, label in labels),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        with caplog.at_level("WARNING"):
+            assert vlm.describe_crops(page) is None
+        assert "not one carried a value" in caplog.text
         doc.close()
 
     def test_a_page_with_no_grid_falls_back_rather_than_inventing_one(self, monkeypatch):
@@ -1181,7 +1313,7 @@ class TestTheGatingRule:
         to the case where cropping works."""
         doc = fitz.open()
         page = doc.new_page(width=42 * 72, height=30 * 72)  # no text at all
-        monkeypatch.setattr(vlm, "crops", lambda p: pytest.fail("geometry before the scan gate"))
+        monkeypatch.setattr(vlm, "crop_plan", lambda p: pytest.fail("geometry before the scan gate"))
         decision = vlm.crop_decision(page)
         assert decision.crop is False
         assert "vector text" in decision.reason
@@ -1189,7 +1321,7 @@ class TestTheGatingRule:
 
     def test_a_page_with_no_grid_is_refused_quietly(self, monkeypatch):
         doc, page = self._drawn_page()
-        monkeypatch.setattr(vlm, "crops", lambda p: [])
+        monkeypatch.setattr(vlm, "crop_plan", lambda p: vlm.CropPlan({}, {}, []))
         decision = vlm.crop_decision(page)
         assert decision.crop is False and decision.intersections == 0
         assert decision.loud is False, "a detail sheet with no grid is routine"
@@ -1200,7 +1332,7 @@ class TestTheGatingRule:
         document, and burying it among a thousand info lines is how a set
         quietly runs the whole-sheet pass on every page it meant to crop."""
         doc, page = self._drawn_page()
-        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * (vlm.CROP_MAX + 1))
+        monkeypatch.setattr(vlm, "crop_plan", lambda p: vlm.CropPlan({}, {}, [("x", None)] * (vlm.CROP_MAX + 1)))
         decision = vlm.crop_decision(page)
         assert decision.crop is False
         assert decision.loud is True
@@ -1212,7 +1344,7 @@ class TestTheGatingRule:
         # The cap is a maximum, not a strict bound — off-by-one here silently
         # halves the pages a borderline document crops.
         doc, page = self._drawn_page()
-        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * vlm.CROP_MAX)
+        monkeypatch.setattr(vlm, "crop_plan", lambda p: vlm.CropPlan({}, {}, [("x", None)] * vlm.CROP_MAX))
         assert vlm.crop_decision(page).crop is True
         doc.close()
 
@@ -1223,7 +1355,7 @@ class TestTheGatingRule:
         with no wrong answer of any kind. Gating on overlap would refuse the
         page the mode works best on."""
         doc, page = self._drawn_page()
-        monkeypatch.setattr(vlm, "crops", lambda p: [("x", None)] * 22)
+        monkeypatch.setattr(vlm, "crop_plan", lambda p: vlm.CropPlan({}, {}, [("x", None)] * 22))
         assert vlm.crop_decision(page).crop is True
         doc.close()
 

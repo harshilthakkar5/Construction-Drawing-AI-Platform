@@ -136,7 +136,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `VLM_CROP` | `off` | Worker | `intersections` = one crop per grid intersection instead of the whole sheet. |
 | `VLM_CROP_BAYS` | `0.6` | Worker | Crop size, in grid bays. |
 | `VLM_CROP_BATCH` | `6` | Worker | Crops per model call. |
-| `VLM_CROP_MAX` | `60` | Worker | Pages with more intersections fall back to the whole-sheet pass. |
+| `VLM_CROP_MAX` | `60` | Worker | Most crops per page. Over it, secondary grid lines (4.3, C.1) are dropped and only the primary crossings are cropped; if those still exceed it, the page falls back to the whole-sheet pass. |
 | `VLM_CROP_MAX_TOKENS` | `1500` | Worker | Output cap per crop batch. |
 
 ## 9. Summaries
