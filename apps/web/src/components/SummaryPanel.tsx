@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, ChevronDownIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { SummaryItem } from "@cdip/shared";
+import { SUMMARY_DETAILS, type SummaryDetail, type SummaryItem } from "@cdip/shared";
 import { api } from "@/api";
 import { Spinner } from "@/components/shared";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
@@ -105,12 +105,13 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   // Cost confirmation before spending: same dialog the category list uses.
   const [confirming, setConfirming] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<SummaryDetail>("standard");
   const estimate = useQuery({
-    queryKey: ["summary-estimate", projectId, selectedPortionId ?? "project"],
+    queryKey: ["summary-estimate", projectId, selectedPortionId ?? "project", detail],
     queryFn: () =>
       selectedPortionId
-        ? api.summaryEstimate(projectId, selectedPortionId)
-        : api.projectSummaryEstimate(projectId),
+        ? api.summaryEstimate(projectId, selectedPortionId, detail)
+        : api.projectSummaryEstimate(projectId, detail),
     enabled: confirming,
     staleTime: 30_000,
   });
@@ -118,8 +119,8 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   const generate = useMutation({
     mutationFn: () =>
       selectedPortionId
-        ? api.summarizePortion(projectId, selectedPortionId)
-        : api.generateProjectSummary(projectId),
+        ? api.summarizePortion(projectId, selectedPortionId, detail)
+        : api.generateProjectSummary(projectId, detail),
     onSuccess: () => {
       setConfirming(false);
       setRebuilding(true);
@@ -137,6 +138,15 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   const heading = selectedPortionId
     ? `${selectedPortion?.name ?? "Portion"} summary`
     : "Project summary";
+  // The size this summary was written at; absent on summaries from before
+  // sizes existed, which were all standard.
+  const writtenDetail: SummaryDetail | undefined = summary?.summary.detail;
+
+  /** Open the cost dialog at the size last used here, so Regenerate repeats it. */
+  function openConfirm() {
+    setDetail(writtenDetail ?? selectedPortion?.summaryDetail ?? "standard");
+    setConfirming(true);
+  }
 
   // Stop waiting once the run produced the summary for THIS level, or after the
   // timeout (a failed job never writes anything — don't spin forever).
@@ -175,13 +185,21 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <SparklesIcon className="text-muted-foreground size-4" />
           {heading}
+          {writtenDetail && writtenDetail !== "standard" && (
+            <span
+              className="rounded border border-border px-1.5 py-px text-[10px] font-normal text-muted-foreground"
+              title={`Written at the ${SUMMARY_DETAILS[writtenDetail].label.toLowerCase()} size: up to ${SUMMARY_DETAILS[writtenDetail].points} highlights`}
+            >
+              {SUMMARY_DETAILS[writtenDetail].label}
+            </span>
+          )}
         </h3>
         {summary && (
           <Button
             variant="outline"
             size="sm"
             className="text-xs"
-            onClick={() => setConfirming(true)}
+            onClick={openConfirm}
             disabled={generate.isPending || waiting}
           >
             {generate.isPending || waiting ? <Spinner /> : <RefreshCwIcon />}
@@ -212,7 +230,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                 variant="outline"
                 size="sm"
                 className="text-xs"
-                onClick={() => setConfirming(true)}
+                onClick={openConfirm}
                 disabled={generate.isPending || waiting}
               >
                 {(generate.isPending || waiting) && <Spinner />}
@@ -241,7 +259,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                   variant="outline"
                   size="sm"
                   className="border-warning/40 text-warning hover:bg-warning/20 h-6 shrink-0 px-1.5 text-[11px]"
-                  onClick={() => setConfirming(true)}
+                  onClick={openConfirm}
                   disabled={generate.isPending || waiting}
                 >
                   {generate.isPending || waiting ? "Working…" : "Regenerate"}
@@ -298,6 +316,8 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
           isLoading={estimate.isLoading}
           error={estimate.error}
           busy={generate.isPending}
+          detail={detail}
+          onDetailChange={setDetail}
           onCancel={() => setConfirming(false)}
           onConfirm={() => generate.mutate()}
         />

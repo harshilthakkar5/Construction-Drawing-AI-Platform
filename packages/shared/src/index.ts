@@ -180,6 +180,8 @@ export interface PortionDto {
   summaryRequestedAt: string | null;
   summaryCompletedAt: string | null;
   summaryError: string | null;
+  /** The size the last run asked for — the dialog preselects it. */
+  summaryDetail: SummaryDetail | null;
   /** A sheet number scraped from this discipline's pages, for the UI label. */
   sheetNumberSample?: string | null;
 }
@@ -380,11 +382,33 @@ export interface SummarizePortionJob {
   projectId: string;
   portionId: string;
   requestedById?: string;
+  /** SUMMARY_DETAILS key; omitted = the worker's SUMMARY_DETAIL default. */
+  detail?: SummaryDetail;
 }
 
 export interface SummarizeProjectJob {
   projectId: string;
+  detail?: SummaryDetail;
 }
+
+/**
+ * How big a summary is: at most `points` highlights and an overview of the
+ * given length. Applies to what the user READS — the section, discipline and
+ * project rollups. Page summaries stay at the standard size because every
+ * later run reuses them.
+ *
+ * MIRRORED as DETAIL_LEVELS in workers/src/summarize.py, which writes the
+ * summaries; test_summarize reads this block and fails on a drift, because
+ * the dialog would otherwise price and promise a size the worker never writes.
+ */
+export const SUMMARY_DETAILS = {
+  brief: { label: "Brief", points: 5, overview: "1-2 sentence" },
+  standard: { label: "Standard", points: 8, overview: "1-3 sentence" },
+  detailed: { label: "Detailed", points: 15, overview: "3-5 sentence" },
+  full: { label: "Full", points: 25, overview: "4-6 sentence" },
+} as const;
+export type SummaryDetail = keyof typeof SUMMARY_DETAILS;
+export const SUMMARY_DETAIL_KEYS = Object.keys(SUMMARY_DETAILS) as SummaryDetail[];
 
 /** Scan a project's drawings for RFI-worthy gaps. The API creates the
  * rfi_scans row first and passes its id, so the worker reports into a row the
@@ -438,10 +462,10 @@ export const JOB_FIELDS = {
     ["documentId"],
   ),
   summarizePortion: jobFields<SummarizePortionJob>()(
-    ["projectId", "portionId", "requestedById"],
-    ["requestedById"],
+    ["projectId", "portionId", "requestedById", "detail"],
+    ["requestedById", "detail"],
   ),
-  summarizeProject: jobFields<SummarizeProjectJob>()(["projectId"]),
+  summarizeProject: jobFields<SummarizeProjectJob>()(["projectId", "detail"], ["detail"]),
   rfiScan: jobFields<RfiScanJob>()(["projectId", "scanId"]),
 } as const;
 
@@ -473,6 +497,9 @@ export interface SummaryContent {
   /** section level only */
   startPage?: number;
   endPage?: number;
+  /** Rollups: the size this summary was written at (SUMMARY_DETAILS). Absent
+   * on summaries written before sizes existed, which were all "standard". */
+  detail?: SummaryDetail;
 }
 
 export interface SummaryDto {
@@ -500,6 +527,11 @@ export interface SummaryEstimateDto {
   portionsUsed?: number;
   /** The model that will actually run — follows SUMMARY_PROVIDER. */
   model: string;
+  /** The size this estimate was priced at. */
+  detail: SummaryDetail;
+  /** SUMMARY_THINKING on the worker's side of the env, or null for the global
+   * default. Reasoning tokens bill as output and are NOT in the estimate. */
+  thinking: string | null;
   /** True when the page tier goes through a batch, billing it at half price. */
   batched: boolean;
   pageCalls: number;

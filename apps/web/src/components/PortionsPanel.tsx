@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { PortionDto, PortionSummaryStatus } from "@cdip/shared";
+import type { PortionDto, PortionSummaryStatus, SummaryDetail } from "@cdip/shared";
 import { api } from "@/api";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Badge } from "@/components/ui/badge";
@@ -79,19 +79,26 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   // for the rollup, or null when no dialog is open.
   const [pending, setPending] = useState<string | null>(null);
   const confirmingProject = pending === "project";
+  // The size to price and request. Opening the dialog for a discipline starts
+  // at the size its last run used, so "Regenerate" repeats what was chosen.
+  const [detail, setDetail] = useState<SummaryDetail>("standard");
+  function confirm(target: string, lastDetail?: SummaryDetail | null) {
+    setDetail(lastDetail ?? "standard");
+    setPending(target);
+  }
 
   const estimate = useQuery({
-    queryKey: ["summary-estimate", projectId, pending],
+    queryKey: ["summary-estimate", projectId, pending, detail],
     queryFn: () =>
       confirmingProject
-        ? api.projectSummaryEstimate(projectId)
-        : api.summaryEstimate(projectId, pending as string),
+        ? api.projectSummaryEstimate(projectId, detail)
+        : api.summaryEstimate(projectId, pending as string, detail),
     enabled: pending !== null,
     staleTime: 30_000,
   });
 
   const summarize = useMutation({
-    mutationFn: (portionId: string) => api.summarizePortion(projectId, portionId),
+    mutationFn: (portionId: string) => api.summarizePortion(projectId, portionId, detail),
     onSuccess: () => {
       setPending(null);
       void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
@@ -102,7 +109,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
     portions.data?.some((p) => p.summaryStatus === "ready" || p.summaryStatus === "stale") ??
     false;
   const projectSummary = useMutation({
-    mutationFn: () => api.generateProjectSummary(projectId),
+    mutationFn: () => api.generateProjectSummary(projectId, detail),
     onSuccess: () => {
       setPending(null);
       void queryClient.invalidateQueries({ queryKey: ["summaries", projectId] });
@@ -199,7 +206,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     data-tour="generate-summary"
                     className="ml-auto h-6 shrink-0 px-2 text-[11px]"
                     disabled={busy || summarize.isPending}
-                    onClick={() => setPending(portion.id)}
+                    onClick={() => confirm(portion.id, portion.summaryDetail)}
                     title={
                       CAN_START.includes(portion.summaryStatus)
                         ? `Summarize the ${portion.name} sheets`
@@ -238,7 +245,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
             variant="outline"
             size="sm"
             className="w-full text-xs"
-            onClick={() => setPending("project")}
+            onClick={() => confirm("project")}
             disabled={projectSummary.isPending}
             title="Combine the discipline summaries into one project summary"
           >
@@ -264,6 +271,8 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           isLoading={estimate.isLoading}
           error={estimate.error}
           busy={summarize.isPending || projectSummary.isPending}
+          detail={detail}
+          onDetailChange={setDetail}
           onCancel={() => setPending(null)}
           onConfirm={() =>
             confirmingProject ? projectSummary.mutate() : summarize.mutate(pending)

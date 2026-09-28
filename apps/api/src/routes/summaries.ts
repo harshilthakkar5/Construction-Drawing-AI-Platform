@@ -4,7 +4,8 @@ import { summaryLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { summarizeProjectQueue } from "../queues.js";
 import { redis } from "../redis.js";
-import { estimateProjectRollup } from "../summaryEstimate.js";
+import { defaultDetail, estimateProjectRollup } from "../summaryEstimate.js";
+import { detailBody, parseDetail } from "../summaryRunRules.js";
 
 /**
  * Hierarchical summaries (FR-10..13) are written by the worker's
@@ -106,7 +107,7 @@ summariesRouter.get("/project/estimate", async (req, res) => {
   });
   res.json({
     portionsUsed: portionsReady,
-    ...estimateProjectRollup(portionsReady),
+    ...estimateProjectRollup(portionsReady, parseDetail(req.query.detail) ?? defaultDetail()),
   });
 });
 
@@ -129,8 +130,12 @@ summariesRouter.post("/project", summaryLimiter, async (req, res) => {
     });
   }
 
+  const { detail } = detailBody.parse(req.body ?? {});
   await redis.del(summariesCacheKey(projectId)).catch(() => {});
-  const job = await summarizeProjectQueue.add("summarize", { projectId });
+  const job = await summarizeProjectQueue.add("summarize", {
+    projectId,
+    ...(detail ? { detail } : {}),
+  });
   console.log(`[summaries] project rollup queued for ${projectId} (job ${job.id})`);
   res.status(202).json({ queued: true, jobId: job.id, portionsUsed: ready });
 });
@@ -142,11 +147,15 @@ summariesRouter.post("/project", summaryLimiter, async (req, res) => {
  */
 summariesRouter.post("/rebuild", summaryLimiter, async (req, res) => {
   const { projectId } = paramsSchema.parse(req.params);
+  const { detail } = detailBody.parse(req.body ?? {});
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
   await redis.del(summariesCacheKey(projectId)).catch(() => {});
   // The job NAME picks the worker path: "rebuild" runs every level,
   // "summarize" only rolls existing portion summaries up.
-  const job = await summarizeProjectQueue.add("rebuild", { projectId });
+  const job = await summarizeProjectQueue.add("rebuild", {
+    projectId,
+    ...(detail ? { detail } : {}),
+  });
   console.log(`[summaries] full rebuild queued for project ${projectId} (job ${job.id})`);
   res.status(202).json({ queued: true, jobId: job.id });
 });

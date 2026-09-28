@@ -1151,6 +1151,35 @@ rollups share it with the page tier — without it one bad rollup response silen
 whole discipline to `_merge_lower`, which concatenates the level below in place of the summary
 the user reads.
 
+**Size and thinking are the user's to choose.** `SUMMARY_DETAILS` in `@cdip/shared` (brief 5 /
+standard 8 / detailed 15 / full 25 highlights, each with an overview length) is offered by the
+"Generate summary" dialog, priced by `summaryEstimate` (rollup output scales with the point count)
+and sent as the job's `detail`; `summarize.DETAIL_LEVELS` mirrors it and `test_summary_controls`
+reads the TypeScript to fail on a drift — a dialog promising 25 points over a worker writing 8
+would charge for one and deliver the other. The size applies to the ROLLUPS a user reads; page
+summaries stay standard because every later run reuses them. Each rollup records its `detail` in
+its JSON, the portion remembers `summaryDetail`, and the dialog reopens at the last size used.
+`SUMMARY_THINKING` is the stage's reasoning switch (the `RFI_THINKING` vocabulary, via
+`llm.stage_thinking`) and reaches batch calls too — which exposed that `_batch_claude` had never
+sent a `thinking` field at all, so on Sonnet 5 (adaptive thinking when the field is omitted)
+`CLAUDE_THINKING=off` held for direct summary calls and silently did not for the half-price batch
+path. Adaptive thinking at an explicit effort now gets output headroom like a budget does.
+
+Per-run state lives in a thread-local `RunContext` (project, roles, size, thinking), not in module
+globals: up to `SUMMARIZE_PORTION_CONCURRENCY` runs share the module at once in separate threads,
+and a global set by one was overwritten by the next — its calls billed to another project and
+written with another project's role focus.
+
+**A run survives a dead worker.** Page summaries are written as each answer arrives; the direct
+path used to make every call first and write afterwards, so a worker that stopped at page 90 of
+100 discarded 90 paid answers. And the worker's `_heartbeat` thread touches
+`portions.summaryHeartbeatAt` every `SUMMARY_HEARTBEAT_SECONDS`; `summaryRunRules` treats a
+running portion silent for `SUMMARY_STALE_MINUTES` (queued: `SUMMARY_QUEUED_STALE_MINUTES`) as
+dead — the list reports it failed with the reason and the button accepts a new run, which reuses
+every page already saved. Keyed on the heartbeat rather than the start time, because a large
+discipline legitimately runs longer than any fixed limit. Verified by `kill -9` mid-run: 4 of 12
+pages survived, the next run summarized the other 8.
+
 The section tier exists to BOUND the portion rollup's input (40 pages → 4 section summaries →
 one portion call). It is therefore skipped when a discipline has ≤ `SECTION_SIZE` (10) pages —
 `summarize.needs_section_tier` — because `group_sections` yields exactly one group there and the
@@ -2273,7 +2302,8 @@ documents(id, projectId, filename, spacesKey, pages, revision, status)
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
-         summaryStatus, ...)   // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
+         summaryStatus, summaryHeartbeatAt, summaryDetail, ...)
+         // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert
 chunks(id, pageId, portionId, text, bbox, tokenCount, embeddingId, kind,
        sourceModel, sourceSettings)  // embeddingId = Qdrant point ID; kind = text|description;
                                      // source* NULL on text chunks and on anything written

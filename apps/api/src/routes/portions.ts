@@ -6,7 +6,13 @@ import { summaryLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
 import { summarizePortionQueue } from "../queues.js";
 import { redis } from "../redis.js";
-import { estimateSummaryRun } from "../summaryEstimate.js";
+import { defaultDetail, estimateSummaryRun } from "../summaryEstimate.js";
+import {
+  detailBody,
+  effectiveSummaryState,
+  parseDetail,
+  summaryRunIsDead,
+} from "../summaryRunRules.js";
 import { summariesCacheKey } from "./summaries.js";
 
 /**
@@ -24,6 +30,7 @@ const portionParams = projectParam.extend({ portionId: z.string().uuid() });
 
 /** Statuses where a job is already in flight — pressing again is a no-op. */
 const IN_FLIGHT = ["queued", "running"] as const;
+
 
 portionsRouter.get("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
@@ -60,10 +67,11 @@ portionsRouter.get("/", async (req, res) => {
     endPage: portion.endPage,
     pageCount: portion.pageCount,
     summary: portion.summary,
-    summaryStatus: portion.summaryStatus,
+    // A run whose worker died reads as failed, so the button comes back.
+    ...effectiveSummaryState(portion),
     summaryRequestedAt: portion.summaryRequestedAt?.toISOString() ?? null,
     summaryCompletedAt: portion.summaryCompletedAt?.toISOString() ?? null,
-    summaryError: portion.summaryError,
+    summaryDetail: parseDetail(portion.summaryDetail),
     sheetNumberSample: portion.discipline
       ? (sampleByDiscipline.get(portion.discipline) ?? null)
       : null,
@@ -123,7 +131,8 @@ portionsRouter.get("/:portionId/summarize/estimate", async (req, res) => {
     if (tokens > 0) pageTokens.push(tokens);
   }
 
-  const estimate = estimateSummaryRun({ pageTokens, reusedPages });
+  const detail = parseDetail(req.query.detail) ?? defaultDetail();
+  const estimate = estimateSummaryRun({ pageTokens, reusedPages, detail });
   res.json({
     portionName: portion.name,
     pages: pages.length,
@@ -139,13 +148,22 @@ portionsRouter.get("/:portionId/summarize/estimate", async (req, res) => {
  */
 portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) => {
   const { projectId, portionId } = portionParams.parse(req.params);
+  const { detail } = detailBody.parse(req.body ?? {});
   const portion = await prisma.portion.findUniqueOrThrow({
     where: { id: portionId, projectId },
   });
   if ((IN_FLIGHT as readonly string[]).includes(portion.summaryStatus)) {
-    return void res
-      .status(409)
-      .json({ error: `a summary is already ${portion.summaryStatus} for this portion` });
+    if (!summaryRunIsDead(portion)) {
+      return void res
+        .status(409)
+        .json({ error: `a summary is already ${portion.summaryStatus} for this portion` });
+    }
+    // Its worker stopped beating: the run is gone and the pages it finished
+    // are saved, so a new run picks up where it stopped.
+    console.warn(
+      `[portions] previous summary for ${portion.name} was ${portion.summaryStatus} with no ` +
+        "heartbeat — presumed dead, starting a new run",
+    );
   }
   if (portion.pageCount === 0) {
     return void res.status(409).json({ error: "this portion has no pages to summarize" });
@@ -155,6 +173,7 @@ portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) =>
     projectId,
     portionId,
     requestedById: currentUser(req).id,
+    ...(detail ? { detail } : {}),
   });
   const updated = await prisma.portion.update({
     where: { id: portionId },
@@ -163,6 +182,8 @@ portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) =>
       summaryJobId: job.id ?? null,
       summaryRequestedById: currentUser(req).id,
       summaryRequestedAt: new Date(),
+      summaryHeartbeatAt: null,
+      summaryDetail: detail ?? defaultDetail(),
       summaryError: null,
     },
   });

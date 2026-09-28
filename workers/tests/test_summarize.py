@@ -164,6 +164,8 @@ class TestRollupFallback:
         assert result == {
             "overview": "Page 3.",
             "items": [{"text": "Footings", "chunkIds": [ID_A], "page": 3}],
+            # Every rollup records the size it was written at, the merge too.
+            "detail": "standard",
         }
 
     def test_falls_back_when_model_cites_nothing(self, monkeypatch):
@@ -184,6 +186,7 @@ class TestRollupFallback:
         assert _rollup("section", "l", lower, CHUNK_PAGES) == {
             "overview": "Uncited overview.",
             "items": [],
+            "detail": "standard",
         }
 
 

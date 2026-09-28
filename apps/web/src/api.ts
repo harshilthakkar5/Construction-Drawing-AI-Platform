@@ -23,6 +23,7 @@ import type {
   RfiUsageTotalsDto,
   SheetRegionDto,
   SummaryDto,
+  SummaryDetail,
   SummaryEstimateDto,
   SummaryStatusDto,
   SupportTicketDto,
@@ -252,28 +253,32 @@ export const api = {
 
   listPortions: (projectId: string) => request<PortionDto[]>(`/projects/${projectId}/portions`),
 
-  /** What will this discipline's summary cost? Backs the confirm dialog. */
-  summaryEstimate: (projectId: string, portionId: string) =>
+  /** What will this discipline's summary cost at this size? Backs the confirm dialog. */
+  summaryEstimate: (projectId: string, portionId: string, detail?: SummaryDetail) =>
     request<SummaryEstimateDto>(
-      `/projects/${projectId}/portions/${portionId}/summarize/estimate`,
+      `/projects/${projectId}/portions/${portionId}/summarize/estimate${
+        detail ? `?detail=${detail}` : ""
+      }`,
     ),
 
-  /** What will the project rollup cost? */
-  projectSummaryEstimate: (projectId: string) =>
-    request<SummaryEstimateDto>(`/projects/${projectId}/summaries/project/estimate`),
+  /** What will the project rollup cost at this size? */
+  projectSummaryEstimate: (projectId: string, detail?: SummaryDetail) =>
+    request<SummaryEstimateDto>(
+      `/projects/${projectId}/summaries/project/estimate${detail ? `?detail=${detail}` : ""}`,
+    ),
 
   /** FR-10/12 on demand: summarize ONE discipline, because the user asked. */
-  summarizePortion: (projectId: string, portionId: string) =>
+  summarizePortion: (projectId: string, portionId: string, detail?: SummaryDetail) =>
     request<{ queued: boolean; jobId: string }>(
       `/projects/${projectId}/portions/${portionId}/summarize`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(detail ? { detail } : {}) },
     ),
 
   /** Roll the existing per-discipline summaries up into the project summary. */
-  generateProjectSummary: (projectId: string) =>
+  generateProjectSummary: (projectId: string, detail?: SummaryDetail) =>
     request<{ queued: boolean; jobId: string; portionsUsed: number }>(
       `/projects/${projectId}/summaries/project`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(detail ? { detail } : {}) },
     ),
 
   listSummaries: (projectId: string) => request<SummaryDto[]>(`/projects/${projectId}/summaries`),

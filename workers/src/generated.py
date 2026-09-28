@@ -51,9 +51,11 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
         ("projectId", "project_id", False, "str"),
         ("portionId", "portion_id", False, "str"),
         ("requestedById", "requested_by_id", True, "str"),
+        ("detail", "detail", True, "str"),
     ),
     "summarizeProject": (
         ("projectId", "project_id", False, "str"),
+        ("detail", "detail", True, "str"),
     ),
     "rfiScan": (
         ("projectId", "project_id", False, "str"),

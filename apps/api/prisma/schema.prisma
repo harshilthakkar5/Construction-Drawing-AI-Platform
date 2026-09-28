@@ -371,6 +371,13 @@ model Portion {
   summaryRequestedAt   DateTime?
   summaryCompletedAt   DateTime?
   summaryError         String?
+  /// Touched every minute by the worker while a run is live. A run whose
+  /// heartbeat stops (the worker crashed or restarted) is presumed dead after
+  /// SUMMARY_STALE_MINUTES, so the button works again instead of answering
+  /// "a summary is already running" for ever.
+  summaryHeartbeatAt   DateTime?
+  /// The size the last run asked for (SUMMARY_DETAILS in @cdip/shared).
+  summaryDetail        String?
 
   project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   summaryRequestedBy User?     @relation(fields: [summaryRequestedById], references: [id], onDelete: SetNull)
