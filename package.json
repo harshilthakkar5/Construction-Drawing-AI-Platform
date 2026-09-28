@@ -6,10 +6,10 @@
     "apps/*"
   ],
   "scripts": {
-    "//shared": "@cdip/shared is consumed as BUILT js (dist/index.js), so a stale dist is silently wrong: missing type exports are erased at runtime, but missing VALUE exports (QUEUES, objectKeys) come back undefined \u2014 a queue named 'undefined' rather than an error. Every entrypoint below rebuilds it first.",
+    "//shared": "@cdip/shared is consumed as BUILT js (dist/index.js), so a stale dist is silently wrong: missing type exports are erased at runtime, but missing VALUE exports (QUEUES, objectKeys) come back undefined \u2014 a queue named 'undefined' rather than an error. Every entrypoint below rebuilds it first — dev:api/dev:web through the apps' own predev hooks, so starting the api or web from INSIDE its folder (npm run dev in apps/api) rebuilds it too instead of crashing on a missing export.",
     "shared": "npm run build --workspace @cdip/shared",
-    "dev:api": "npm run shared && npm run dev --workspace @cdip/api",
-    "dev:web": "npm run shared && npm run dev --workspace @cdip/web",
+    "dev:api": "npm run dev --workspace @cdip/api",
+    "dev:web": "npm run dev --workspace @cdip/web",
     "build": "npm run build --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
     "typecheck": "npm run shared && npm run typecheck --workspace @cdip/shared --workspace @cdip/api --workspace @cdip/web",
     "test": "npm run shared && npm run test --workspace @cdip/shared --workspace @cdip/api",
