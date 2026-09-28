@@ -375,3 +375,35 @@ def test_a_gemini_batch_takes_the_stage_setting_and_its_headroom(monkeypatch):
     )
     assert seen["thinking"] == {"thinking_level": "low"}
     assert seen["max_tokens"] == 2000 + llm._GEMINI_STAGE_HEADROOM["low"]
+
+
+# --- sheet reading (classify.py) -------------------------------------------------------
+
+
+def test_concurrent_scrapes_bill_their_own_project(monkeypatch):
+    """scrape-region jobs run in parallel threads. The project id was a module
+    global, so one project's sheet reads were billed to whichever project set
+    it last. Asserted where it matters: the id the provider call receives."""
+    import classify
+    import sheetllm
+
+    billed: dict[str, str | None] = {}
+    barrier = threading.Barrier(2)
+
+    def fake_complete_json(system, user, project_id, **kw):
+        billed[user.split("<region>")[1].split("-")[0].strip()] = project_id
+        return None
+
+    monkeypatch.setattr(sheetllm, "complete_json", fake_complete_json)
+
+    def scrape(project):
+        classify.set_usage_project(project)
+        barrier.wait()  # both have set their project before either reads
+        classify.extract_sheet_from_region(f"{project}-S-101 title block text")
+
+    threads = [threading.Thread(target=scrape, args=(p,)) for p in ("projA", "projB")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert billed == {"projA": "projA", "projB": "projB"}

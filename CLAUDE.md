@@ -59,7 +59,10 @@ worker venv):
 - `docker compose up -d` — local Postgres, Redis, Qdrant, MinIO (+ bucket init)
 - `npm install` — all workspaces; also builds `packages/shared`
 - `npm run prisma:migrate` / `npm run prisma:generate` — migrations / client (workspace `@cdip/api`)
-- `npm run dev:api` (port 4000, `/health` checks Postgres/Redis/Qdrant) and `npm run dev:web` (port 3000)
+- `npm run dev:api` (port 4000, `/health` checks Postgres/Redis/Qdrant) and `npm run dev:web` (port 3000).
+  `@cdip/shared` runs from its BUILT `dist/` (gitignored), so both apps rebuild it in `predev` (and
+  the api in `pretest`) — starting from inside `apps/api` used to run a stale build and crash on
+  the first new export (`does not provide an export named 'SUMMARY_DETAILS'`)
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
 - Workers: `cd workers && python src/worker.py` (consumes process-document, scrape-region,
@@ -1168,7 +1171,8 @@ path. Adaptive thinking at an explicit effort now gets output headroom like a bu
 Per-run state lives in a thread-local `RunContext` (project, roles, size, thinking), not in module
 globals: up to `SUMMARIZE_PORTION_CONCURRENCY` runs share the module at once in separate threads,
 and a global set by one was overwritten by the next — its calls billed to another project and
-written with another project's role focus.
+written with another project's role focus. `classify.set_usage_project` had the same global for
+sheet reads (parallel `scrape-region` jobs billed each other's spend) and is thread-local too.
 
 **A run survives a dead worker.** Page summaries are written as each answer arrives; the direct
 path used to make every call first and write afterwards, so a worker that stopped at page 90 of

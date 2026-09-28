@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 
 import logutil
 import sheetllm
@@ -263,14 +264,23 @@ def parse_sheet_response(raw: str) -> tuple[str, str] | None:
     return _sheet_from_payload(data)
 
 
-# Project the current detection pass belongs to, so Haiku sheet reads can be
-# attributed on the dashboard. Set by portions.detect_and_store.
-_current_project: str | None = None
+# Project the current detection pass belongs to, so sheet reads are billed to
+# it on the dashboard. PER THREAD: scrape-region jobs run SCRAPE_CONCURRENCY at
+# once, each in its own thread (asyncio.to_thread), and this was a module
+# global — two projects scraping together overwrote each other's id, and one
+# project's sheet-reading spend was recorded against the other. Set by
+# scrape.py (and the legacy portions.detect_and_store) in the job's thread,
+# which is the thread every read below runs in.
+_usage = threading.local()
 
 
 def set_usage_project(project_id: str | None) -> None:
-    global _current_project
-    _current_project = project_id
+    _usage.project_id = project_id
+
+
+def usage_project() -> str | None:
+    """The project this thread's sheet reads are billed to."""
+    return getattr(_usage, "project_id", None)
 
 
 def extract_sheet_by_ai(
@@ -305,7 +315,7 @@ def extract_sheet_by_ai(
     user_content = (
         f"Drawing file name: {filename}\n\n" if filename else ""
     ) + f"<sheet>\n{snippet}\n</sheet>"
-    raw = sheetllm.complete_json(_SHEET_SYSTEM_PROMPT, user_content, _current_project)
+    raw = sheetllm.complete_json(_SHEET_SYSTEM_PROMPT, user_content, usage_project())
     if raw is None:
         return None
     result = parse_sheet_response(raw)
@@ -473,7 +483,7 @@ def extract_sheet_from_region(
         f"Drawing file name: {filename}\n\n" if filename else ""
     ) + f"<region>\n{snippet}\n</region>"
 
-    raw = sheetllm.complete_json(_REGION_SYSTEM_PROMPT, user_content, _current_project)
+    raw = sheetllm.complete_json(_REGION_SYSTEM_PROMPT, user_content, usage_project())
     if raw is None:
         return None
     # Same parser for every provider: the model reports a sheet number, the
@@ -582,7 +592,7 @@ def _read_region_batch(snippets: list[str], depth: int = 0) -> list:
     raw = sheetllm.complete_json(
         _BATCH_SYSTEM_PROMPT,
         user_content,
-        _current_project,
+        usage_project(),
         max_tokens=_batch_max_tokens(len(snippets)),
     )
     if raw is None:
