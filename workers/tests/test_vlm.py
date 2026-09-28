@@ -1393,3 +1393,91 @@ class TestTheSettingsTravelWithTheDescription:
         # repeated, which is what makes an error bar computable without anyone
         # remembering to pass a flag.
         assert vlm.settings_snapshot() == vlm.settings_snapshot()
+
+
+class TestReasoningThatEatsTheCropBudget:
+    """The log that found this: CLAUDE_THINKING=on, VLM_CROP_BATCH=20. Two of
+    three batches came back `stop_reason=max_tokens` with nothing but a thinking
+    block, 8 of 48 crossings were answered, and the retry rule called it "the
+    reply FORMAT" and gave up."""
+
+    @staticmethod
+    def _transport(monkeypatch, *, silent_unless_off=True, seen=None):
+        def fake_complete(system, user, **kwargs):
+            if seen is not None:
+                seen.append((kwargs.get("thinking"), kwargs.get("max_tokens"), user.count("\n") ))
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            if silent_unless_off and kwargs.get("thinking") != "off":
+                return llm.Reply(text="", stop_reason="max_tokens")
+            return llm.Reply(
+                text="\n".join(f"{i}. {label}: footing F{i}, column C{i}" for i, label in labels),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+
+    def test_a_batch_that_wrote_nothing_is_retried_with_thinking_off(self, monkeypatch, caplog):
+        seen = []
+        self._transport(monkeypatch, seen=seen)
+        monkeypatch.setattr(vlm, "CROP_BATCH", 12)
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        with caplog.at_level("WARNING"):
+            text = vlm.describe_crops(page)
+        assert text is not None
+        assert vlm.grid_coverage(text)[2] == len(columns) * len(rows), "every crossing answered"
+        assert [t for t, _, _ in seen] == [None, None, "off", "off"]
+        assert "asking again with thinking off" in caplog.text
+        assert "reply FORMAT" not in caplog.text, "a silent call is not a format failure"
+        doc.close()
+
+    def test_VLM_THINKING_is_what_the_first_attempt_sends(self, monkeypatch):
+        seen = []
+        self._transport(monkeypatch, silent_unless_off=False, seen=seen)
+        monkeypatch.setenv("VLM_THINKING", "off")
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        assert vlm.describe_crops(page) is not None
+        assert {t for t, _, _ in seen} == {"off"}
+        assert vlm.settings_snapshot()["VLM_THINKING"] == "off"
+        doc.close()
+
+    def test_the_budget_grows_with_the_batch(self):
+        assert vlm.crop_budget(6) == vlm.CROP_MAX_TOKENS
+        assert vlm.crop_budget(40) > vlm.CROP_MAX_TOKENS
+        assert vlm.crop_budget(40) >= 40 * 25, "room for forty ~25-token lines"
+
+    def test_under_half_answered_falls_back_to_the_whole_sheet(self, monkeypatch, caplog):
+        """A grid header over a handful of crossings is read by the chat as a
+        grid described and mostly empty. The whole-sheet pass instead."""
+
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            first = labels[:1]  # one line per batch, nothing else, whatever is asked
+            return llm.Reply(
+                text="\n".join(f"{i}. {label}: footing F1, column C1" for i, label in first),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        monkeypatch.setattr(vlm, "CROP_BATCH", 4)
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        with caplog.at_level("WARNING"):
+            assert vlm.describe_crops(page) is None
+        assert "under half" in caplog.text
+        doc.close()
+
+    def test_crossings_left_unanswered_are_named(self, monkeypatch):
+        def fake_complete(system, user, **kwargs):
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            return llm.Reply(
+                text="\n".join(
+                    f"{i}. {label}: footing F1, column C1" for i, label in labels if label != "2/B"
+                ),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        text = vlm.describe_crops(page)
+        assert "No reading was obtained at 2/B" in text
+        assert "At 2/B:" not in text
+        doc.close()

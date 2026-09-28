@@ -83,6 +83,15 @@ const ID_RE = new RegExp(UUID, "g");
  */
 const STRAY_CITATION_RE = new RegExp(`\\[?\\s*chunk:\\s*${UUID}\\s*\\]?`, "gi");
 
+/**
+ * A PART of an id — what is left when an answer stops at the output cap in
+ * the middle of writing a citation: "…in the raw sheet text [chunk:8eb7546e-eb96-".
+ * Neither pattern above can match it, since both want a whole UUID, so it
+ * reached a reader verbatim. Swept last: a fragment of an id is as meaningless
+ * to a reader as a whole one, and there is no chunk to number it against.
+ */
+const PARTIAL_CITATION_RE = /\[?\s*chunk:\s*[0-9a-fA-F][0-9a-fA-F-]*\]?|\[\s*chunk:?\s*$/gi;
+
 export function extractCitedChunkIds(answer: string): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
@@ -149,6 +158,7 @@ export function buildSources(
     // Anything still carrying an id was not a citation this code recognises;
     // it is removed outright. A reader must never see a UUID.
     .replace(STRAY_CITATION_RE, "")
+    .replace(PARTIAL_CITATION_RE, "")
     .replace(/[ \t]+([.,;:)])/g, "$1") // tidy space left by stripped citations
     .replace(/\(\s*\)/g, "") // ...and the empty brackets they leave behind
     .replace(/[ \t]{2,}/g, " ")

@@ -562,11 +562,32 @@ function AnswerText({ text, sources }: { text: string; sources: ChatSourceDto[] 
             {source.index}
           </button>
         ) : (
-          <Fragment key={i}>{part}</Fragment>
+          <Fragment key={i}>{withBold(part)}</Fragment>
         );
       })}
     </span>
   );
+}
+
+/**
+ * `**6/A**` as bold. The models write Markdown emphasis whether asked to or
+ * not, and this bubble renders plain text, so a list of intersections arrived
+ * wrapped in literal asterisks. Only `**…**` on one line — nothing else here
+ * is Markdown, and a lone `*` (a footnote, "PC1*") is left exactly as written.
+ */
+function withBold(text: string) {
+  const pieces = text.split(/(\*\*[^*\n]+\*\*)/g);
+  return pieces.length === 1
+    ? text
+    : pieces.map((piece, i) =>
+        /^\*\*[^*\n]+\*\*$/.test(piece) ? (
+          <strong key={i} className="font-semibold">
+            {piece.slice(2, -2)}
+          </strong>
+        ) : (
+          <Fragment key={i}>{piece}</Fragment>
+        ),
+      );
 }
 
 /** Small square header button — the chat toolbar's shape. */

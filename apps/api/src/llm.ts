@@ -109,7 +109,86 @@ export interface Completion {
   text: string;
   model: string;
   tokens: TokenCounts;
+  /** The reply stopped at the output cap rather than finishing. The text is
+   * whatever was written before the cut — possibly mid-sentence, possibly in
+   * the middle of a `[chunk:` tag — and the caller must say so. */
+  truncated: boolean;
 }
+
+/**
+ * CHAT_THINKING — how much the chat model may reason before it answers.
+ *
+ * `off` by default, and SENT, never left out. Leaving the field out is not
+ * "off" on either current default: Sonnet 5 runs ADAPTIVE thinking when the
+ * `thinking` field is omitted, and from Gemini 3 an unspecified thinking level
+ * is the TOP of the scale. Both spend that reasoning from the same output cap
+ * as the answer, so a 1024-token answer on a transport that sent nothing was
+ * cut off part-way — once in the middle of a citation, which put
+ * "[chunk:8eb7546e-eb96-" in front of a reader. The worker learned this three
+ * times (workers/src/llm.py); this is the chat side learning it once.
+ */
+export type ChatThinking = "off" | "low" | "medium" | "high";
+const CHAT_THINKING_SETTINGS: readonly ChatThinking[] = ["off", "low", "medium", "high"];
+
+export function chatThinking(): ChatThinking {
+  const raw = (process.env.CHAT_THINKING ?? "").trim().toLowerCase();
+  if (raw === "minimal" || raw === "none" || raw === "false" || raw === "0") return "off";
+  return (CHAT_THINKING_SETTINGS as readonly string[]).includes(raw) ? (raw as ChatThinking) : "off";
+}
+
+/** Output room reasoning is allowed to spend on top of the answer's own cap —
+ * mirrors the worker's `_CLAUDE_EFFORT_HEADROOM`. */
+export const CHAT_THINKING_HEADROOM: Record<ChatThinking, number> = {
+  off: 0,
+  low: 1024,
+  medium: 4096,
+  high: 8192,
+};
+
+/** Gemini 3 and later take a LEVEL; earlier ones take a token budget. A
+ * version sniff, like the worker's, because a list of model names expires. */
+export function geminiTakesLevel(model: string): boolean {
+  const found = /gemini-(\d+)/.exec(model);
+  return found ? Number(found[1]) >= 3 : true;
+}
+
+/** Claude's `thinking` field for a setting, or undefined to omit it. */
+export function claudeThinkingParam(setting: ChatThinking): { type: "disabled" } | undefined {
+  // A raised setting is adaptive thinking — the model's default when the
+  // field is absent — given headroom by the caller.
+  return setting === "off" ? { type: "disabled" } : undefined;
+}
+
+/**
+ * Gemini's thinking config, most-preferred first. A model that refuses a
+ * rung (gemini-3.1-pro-preview has no `minimal`) is tried at the next; the
+ * last rung is `undefined` — omit the field — which on a level-taking model
+ * is the TOP of the scale, so it is reached only after everything else was
+ * refused, and logged.
+ */
+export function geminiThinkingLadder(
+  model: string,
+  setting: ChatThinking,
+): ({ thinkingLevel: string } | { thinkingBudget: number } | undefined)[] {
+  if (!geminiTakesLevel(model)) {
+    return setting === "off" ? [{ thinkingBudget: 0 }, undefined] : [undefined];
+  }
+  const levels = ["MINIMAL", "LOW", "MEDIUM", "HIGH"];
+  const start = setting === "off" ? 0 : levels.indexOf(setting.toUpperCase());
+  return [...levels.slice(start).map((thinkingLevel) => ({ thinkingLevel })), undefined];
+}
+
+/** Whether an API error is a model refusing the thinking field itself —
+ * the only error a retry with a different thinking setting can cure. */
+export function refusesThinking(err: unknown): boolean {
+  const status = (err as { status?: number; code?: number })?.status ?? (err as { code?: number })?.code;
+  const message = String((err as { message?: string })?.message ?? err);
+  return (status === 400 || /INVALID_ARGUMENT|400/.test(message)) && /think/i.test(message);
+}
+
+/** The rung that worked, per (provider, model, setting), so a refusal costs
+ * one extra request per process rather than one per question. */
+const thinkingLatch = new Map<string, number>();
 
 let anthropic: Anthropic | null = null;
 function anthropicClient(): Anthropic {
@@ -145,15 +224,37 @@ async function completeClaude(request: CompletionRequest): Promise<Completion> {
   ];
 
   const model = chatModel();
-  const response = await anthropicClient().messages.create({
-    model,
-    max_tokens: request.maxTokens,
-    system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
-    messages,
-  });
+  const setting = chatThinking();
+  const key = `claude:${model}:${setting}`;
+  const rungs = [claudeThinkingParam(setting), undefined];
+  let rung = thinkingLatch.get(key) ?? 0;
+  const send = (thinking: { type: "disabled" } | undefined) =>
+    anthropicClient().messages.create({
+      model,
+      max_tokens: request.maxTokens + CHAT_THINKING_HEADROOM[setting],
+      system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
+      messages,
+      ...(thinking ? { thinking } : {}),
+    });
+  let response: Anthropic.Message;
+  for (;;) {
+    try {
+      response = await send(rungs[rung]);
+      break;
+    } catch (err) {
+      if (rungs[rung] === undefined || !refusesThinking(err)) throw err;
+      console.warn(
+        `[chat] ${model} refused thinking=${JSON.stringify(rungs[rung])}; omitting it — on this ` +
+          "model that is ADAPTIVE thinking, spent from the answer's own output cap",
+      );
+      rung += 1;
+      thinkingLatch.set(key, rung);
+    }
+  }
 
   return {
     model,
+    truncated: response.stop_reason === "max_tokens",
     text: response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
@@ -169,7 +270,11 @@ async function completeClaude(request: CompletionRequest): Promise<Completion> {
 
 async function completeGemini(request: CompletionRequest): Promise<Completion> {
   const model = chatModel();
-  const response = await geminiClient().models.generateContent({
+  const setting = chatThinking();
+  const key = `gemini:${model}:${setting}`;
+  const rungs = geminiThinkingLadder(model, setting);
+  let rung = thinkingLatch.get(key) ?? 0;
+  const send = (thinkingConfig: (typeof rungs)[number]) => geminiClient().models.generateContent({
     model,
     contents: [
       // Gemini calls the assistant "model"; the turns themselves are the same.
@@ -183,15 +288,33 @@ async function completeGemini(request: CompletionRequest): Promise<Completion> {
     ],
     config: {
       systemInstruction: request.system,
-      maxOutputTokens: request.maxTokens,
+      maxOutputTokens: request.maxTokens + CHAT_THINKING_HEADROOM[setting],
       temperature: 0,
+      ...(thinkingConfig ? { thinkingConfig: thinkingConfig as never } : {}),
     },
   });
+  let response: Awaited<ReturnType<typeof send>>;
+  for (;;) {
+    try {
+      response = await send(rungs[rung]);
+      break;
+    } catch (err) {
+      if (rung >= rungs.length - 1 || !refusesThinking(err)) throw err;
+      rung += 1;
+      thinkingLatch.set(key, rung);
+      const next = rungs[rung];
+      (next ? console.warn : console.error)(
+        `[chat] ${model} refused its thinking setting; retrying with ${JSON.stringify(next ?? "the field omitted")}` +
+          (next ? "" : " — on a Gemini 3 model that is the TOP of the scale, spent from the answer's cap. Set CHAT_THINKING or CHAT_GEMINI_MODEL."),
+      );
+    }
+  }
 
   const meta = response.usageMetadata;
   const cached = meta?.cachedContentTokenCount ?? 0;
   return {
     model,
+    truncated: String(response.candidates?.[0]?.finishReason ?? "") === "MAX_TOKENS",
     text: response.text ?? "",
     tokens: {
       // promptTokenCount INCLUDES the cached tokens, but the dashboard bills

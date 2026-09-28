@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CHAT_THINKING_HEADROOM,
   chatAvailable,
   chatModel,
   chatProvider,
+  chatThinking,
+  claudeThinkingParam,
+  geminiThinkingLadder,
+  refusesThinking,
   DEFAULT_CHAT_GEMINI_MODEL,
   DEFAULT_CHAT_MODEL,
 } from "./llm.js";
@@ -179,5 +184,50 @@ describe("rates for models not in the table", () => {
     for (const model of ["gemini-3.1-pro-preview", "claude-something-new"]) {
       expect(rateFor(model).input).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("chat thinking is sent, never left to the model's default", () => {
+  it("defaults to off, and reads the vocabulary per call", () => {
+    delete process.env.CHAT_THINKING;
+    expect(chatThinking()).toBe("off");
+    process.env.CHAT_THINKING = " Medium ";
+    expect(chatThinking()).toBe("medium");
+    process.env.CHAT_THINKING = "minimal";
+    expect(chatThinking()).toBe("off");
+    process.env.CHAT_THINKING = "maximum";
+    expect(chatThinking()).toBe("off"); // a typo must not buy the top of the scale
+  });
+
+  it("Claude off is an explicit disabled — omission is ADAPTIVE on Sonnet 5", () => {
+    expect(claudeThinkingParam("off")).toEqual({ type: "disabled" });
+    expect(claudeThinkingParam("high")).toBeUndefined();
+  });
+
+  it("Gemini 3 off is the bottom LEVEL, with omission only as the last rung", () => {
+    const ladder = geminiThinkingLadder("models/gemini-3.1-pro-preview", "off");
+    expect(ladder[0]).toEqual({ thinkingLevel: "MINIMAL" });
+    expect(ladder[1]).toEqual({ thinkingLevel: "LOW" }); // 3.1 Pro has no minimal
+    expect(ladder[ladder.length - 1]).toBeUndefined();
+  });
+
+  it("Gemini 2.5 off is a zero budget", () => {
+    expect(geminiThinkingLadder("gemini-2.5-flash", "off")[0]).toEqual({ thinkingBudget: 0 });
+  });
+
+  it("a raised setting starts at its own level", () => {
+    expect(geminiThinkingLadder("gemini-3.6-flash", "medium")[0]).toEqual({ thinkingLevel: "MEDIUM" });
+  });
+
+  it("only a refusal of the thinking field itself is retried", () => {
+    expect(refusesThinking({ status: 400, message: "thinking.type: disabled is not supported" })).toBe(true);
+    expect(refusesThinking(new Error("400 INVALID_ARGUMENT: thinking_level MINIMAL not supported"))).toBe(true);
+    expect(refusesThinking({ status: 429, message: "rate limited while thinking" })).toBe(false);
+    expect(refusesThinking({ status: 400, message: "max_tokens too large" })).toBe(false);
+  });
+
+  it("reasoning gets headroom on top of the answer's cap", () => {
+    expect(CHAT_THINKING_HEADROOM.off).toBe(0);
+    expect(CHAT_THINKING_HEADROOM.high).toBeGreaterThan(CHAT_THINKING_HEADROOM.low);
   });
 });

@@ -564,6 +564,28 @@ CROP_MAX = int(os.environ.get("VLM_CROP_MAX", "60"))
 # budget, and on a thinking model an oversized budget is spent reasoning.
 CROP_MAX_TOKENS = int(os.environ.get("VLM_CROP_MAX_TOKENS", "1500"))
 
+# What one answered crop costs to WRITE: "12. 4.6/C: footing PC1 (-1'-0"),
+# column C-6 (14X30)" is ~25 tokens, so 60 leaves room without inviting prose.
+_TOKENS_PER_CROP = 60
+
+
+def crop_budget(crops_in_batch: int) -> int:
+    """Output tokens for one batch — VLM_CROP_MAX_TOKENS, or more when the
+    batch needs it. A fixed 1500 was sized for the default batch of 6; at
+    VLM_CROP_BATCH=20 the answer alone is ~500 tokens, and with reasoning on it
+    was the budget reasoning spent before one line was written."""
+    return max(CROP_MAX_TOKENS, _TOKENS_PER_CROP * crops_in_batch + 200)
+
+
+def vlm_thinking() -> str | None:
+    """VLM_THINKING — this pass's own reasoning switch (the RFI_THINKING
+    vocabulary), or None to leave CLAUDE_THINKING / GEMINI_THINKING_LEVEL in
+    charge. Read per call. It exists because the global switch is set for the
+    CHAT and the vision pass inherits it: CLAUDE_THINKING=on made Sonnet 5 spend
+    every token of two 20-crop batches reasoning, and 40 of 48 crossings came
+    back with nothing."""
+    return llm.stage_thinking("VLM_THINKING")
+
 CROP_SYSTEM = """You are reading CLOSE-UP CROPS of one construction drawing. Each
 crop is centred on one grid intersection, and each is numbered.
 
@@ -796,26 +818,36 @@ def _crop_user(group: list[tuple[str, fitz.Rect]], sheet_number: str | None) -> 
     )
 
 
+# "Use the stage's setting" — distinct from None, which is "the global one".
+_STAGE = object()
+
+
 def _ask_crops(
     page: fitz.Page,
     group: list[tuple[str, fitz.Rect]],
     sheet_number: str | None,
     project_id: str | None,
-) -> dict[str, tuple[str | None, str | None]]:
+    thinking: str | None | object = _STAGE,
+) -> dict[str, tuple[str | None, str | None]] | None:
     reply = llm.complete(
         CROP_SYSTEM,
         _crop_user(group, sheet_number),
         provider=provider(),
         claude_model=CLAUDE_MODEL,
         gemini_model=GEMINI_MODEL,
-        max_tokens=CROP_MAX_TOKENS,
+        max_tokens=crop_budget(len(group)),
         kind="vlm",
         project_id=project_id,
         images=[render_crop(page, rect) for _, rect in group],
+        thinking=vlm_thinking() if thinking is _STAGE else thinking,
     )
-    if reply is None:
-        return {}
-    return parse_crop_batch(reply.text or "", [label for label, _ in group])
+    # None, not {}: a call that wrote NOTHING — failed, or spent its whole
+    # budget reasoning — is a different failure from a reply whose lines did
+    # not survive alignment, and it has a different cure. Folded together, the
+    # first was reported as "the reply FORMAT" and never retried.
+    if reply is None or not (reply.text or "").strip():
+        return None
+    return parse_crop_batch(reply.text, [label for label, _ in group])
 
 
 def _crop_line(label: str, footing: str | None, column: str | None) -> str:
@@ -838,7 +870,10 @@ def _crop_line(label: str, footing: str | None, column: str | None) -> str:
 
 
 def _crop_description(
-    pairs, answers: dict[str, tuple[str | None, str | None]], skipped: tuple[str, ...] = ()
+    pairs,
+    answers: dict[str, tuple[str | None, str | None]],
+    skipped: tuple[str, ...] = (),
+    unanswered: tuple[str, ...] = (),
 ) -> str:
     """The grid named from geometry, then one line per intersection.
 
@@ -868,6 +903,13 @@ def _crop_description(
         lines.append(
             f"Secondary grid lines {', '.join(skipped)} were not described; "
             "nothing here says what is at their intersections."
+        )
+    if unanswered:
+        # Same reason as the skipped lines: an intersection with no line is
+        # otherwise indistinguishable from one described as empty.
+        lines.append(
+            f"No reading was obtained at {', '.join(unanswered)}; "
+            "nothing here says what is at those intersections."
         )
     for col, row, _, _ in pairs:
         label = f"{col}/{row}"
@@ -1021,9 +1063,34 @@ def describe_crops(
     answers: dict[str, tuple[str | None, str | None]] = {}
     groups = [boxes[i : i + CROP_BATCH] for i in range(0, len(boxes), max(1, CROP_BATCH))]
     calls = 0
+    silent: list[list[tuple[str, fitz.Rect]]] = []
     for group in groups:
         calls += 1
-        answers.update(_ask_crops(page, group, sheet_number, project_id))
+        got = _ask_crops(page, group, sheet_number, project_id)
+        if got is None:
+            silent.append(group)
+        else:
+            answers.update(got)
+
+    # A batch that came back with NO TEXT is retried whole, once, with
+    # reasoning OFF. Reading a mark in a close-up is perception, not a chain
+    # of reasoning, and the measured failure is exactly this: with thinking on,
+    # Sonnet 5 spent both 20-crop budgets thinking and wrote nothing, which the
+    # rule below then called a FORMAT failure and declined to retry.
+    for group in silent:
+        calls += 1
+        log.warning(
+            "sheet %s: %s wrote nothing for a batch of %d crops (a failed call, or reasoning that "
+            "spent the %d-token budget) — asking again with thinking off. VLM_THINKING=off makes "
+            "that the first attempt.",
+            sheet_number or "?",
+            who,
+            len(group),
+            crop_budget(len(group)),
+        )
+        got = _ask_crops(page, group, sheet_number, project_id, thinking="off")
+        if got:
+            answers.update(got)
 
     missing = [box for box in boxes if box[0] not in answers]
     # One retry, one crop per call, and ONLY when a batch's worth or less went
@@ -1033,7 +1100,7 @@ def describe_crops(
     if missing and len(missing) <= CROP_BATCH:
         for box in missing:
             calls += 1
-            answers.update(_ask_crops(page, [box], sheet_number, project_id))
+            answers.update(_ask_crops(page, [box], sheet_number, project_id) or {})
     elif missing:
         log.warning(
             "sheet %s: %s answered %d of %d crops — too many unanswered to retry individually, "
@@ -1052,6 +1119,19 @@ def describe_crops(
             "answered twice, or echoing a coordinate it was not given) or carried no value.",
             sheet_number or "?",
             who,
+            len(boxes),
+        )
+        return None
+    if len(answers) < len(boxes) * MIN_GRID_COVERAGE:
+        # Stored, this is a grid header naming every line and a handful of
+        # crossings under it — the chat reads the rest as described-and-empty.
+        # The whole-sheet pass covers the page; this covered a fraction.
+        log.warning(
+            "sheet %s: %s answered only %d of %d crops, under half — falling back to the "
+            "whole-sheet pass rather than storing a grid that is mostly silent",
+            sheet_number or "?",
+            who,
+            len(answers),
             len(boxes),
         )
         return None
@@ -1081,7 +1161,10 @@ def describe_crops(
         )
         return None
     return _crop_description(
-        grid.intersections(plan.columns, plan.rows), answers, skipped=plan.skipped
+        grid.intersections(plan.columns, plan.rows),
+        answers,
+        skipped=plan.skipped,
+        unanswered=tuple(label for label, _ in boxes if label not in answers),
     )
 
 
@@ -1195,6 +1278,7 @@ def settings_snapshot() -> dict:
         "VLM_MAX_TOKENS": MAX_TOKENS,
         "VLM_MAX_EDGE": MAX_EDGE_PX,
         "VLM_CROP": CROP_MODE,
+        "VLM_THINKING": vlm_thinking() or "",
     }
     if CROP_MODE == "off":
         snapshot["VLM_CROP_BAYS"] = CROP_BAYS
@@ -1241,7 +1325,11 @@ def _report_settings() -> None:
     recovered afterwards.
     """
     who = provider()
-    settings = [f"VLM_MAX_TOKENS={MAX_TOKENS}", f"VLM_CROP={CROP_MODE}"]
+    settings = [
+        f"VLM_MAX_TOKENS={MAX_TOKENS}",
+        f"VLM_CROP={CROP_MODE}",
+        f"VLM_THINKING={vlm_thinking() or '(global)'}",
+    ]
     if CROP_MODE == "off":
         settings.append(f"VLM_CROP_BAYS={CROP_BAYS}")
     else:
@@ -1306,6 +1394,7 @@ def describe_page(
         kind="vlm",
         project_id=project_id,
         images=[png],
+        thinking=vlm_thinking(),
     )
     if reply is None:
         return None

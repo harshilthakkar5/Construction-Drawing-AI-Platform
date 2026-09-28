@@ -90,7 +90,15 @@ shapes the model actually emits, not just the documented one: asked to cite two 
 claim it writes `[chunk:a, chunk:b]`, which an `\[chunk:<id>\]` pattern matches NEITHER half of
 — so both raw UUIDs rendered in the chat bubble. It now matches the bracket GROUP and pulls the
 ids out of it, and a final sweep deletes any `chunk:<uuid>` still standing: a reader must never
-see a UUID, whatever shape the model invents. The summary provider/model
+see a UUID, whatever shape the model invents. Or a PART of one: an answer that hit the output cap
+mid-citation ended "[chunk:8eb7546e-eb96-", which neither pattern matches (both want a whole id),
+so `PARTIAL_CITATION_RE` sweeps fragments last. The cap was hit because the chat transport sent
+NO thinking field — the Sonnet 5 trap the worker had already paid for, repeated in the API: an
+omitted field is adaptive reasoning on Sonnet 5 and the TOP level on Gemini 3, spent from the
+same 1024 tokens as the answer. `CHAT_THINKING` (default `off`, always sent, a refused setting
+walks a ladder and is latched per model) and `CHAT_MAX_TOKENS` (default 2048) fix the cause;
+`Completion.truncated` means an answer that still stops at the cap ends with a note saying so,
+rather than reading as the model's whole account. The summary provider/model
 defaults are duplicated across the process boundary too — `workers/src/summarize.py` runs the
 summaries, `apps/api/src/llm.ts` resolves the same env vars only to quote what they will cost
 (`summaryEstimate.ts`), so a drift shows a user one model's price for another model's work.
@@ -1151,6 +1159,18 @@ this section ran on sheets drawn the way `grid.bubbles` expects:
 And a batch where every crop aligned and none carried a value now falls back to the whole-sheet
 pass instead of storing "nothing legible" at every crossing of a structural grid — that shape is
 far likelier to be a reply the parser misread than a drawing with nothing on it.
+
+The first real run on that sheet then failed a new way, and the log said exactly how:
+`CLAUDE_THINKING='on'` with `VLM_CROP_BATCH=20` — two of three batches came back
+`stop_reason=max_tokens` holding nothing but a thinking block, 8 of 48 crossings were answered,
+and the retry rule reported "the reply FORMAT" and gave up. The global switch is set for the
+chat and the vision pass inherited it. `_ask_crops` now returns None for a call that wrote
+NOTHING (distinct from a reply whose lines failed alignment), and such a batch is retried whole,
+once, with thinking `off` — reading a mark in a close-up is perception, not reasoning.
+`VLM_THINKING` is the stage's own switch so `off` can be the first attempt; `crop_budget` grows
+with the batch (1500 was sized for batches of 6); a page with under half its crossings answered
+falls back to the whole-sheet pass; and crossings that got no reading are named in the
+description, for the same reason skipped secondary lines are.
 
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
