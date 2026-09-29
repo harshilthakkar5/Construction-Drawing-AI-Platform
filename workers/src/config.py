@@ -147,6 +147,9 @@ SUMMARIZE_PROJECT_CONCURRENCY = _int("SUMMARIZE_PROJECT_CONCURRENCY", 1)
 # so one at a time keeps it off the provider's rate limit without making anyone
 # wait long.
 RFI_SCAN_CONCURRENCY = _int("RFI_SCAN_CONCURRENCY", 1)
+# Targeted RFI reviews at once. Each sends several images and three reasoning
+# calls, so this is bounded by provider rate limits and spend, not by CPU.
+RFI_REVIEW_CONCURRENCY = _int("RFI_REVIEW_CONCURRENCY", 2)
 
 # Postgres connections held by this process. Every db helper borrows one for
 # the length of a single statement, so the pool has to cover the threads that

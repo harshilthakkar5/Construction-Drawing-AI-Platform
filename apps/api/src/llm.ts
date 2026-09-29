@@ -35,6 +35,16 @@ export const DEFAULT_CHAT_MODEL = "claude-sonnet-5";
 export const DEFAULT_CHAT_GEMINI_MODEL = "models/gemini-3.1-pro-preview";
 export const DEFAULT_SUMMARY_MODEL = "claude-sonnet-5";
 export const DEFAULT_SUMMARY_GEMINI_MODEL = "models/gemini-3.1-pro-preview";
+/**
+ * The targeted RFI review's models, MIRRORED from workers/src/rfi_review.py
+ * (REVIEW_MODEL / REVIEW_GEMINI_MODEL), which a worker test reads and fails on
+ * a drift — the plan screen prices one model and the worker would run another.
+ * Not RFI_MODEL: that is the cheap tier the scan WORDS findings with, and on
+ * Haiku a 36x24 sheet arrives at about 5px text. A review has to read the
+ * drawing, so it defaults to the vision pass's models.
+ */
+export const DEFAULT_RFI_REVIEW_MODEL = "claude-sonnet-5";
+export const DEFAULT_RFI_REVIEW_GEMINI_MODEL = "gemini-3.6-flash";
 
 /**
  * Every one of these reads its env var per call rather than capturing it at
@@ -73,6 +83,18 @@ export function summaryModel(): string {
   return summaryProvider() === "gemini"
     ? envModel("SUMMARY_GEMINI_MODEL", DEFAULT_SUMMARY_GEMINI_MODEL)
     : envModel("SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL);
+}
+
+/** Who runs a targeted RFI review: RFI_PROVIDER, the same switch the scan's
+ * wording uses, so one setting moves all RFI spend to one vendor. */
+export function rfiReviewProvider(): Provider {
+  return resolveProvider("RFI_PROVIDER");
+}
+
+export function rfiReviewModel(): string {
+  return rfiReviewProvider() === "gemini"
+    ? envModel("RFI_REVIEW_GEMINI_MODEL", DEFAULT_RFI_REVIEW_GEMINI_MODEL)
+    : envModel("RFI_REVIEW_MODEL", DEFAULT_RFI_REVIEW_MODEL);
 }
 
 /** Mirrors summarize.USE_BATCH — both providers bill batched calls at 50%. */

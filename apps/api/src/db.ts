@@ -18,6 +18,7 @@ const REQUIRED_MODELS = [
   // not these, which is exactly the half-updated state this list exists for.
   "rfiScan",
   "rfiCandidate",
+  "rfiReviewRun",
 ] as const;
 
 export function missingPrismaModels(): string[] {

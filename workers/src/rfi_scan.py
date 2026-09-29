@@ -655,11 +655,17 @@ def _run(project_id: str, scan_id: str) -> dict:
         # A pending finding this scan no longer produces was resolved on the
         # drawings (a revision issued the sheet, filled in the TBD). Leaving it
         # would ask a question the set already answers.
+        #
+        # Only this scan's OWN kind of finding: a targeted review's candidate
+        # is not something the project checks could ever produce, so "the scan
+        # did not find it again" says nothing about it — and without the origin
+        # filter every scan silently deleted every pending targeted finding.
         found = [f.fingerprint for f in findings]
         resolved = conn.execute(
             """
             DELETE FROM rfi_candidates
              WHERE "projectId" = %s AND status = 'pending'
+               AND origin = 'deterministic_scan'
                AND NOT (fingerprint = ANY(%s::text[]))
             """,
             (project_id, found),

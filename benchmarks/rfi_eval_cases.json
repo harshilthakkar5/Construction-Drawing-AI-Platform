@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Targeted RFI review benchmark. Each case is an RFI a person really issued, used ONLY as the expected OUTPUT: the review never sees it.",
+    "A case passes when one candidate of the run matches every field of an expected finding. `pairs` are grid names or values that must appear as 'a = b' in either order;",
+    "`sheets` must each be named in the finding's evidence. Candidates matching no expected finding are listed, never scored as wrong: the sheets may carry real problems nobody wrote an RFI for.",
+    "Run: python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002] with DATABASE_URL set."
+  ],
+  "cases": [
+    {
+      "id": "rfi-002",
+      "source": "BIM RFI 002 'CONFIRM THE GRID LAYOUT': 'Please confirm the correct grid layout, as a mismatch has been observed between the Architectural and Structural drawings.'",
+      "pdf": "clean_S2.105_A3.01.pdf",
+      "target": { "type": "compare", "values": ["S2.105", "A3.01"] },
+      "checks": ["G01"],
+      "expected": [
+        {
+          "what": "The same grid lines are named differently on the structural and the architectural plan",
+          "checkTypes": ["grid_mismatch", "G01"],
+          "sheets": ["S2.105", "A3.01"],
+          "pairs": [["6", "9"]]
+        }
+      ]
+    }
+  ]
+}

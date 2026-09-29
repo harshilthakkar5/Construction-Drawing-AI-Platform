@@ -374,6 +374,7 @@ export const QUEUES = {
   summarizePortion: "summarize-portion",
   summarizeProject: "summarize-project",
   rfiScan: "rfi-scan",
+  rfiReview: "rfi-review",
 } as const;
 
 export interface ProcessDocumentJob {
@@ -445,6 +446,13 @@ export interface RfiScanJob {
   scanId: string;
 }
 
+/** Run one targeted RFI review. Everything else — target, checks, the
+ * approved scope, thinking — lives on the rfi_review_runs row, so a retry
+ * reads the same immutable plan the user approved. */
+export interface RfiReviewJob {
+  runId: string;
+}
+
 /**
  * The wire shape of each job, as data — because the Python worker parses these
  * payloads and TypeScript interfaces do not survive to runtime.
@@ -494,6 +502,7 @@ export const JOB_FIELDS = {
   ),
   summarizeProject: jobFields<SummarizeProjectJob>()(["projectId", "detail"], ["detail"]),
   rfiScan: jobFields<RfiScanJob>()(["projectId", "scanId"]),
+  rfiReview: jobFields<RfiReviewJob>()(["runId"]),
 } as const;
 
 /** Field types the generator needs to emit a correct Python cast. */
@@ -792,6 +801,13 @@ export interface RfiEvidenceDto {
   /** "finding" is where the gap is; "context" is what it was checked against
    * (the schedule a mark is missing from). */
   role?: "finding" | "context";
+  /** Targeted review only: which evidence item this was (text, gridmarks,
+   * description, a whole-page image or a close-up), how far it can be trusted,
+   * which named sheet it belongs to, and what the review said it shows. */
+  kind?: "text" | "gridmarks" | "description" | "page" | "crop";
+  sourceTrust?: "project_text" | "geometry" | "visual" | "model_description";
+  side?: string | null;
+  observation?: string | null;
 }
 
 export interface RfiCandidateDto {
@@ -808,7 +824,19 @@ export interface RfiCandidateDto {
   status: RfiCandidateStatus;
   rfiId: string | null;
   createdAt: string;
+  /** Who found it: the deterministic project scan, or a targeted review. */
+  origin: RfiCandidateOrigin;
+  /** The targeted review run that found it; null for a scan finding. */
+  reviewRunId: string | null;
+  /** One sentence: why a targeted review flagged this. Null for scan findings,
+   * whose checks explain themselves in the evidence. */
+  reasoning: string | null;
+  /** Suggested by the targeted review; the accepted RFI still starts at the
+   * RFI's own default unless a person changes it. */
+  priority: RfiPriority | null;
 }
+
+export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review";
 
 export interface RfiScanDto {
   id: string;
@@ -864,4 +892,155 @@ export interface RfiUsageTotalsDto {
   cacheWriteTokens: number;
   costUsd: number;
   byModel: { model: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number }[];
+}
+
+// --- Targeted RFI review (docs/rfi-targeted-review.md) ---
+
+/**
+ * The checks a targeted review can run, as DATA — the API routes and prices
+ * them, the worker writes them into its prompts, the UI names them. The Python
+ * copy is GENERATED into workers/src/generated.py by codegen.mjs, because the
+ * worker image does not ship packages/, and a catalogue typed out twice is the
+ * drift this repo has paid for three times.
+ *
+ * `query` is what the planner hands the ordinary hybrid retrieval (with the
+ * target's sheet numbers in front) to find this check's evidence; the model
+ * never writes a retrieval query. `autoKeywords` decide whether the check is
+ * chosen automatically; an empty list means it always is.
+ *
+ * `deterministic` names an existing project-scan check that decides the same
+ * question exactly. The review then runs THAT check on its own pages and
+ * stores its finding under the scan's fingerprint, so one grid disagreement
+ * found by both paths is one candidate, not two.
+ *
+ * This first slice carries three of the sixteen planned checks — the three
+ * the client's known RFIs are about (grid layout, column location, core wall).
+ */
+export const RFI_REVIEW_CHECKS = [
+  {
+    id: "G01",
+    family: "General",
+    label: "Grid names and grid-to-grid dimensions",
+    objective:
+      "Compare how the drawings name and dimension the grid. Localize any grid line that one drawing names or dimensions differently from another.",
+    query: "grid line grid dimension spacing",
+    autoKeywords: [],
+    deterministic: "grid_mismatch",
+  },
+  {
+    id: "C01",
+    family: "Columns & walls",
+    label: "Column location, size and mark",
+    objective:
+      "Compare each column's mark, size and position relative to the grid across plans and schedules. Localize any column shown at a different place, with a different size or mark, or without a dimension locating it off the grid.",
+    query: "column schedule column size mark location grid offset",
+    autoKeywords: [],
+    deterministic: null,
+  },
+  {
+    id: "C02",
+    family: "Columns & walls",
+    label: "Core and shear wall location",
+    objective:
+      "Compare the position, extent and thickness of core and shear walls relative to the grid across drawings. Localize any wall shown at a different place or with a different thickness.",
+    query: "core wall shear wall location grid thickness",
+    autoKeywords: ["CORE", "SHEAR WALL", "SHEARWALL", "SW-"],
+    deterministic: null,
+  },
+] as const;
+export type RfiReviewCheckId = (typeof RFI_REVIEW_CHECKS)[number]["id"];
+export const RFI_REVIEW_CHECK_IDS = RFI_REVIEW_CHECKS.map((c) => c.id) as RfiReviewCheckId[];
+
+/**
+ * How much evidence one review may use. CAPS, not quotas: fewer relevant
+ * sources beat a quota filled with weak ones. Read by the API planner (scope
+ * and estimate) and the worker (crops) from the same generated values, so an
+ * estimate cannot price a scope the worker then does not build.
+ */
+export const RFI_REVIEW_DEPTHS = {
+  standard: { label: "Standard", chunks: 48, visualPages: 8, cropsPerPage: 3 },
+} as const;
+export type RfiReviewDepth = keyof typeof RFI_REVIEW_DEPTHS;
+
+/** Thinking a person may pick for a review — the RFI_THINKING vocabulary. */
+export const RFI_REVIEW_THINKING = ["low", "medium", "high"] as const;
+export type RfiReviewThinking = (typeof RFI_REVIEW_THINKING)[number];
+
+export type RfiReviewTarget =
+  | { type: "sheet"; value: string }
+  | { type: "compare"; values: string[] };
+
+export type RfiReviewStatus =
+  | "planned"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "cancelled"
+  | "stale";
+export const RFI_REVIEW_STATUSES: RfiReviewStatus[] = [
+  "planned",
+  "queued",
+  "running",
+  "ready",
+  "failed",
+  "cancelled",
+  "stale",
+];
+
+export type RfiReviewStage = "planning" | "discovery" | "reasoning" | "verification" | "saving";
+
+/** One page in a review's scope, as the plan screen shows it. */
+export interface RfiReviewPageDto {
+  pageId: string;
+  documentId: string;
+  pageNumber: number;
+  combinedPageNumber: number | null;
+  sheetNumber: string | null;
+  discipline: string | null;
+  /** "target" / "side:N" pages are what was asked about and are never
+   * dropped by a cap; "related" pages were found by retrieval. */
+  role: string;
+  /** Rendered and sent as images (whole-page overview + crops). */
+  visual: boolean;
+  chunks: number;
+}
+
+export interface RfiReviewEstimateDto {
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  imageParts: number;
+  costUsd: number;
+  model: string;
+}
+
+export interface RfiReviewRunDto {
+  id: string;
+  status: RfiReviewStatus;
+  stage: RfiReviewStage | null;
+  progress: number;
+  target: RfiReviewTarget;
+  checkMode: "auto" | "custom";
+  checkIds: RfiReviewCheckId[];
+  /** Why each check was chosen (auto) — shown on the plan screen. */
+  checkReasons: Record<string, string>;
+  depth: RfiReviewDepth;
+  thinkingRequested: RfiReviewThinking;
+  thinkingSent: string[];
+  pages: RfiReviewPageDto[];
+  /** Sheet numbers the target matched more than once — both are included and
+   * the plan screen asks the user to remove the wrong one. */
+  ambiguous: string[];
+  chunkCount: number;
+  scopeHash: string;
+  estimate: RfiReviewEstimateDto | null;
+  /** Per-stage usage once it ran (same shape as a scan's, per stage). */
+  usage: { stages: Record<string, RfiScanUsageDto>; total: RfiScanUsageDto | null } | null;
+  candidates: number;
+  notes: string[];
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
 }

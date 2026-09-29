@@ -3,6 +3,7 @@ import {
   QUEUES,
   type ProcessDocumentJob,
   type RegionPreviewJob,
+  type RfiReviewJob,
   type RfiScanJob,
   type ScrapeRegionJob,
   type SummarizePortionJob,
@@ -70,6 +71,18 @@ export const summarizeProjectQueue = new Queue<SummarizeProjectJob>(QUEUES.summa
  * a scan spends model calls, and a failure is written into its rfi_scans row
  * where the button can show it and offer to run again. */
 export const rfiScanQueue = new Queue<RfiScanJob>(QUEUES.rfiScan, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { count: 200 },
+    removeOnFail: false,
+  },
+});
+
+/** One started targeted review. Not retried behind the user's back for the
+ * same reason as a scan: it spends model calls, and a failure is written into
+ * its rfi_review_runs row where the screen can say what happened. */
+export const rfiReviewQueue = new Queue<RfiReviewJob>(QUEUES.rfiReview, {
   connection: redis,
   defaultJobOptions: {
     attempts: 1,

@@ -10,6 +10,7 @@ import type {
   RfiPriority,
   RfiStatus,
 } from "@cdip/shared";
+import { RFI_PRIORITIES } from "@cdip/shared";
 import { prisma } from "./db.js";
 
 /**
@@ -93,6 +94,11 @@ export function toCandidateDto(row: CandidateRow): RfiCandidateDto {
     status: row.status as RfiCandidateStatus,
     rfiId: row.rfiId,
     createdAt: row.createdAt.toISOString(),
+    origin: row.origin === "targeted_review" ? "targeted_review" : "deterministic_scan",
+    reviewRunId: row.reviewRunId ?? null,
+    reasoning: row.reasoning ?? null,
+    // Written by the worker as text; only a known value reaches the UI.
+    priority: RFI_PRIORITIES.includes(row.priority as RfiPriority) ? (row.priority as RfiPriority) : null,
   };
 }
 
