@@ -1212,6 +1212,18 @@ drawn away from its column with a LEADER LINE is placed where it is printed. It 
 drawing eval's questions by the same rule the generator derives them with, so set
 `GRID_MARKS_ENABLED=false` when benchmarking the vision pass, or the eval measures this instead.
 
+One drawn line can carry TWO names. S2.105 bubbles a horizontal line "2.3" at its left end and
+"2.4" at its right end (drawn in two halves with a gap between), and "1.4"/"1.5" the same way.
+Read as two lines, every crossing on it existed twice at ONE point, so each mark there was exactly
+as near one name as the other and came out "between" them — 13 of that sheet's 29 "between"
+marks, while the chat listed them as unplaced. `grid.shared_lines` finds labels within
+`COINCIDENT_PT` on one axis, `grid.one_name_per_crossing` names each crossing after the bubble
+printed NEARER to it (`page_grid_with_bubbles` carries the bubble centres), and the gridmarks
+chunk says in words that the line has two names and which end carries which, so a question about
+"2.4/B" is answerable. On S2.105: placed 32 → 42, between 29 → 19. The 19 left are honest — 3.3
+and 3.4 are 7pt apart, closer than `MARGIN_PT`. It says nothing about whether two names for one
+line was intended; it may be worth an RFI. The crop pass and `drawing_truth.py` do not use it yet.
+
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
 `C-6 (14 x 30)` legible inside. A3.01 plans 72 primary crossings and is refused on cost, loudly.

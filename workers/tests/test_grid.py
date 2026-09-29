@@ -210,3 +210,36 @@ class TestThePageGrid:
         doc, page = sheet()
         assert grid.page_grid(page) == grid.axes(grid.bubbles(page))
         doc.close()
+
+
+class TestOneLineTwoNames:
+    """The client's S2.105 bubbles one horizontal line "2.3" at its left end
+    and "2.4" at its right end. Read as two lines, every crossing on it existed
+    twice at one point and every mark there came out "between" its own names."""
+
+    PAIRS = [
+        ("1", "C", 300.0, 700.0),
+        ("1", "D", 300.0, 700.0),
+        ("4", "C", 900.0, 700.0),
+        ("4", "D", 900.0, 700.0),
+        ("1", "A", 300.0, 300.0),
+    ]
+    CENTRES = {"C": [(150.0, 700.0)], "D": [(1100.0, 700.0)], "A": [(150.0, 300.0)]}
+
+    def test_labels_at_one_position_are_one_line(self):
+        assert grid.shared_lines({"A": 300.0, "C": 700.0, "D": 700.6, "E": 900.0}) == [["C", "D"]]
+
+    def test_labels_a_real_gap_apart_are_two_lines(self):
+        # 3.3 and 3.4 on S2.105 are 7pt apart: close, but two lines.
+        assert grid.shared_lines({"3.3": 837.0, "3.4": 844.0}) == []
+
+    def test_each_crossing_takes_the_name_printed_nearer_to_it(self):
+        named = grid.one_name_per_crossing(self.PAIRS, [["C", "D"]], self.CENTRES)
+        assert named == [
+            ("1", "C", 300.0, 700.0),
+            ("4", "D", 900.0, 700.0),
+            ("1", "A", 300.0, 300.0),
+        ]
+
+    def test_a_grid_with_no_shared_line_is_untouched(self):
+        assert grid.one_name_per_crossing(self.PAIRS, [], self.CENTRES) == self.PAIRS
