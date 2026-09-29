@@ -344,6 +344,26 @@ def _user_content_claude(
     return blocks
 
 
+# Above this many output tokens a request is STREAMED. The SDK refuses a
+# non-streaming request it estimates could run past ten minutes (max_tokens
+# above 128000/6, about 21,333) with "Streaming is required for operations that
+# may take longer than 10 minutes" — raised on OUR side, before anything is
+# sent. It bit when SUMMARY_MAX_TOKENS was raised and SUMMARY_THINKING=medium
+# added its headroom: every page call failed the same way, the JSON retry
+# failed the same way, and the run ended "no page summaries" at no cost and
+# with no summary. Streaming returns the identical Message through
+# get_final_message(), so callers cannot tell; below the line the plain call is
+# kept, since every existing path fits there and needs no change.
+_STREAM_ABOVE_TOKENS = 16_000
+
+
+def _send_claude(client, request: dict):
+    if request["max_tokens"] > _STREAM_ABOVE_TOKENS:
+        with client.messages.stream(**request) as stream:
+            return stream.get_final_message()
+    return client.messages.create(**request)
+
+
 def _complete_claude(
     system, user, *, model, max_tokens, kind, project_id, cache_system, images=None,
     thinking_setting: str | None = None, image_labels: list[str] | None = None,
@@ -365,7 +385,7 @@ def _complete_claude(
             request["thinking"] = thinking
         if output_config is not None:
             request["output_config"] = output_config
-        return client.messages.create(**request)
+        return _send_claude(client, request)
 
     if thinking_setting is None:
         thinking, output_config, extra = _claude_thinking(model), None, 0
