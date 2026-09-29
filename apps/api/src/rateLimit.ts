@@ -22,11 +22,19 @@ import { redis } from "./redis.js";
  * code.
  */
 
-const store = () =>
+/**
+ * One Redis store PER TIER, each under its own prefix. They shared "rl:" once,
+ * and the key is the same user id in every tier, so every tier counted into
+ * ONE counter: a user who had loaded a project (dozens of general-tier GETs)
+ * got "too many summary runs in an hour" from the 30-an-hour summary tier on
+ * their first press of the button, until the general tier's 60-second window
+ * expired the shared key.
+ */
+const store = (tier: string) =>
   new RedisStore({
     // ioredis exposes `call`; the store's own typings expect node-redis.
     sendCommand: (...args: string[]) => redis.call(...(args as [string, ...string[]])) as never,
-    prefix: "rl:",
+    prefix: `rl:${tier}:`,
   });
 
 /**
@@ -65,7 +73,7 @@ function limiter(
   return rateLimit({
     windowMs,
     limit: max,
-    store: store(),
+    store: store(name.replace(/^RATE_LIMIT_/, "").toLowerCase()),
     keyGenerator: keyFor,
     standardHeaders: "draft-7",
     legacyHeaders: false,

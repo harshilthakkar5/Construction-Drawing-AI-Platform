@@ -102,3 +102,30 @@ describe("the cost-bearing routes are the throttled ones", () => {
     expect(app).toContain('app.set("trust proxy"');
   });
 });
+
+describe("each tier counts on its own", () => {
+  it("no two tiers share a Redis prefix, so browsing cannot spend the summary allowance", async () => {
+    // Every tier keys on the same user id; with one shared prefix they were one
+    // counter, and loading a project 429'd the first summary or RFI scan.
+    const prefixes: string[] = [];
+    vi.doMock("rate-limit-redis", () => ({
+      RedisStore: class {
+        prefix: string;
+        constructor(options: { prefix: string }) {
+          this.prefix = options.prefix;
+          prefixes.push(options.prefix);
+        }
+        init() {}
+        async increment() {
+          return { totalHits: 1, resetTime: new Date() };
+        }
+        async decrement() {}
+        async resetKey() {}
+      },
+    }));
+    await load();
+    expect(prefixes.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+    vi.doUnmock("rate-limit-redis");
+  });
+});
