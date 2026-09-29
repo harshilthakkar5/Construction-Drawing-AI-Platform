@@ -115,9 +115,12 @@ class Chunk:
     # survive all the way to the answer prompt: FR-13's chain promises that a
     # citation leads to the thing it cites, and a reader who clicks through to
     # a description must not find sentences that are nowhere on the page.
+    # "gridmarks" is `gridmarks.py`'s reading of which mark is printed at which
+    # grid crossing: computed from positions, not written by a model, and still
+    # not words that appear on the sheet in that form.
     kind: str = "text"
-    # Only a chunk a MODEL wrote carries these: "<provider>/<model>" and the
-    # settings that decided what it says. A text chunk is words lifted off the
+    # Only a chunk something DERIVED carries these: "<provider>/<model>" (or
+    # "geometry/gridmarks-v1") and the settings that decided what it says. A text chunk is words lifted off the
     # sheet and has no source in this sense, so None there is a fact rather
     # than a gap — and None on a description means its settings were not
     # recorded, which is a different fact and must stay tellable apart.
@@ -400,8 +403,13 @@ def split_description(
     *,
     source_model: str | None = None,
     source_settings: dict | None = None,
+    kind: str = "description",
 ) -> list[Chunk]:
     """A vision description, packed to the size of every other chunk.
+
+    `kind` is "description" for a vision model's account and "gridmarks" for
+    `gridmarks.py`'s geometric reading, which is packed the same way for the
+    same reasons — one line per crossing, split between lines.
 
     The description arrives as one string whose length is whatever
     VLM_MAX_TOKENS allowed, and it was being stored as ONE chunk. At 1500 that
@@ -439,7 +447,7 @@ def split_description(
                     text=joined,
                     bbox=dict(bbox),
                     token_count=estimate_tokens(joined),
-                    kind="description",
+                    kind=kind,
                     source_model=source_model,
                     source_settings=source_settings,
                 )
@@ -456,7 +464,7 @@ def split_description(
                         text=piece,
                         bbox=dict(bbox),
                         token_count=estimate_tokens(piece),
-                        kind="description",
+                        kind=kind,
                         source_model=source_model,
                         source_settings=source_settings,
                     )

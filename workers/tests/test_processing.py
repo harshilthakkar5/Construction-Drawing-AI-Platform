@@ -571,3 +571,46 @@ class TestTheVisionPassRoutes:
         doc, page = self._page()
         assert processing._describe_page(page, "p", 1) is None
         doc.close()
+
+
+class TestGridMarksNeverFailAPage:
+    """The geometric reader is an ADDITION to what a page stores: switched
+    off it adds nothing, and an error inside it costs only its own chunk."""
+
+    def test_switched_off_it_adds_nothing(self, processing, monkeypatch):
+        monkeypatch.setattr(processing.config, "GRID_MARKS_ENABLED", False)
+        monkeypatch.setattr(
+            processing.gridmarks, "chunks_for", lambda page: pytest.fail("ran while disabled")
+        )
+        assert processing._grid_marks(object(), 3) == []
+
+    def test_an_error_is_a_warning_not_a_failed_page(self, processing, monkeypatch, caplog):
+        monkeypatch.setattr(processing.config, "GRID_MARKS_ENABLED", True)
+
+        def boom(page):
+            raise RuntimeError("odd grid")
+
+        monkeypatch.setattr(processing.gridmarks, "chunks_for", boom)
+        with caplog.at_level("WARNING"):
+            assert processing._grid_marks(object(), 3) == []
+        assert "grid marks skipped" in caplog.text
+
+    def test_a_gridded_sheet_stores_its_marks_beside_its_text(self, processing, monkeypatch):
+        """End to end through `_process_page`: the gridmarks chunk reaches the
+        same write as the page's text chunks, and replaces nothing."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import test_gridmarks
+
+        monkeypatch.setattr(processing.config, "GRID_MARKS_ENABLED", True)
+        monkeypatch.setattr(processing.config, "VLM_ENABLED", False)
+        written = []
+        monkeypatch.setattr(
+            processing.db, "replace_page_chunks", lambda doc, n, chunks: written.extend(chunks)
+        )
+        doc, _ = test_gridmarks.sheet()
+        processing._process_page("proj", "doc", doc, 0, 0)
+        kinds = [c.kind for c in written]
+        assert "gridmarks" in kinds and "text" in kinds
+        marks = next(c for c in written if c.kind == "gridmarks")
+        assert "At 1/A: C-6 (14 x 30)." in marks.text
+        doc.close()

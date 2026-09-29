@@ -362,7 +362,9 @@ export function ChatPanel({
                         title={
                           s.kind === "description"
                             ? `${s.label} — a description of what this drawing shows, not text from it`
-                            : `${s.label} — jump there and highlight the cited region`
+                            : s.kind === "gridmarks"
+                              ? `${s.label} — which mark is printed at which grid crossing, measured from the drawing`
+                              : `${s.label} — jump there and highlight the cited region`
                         }
                       >
                         {/* The sheet number alone: the page already has its own
@@ -376,6 +378,13 @@ export function ChatPanel({
                         {s.kind === "description" && (
                           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground group-hover:bg-card">
                             described
+                          </span>
+                        )}
+                        {/* Measured, not quoted: the marks are the sheet's own
+                            text, their pairing with a crossing is geometry. */}
+                        {s.kind === "gridmarks" && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground group-hover:bg-card">
+                            grid
                           </span>
                         )}
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground group-hover:bg-card">

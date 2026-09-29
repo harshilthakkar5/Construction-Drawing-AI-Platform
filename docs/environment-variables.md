@@ -130,6 +130,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | Variable | Default | Used by | What it does |
 |---|---|---|---|
 | `VLM_ENABLED` | `false` | Worker | Turn the vision pass on (one model call per page at upload). |
+| `GRID_MARKS_ENABLED` | `true` | Worker | Record which mark is printed at which grid crossing, from the PDF's own positions (no model). Turn off only when benchmarking the vision pass. |
 | `VLM_PROVIDER` | `claude` | Worker | `claude` / `gemini`. |
 | `VLM_CLAUDE_MODEL` | `claude-sonnet-5` | Worker | Must be a high-resolution model (Haiku cannot read these sheets). |
 | `VLM_GEMINI_MODEL` | `gemini-3.6-flash` | Worker | Gemini vision model. |

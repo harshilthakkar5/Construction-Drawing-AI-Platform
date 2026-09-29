@@ -1187,7 +1187,30 @@ a level-5 forming plan); and the description states which way the lines run in D
 because "column lines" is `grid.transposed`'s naming convention and the chat read it as
 "vertical" on a sheet whose numbered lines are horizontal. The honest conclusion for a
 schedule-marked sheet like this one: the marks AND their positions are in the text layer, so the
-pairing can be computed from geometry with no model at all, and that is the next thing to build.
+pairing can be computed from geometry with no model at all — and it now is.
+
+**`workers/src/gridmarks.py` places marks by geometry, no model** (`GRID_MARKS_ENABLED`, default
+ON). Every mark-shaped word (`MARK`: a short schedule mark or a printed member size, deliberately
+generic rather than one sheet's vocabulary) is assigned to the grid crossing it is PRINTED nearest
+to, over the FULL grid including secondary lines (`grid.page_grid`). It is assigned only when that
+crossing wins by `MARGIN_PT`; a mark about equally near two is written as BETWEEN them and given
+to neither; one further than `MAX_PT` from every crossing is a schedule row, not a grid mark. The
+size printed under a mark (`C-6` over `(14 x 30)`) is matched by POSITION — directly under,
+overlapping — because the first version took "the next line of the block", the client's sheet
+numbers its lines in no visual order, and C-13 came out with C-6's size. A mark the text layer
+draws twice is kept once, preferring the copy that carries a size. The page is read for marks
+FIRST and the grid scanned only if any exist (the scan is 0.3-2.3s on the client's sheets; a notes
+page costs 5ms). It stores `kind="gridmarks"` chunks — `split_description(kind=…)`, the
+explanation line repeated on every piece — which DO enter `chunk_identifiers` (every mark is
+verbatim sheet text), are skipped by the RFI checks (they read only `kind="text"`), carry a "grid"
+chip in the chat, and get their own prompt rule: most reliable source for "what is at X/Y",
+placement only, never pick a side for a "between" mark, take direction from the sheet's own
+"Drawn vertically/horizontally" lines (`grid.orientation`, now shared with the crop pass). On
+S2.105 it matched the drawing at every crossing checked by eye where the crop pass had been wrong
+(5/B C-1, 4/F C-1, 5/G C-29, 4/E C-13 + SR-4). Its blind spot is stated in the chunk itself: a mark
+drawn away from its column with a LEADER LINE is placed where it is printed. It also answers the
+drawing eval's questions by the same rule the generator derives them with, so set
+`GRID_MARKS_ENABLED=false` when benchmarking the vision pass, or the eval measures this instead.
 
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
