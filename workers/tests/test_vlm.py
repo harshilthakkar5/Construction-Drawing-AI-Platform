@@ -17,6 +17,7 @@ import re  # noqa: E402
 import fitz  # noqa: E402
 import pytest  # noqa: E402
 
+import grid  # noqa: E402
 import llm  # noqa: E402
 import vlm  # noqa: E402
 
@@ -1480,4 +1481,98 @@ class TestReasoningThatEatsTheCropBudget:
         text = vlm.describe_crops(page)
         assert "No reading was obtained at 2/B" in text
         assert "At 2/B:" not in text
+        doc.close()
+
+
+class TestWhatTheClientSheetTaught:
+    """S2.105 (a level-5 forming plan, 48 crops) came back answered at every
+    crossing — and the answer built on it still misled in three ways."""
+
+    def test_every_crop_image_is_labelled_beside_the_picture(self, monkeypatch):
+        """Twenty near-identical close-ups sent back to back make the model
+        COUNT to find crop 14; a miscount reads a real mark into the wrong
+        crossing while the echoed index and coordinate still check out."""
+        seen = {}
+
+        def fake_complete(system, user, **kwargs):
+            seen.update(kwargs)
+            labels = re.findall(r"^\s*(\d+)\.\s+(\S+)$", user, re.M)
+            return llm.Reply(
+                text="\n".join(f"{i}. {label}: footing F1, column C1" for i, label in labels),
+                stop_reason="end_turn",
+            )
+
+        monkeypatch.setattr(vlm.llm, "complete", fake_complete)
+        monkeypatch.setattr(vlm, "CROP_BATCH", 30)
+        doc, page, _, _, _ = TestCropsAtEveryIntersection._real_sheet()
+        vlm.describe_crops(page)
+        labels = seen["image_labels"]
+        assert len(labels) == len(seen["images"])
+        assert labels[0].startswith("Crop 1 of ") and labels[0].endswith("2/B")
+        doc.close()
+
+    def test_the_labels_sit_directly_before_their_images_on_both_providers(self):
+        pngs = [b"\x89PNG-a", b"\x89PNG-b"]
+        claude = llm._user_content_claude("q", pngs, ["Crop 1 of 2 — 1/A", "Crop 2 of 2 — 1/B"])
+        assert [b["type"] for b in claude] == ["text", "image", "text", "image", "text"]
+        assert claude[2]["text"] == "Crop 2 of 2 — 1/B"
+        gemini = llm._user_content_gemini("q", pngs, image_labels=["L1", "L2"])
+        assert gemini[0] == {"text": "L1"} and "inline_data" in gemini[1]
+        assert gemini[2] == {"text": "L2"} and gemini[-1] == "q"
+        with pytest.raises(ValueError):
+            llm._user_content_claude("q", pngs, ["only one"])
+
+    def test_an_unlabelled_call_is_byte_identical_to_before(self):
+        pngs = [b"\x89PNG-a"]
+        assert [b["type"] for b in llm._user_content_claude("q", pngs)] == ["image", "text"]
+        assert llm._user_content_claude("q", None) == "q"
+
+    def test_a_stud_rail_is_not_a_footing(self):
+        """The forming plan has no foundations; with only two fields the model
+        filed SR-8 under "footing" and the chat reported footings on level 5."""
+        got = vlm.parse_crop_batch(
+            "1. 4/D: footing -, column C-6 (14 x 30), other SR-8\n"
+            "2. 4/E: footing -, column C-6 (14X30)\n"
+            "3. 4/F: footing -, column C-13, other SR-4; D-2",
+            ["4/D", "4/E", "4/F"],
+            with_other=True,
+        )
+        assert got == {
+            "4/D": (None, "C-6 (14X30)", "SR-8"),
+            "4/E": (None, "C-6 (14X30)", None),
+            "4/F": (None, "C-13", "SR-4, D-2"),
+        }
+        assert vlm._crop_line("4/D", *got["4/D"]) == "At 4/D: column C-6 (14X30), also marked SR-8."
+        # the two-field contract is unchanged for every existing caller
+        assert vlm.parse_crop_batch("1. 4/D: footing F1, column C-6, other SR-8", ["4/D"]) == {
+            "4/D": ("F1", "C-6")
+        }
+
+    def test_the_prompt_keeps_other_marks_out_of_footing_and_its_example_parses(self):
+        flat = re.sub(r"\s+", " ", vlm.CROP_SYSTEM)
+        assert "ONLY a foundation element goes here" in flat
+        example = next(line for line in vlm.CROP_SYSTEM.splitlines() if ", other " in line)
+        index = int(example.strip().split(".")[0])
+        labels = ["?"] * (index - 1) + ["14/M"]
+        parsed = vlm.parse_crop_batch(example.strip(), labels, with_other=True)
+        assert parsed["14/M"][2] == "SR-99"
+
+    def test_the_header_says_which_way_the_lines_really_run(self):
+        """On S2.105 the numbered lines — called "column lines" by convention —
+        are drawn HORIZONTALLY, and the chat told the user they were vertical."""
+        # numbered lines at constant y (horizontal), lettered at constant x
+        rows = {"1": 900.0, "2": 700.0, "3": 500.0}  # y per numbered line
+        cols = {"A": 100.0, "B": 300.0, "C": 500.0, "D": 700.0}  # x per lettered line
+        pairs = [(n, letter, x, y) for n, y in rows.items() for letter, x in cols.items()]
+        text = vlm._crop_description(pairs, {"1/A": ("F1", "C1")})
+        assert "Drawn vertically on the sheet, left to right: A, B, C, D (the row lines)." in text
+        assert "Drawn horizontally on the sheet, top to bottom: 3, 2, 1 (the column lines)." in text
+        assert vlm.grid_coverage(text) == (3, 4, 1), "the extra lines must not disturb coverage"
+
+    def test_the_header_on_an_ordinary_sheet(self):
+        doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
+        pairs = grid.intersections(columns, rows)
+        text = vlm._crop_description(pairs, {})
+        assert "Drawn vertically on the sheet, left to right:" in text
+        assert "(the column lines)." in text.split("\n")[2]
         doc.close()

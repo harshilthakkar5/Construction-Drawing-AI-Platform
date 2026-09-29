@@ -1172,6 +1172,23 @@ with the batch (1500 was sized for batches of 6); a page with under half its cro
 falls back to the whole-sheet pass; and crossings that got no reading are named in the
 description, for the same reason skipped secondary lines are.
 
+With that fixed the run answered 48 of 48 crossings — and the chat answer built on it was still
+wrong in ways only the PDF could show. `scratchpad truth.py` (every `C-n`/`SR-n` in the text
+layer, assigned to the grid crossing that OWNS it, secondary lines included) scored it: of 19
+primary crossings that carry a mark, about 7 were right; 5 got another crossing's mark, 4 were
+missed, and most of the other values were marks standing on the SECONDARY line beside the
+primary one (C-14 on 2.3/B reported at 2/B, C-30 on 3.4/F-H reported at 3/F-H). On this sheet
+most columns stand on secondary lines, so dropping secondaries to fit `VLM_CROP_MAX` puts their
+marks inside primary crops with nothing to say they belong elsewhere. Three repairs, none of
+which addresses that last point: each crop image is LABELLED beside the picture
+(`llm.complete(image_labels=…)`) instead of being counted to in a run of 20 look-alikes; stud
+rails and other marks go in an optional `other` field (the model had filed SR-8 under "footing" on
+a level-5 forming plan); and the description states which way the lines run in DISPLAY space,
+because "column lines" is `grid.transposed`'s naming convention and the chat read it as
+"vertical" on a sheet whose numbered lines are horizontal. The honest conclusion for a
+schedule-marked sheet like this one: the marks AND their positions are in the text layer, so the
+pairing can be computed from geometry with no model at all, and that is the next thing to build.
+
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
 `C-6 (14 x 30)` legible inside. A3.01 plans 72 primary crossings and is refused on cost, loudly.
