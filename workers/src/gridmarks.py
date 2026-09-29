@@ -64,6 +64,21 @@ MARGIN_PT = 12.0
 SOURCE = "geometry/gridmarks-v1"
 
 
+def grid_label_kind(discipline: str | None) -> str:
+    """"marks" or "tags": what this reading's labels ARE on a sheet of this
+    discipline.
+
+    This reader runs at ingest, before the title block is scraped, so it cannot
+    say — it places every mark-shaped word, and on the client's architectural
+    A3.01 those were unit and room tags (A4B, S1B, B2). The summary prompt asks
+    this once the discipline is known. It mirrors `gridLabelKind` in
+    @cdip/shared (the chat's copy); both are tested against
+    packages/shared/fixtures/grid-label-kind.json.
+    """
+    d = (discipline or "").strip().lower()
+    return "marks" if d in ("", "structural", "other") else "tags"
+
+
 @dataclass
 class GridMarks:
     columns: dict[str, float]
