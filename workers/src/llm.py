@@ -295,7 +295,17 @@ def _system_blocks(system: str | list[dict], cache: bool) -> list[dict]:
     return [block]
 
 
-def _user_content_claude(user: str, images: list[bytes] | None) -> str | list[dict]:
+def _check_labels(images, image_labels) -> None:
+    if image_labels is not None and len(image_labels) != len(images or []):
+        raise ValueError(
+            f"{len(image_labels)} image labels for {len(images or [])} images — a label on the "
+            "wrong image is the misplacement labels exist to prevent"
+        )
+
+
+def _user_content_claude(
+    user: str, images: list[bytes] | None, image_labels: list[str] | None = None
+) -> str | list[dict]:
     """A plain string when there are no images, so every existing caller's
     request is byte-identical to what it sent before — a prompt cache is a
     prefix match, and reshaping the user turn for callers that never pass an
@@ -305,27 +315,38 @@ def _user_content_claude(user: str, images: list[bytes] | None) -> str | list[di
     put it first and ask the question after it, and the describe pass reads
     better that way too: the instruction lands with the drawing already in
     view rather than in front of an empty frame.
+
+    `image_labels`, when given, put a short text block IMMEDIATELY BEFORE each
+    image ("Crop 3 of 20 — 4/D"). Without them many images arrive back to back
+    and the model maps "crop 14" to a picture by COUNTING, which can drift on a
+    run of near-identical close-ups — reading a real mark into the wrong grid
+    crossing while every echoed index and coordinate still checks out, because
+    the model copied the listing correctly and looked at the wrong picture.
     """
+    _check_labels(images, image_labels)
     if not images:
         return user
-    blocks: list[dict] = [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": base64.b64encode(png).decode("ascii"),
-            },
-        }
-        for png in images
-    ]
+    blocks: list[dict] = []
+    for i, png in enumerate(images):
+        if image_labels is not None:
+            blocks.append({"type": "text", "text": image_labels[i]})
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.b64encode(png).decode("ascii"),
+                },
+            }
+        )
     blocks.append({"type": "text", "text": user})
     return blocks
 
 
 def _complete_claude(
     system, user, *, model, max_tokens, kind, project_id, cache_system, images=None,
-    thinking_setting: str | None = None,
+    thinking_setting: str | None = None, image_labels: list[str] | None = None,
 ) -> Reply:
     client = anthropic_client()
     if client is None:
@@ -336,7 +357,9 @@ def _complete_claude(
             model=model,
             max_tokens=max_tokens + extra,
             system=_system_blocks(system, cache_system),
-            messages=[{"role": "user", "content": _user_content_claude(user, images)}],
+            messages=[
+                {"role": "user", "content": _user_content_claude(user, images, image_labels)}
+            ],
         )
         if thinking is not None:
             request["thinking"] = thinking
@@ -815,7 +838,13 @@ def _latch_no_media(model: str, exc: object) -> None:
     )
 
 
-def _user_content_gemini(user: str, images: list[bytes] | None, *, model: str = ""):
+def _user_content_gemini(
+    user: str,
+    images: list[bytes] | None,
+    *,
+    model: str = "",
+    image_labels: list[str] | None = None,
+):
     """Gemini takes `contents` as a string or a list of parts. Same rule as the
     Claude side: no images means the exact string the caller passed, so the
     request this module has always sent is unchanged.
@@ -828,11 +857,16 @@ def _user_content_gemini(user: str, images: list[bytes] | None, *, model: str = 
     the only place ULTRA_HIGH exists. See the block above it for what the field
     costs and what omitting it costs.
     """
+    _check_labels(images, image_labels)
     if not images:
         return user
     media = _media_resolution_part(model)
     parts = []
-    for png in images:
+    for i, png in enumerate(images):
+        if image_labels is not None:
+            # Same reason as the Claude side: a label beside each picture, so
+            # "crop 14" is read off the page rather than counted to.
+            parts.append({"text": image_labels[i]})
         part = {"inline_data": {"mime_type": "image/png", "data": png}}
         if media:
             part["media_resolution"] = media
@@ -842,7 +876,7 @@ def _user_content_gemini(user: str, images: list[bytes] | None, *, model: str = 
 
 def _complete_gemini(
     system, user, *, model, max_tokens, kind, project_id, json_only, images=None,
-    thinking_setting: str | None = None,
+    thinking_setting: str | None = None, image_labels: list[str] | None = None,
 ) -> Reply:
     client = gemini_client()
     if client is None:
@@ -853,7 +887,9 @@ def _complete_gemini(
     def send(thinking: bool | dict, *, media_model: str):
         return client.models.generate_content(
             model=model,
-            contents=_user_content_gemini(user, images, model=media_model),
+            contents=_user_content_gemini(
+                user, images, model=media_model, image_labels=image_labels
+            ),
             config=_gemini_config(
                 model=model,
                 max_tokens=max_tokens,
@@ -1375,8 +1411,13 @@ def complete(
     cache_system: bool = True,
     images: list[bytes] | None = None,
     thinking: str | None = None,
+    image_labels: list[str] | None = None,
 ) -> Reply | None:
     """Ask the given provider for a completion.
+
+    `image_labels`, one per image, are placed as text directly before each
+    image, so a model shown many images reads which is which instead of
+    counting — see `_user_content_claude`.
 
     `thinking` is the call site's own setting from THINKING_SETTINGS (read it
     with `stage_thinking("RFI_THINKING")`); None leaves the global
@@ -1406,6 +1447,7 @@ def complete(
                 json_only=json_only,
                 images=images,
                 thinking_setting=thinking,
+                image_labels=image_labels,
             )
         else:
             reply = _complete_claude(
@@ -1418,6 +1460,7 @@ def complete(
                 cache_system=cache_system,
                 images=images,
                 thinking_setting=thinking,
+                image_labels=image_labels,
             )
     except Exception as exc:
         _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)
