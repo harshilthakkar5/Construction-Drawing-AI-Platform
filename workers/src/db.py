@@ -343,7 +343,7 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
                     json.dumps(settings) if (settings := getattr(chunk, "source_settings", None)) else None,
                 ),
             )
-            if kind != "text":
+            if kind not in ("text", "gridmarks"):
                 # A description does NOT enter the identifier index. That arm
                 # is exact-match and weighted 3x — the heaviest signal in
                 # retrieval — and it is fed from the documents' own words. Let
@@ -351,6 +351,9 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
                 # outranks the chunk that carries the real one, which is the
                 # one failure mode worse than having no description at all.
                 # Descriptions are still reachable by dense search and FTS.
+                # A gridmarks chunk DOES enter it: every mark in one is copied
+                # verbatim off the sheet's own text, so "where is C-6" should
+                # find the chunk that says where it is printed.
                 continue
             # Exact identifiers (S102A, A-301, W18x97) for the retrieval arm
             # that looks them up as identifiers rather than as words. The

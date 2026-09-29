@@ -919,37 +919,6 @@ def _crop_line(
     return f"At {label}: " + (", ".join(parts) if parts else "nothing legible") + "."
 
 
-def _orientation(pairs) -> list[str]:
-    """Which way each named set of grid lines runs on the sheet as displayed,
-    in positional order. Empty when the geometry cannot say (one line only)."""
-    xs: dict[str, list[float]] = {}
-    ys: dict[str, list[float]] = {}
-    for col, _, x, y in pairs:
-        xs.setdefault(col, []).append(x)
-        ys.setdefault(col, []).append(y)
-    spread_x = max((max(v) - min(v) for v in xs.values() if len(v) > 1), default=0.0)
-    spread_y = max((max(v) - min(v) for v in ys.values() if len(v) > 1), default=0.0)
-    if spread_x == spread_y:
-        return []
-    # A column line whose crossings spread along x is drawn horizontally.
-    columns_horizontal = spread_x > spread_y
-    col_at = {c: (sum(ys[c]) if columns_horizontal else sum(xs[c])) / len(xs[c]) for c in xs}
-    row_at: dict[str, list[float]] = {}
-    for _, row, x, y in pairs:
-        row_at.setdefault(row, []).append(x if columns_horizontal else y)
-    cols_ordered = sorted(col_at, key=col_at.get)
-    rows_ordered = sorted(row_at, key=lambda r: sum(row_at[r]) / len(row_at[r]))
-    vertical, horizontal = (rows_ordered, cols_ordered) if columns_horizontal else (
-        cols_ordered,
-        rows_ordered,
-    )
-    v_name, h_name = ("row", "column") if columns_horizontal else ("column", "row")
-    return [
-        f"Drawn vertically on the sheet, left to right: {', '.join(vertical)} (the {v_name} lines).",
-        f"Drawn horizontally on the sheet, top to bottom: {', '.join(horizontal)} (the {h_name} lines).",
-    ]
-
-
 def _crop_description(
     pairs,
     answers: dict[str, tuple],
@@ -978,7 +947,7 @@ def _crop_description(
     lines = [
         f"Column lines: {', '.join(columns)}",
         f"Row lines: {', '.join(rows)}",
-        *_orientation(pairs),
+        *grid.orientation(pairs),
     ]
     if skipped:
         # Said in the chunk itself, because the chunk is all the chat sees: a

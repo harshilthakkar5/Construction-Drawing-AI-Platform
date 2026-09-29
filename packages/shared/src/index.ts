@@ -260,7 +260,9 @@ export interface ChatSourceDto {
   /** "description" when the cited chunk is a vision model's account of the
    * drawing's geometry rather than text lifted off the sheet. The UI marks
    * those, because clicking through to a highlight whose words are nowhere on
-   * the page would otherwise read as a broken citation. */
+   * the page would otherwise read as a broken citation. "gridmarks" when it is
+   * the geometric reading of which mark is printed at which grid crossing
+   * (workers/src/gridmarks.py) — measured, not written by a model. */
   kind?: string | null;
 }
 

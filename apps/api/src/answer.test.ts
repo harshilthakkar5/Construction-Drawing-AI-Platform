@@ -124,6 +124,34 @@ describe("description chunks in the prompt", () => {
   });
 });
 
+describe("gridmarks chunks in the prompt", () => {
+  it("names the geometric reading and how to use it, in both scopes", () => {
+    for (const scope of ["construction", "documents"] as const) {
+      const prompt = buildSystemPrompt(scope);
+      expect(prompt).toContain('kind="gridmarks"');
+      // The policy: most reliable for placement, says placement only,
+      // never picks a side for a mark printed between two crossings, and
+      // takes direction from the sheet rather than from the word "column".
+      expect(prompt).toMatch(/prefer it over a description/i);
+      expect(prompt).toMatch(/not assigned to either; say so rather than choosing one/i);
+      expect(prompt).toMatch(/never infer direction from the words "column" or "row"/i);
+    }
+  });
+
+  it("is serialized with its kind so the model can apply that rule", () => {
+    const block = serializeChunks([
+      {
+        chunkId: "c1",
+        filename: "S.pdf",
+        combinedPageNumber: 1,
+        text: "At 3/C: C-6 (14 x 30), SR-8.",
+        kind: "gridmarks",
+      },
+    ]);
+    expect(block).toContain('kind="gridmarks"');
+  });
+});
+
 describe("serializeChunks", () => {
   const base = {
     chunkId: "11111111-aaaa-4bbb-8ccc-000000000001",

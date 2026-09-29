@@ -31,6 +31,7 @@ import chunker
 import config
 import db
 import embeddings
+import gridmarks
 import logutil
 import ocr
 import storage
@@ -129,6 +130,7 @@ def _process_page(
                 token_count=chunker.estimate_tokens(text),
             )
         ]
+    page_chunks = page_chunks + _grid_marks(page, page_number)
     description = _describe_page(page, project_id, page_number, spend)
     if description:
         # Whole-page bbox: the description is about the whole sheet, so
@@ -233,6 +235,22 @@ class DocumentSpend:
         )
         for reason, pages in sorted(self.refusals.items(), key=lambda kv: -kv[1]):
             log.info("%s   %d page(s) got no crops — %s", doc_tag, pages, reason)
+
+
+def _grid_marks(page, page_number: int) -> list:
+    """Which mark is printed at which grid crossing, or nothing.
+
+    Never fails a page: this is an ADDITION to what a page already stores, and
+    a sheet whose grid or text confuses the reader is a sheet exactly as good
+    as it was before the reader existed.
+    """
+    if not config.GRID_MARKS_ENABLED:
+        return []
+    try:
+        return gridmarks.chunks_for(page)
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        log.warning("page %d: grid marks skipped: %s", page_number, exc)
+        return []
 
 
 def _describe_page(

@@ -53,6 +53,15 @@ SUMMARIES_ENABLED = _flag("SUMMARIES_ENABLED")
 # separate chunk kind all the way through to the prompt.
 VLM_ENABLED = _flag("VLM_ENABLED", "false")
 
+# Place each schedule mark (C-6, SR-8, PC1, HSS8X8X1/4) at the grid crossing it
+# is PRINTED at, from the PDF's own positions (workers/src/gridmarks.py), and
+# store it as a kind="gridmarks" chunk. ON by default: no model call, well
+# under a second a page, and on the client's S2.105 it placed marks correctly
+# where the vision crop pass got about 7 of 19. Turn it OFF when measuring the
+# vision pass with benchmarks/drawing_eval.mjs — the eval's truth is derived
+# from the same geometry, so this chunk would answer the questions for it.
+GRID_MARKS_ENABLED = _flag("GRID_MARKS_ENABLED")
+
 # Rendering: 2x zoom ≈ 144 dpi page PNGs; thumbnails resized to this width.
 PAGE_RENDER_ZOOM = float(os.environ.get("PAGE_RENDER_ZOOM", "2"))
 THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
