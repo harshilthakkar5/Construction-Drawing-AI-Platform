@@ -170,3 +170,27 @@ def test_every_piece_of_a_long_reading_carries_the_explanation(monkeypatch):
     assert all(c.text.startswith("Grid marks, read from where") for c in chunks)
     doc.close()
 
+
+
+def test_a_line_named_differently_at_each_end_names_each_crossing_once():
+    """Row line bubbled "C" at its left end and "D" at its right end — one
+    line, two names. Before, every mark on it was "between" C and D."""
+    doc = fitz.open()
+    page = doc.new_page(width=36 * 72, height=24 * 72)
+    for label, x in COLUMNS.items():
+        page.draw_circle(fitz.Point(x, 150), 13.5)
+        page.insert_text((x - 3, 153), label, fontsize=8)
+    for (left, right), y in {("A", "A"): 300, ("B", "B"): 500, ("C", "D"): 700}.items():
+        for label, x in ((left, 150), (right, 1100)):
+            page.draw_circle(fitz.Point(x, y), 13.5)
+            page.insert_text((x - 3, y + 3), label, fontsize=8)
+    page.insert_text((310, 690), "C-6", fontsize=8)  # left half: 1/C
+    page.insert_text((910, 690), "C-7", fontsize=8)  # right half: 4/D
+    marks = gridmarks.read(page)
+    assert marks.between == []
+    assert marks.at["1/C"] == ["C-6"]
+    assert marks.at["4/D"] == ["C-7"]
+    assert "1/D" not in {f"{c}/{r}" for c, r, _, _ in marks.pairs}
+    text = gridmarks.describe(marks)
+    assert "One drawn line is labelled C and D: C at its left end, D at its right end." in text
+    doc.close()

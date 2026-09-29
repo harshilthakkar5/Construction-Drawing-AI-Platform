@@ -338,6 +338,15 @@ def styled_systems(page: fitz.Page) -> list[dict]:
 
 
 def page_grid(page: fitz.Page) -> tuple[dict[str, float], dict[str, float]]:
+    """THE sheet's grid, as (columns {label: x}, rows {label: y}). See
+    `page_grid_with_bubbles`, which also says where each label is printed."""
+    columns, rows, _ = page_grid_with_bubbles(page)
+    return columns, rows
+
+
+def page_grid_with_bubbles(
+    page: fitz.Page,
+) -> tuple[dict[str, float], dict[str, float], dict[str, list[tuple[float, float]]]]:
     """THE sheet's grid, as (columns {label: x}, rows {label: y}) — the one
     definition the vision pass crops from and the eval generator derives from.
 
@@ -355,6 +364,10 @@ def page_grid(page: fitz.Page) -> tuple[dict[str, float], dict[str, float]]:
     line at whichever position was read last. A sheet whose bubbles differ in
     style between its two axes has no single style with both, and falls back
     to the pooled `bubbles` reading it always had.
+
+    The third value is the display-space centre of every bubble of each label
+    (a line is usually bubbled at both ends), which `one_name_per_crossing`
+    needs and the axes alone cannot carry.
     """
     systems = [s for s in styled_systems(page) if s["along_x"] and s["along_y"]]
     if systems:
@@ -362,8 +375,74 @@ def page_grid(page: fitz.Page) -> tuple[dict[str, float], dict[str, float]]:
             systems,
             key=lambda s: (len(s["along_x"]) * len(s["along_y"]), s["style"]),
         )
-        return dict(best["along_x"]), dict(best["along_y"])
-    return axes(bubbles(page))
+        centres = {
+            label: [((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in boxes]
+            for label, boxes in best["bubbles"].items()
+        }
+        return dict(best["along_x"]), dict(best["along_y"]), centres
+    found = bubbles(page)
+    columns, rows = axes(found)
+    centres: dict[str, list[tuple[float, float]]] = {}
+    for label, x, y in found:
+        if label in columns or label in rows:
+            centres.setdefault(label, []).append((x, y))
+    return columns, rows, centres
+
+
+# Two labels on one axis this close are ONE drawn line, not two.
+COINCIDENT_PT = 2.0
+
+
+def shared_lines(axis: dict[str, float]) -> list[list[str]]:
+    """Groups of labels on one axis that sit at the same position.
+
+    The client's S2.105 bubbles one horizontal line "2.3" at its left end and
+    "2.4" at its right end (and "1.4"/"1.5" likewise); the line is drawn in
+    two halves with a gap in the middle. Read as two lines, every crossing on
+    it exists twice at one point, so a mark printed there is exactly as near
+    one name as the other and was reported as BETWEEN them — 13 of that
+    sheet's 29 "between" marks.
+    """
+    ordered = sorted(axis.items(), key=lambda kv: kv[1])
+    groups: list[list[tuple[str, float]]] = []
+    for label, at in ordered:
+        if groups and at - groups[-1][-1][1] <= COINCIDENT_PT:
+            groups[-1].append((label, at))
+        else:
+            groups.append([(label, at)])
+    return [[label for label, _ in g] for g in groups if len(g) > 1]
+
+
+def one_name_per_crossing(
+    pairs: list[tuple[str, str, float, float]],
+    shared: list[list[str]],
+    centres: dict[str, list[tuple[float, float]]],
+) -> list[tuple[str, str, float, float]]:
+    """`pairs` with each point named once: where a line carries two names, a
+    crossing takes the name whose bubble is NEARER to it.
+
+    That is the drafter's own reading — the bubble at the left end names the
+    left half — and it is the only one the geometry supports. It says nothing
+    about whether two names for one line is intended; a caller that shows the
+    result should say the line has two names. A label with no bubble recorded
+    never wins a tie it is part of.
+    """
+    alias = {label: tuple(group) for group in shared for label in group}
+    if not alias:
+        return list(pairs)
+
+    def reach(label: str, x: float, y: float) -> float:
+        points = centres.get(label) or []
+        return min(((px - x) ** 2 + (py - y) ** 2 for px, py in points), default=float("inf"))
+
+    best: dict[tuple, tuple[float, int]] = {}
+    for i, (col, row, x, y) in enumerate(pairs):
+        key = (alias.get(col, (col,)), alias.get(row, (row,)))
+        cost = (reach(col, x, y) if col in alias else 0.0) + (reach(row, x, y) if row in alias else 0.0)
+        if key not in best or cost < best[key][0]:
+            best[key] = (cost, i)
+    keep = {i for _, i in best.values()}
+    return [pair for i, pair in enumerate(pairs) if i in keep]
 
 
 def is_secondary(label: str) -> bool:

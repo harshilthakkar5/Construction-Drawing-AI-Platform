@@ -73,6 +73,9 @@ class GridMarks:
     at: dict[str, list[str]] = field(default_factory=dict)
     # (mark, crossing a, crossing b) for marks equally near two crossings
     between: list[tuple[str, str, str]] = field(default_factory=list)
+    # One drawn line bubbled with a different name at each end, as a sentence
+    # per line ("2.3 at its left end, 2.4 at its right end").
+    shared: list[str] = field(default_factory=list)
 
     @property
     def extent(self) -> dict:
@@ -154,6 +157,25 @@ def _add(marks: list[str], text: str) -> None:
     marks.append(text)
 
 
+def _ends(labels: list[str], axis: str, centres: dict[str, list[tuple[float, float]]]) -> str:
+    """Where each name of a shared line is printed, in the viewer's terms.
+
+    A line whose position is an x ("x" axis) is drawn vertically, so its ends
+    are top and bottom; the other way round, left and right."""
+    names = ", ".join(labels[:-1]) + f" and {labels[-1]}"
+    lead = f"One drawn line is labelled {names}"
+    if not all(centres.get(label) for label in labels):
+        return f"{lead}. Each crossing on it is listed under the name printed nearer to it."
+    along = 1 if axis == "x" else 0
+    at = {label: sum(c[along] for c in centres[label]) / len(centres[label]) for label in labels}
+    ordered = sorted(labels, key=at.get)
+    ends = ("top", "bottom") if axis == "x" else ("left", "right")
+    if len(ordered) == 2 and at[ordered[0]] != at[ordered[1]]:
+        where = f"{ordered[0]} at its {ends[0]} end, {ordered[1]} at its {ends[1]} end"
+        return f"{lead}: {where}. Each crossing on it is listed under the name printed nearer to it."
+    return f"{lead}. Each crossing on it is listed under the name printed nearer to it."
+
+
 def read(page: fitz.Page) -> GridMarks | None:
     """The sheet's marks placed on its grid, or None when it has no grid."""
     # Text first: it is cheap, and a page with no mark-shaped word cannot
@@ -163,13 +185,16 @@ def read(page: fitz.Page) -> GridMarks | None:
     found = _words_with_sizes(page)
     if not found:
         return None
-    columns, rows = grid.page_grid(page)
+    columns, rows, centres = grid.page_grid_with_bubbles(page)
     if not columns or not rows:
         return None
-    pairs = grid.intersections(columns, rows)
+    # A line named differently at its two ends would otherwise be two crossings
+    # at one point, and every mark on it "between" its own two names.
+    shared = [(g, "x") for g in grid.shared_lines(columns)] + [(g, "y") for g in grid.shared_lines(rows)]
+    pairs = grid.one_name_per_crossing(grid.intersections(columns, rows), [g for g, _ in shared], centres)
     if len(pairs) < 2:
         return None
-    result = GridMarks(columns, rows, pairs)
+    result = GridMarks(columns, rows, pairs, shared=[_ends(g, axis, centres) for g, axis in shared])
     # Pairs are reported in grid order, never string order ("3.5/A" < "3/A").
     order = {f"{c}/{r}": i for i, (c, r, _, _) in enumerate(pairs)}
     between: dict[tuple[str, str], list[str]] = {}
@@ -201,6 +226,7 @@ def describe(marks: GridMarks) -> str | None:
         f"Column lines: {', '.join(columns)}",
         f"Row lines: {', '.join(rows)}",
         *grid.orientation(marks.pairs),
+        *marks.shared,
     ]
     for col, row, _, _ in marks.pairs:
         label = f"{col}/{row}"
