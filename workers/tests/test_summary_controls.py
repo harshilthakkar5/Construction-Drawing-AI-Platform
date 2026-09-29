@@ -113,6 +113,44 @@ def test_the_page_tier_keeps_one_size_whatever_the_run_asked_for():
     assert f"at most {summarize.MAX_ITEMS} items" in summarize.page_prompt(page)
 
 
+class TestChunkKindsReachThePagePrompt:
+    """Summaries read every chunk as plain text, so an architectural sheet's
+    unit tags (A4B, S1B) could be summarized as column marks, and a vision
+    model's account as a quotation. The chat marks both; so does this now."""
+
+    GRID = {"id": ID, "text": "At 5.4/G.4: A4B.", "kind": "gridmarks"}
+
+    def page(self, *chunks, discipline=None):
+        return {"combined_page": 2, "discipline": discipline, "chunks": list(chunks)}
+
+    def test_a_grid_reading_on_an_architectural_sheet_is_marked_as_tags(self):
+        prompt = summarize.page_prompt(self.page(self.GRID, discipline="architectural"))
+        assert f'<chunk id="{ID}" kind="gridmarks" labels="tags">' in prompt
+
+    def test_on_a_structural_or_unscraped_sheet_it_stays_marks(self):
+        for discipline in ("structural", None):
+            prompt = summarize.page_prompt(self.page(self.GRID, discipline=discipline))
+            assert f'<chunk id="{ID}" kind="gridmarks">' in prompt
+
+    def test_a_description_is_marked_for_what_it_is(self):
+        chunk = {"id": ID, "text": "The drawing shows...", "kind": "description"}
+        prompt = summarize.page_prompt(self.page(chunk, discipline="architectural"))
+        assert f'<chunk id="{ID}" kind="description">' in prompt
+        assert "labels=" not in prompt
+
+    def test_a_text_chunk_sends_exactly_what_it_always_sent(self):
+        for chunk in ({"id": ID, "text": "t", "kind": "text"}, {"id": ID, "text": "t"}):
+            prompt = summarize.page_prompt(self.page(chunk, discipline="architectural"))
+            assert f'<chunk id="{ID}">\nt\n</chunk>' in prompt
+
+    def test_the_instructions_say_what_the_marks_mean(self):
+        rules = summarize._SYSTEM
+        assert 'kind="description"' in rules
+        assert 'kind="gridmarks"' in rules
+        assert 'labels="tags"' in rules
+        assert "call them tags" in rules
+
+
 def test_a_bigger_merge_fallback_keeps_more_points():
     lower = [{"overview": "", "items": [{"text": f"i{n}", "chunkIds": [ID]} for n in range(30)]}]
     assert len(summarize._merge_lower(lower, {ID: 1}, 25)["items"]) == 25

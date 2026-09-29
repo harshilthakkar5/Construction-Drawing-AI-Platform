@@ -13,10 +13,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import json  # noqa: E402
+
 import fitz  # noqa: E402
 import pytest  # noqa: E402
 
 import gridmarks  # noqa: E402
+
+LABEL_KIND_FIXTURE = json.loads(
+    (Path(__file__).resolve().parents[2] / "packages/shared/fixtures/grid-label-kind.json").read_text()
+)
+
+
+@pytest.mark.parametrize(
+    "case", LABEL_KIND_FIXTURE["cases"], ids=lambda c: f"{c['discipline']!r}->{c['expect']}"
+)
+def test_tags_or_marks_agrees_with_the_chat(case):
+    """The chat's copy (`gridLabelKind` in @cdip/shared) reads the same
+    fixture: a drift would have the chat call A4B a tag while the summary of
+    the same sheet calls it a column mark."""
+    assert gridmarks.grid_label_kind(case["discipline"]) == case["expect"]
 
 COLUMNS = {"1": 300, "2": 500, "3": 700, "3.5": 760, "4": 900}  # x of each numbered line
 ROWS = {"A": 300, "B": 500, "C": 700}  # y of each lettered line (an axis needs 3)

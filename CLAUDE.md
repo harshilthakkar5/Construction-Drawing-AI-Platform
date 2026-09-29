@@ -1231,8 +1231,13 @@ decision is made at CHAT time from `pages.discipline`: `gridLabelKind` in `@cdip
 not structural → "tags"; structural, "other" or unscraped → "marks"), which `serializeChunks` turns
 into a `labels="tags"` ATTRIBUTE — ours, not a line in the chunk text, which is untrusted quoted
 material — with a prompt rule, and which the source chip shows as "grid tags". Page summaries
-still read gridmarks chunks with no kind marker at all (as they read descriptions), so a summary
-of an architectural sheet can still call its tags marks.
+get the same: `db.pages_with_chunks` now carries each chunk's `kind` and the page's discipline,
+`summarize._chunk_tag` emits `kind=` (and `labels="tags"`) exactly as `serializeChunks` does, and
+`_SYSTEM` carries the chat's three rules — before this, summaries read descriptions and grid
+readings as plain text. Text chunks send the byte-identical tag they always did. The rule exists
+twice (`gridLabelKind`, `gridmarks.grid_label_kind`), so both read ONE fixture,
+`packages/shared/fixtures/grid-label-kind.json`. A page summary written before this is reused
+until its chunks change; re-uploading the document is what refreshes it.
 
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark

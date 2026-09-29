@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "What the labels in a gridmarks chunk ARE, from the discipline of the sheet",
+    "they are printed on: 'marks' (C-6, SR-8, PC1 on a structural sheet) or",
+    "'tags' (A4B, S1B, B2 — unit, room, door or equipment tags on an",
+    "architectural or MEP sheet). The rule is implemented twice: gridLabelKind",
+    "in @cdip/shared (the chat prompt and the source chip) and",
+    "gridmarks.grid_label_kind in the worker (the summary prompt). Both sides",
+    "read THIS fixture in their tests, so a change to the rule in one language",
+    "fails the other's suite — a chat calling A4B a tag while the summary of",
+    "the same sheet calls it a column mark is the drift this prevents.",
+    "",
+    "Unknown (not yet scraped) and 'other' stay 'marks': the reader's own",
+    "neutral word, not a claim about the sheet."
+  ],
+  "cases": [
+    { "discipline": "structural", "expect": "marks" },
+    { "discipline": "Structural", "expect": "marks" },
+    { "discipline": null, "expect": "marks" },
+    { "discipline": "", "expect": "marks" },
+    { "discipline": "  ", "expect": "marks" },
+    { "discipline": "other", "expect": "marks" },
+    { "discipline": "architectural", "expect": "tags" },
+    { "discipline": " Architectural ", "expect": "tags" },
+    { "discipline": "interiors", "expect": "tags" },
+    { "discipline": "mechanical", "expect": "tags" },
+    { "discipline": "electrical", "expect": "tags" },
+    { "discipline": "civil", "expect": "tags" },
+    { "discipline": "general", "expect": "tags" }
+  ]
+}

@@ -279,8 +279,9 @@ export interface ChatSourceDto {
  * the same kind of thing. Known and not structural → "tags". Unknown (not yet
  * scraped, or "other") stays "marks", the reader's own neutral word.
  *
- * One definition because two readers use it: the API tells the model, and the
- * chat's source chip tells the person.
+ * The API tells the model and the chat's source chip tells the person; the
+ * worker's summary prompt mirrors it as `gridmarks.grid_label_kind`, and both
+ * sides test against packages/shared/fixtures/grid-label-kind.json.
  */
 export type GridLabelKind = "marks" | "tags";
 

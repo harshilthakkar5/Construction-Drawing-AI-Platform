@@ -25,12 +25,14 @@ summary is allowed to claim or cite — only who writes it.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+import gridmarks
 import llm
 import logutil
 
@@ -125,7 +127,20 @@ _SYSTEM = (
     'statement>", "chunkIds": ["<id>"]}]} '
     "with the overview length and at most the number of items the request states. Every "
     "item MUST cite at least one chunk id copied EXACTLY from the input; never invent ids. "
-    "Prefer concrete facts: dimensions, materials, specifications, sheet references."
+    "Prefer concrete facts: dimensions, materials, specifications, sheet references. "
+    # The same three rules the chat prompt carries (apps/api/src/answer.ts).
+    # Summaries used to read every chunk as plain text, so a vision model's
+    # account read as quotation and an architectural sheet's unit tags as
+    # column marks.
+    'A chunk with kind="description" is a vision model\'s account of what the drawing shows, '
+    'not text printed on it: word its facts as "the drawing shows ...", and where it disagrees '
+    "with the sheet's own text, the text wins. "
+    'A chunk with kind="gridmarks" lists which label is printed nearest which grid crossing, '
+    "measured from the sheet's own text positions: state placement only, and never assign a "
+    'label it lists as "between" two crossings to either. '
+    'If that chunk also has labels="tags", the sheet is not structural and those labels are '
+    "TAGS (room, unit, door, window, equipment or keynote tags), not columns, footings, stud "
+    "rails or member sizes: call them tags and never give them a structural meaning."
 )
 
 
@@ -269,9 +284,26 @@ def collect_sources(summary: dict) -> list[str]:
 # --- prompt builders ---
 
 
+def _chunk_tag(chunk: dict, discipline: str | None) -> str:
+    """The opening tag for one chunk: `kind` only for a chunk that is not
+    words lifted off the sheet, so a page of ordinary text sends the exact
+    prompt it always sent. `labels="tags"` marks a grid reading on a sheet
+    that is not structural (`gridmarks.grid_label_kind`) — an ATTRIBUTE, ours,
+    because the chunk text is untrusted and a correction inside it would carry
+    exactly that weight. Mirrors `serializeChunks` in apps/api/src/answer.ts."""
+    kind = (chunk.get("kind") or "text").strip()
+    attrs = [f'id="{chunk["id"]}"']
+    if kind != "text":
+        attrs.append(f'kind="{html.escape(kind, quote=True)}"')
+    if kind == "gridmarks" and gridmarks.grid_label_kind(discipline) == "tags":
+        attrs.append('labels="tags"')
+    return f"<chunk {' '.join(attrs)}>"
+
+
 def page_prompt(page: dict) -> str:
+    discipline = page.get("discipline")
     chunks = "\n".join(
-        f'<chunk id="{c["id"]}">\n{c["text"]}\n</chunk>' for c in page["chunks"]
+        f'{_chunk_tag(c, discipline)}\n{c["text"]}\n</chunk>' for c in page["chunks"]
     )
     return (
         f"Summarize this single construction drawing page (combined page "

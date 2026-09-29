@@ -755,12 +755,17 @@ def embedded_chunk_payloads(project_id: str) -> list[dict]:
 
 
 def pages_with_chunks(project_id: str) -> list[dict]:
-    """Every page of the project with its chunks, combined order."""
+    """Every page of the project with its chunks, combined order.
+
+    Each chunk carries its `kind` and each page its `discipline`, so the
+    summary prompt can mark a description or a grid reading for what it is
+    (and a grid reading on a non-structural sheet as TAGS) the way the chat
+    prompt does."""
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT p."documentId", p."pageNumber", p."combinedPageNumber",
-                   c.id, c.text, c."portionId"
+                   c.id, c.text, c."portionId", c.kind, p.discipline
             FROM pages p
             JOIN documents d ON p."documentId" = d.id
             LEFT JOIN chunks c ON c."pageId" = p.id
@@ -770,7 +775,7 @@ def pages_with_chunks(project_id: str) -> list[dict]:
             (project_id,),
         ).fetchall()
     pages: dict[tuple, dict] = {}
-    for doc_id, page_no, combined, chunk_id, chunk_text, portion_id in rows:
+    for doc_id, page_no, combined, chunk_id, chunk_text, portion_id, kind, discipline in rows:
         key = (doc_id, page_no)
         page = pages.setdefault(
             key,
@@ -779,11 +784,12 @@ def pages_with_chunks(project_id: str) -> list[dict]:
                 "page_number": page_no,
                 "combined_page": combined,
                 "portion_id": None,
+                "discipline": discipline,
                 "chunks": [],
             },
         )
         if chunk_id is not None:
-            page["chunks"].append({"id": chunk_id, "text": chunk_text})
+            page["chunks"].append({"id": chunk_id, "text": chunk_text, "kind": kind})
             page["portion_id"] = portion_id or page["portion_id"]
     return sorted(pages.values(), key=lambda p: p["combined_page"])
 
