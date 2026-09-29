@@ -1224,6 +1224,16 @@ chunk says in words that the line has two names and which end carries which, so 
 and 3.4 are 7pt apart, closer than `MARGIN_PT`. It says nothing about whether two names for one
 line was intended; it may be worth an RFI. The crop pass and `drawing_truth.py` do not use it yet.
 
+On a sheet that is not structural the same mark shape is a TAG. A3.01's A4B, S1B and B2 are unit
+and room tags, and the chat listed them as "marks printed at intersections" beside S2.105's
+columns. The reader cannot know at ingest (it runs before the title block is scraped), so the
+decision is made at CHAT time from `pages.discipline`: `gridLabelKind` in `@cdip/shared` (known and
+not structural → "tags"; structural, "other" or unscraped → "marks"), which `serializeChunks` turns
+into a `labels="tags"` ATTRIBUTE — ours, not a line in the chunk text, which is untrusted quoted
+material — with a prompt rule, and which the source chip shows as "grid tags". Page summaries
+still read gridmarks chunks with no kind marker at all (as they read descriptions), so a summary
+of an architectural sheet can still call its tags marks.
+
 Verified on the client PDF with no model call: S2.105 now plans 48 crops (every 27pt primary
 line), and rendered crops at 3/C and 4/D sit on the dashed grid crossing with the column mark
 `C-6 (14 x 30)` legible inside. A3.01 plans 72 primary crossings and is refused on cost, loudly.

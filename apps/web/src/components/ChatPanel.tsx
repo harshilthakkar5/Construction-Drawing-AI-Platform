@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChatHistoryWindow, ChatMessageDto, ChatSourceDto } from "@cdip/shared";
+import { gridLabelKind } from "@cdip/shared";
 import {
   HistoryIcon,
   Maximize2Icon,
@@ -363,7 +364,9 @@ export function ChatPanel({
                           s.kind === "description"
                             ? `${s.label} — a description of what this drawing shows, not text from it`
                             : s.kind === "gridmarks"
-                              ? `${s.label} — which mark is printed at which grid crossing, measured from the drawing`
+                              ? gridLabelKind(s.discipline) === "tags"
+                                ? `${s.label} — which tag (room, unit, door…) is printed at which grid crossing, measured from the drawing`
+                                : `${s.label} — which mark is printed at which grid crossing, measured from the drawing`
                               : `${s.label} — jump there and highlight the cited region`
                         }
                       >
@@ -381,10 +384,12 @@ export function ChatPanel({
                           </span>
                         )}
                         {/* Measured, not quoted: the marks are the sheet's own
-                            text, their pairing with a crossing is geometry. */}
+                            text, their pairing with a crossing is geometry. On a
+                            sheet that is not structural they are tags, and the
+                            chip says so (`gridLabelKind`). */}
                         {s.kind === "gridmarks" && (
                           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground group-hover:bg-card">
-                            grid
+                            {gridLabelKind(s.discipline) === "tags" ? "grid tags" : "grid"}
                           </span>
                         )}
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground group-hover:bg-card">

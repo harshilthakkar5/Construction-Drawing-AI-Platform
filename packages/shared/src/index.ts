@@ -266,6 +266,30 @@ export interface ChatSourceDto {
   kind?: string | null;
 }
 
+/**
+ * What the labels in a gridmarks chunk ARE, decided by the discipline of the
+ * sheet they are printed on.
+ *
+ * The geometric reader (workers/src/gridmarks.py) runs at ingest, before the
+ * title block is scraped, so it cannot know. It places every mark-shaped word
+ * at its crossing, and on a structural sheet those are elements — C-6, SR-8,
+ * PC1, HSS8X8X1/4. On the client's architectural A3.01 the same shape is a
+ * unit or room tag (A4B, S1B, B2), and the chat listed them as "marks printed
+ * at intersections" beside the structural sheet's columns, as if they were
+ * the same kind of thing. Known and not structural → "tags". Unknown (not yet
+ * scraped, or "other") stays "marks", the reader's own neutral word.
+ *
+ * One definition because two readers use it: the API tells the model, and the
+ * chat's source chip tells the person.
+ */
+export type GridLabelKind = "marks" | "tags";
+
+export function gridLabelKind(discipline: string | null | undefined): GridLabelKind {
+  const d = discipline?.trim().toLowerCase();
+  if (!d || d === "structural" || d === "other") return "marks";
+  return "tags";
+}
+
 /** FR-19: chunk → viewer location, served by /projects/:id/chunks/:chunkId/location. */
 export interface ChunkLocationDto {
   chunkId: string;
