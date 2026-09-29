@@ -150,6 +150,48 @@ describe("gridmarks chunks in the prompt", () => {
     ]);
     expect(block).toContain('kind="gridmarks"');
   });
+
+  // A3.01's A4B, S1B, B2 are unit and room tags; the chat listed them as
+  // "marks printed at intersections" beside S2.105's columns.
+  describe("on a sheet that is not structural", () => {
+    const grid = (discipline: string | null) =>
+      serializeChunks([
+        {
+          chunkId: "c1",
+          filename: "A.pdf",
+          combinedPageNumber: 2,
+          text: "At 5.4/G.4: A4B.",
+          kind: "gridmarks",
+          discipline,
+        },
+      ]);
+
+    it("marks the labels as tags", () => {
+      expect(grid("architectural")).toContain('labels="tags"');
+      expect(grid("mechanical")).toContain('labels="tags"');
+    });
+
+    it("leaves structural and unscraped sheets as marks", () => {
+      expect(grid("structural")).not.toContain("labels=");
+      expect(grid(null)).not.toContain("labels=");
+    });
+
+    it("never marks a chunk that is not a grid reading", () => {
+      const out = serializeChunks([
+        { chunkId: "c1", filename: "A.pdf", combinedPageNumber: 2, text: "A4B", discipline: "architectural" },
+      ]);
+      expect(out).not.toContain("labels=");
+    });
+
+    it("tells the model what tags are, in both scopes", () => {
+      for (const scope of ["construction", "documents"] as const) {
+        const prompt = buildSystemPrompt(scope);
+        expect(prompt).toContain('labels="tags"');
+        expect(prompt).toMatch(/not columns, footings/i);
+        expect(prompt).toMatch(/Call them tags/);
+      }
+    });
+  });
 });
 
 describe("serializeChunks", () => {
