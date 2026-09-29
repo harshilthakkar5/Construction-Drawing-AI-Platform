@@ -923,6 +923,78 @@ class TestClaudeThinking:
         assert "returned no text" not in caplog.text
 
 
+class TestLargeRequestsStream:
+    """SUMMARY_MAX_TOKENS raised plus SUMMARY_THINKING=medium's headroom went
+    past what the SDK allows WITHOUT streaming, and it refused every summary
+    call before sending anything ("Streaming is required for operations that
+    may take longer than 10 minutes") — twice per page, no summary at all."""
+
+    class _Final:
+        def __init__(self):
+            self.content = [types.SimpleNamespace(type="text", text="{}")]
+            self.stop_reason = "end_turn"
+            self.usage = types.SimpleNamespace(input_tokens=1, output_tokens=1)
+
+    def _client(self, monkeypatch):
+        calls = {"create": [], "stream": []}
+        final = self._Final()
+
+        class _Stream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def get_final_message(self):
+                return final
+
+        def create(**kwargs):
+            calls["create"].append(kwargs)
+            return final
+
+        def stream(**kwargs):
+            calls["stream"].append(kwargs)
+            return _Stream()
+
+        monkeypatch.setattr(usage, "record_message", lambda *a, **k: None)
+        monkeypatch.setattr(llm, "_no_thinking_param", set())
+        monkeypatch.setattr(
+            llm,
+            "anthropic_client",
+            lambda: types.SimpleNamespace(messages=types.SimpleNamespace(create=create, stream=stream)),
+        )
+        return calls
+
+    def _call(self, max_tokens, thinking_setting=None):
+        return llm._complete_claude(
+            "sys", "user", model="claude-sonnet-5", max_tokens=max_tokens, kind="summary",
+            project_id=None, cache_system=False, thinking_setting=thinking_setting,
+        )
+
+    def test_a_small_request_is_sent_as_it_always_was(self, monkeypatch):
+        calls = self._client(monkeypatch)
+        assert self._call(2000).text == "{}"
+        assert len(calls["create"]) == 1 and not calls["stream"]
+
+    def test_a_large_request_streams_and_returns_the_same_reply(self, monkeypatch):
+        calls = self._client(monkeypatch)
+        reply = self._call(20000, thinking_setting="medium")
+        assert reply.text == "{}" and reply.stop_reason == "end_turn"
+        assert not calls["create"] and len(calls["stream"]) == 1
+        # The thinking headroom is counted: that is what pushed it over.
+        assert calls["stream"][0]["max_tokens"] > 20000
+
+    def test_the_line_sits_below_where_the_real_sdk_refuses(self):
+        """The real client, no network: the SDK raises this before sending."""
+        import anthropic
+
+        client = anthropic.Anthropic(api_key="test")
+        with pytest.raises(ValueError, match="Streaming is required"):
+            client._calculate_nonstreaming_timeout(22_000, None)
+        client._calculate_nonstreaming_timeout(llm._STREAM_ABOVE_TOKENS, None)
+
+
 class TestMediaResolution:
     """How many pixels of an image the model actually reads.
 

@@ -1293,6 +1293,11 @@ its JSON, the portion remembers `summaryDetail`, and the dialog reopens at the l
 sent a `thinking` field at all, so on Sonnet 5 (adaptive thinking when the field is omitted)
 `CLAUDE_THINKING=off` held for direct summary calls and silently did not for the half-price batch
 path. Adaptive thinking at an explicit effort now gets output headroom like a budget does.
+That headroom can push a call past what the Anthropic SDK allows WITHOUT streaming (max_tokens
+above ~21,333): it raises "Streaming is required…" before sending anything, and a raised
+`SUMMARY_MAX_TOKENS` + `SUMMARY_THINKING=medium` failed every page call twice and ended the run
+"no page summaries". `llm._send_claude` streams any request over `_STREAM_ABOVE_TOKENS` (16,000)
+and returns the same Message via `get_final_message()`; smaller calls are sent as before.
 
 Per-run state lives in a thread-local `RunContext` (project, roles, size, thinking), not in module
 globals: up to `SUMMARIZE_PORTION_CONCURRENCY` runs share the module at once in separate threads,
