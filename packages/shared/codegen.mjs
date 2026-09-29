@@ -14,10 +14,33 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { JOB_FIELDS, JOB_FIELD_TYPES, OBJECT_KEY_TEMPLATES, QUEUES } from "./dist/index.js";
+import {
+  JOB_FIELDS,
+  JOB_FIELD_TYPES,
+  OBJECT_KEY_TEMPLATES,
+  QUEUES,
+  RFI_REVIEW_CHECKS,
+  RFI_REVIEW_DEPTHS,
+} from "./dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const OUTPUT_PATH = join(here, "..", "..", "workers", "src", "generated.py");
+
+/** A JSON-shaped value as a Python literal (True/False/None, not true/false/null). */
+function py(value, indent = "") {
+  if (value === null || value === undefined) return "None";
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (typeof value === "number" || typeof value === "string") return JSON.stringify(value);
+  const inner = `${indent}    `;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return `[\n${value.map((v) => `${inner}${py(v, inner)},`).join("\n")}\n${indent}]`;
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) return "{}";
+  return `{\n${entries.map(([k, v]) => `${inner}${JSON.stringify(k)}: ${py(v, inner)},`).join("\n")}\n${indent}}`;
+}
 
 const snake = (name) => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
@@ -81,6 +104,12 @@ function render() {
     lines.push("    ),");
   }
   lines.push("}");
+  lines.push("");
+
+  lines.push("", "# --- Targeted RFI review: check catalogue and depth caps ---", "");
+  lines.push(`RFI_REVIEW_CHECKS = ${py(RFI_REVIEW_CHECKS)}`);
+  lines.push("");
+  lines.push(`RFI_REVIEW_DEPTHS = ${py(RFI_REVIEW_DEPTHS)}`);
   lines.push("");
   return lines.join("\n");
 }

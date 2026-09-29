@@ -18,6 +18,11 @@ import type {
   RfiConfidence,
   RfiDto,
   RfiPriority,
+  RfiReviewCheckId,
+  RfiReviewDepth,
+  RfiReviewRunDto,
+  RfiReviewTarget,
+  RfiReviewThinking,
   RfiScanDto,
   RfiStatus,
   RfiUsageTotalsDto,
@@ -55,6 +60,15 @@ const CREDENTIAL_PATHS = [
   "/auth/forgot-password",
   "/auth/reset-password",
 ];
+
+export interface RfiReviewPlanRequest {
+  target: RfiReviewTarget;
+  checkMode: "auto" | "custom";
+  checkIds: RfiReviewCheckId[];
+  depth: RfiReviewDepth;
+  thinking: RfiReviewThinking;
+  excludePageIds: string[];
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authToken.get();
@@ -439,6 +453,34 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+
+  // --- Targeted RFI review --------------------------------------------------
+
+  /** Resolve the sheet(s), pick checks, retrieve related pages and price it.
+   * Nothing is sent to a review model until startRfiReview. */
+  planRfiReview: (projectId: string, body: RfiReviewPlanRequest) =>
+    request<RfiReviewRunDto>(`/projects/${projectId}/rfis/reviews/plan`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  startRfiReview: (projectId: string, runId: string) =>
+    request<RfiReviewRunDto>(`/projects/${projectId}/rfis/reviews/${runId}/start`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  cancelRfiReview: (projectId: string, runId: string) =>
+    request<{ cancelled: true }>(`/projects/${projectId}/rfis/reviews/${runId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  getRfiReview: (projectId: string, runId: string) =>
+    request<RfiReviewRunDto>(`/projects/${projectId}/rfis/reviews/${runId}`),
+
+  listRfiReviews: (projectId: string) =>
+    request<RfiReviewRunDto[]>(`/projects/${projectId}/rfis/reviews`),
 
   /** A browser download, so it goes through the ?token= path like the media
    * GETs: an <a download> cannot set an Authorization header either. */

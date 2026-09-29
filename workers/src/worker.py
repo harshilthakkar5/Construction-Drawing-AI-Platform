@@ -25,6 +25,7 @@ import config
 import db
 import logutil
 import processing
+import rfi_review
 import rfi_scan
 import scrape
 import summarize
@@ -32,11 +33,13 @@ import telemetry
 import sys
 from contracts import (
     PROCESS_DOCUMENT_QUEUE,
+    RFI_REVIEW_QUEUE,
     RFI_SCAN_QUEUE,
     SCRAPE_REGION_QUEUE,
     SUMMARIZE_PORTION_QUEUE,
     SUMMARIZE_PROJECT_QUEUE,
     ProcessDocumentJob,
+    RfiReviewJob,
     RfiScanJob,
     ScrapeRegionJob,
     SummarizePortionJob,
@@ -210,6 +213,19 @@ async def rfi_scan_job(job, job_token: str):
         raise
 
 
+async def rfi_review_job(job, job_token: str):
+    payload = RfiReviewJob.from_payload(job.data)
+    log.info("rfi-review job %s: run=%s", job.id, payload.run_id)
+    try:
+        with telemetry.observe_job(RFI_REVIEW_QUEUE):
+            result = await asyncio.to_thread(rfi_review.run, payload.run_id)
+        log.info("rfi-review job %s done: %s", job.id, {k: v for k, v in result.items() if k != "usage"})
+        return result
+    except Exception:
+        log.exception("rfi-review job %s FAILED for run %s", job.id, payload.run_id)
+        raise
+
+
 async def main() -> None:
     global scrape_queue
     logutil.setup()
@@ -227,6 +243,7 @@ async def main() -> None:
         SUMMARIZE_PORTION_QUEUE: (summarize_portion, config.SUMMARIZE_PORTION_CONCURRENCY),
         SUMMARIZE_PROJECT_QUEUE: (summarize_project, config.SUMMARIZE_PROJECT_CONCURRENCY),
         RFI_SCAN_QUEUE: (rfi_scan_job, config.RFI_SCAN_CONCURRENCY),
+        RFI_REVIEW_QUEUE: (rfi_review_job, config.RFI_REVIEW_CONCURRENCY),
     }
     workers = [
         Worker(

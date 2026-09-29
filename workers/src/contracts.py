@@ -15,6 +15,7 @@ from dataclasses import dataclass, fields as dataclass_fields
 from generated import (  # noqa: F401 — re-exported for the worker's imports
     JOB_FIELDS,
     PROCESS_DOCUMENT_QUEUE,
+    RFI_REVIEW_QUEUE,
     RFI_SCAN_QUEUE,
     SCRAPE_REGION_QUEUE,
     SUMMARIZE_PORTION_QUEUE,
@@ -120,9 +121,23 @@ class RfiScanJob:
         return _build(cls, "rfiScan", data)
 
 
+@dataclass(frozen=True)
+class RfiReviewJob:
+    """Run one targeted RFI review. Only the run id travels: target, checks,
+    thinking and the approved scope are read from the rfi_review_runs row, so
+    a retry runs exactly the plan the person approved."""
+
+    run_id: str
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "RfiReviewJob":
+        return _build(cls, "rfiReview", data)
+
+
 for _cls, _job in (
     (ProcessDocumentJob, "processDocument"),
     (RfiScanJob, "rfiScan"),
+    (RfiReviewJob, "rfiReview"),
     (ScrapeRegionJob, "scrapeRegion"),
     (SummarizePortionJob, "summarizePortion"),
     (SummarizeProjectJob, "summarizeProject"),

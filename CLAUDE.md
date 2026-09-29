@@ -66,10 +66,11 @@ worker venv):
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
 - Workers: `cd workers && python src/worker.py` (consumes process-document, scrape-region,
-  summarize-portion, summarize-project and rfi-scan; deps in `requirements.txt`;
+  summarize-portion, summarize-project, rfi-scan and rfi-review; deps in `requirements.txt`;
   PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
   does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
+  — `RFI_REVIEW_TEST_PDF` (the S2.105/A3.01 set) with `RFI_TEST_DATABASE_URL` runs the targeted review end to end
   — set `RFI_TEST_DATABASE_URL` to a MIGRATED database to also run the rfi-scan job against real
   SQL (`tests/test_rfi_scan.py`); without it those tests skip
 
@@ -2420,6 +2421,29 @@ finding the drawings no longer produce is not reopened: there is nothing left to
 upsert replaces wording only where THIS scan actually worded the finding, so a failed model call
 on a full rescan keeps the previous AI question instead of downgrading it to the template.
 
+## Targeted RFI review — one sheet, or sheets that should agree
+
+The RFIs tab's other mode (docs/rfi-targeted-review.md). The API PLANS with no model call —
+resolves the named sheet(s), picks checks from the `RFI_REVIEW_CHECKS` catalogue in `@cdip/shared`
+(codegen'd to `generated.py`), retrieves related pages with the chat's own `retrieveChunkIds`,
+caps and prices the scope, and stores it on an `rfi_review_runs` row. A person sees the pages and
+the cost and presses Start; the worker (`workers/src/rfi_review.py`) reads that STORED scope and
+nothing else. Three model stages — discovery (whole-sheet images + close-ups rendered from the
+original PDF), reasoning (text only), verification (only the cited evidence) — and then the rules
+the code applies because the model is not trusted to: an evidence id the server did not issue is
+dropped, description-only support is rejected, a conflict needs two pages, and a question may not
+contain an identifier or ANY digit run the cited evidence does not (`W14x90` slipped past the
+scan's free-standing-number pattern). G01 runs the scan's exact `rfi_grid` comparison and keeps
+its fingerprint, so one grid disagreement is one candidate in either mode. A failed call fails
+the run at a named stage — never "no RFIs found". First slice: sheet/compare targets, G01/C01/C02,
+`standard` depth. `benchmarks/rfi_eval.py` scores a run against RFIs a person really issued
+(expected output only, never input); RFI 002 is found on the client's S2.105/A3.01.
+
+Every rate-limit tier has its OWN Redis prefix (`rl:<tier>:`). They shared `rl:` and every tier
+keys on the user id, so they were one counter: loading a project spent the 30-an-hour summary
+tier, and a user who had never pressed a button got "too many summary runs" from the first
+summary, scan or review.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2463,9 +2487,14 @@ rfis.source (manual|generated), rfis.checkType   // who proposed the QUESTION
 rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, usage, fresh, error, ...)
      // usage: JSON cost of THIS scan's wording (tokens, asked vs sent thinking)
 rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subject,
-     question, questionSource, evidence JSON, status, rfiId)
+     question, questionSource, evidence JSON, status, rfiId,
+     origin (deterministic_scan|targeted_review), reviewRunId, reasoning, priority)
      // UNIQUE(projectId, fingerprint): a finding, NOT an RFI — no number until a
      // person accepts it, so a dismissed finding never burns one
+rfi_review_runs(id, projectId, target, checkIds, depth, status, stage, scope JSON,
+     scopeHash, estimate, observations, reasoningOutput, usage, heartbeatAt, ...)
+     // scope is immutable once planned; start refuses a stale or altered one
+documents.includeInRfiAnalysis   // false keeps a document out of every review scope
 ```
 
 PostgreSQL is the single source of truth for references; Qdrant holds vectors only.

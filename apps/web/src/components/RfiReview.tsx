@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   RFI_CHECK_LABELS,
+  RFI_REVIEW_CHECKS,
   type RfiCandidateDto,
   type RfiConfidence,
   type RfiEvidenceDto,
@@ -24,6 +25,8 @@ import { api } from "@/api";
 import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -64,7 +67,9 @@ const CONFIDENCE: Record<
 };
 
 const checkLabel = (checkType: string) =>
-  (RFI_CHECK_LABELS as Record<string, string>)[checkType] ?? checkType;
+  (RFI_CHECK_LABELS as Record<string, string>)[checkType] ??
+  RFI_REVIEW_CHECKS.find((c) => c.id === checkType)?.label ??
+  checkType;
 
 function evidenceLabel(e: RfiEvidenceDto): string {
   const page = e.combinedPageNumber ?? e.pageNumber;
@@ -102,6 +107,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [showDismissed, setShowDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [mode, setMode] = useState<"targeted" | "project">("targeted");
 
   const scan = useQuery({
     queryKey: ["rfi-scan", projectId],
@@ -176,6 +182,27 @@ export function RfiReview({ projectId }: { projectId: string }) {
 
   return (
     <section className="mb-4">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        className="mb-2 w-full"
+        value={mode}
+        onValueChange={(value) => value && setMode(value as "targeted" | "project")}
+        aria-label="How to find RFIs"
+      >
+        <ToggleGroupItem value="targeted" className="flex-1 text-xs">
+          Targeted review
+        </ToggleGroupItem>
+        <ToggleGroupItem value="project" className="flex-1 text-xs">
+          Project checks
+        </ToggleGroupItem>
+      </ToggleGroup>
+      {mode === "targeted" ? (
+        <div className="bg-muted/40 rounded-lg border p-3">
+          <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
+        </div>
+      ) : (
       <div className="bg-muted/40 rounded-lg border p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -248,6 +275,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+      )}
 
       {candidates.length > 0 && (
         <div className="mt-3">
@@ -480,6 +508,14 @@ function CandidateCard({
           {confidence.label}
         </Badge>
         <span className="text-muted-foreground text-xs">{checkLabel(candidate.checkType)}</span>
+        {candidate.origin === "targeted_review" && (
+          <Badge variant="outline" title="Found by a targeted review of named sheets">
+            Targeted review
+          </Badge>
+        )}
+        {candidate.priority && candidate.priority !== "normal" && (
+          <Badge variant="outline">{candidate.priority} priority</Badge>
+        )}
         {candidate.questionSource === "model" && (
           <span
             className="text-muted-foreground ml-auto flex items-center gap-1 text-[11px]"
@@ -492,6 +528,12 @@ function CandidateCard({
       </div>
       <p className="mt-1.5 text-sm font-medium">{candidate.subject}</p>
       <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{candidate.question}</p>
+      {candidate.reasoning && (
+        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+          <span className="text-foreground font-medium">Why flagged: </span>
+          {candidate.reasoning}
+        </p>
+      )}
 
       <ul className="mt-2 flex flex-col gap-1">
         {found.map((e, i) => (
@@ -539,7 +581,18 @@ function EvidenceLine({
         {context ? "Checked against " : ""}
         {evidenceLabel(evidence)}
       </button>
-      <span className="text-muted-foreground"> — “{evidence.quote}”</span>
+      {evidence.kind === "page" || evidence.kind === "crop" ? (
+        <span className="text-muted-foreground">
+          {" "}
+          — {evidence.kind === "page" ? "whole sheet" : "drawing close-up"}
+          {evidence.observation ? `: ${evidence.observation}` : ""}
+        </span>
+      ) : (
+        <span className="text-muted-foreground"> — “{evidence.quote}”</span>
+      )}
+      {evidence.kind === "description" && (
+        <span className="text-muted-foreground"> (AI description — weakest evidence)</span>
+      )}
     </li>
   );
 }

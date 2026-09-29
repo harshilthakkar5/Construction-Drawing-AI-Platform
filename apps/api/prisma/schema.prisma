@@ -81,6 +81,19 @@ enum RfiPriority {
 
 /// One press of "Find RFIs in drawings". The API writes `queued`; the worker
 /// moves it through `running` to `completed` or `failed`.
+/// A targeted RFI review. `planned` is persisted before any model call, so the
+/// scope a person approves is exactly the scope the worker reads; `stale`
+/// means a document in that scope was revised or re-ingested after planning.
+enum RfiReviewStatus {
+  planned
+  queued
+  running
+  ready
+  failed
+  cancelled
+  stale
+}
+
 enum RfiScanStatus {
   queued
   running
@@ -131,6 +144,7 @@ model User {
   rfiEvents      RfiEvent[]
   rfiScans       RfiScan[]
   rfiDecisions   RfiCandidate[]
+  rfiReviewRuns  RfiReviewRun[]
 
   @@map("users")
 }
@@ -233,6 +247,7 @@ model Project {
   rfis         Rfi[]
   rfiScans      RfiScan[]
   rfiCandidates RfiCandidate[]
+  rfiReviewRuns RfiReviewRun[]
 
   @@map("projects")
 }
@@ -293,6 +308,10 @@ model Document {
   /// excluded from the manifest, combined numbering, and retrieval; rows are
   /// kept for audit/history.
   supersededAt      DateTime?
+  /// False keeps a document out of targeted RFI review — for a project that
+  /// also holds historical/issued RFI PDFs, which must never be fed back in
+  /// to generate new RFIs. Chat and summaries are unaffected.
+  includeInRfiAnalysis Boolean @default(true)
   /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
   createdAt DateTime       @default(now())
 
@@ -673,6 +692,14 @@ model RfiCandidate {
   id          String             @id @default(uuid())
   projectId   String
   scanId      String?
+  /// "deterministic_scan" or "targeted_review". A targeted candidate names its
+  /// run; the rfi_scans row names a scan's (checked in the migration SQL).
+  origin      String             @default("deterministic_scan")
+  reviewRunId String?
+  /// Targeted review only: the one-sentence "why flagged" the review list
+  /// shows, and the priority it suggests.
+  reasoning   String?
+  priority    String?
   fingerprint String
   checkType   String
   confidence  RfiConfidence
@@ -695,10 +722,59 @@ model RfiCandidate {
 
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scan      RfiScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  reviewRun RfiReviewRun? @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
   rfi       Rfi?     @relation(fields: [rfiId], references: [id], onDelete: SetNull)
   decidedBy User?    @relation(fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([projectId, fingerprint])
   @@index([projectId, status])
   @@map("rfi_candidates")
+}
+
+/// One targeted RFI review: a person names a sheet (or two to compare), the
+/// API plans a bounded scope with the ordinary hybrid retrieval, the person
+/// approves it with its estimate, and the worker runs three model stages over
+/// exactly that scope (docs/rfi-targeted-review.md). What it finds lands in
+/// rfi_candidates like a scan's findings — never as an issued RFI.
+model RfiReviewRun {
+  id                String          @id @default(uuid())
+  projectId         String
+  createdById       String?
+  /// {type: "sheet", value} | {type: "compare", values}, as the user typed it.
+  target            Json
+  checkMode         String          @default("auto")
+  checkIds          Json
+  /// Why each check was chosen, shown on the plan screen.
+  checkReasons      Json?
+  depth             String          @default("standard")
+  status            RfiReviewStatus @default(planned)
+  stage             String?
+  progress          Int             @default(0)
+  provider          String?
+  model             String?
+  thinkingRequested String          @default("medium")
+  /// What the transport really sent after any refusal ladder.
+  thinkingSent      Json?
+  /// The approved scope: pages, chunk snapshots, sides. Immutable once
+  /// planned — re-planning makes a new run.
+  scope             Json
+  scopeHash         String
+  estimate          Json?
+  observations      Json?
+  reasoningOutput   Json?
+  usage             Json?
+  notes             Json?
+  error             String?
+  jobId             String?
+  heartbeatAt       DateTime?
+  createdAt         DateTime        @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  candidates RfiCandidate[]
+
+  @@index([projectId, createdAt])
+  @@map("rfi_review_runs")
 }

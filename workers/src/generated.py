@@ -17,6 +17,7 @@ SCRAPE_REGION_QUEUE = "scrape-region"
 SUMMARIZE_PORTION_QUEUE = "summarize-portion"
 SUMMARIZE_PROJECT_QUEUE = "summarize-project"
 RFI_SCAN_QUEUE = "rfi-scan"
+RFI_REVIEW_QUEUE = "rfi-review"
 
 # --- Object keys (Spaces/MinIO bucket layout) ---
 
@@ -61,4 +62,54 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
         ("projectId", "project_id", False, "str"),
         ("scanId", "scan_id", False, "str"),
     ),
+    "rfiReview": (
+        ("runId", "run_id", False, "str"),
+    ),
+}
+
+
+# --- Targeted RFI review: check catalogue and depth caps ---
+
+RFI_REVIEW_CHECKS = [
+    {
+        "id": "G01",
+        "family": "General",
+        "label": "Grid names and grid-to-grid dimensions",
+        "objective": "Compare how the drawings name and dimension the grid. Localize any grid line that one drawing names or dimensions differently from another.",
+        "query": "grid line grid dimension spacing",
+        "autoKeywords": [],
+        "deterministic": "grid_mismatch",
+    },
+    {
+        "id": "C01",
+        "family": "Columns & walls",
+        "label": "Column location, size and mark",
+        "objective": "Compare each column's mark, size and position relative to the grid across plans and schedules. Localize any column shown at a different place, with a different size or mark, or without a dimension locating it off the grid.",
+        "query": "column schedule column size mark location grid offset",
+        "autoKeywords": [],
+        "deterministic": None,
+    },
+    {
+        "id": "C02",
+        "family": "Columns & walls",
+        "label": "Core and shear wall location",
+        "objective": "Compare the position, extent and thickness of core and shear walls relative to the grid across drawings. Localize any wall shown at a different place or with a different thickness.",
+        "query": "core wall shear wall location grid thickness",
+        "autoKeywords": [
+            "CORE",
+            "SHEAR WALL",
+            "SHEARWALL",
+            "SW-",
+        ],
+        "deterministic": None,
+    },
+]
+
+RFI_REVIEW_DEPTHS = {
+    "standard": {
+        "label": "Standard",
+        "chunks": 48,
+        "visualPages": 8,
+        "cropsPerPage": 3,
+    },
 }
