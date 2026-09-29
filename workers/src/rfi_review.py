@@ -41,6 +41,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -78,6 +79,10 @@ CROP_MIN_PT = 260.0
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
+# A call that FAILED (503 "high demand", 429, a timeout) is asked again after
+# these pauses before the run gives up. Without it one busy moment at the
+# provider failed a whole review and threw away the stages already paid for.
+CALL_RETRY_DELAYS = (5.0, 20.0)
 HEARTBEAT_SECONDS = float(os.environ.get("RFI_REVIEW_HEARTBEAT_SECONDS", "10"))
 TOKENS = {"discovery": 6000, "reasoning": 3000, "verification": 4000}
 
@@ -643,23 +648,40 @@ def _ask(
     budget = TOKENS[stage]
     prompt = user
     for attempt in range(2):
-        reply = llm.complete(
-            system,
-            prompt,
-            provider=usage.provider,
-            claude_model=REVIEW_MODEL,
-            gemini_model=REVIEW_GEMINI_MODEL,
-            max_tokens=budget,
-            kind="rfi",
-            project_id=run["projectId"],
-            json_only=True,
-            images=[ev.image for ev in images] or None,
-            image_labels=[ev.label() for ev in images] or None,
-            thinking=run["thinkingRequested"],
-        )
-        if reply is None:
+        reply = None
+        for delay in (0.0, *CALL_RETRY_DELAYS):
+            if delay:
+                log.warning(
+                    "rfi review %s: the %s call failed — asking again in %.0fs",
+                    run["id"][:8], stage, delay,
+                )
+                time.sleep(delay)
+                if _status(run["id"]) == "cancelled":
+                    raise Cancelled()
+            reply = llm.complete(
+                system,
+                prompt,
+                provider=usage.provider,
+                claude_model=REVIEW_MODEL,
+                gemini_model=REVIEW_GEMINI_MODEL,
+                max_tokens=budget,
+                kind="rfi",
+                project_id=run["projectId"],
+                json_only=True,
+                images=[ev.image for ev in images] or None,
+                image_labels=[ev.label() for ev in images] or None,
+                thinking=run["thinkingRequested"],
+            )
+            if reply is not None:
+                break
             stage_usage.failed_calls += 1
-            raise StageFailed(stage, f"the {stage} call to the model failed — see the worker log for the provider's error")
+        if reply is None:
+            tries = 1 + len(CALL_RETRY_DELAYS)
+            raise StageFailed(
+                stage,
+                f"the {stage} call to the model failed {tries} times in a row — see the worker log "
+                "for the provider's error (a 503 or 429 is the provider being busy: start the review again later)",
+            )
         stage_usage.add(reply)
         parsed = parse(reply.text)
         if parsed is not None:
@@ -823,7 +845,58 @@ def _grid_findings(project_id: str, scope: dict) -> tuple[list[rfi_checks.Findin
     if systems is None:
         return [], note
     findings, notes = rfi_grid.grid_mismatches(pages, systems)
-    return findings, (notes[0] if notes else None)
+    return findings, grid_scope_note(pages, systems, len(findings), notes)
+
+
+def grid_scope_note(pages: list, systems: list, found: int, notes: list[str]) -> str:
+    """What the exact grid comparison actually LOOKED AT, so "0 disagreements"
+    can be told apart from "nothing was compared".
+
+    The comparison only sets sheets of DIFFERENT disciplines against each other
+    (two structural levels often differ on purpose), so a one-sheet review
+    whose related pages are all structural compares nothing — and used to
+    report that as a clean "0".
+    """
+    by_page = {p.id: p for p in pages}
+    grids: dict[str, int] = {}
+    for system in systems:
+        if system.page_id in by_page:
+            grids[system.page_id] = grids.get(system.page_id, 0) + 1
+
+    def name(page) -> str:
+        return f"{rfi_checks.page_label(page)} ({page.discipline or 'discipline not read'})"
+
+    with_grid = [p for p in pages if p.id in grids]
+    without = [p for p in pages if p.id not in grids]
+    parts = [f"Exact grid comparison: {found} grid naming disagreement(s)."]
+    if not with_grid:
+        parts.append("No grid bubbles were found on any page in this review, so nothing was compared.")
+    else:
+        parts.append("Grids found on " + ", ".join(name(p) for p in with_grid) + ".")
+        pairs = [
+            (a, b)
+            for i, a in enumerate(with_grid)
+            for b in with_grid[i + 1 :]
+            if a.discipline is None or b.discipline is None or a.discipline != b.discipline
+        ]
+        within = [p for p in with_grid if grids[p.id] > 1]
+        if pairs:
+            parts.append(
+                "Compared: " + "; ".join(f"{rfi_checks.page_label(a)} with {rfi_checks.page_label(b)}" for a, b in pairs) + "."
+            )
+        elif not within:
+            parts.append(
+                "Nothing was compared: grids are only checked between sheets of DIFFERENT disciplines "
+                "(two structural levels often differ on purpose). To check this grid against the "
+                "architectural plan, use Compare sheets and name both sheets."
+            )
+        if within:
+            parts.append("Also checked two grids drawn on one sheet: " + ", ".join(rfi_checks.page_label(p) for p in within) + ".")
+    if without and with_grid:
+        parts.append("No grid bubbles read on " + ", ".join(rfi_checks.page_label(p) for p in without) + ".")
+    if with_grid:
+        parts += notes
+    return " ".join(parts)
 
 
 def _save_grid_findings(conn, run_id: str, project_id: str, findings: list[rfi_checks.Finding]) -> int:
@@ -925,9 +998,7 @@ def _run(run: dict) -> dict:
     grid_found: list[rfi_checks.Finding] = []
     if "G01" in check_ids:
         grid_found, grid_note = _grid_findings(project_id, scope)
-        if grid_note:
-            notes.append(grid_note)
-        notes.append(f"Exact grid comparison on the scoped pages: {len(grid_found)} grid naming disagreement(s).")
+        notes.append(grid_note or f"Exact grid comparison: {len(grid_found)} grid naming disagreement(s).")
 
     # 2. Evidence: text first, then the images the plan asked for.
     texts = text_evidence(scope)

@@ -258,6 +258,7 @@ def database(monkeypatch):
     monkeypatch.setattr(db, "_pool_unavailable", True)
     monkeypatch.setattr(rfi_scan, "_redis", False)
     monkeypatch.setattr(rfi_review, "HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setattr(rfi_review, "CALL_RETRY_DELAYS", (0.01, 0.01))
     monkeypatch.setattr(storage, "download_to_file", lambda key, path: shutil.copy(CLIENT_PDF, path))
     monkeypatch.setattr(llm, "available", lambda provider: True)
     return db
@@ -324,8 +325,11 @@ class FakeModel:
     """Answers each stage from the prompt it was actually sent, citing evidence
     ids it finds there — plus one it invents, which the job must drop."""
 
-    def __init__(self, keep_question: str | None = None, fail_stage: str | None = None, on_call=None):
+    def __init__(self, keep_question: str | None = None, fail_stage: str | None = None, on_call=None,
+                 busy: dict | None = None):
         self.calls: list[dict] = []
+        # {stage: n}: the first n calls of that stage fail, like a provider 503.
+        self.busy = dict(busy or {})
         self.keep_question = keep_question or (
             "S2.105 shows column C-6 at this crossing and A3.01 shows no column there. Which is correct?"
         )
@@ -340,6 +344,9 @@ class FakeModel:
         if self.on_call:
             self.on_call(stage)
         if stage == self.fail_stage:
+            return None
+        if self.busy.get(stage, 0) > 0:
+            self.busy[stage] -= 1
             return None
         if stage == "discovery":
             s = re.search(r'<evidence id="(ev\d+)" kind="text" sheet="S2.105"', user).group(1)
@@ -469,7 +476,7 @@ def test_a_failed_call_fails_the_run_and_saves_nothing(database, monkeypatch):
     monkeypatch.setattr(llm, "complete", FakeModel(fail_stage="reasoning"))
     result = rfi_review.run(seeded["run"])
     status, stage, error, *_ = _row(database, seeded["run"])
-    assert (status, stage) == ("failed", "reasoning") and "reasoning call" in error
+    assert (status, stage) == ("failed", "reasoning") and "failed 3 times" in error
     assert result["stage"] == "reasoning"
     assert _candidates(database, seeded["project"]) == []
 
@@ -505,3 +512,57 @@ def test_a_scope_whose_evidence_was_reprocessed_goes_stale_before_any_call(datab
     assert model.calls == []
     status, _, error, *_ = _row(database, seeded["run"])
     assert status == "stale" and "re-processed" in error
+
+
+@needs_db
+def test_a_busy_provider_is_asked_again_instead_of_failing_the_run(database, monkeypatch):
+    """A Gemini 503 "high demand" on the reasoning call failed a whole review
+    and threw away the discovery call already paid for."""
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    model = FakeModel(busy={"reasoning": 2})
+    monkeypatch.setattr(llm, "complete", model)
+    rfi_review.run(seeded["run"])
+    status, _, error, usage, *_ = _row(database, seeded["run"])
+    assert (status, error) == ("ready", None)
+    assert [c["stage"] for c in model.calls] == ["discovery", "reasoning", "reasoning", "reasoning", "verification"]
+    assert usage["stages"]["reasoning"]["failedCalls"] == 2 and usage["stages"]["reasoning"]["calls"] == 1
+
+
+# --- what the grid comparison looked at ------------------------------------------
+
+
+def _page(pid: str, sheet: str, discipline: str | None):
+    from rfi_checks import Page
+
+    return Page(pid, "d", 1, 1, sheet, None, discipline)
+
+
+def _system(pid: str):
+    from rfi_grid import GridSystem
+
+    return GridSystem(pid, "red 27", {"1": 0.0, "2": 100.0, "3": 200.0}, {"A": 0.0, "B": 100.0, "C": 200.0}, {})
+
+
+def test_two_sheets_of_one_discipline_say_nothing_was_compared():
+    """Run 4 of a real review: two structural sheets, "0 disagreements", and
+    no way to tell that from a clean comparison."""
+    pages = [_page("a", "S2.105", "structural"), _page("b", "S2.106", "structural")]
+    note = rfi_review.grid_scope_note(pages, [_system("a"), _system("b")], 0, [])
+    assert "Nothing was compared" in note and "Compare sheets" in note
+    assert "S2.105 (structural)" in note and "S2.106 (structural)" in note
+
+
+def test_sheets_of_two_disciplines_name_the_pair_compared():
+    pages = [_page("a", "S2.105", "structural"), _page("b", "A3.01", "architectural")]
+    note = rfi_review.grid_scope_note(pages, [_system("a"), _system("b")], 1, [])
+    assert "Compared: S2.105 with A3.01" in note and "Nothing was compared" not in note
+
+
+def test_pages_without_a_grid_are_named():
+    pages = [_page("a", "S2.105", "structural"), _page("b", "S6.01", "structural")]
+    note = rfi_review.grid_scope_note(pages, [_system("a")], 0, [])
+    assert "No grid bubbles read on S6.01" in note
+    none = rfi_review.grid_scope_note(pages, [], 0, ["Grid check found no grid bubbles on any sheet"])
+    assert none.count("grid bubbles") == 1 and "nothing was compared" in none
