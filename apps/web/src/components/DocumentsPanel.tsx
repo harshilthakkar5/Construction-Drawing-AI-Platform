@@ -52,6 +52,15 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
     onSuccess: refreshProject,
   });
 
+  // A historical RFI is the answer key for an RFI review, never its input.
+  // Uploads that look like one are excluded automatically; this is the
+  // person's override either way.
+  const rfiAnalysis = useMutation({
+    mutationFn: ({ documentId, include }: { documentId: string; include: boolean }) =>
+      api.setDocumentRfiAnalysis(projectId, documentId, include),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["documents", projectId] }),
+  });
+
   const documents = useQuery({
     queryKey: ["documents", projectId],
     queryFn: () => api.listDocuments(projectId),
@@ -180,6 +189,23 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       nothing to retry — the worker is mid-run and a second job
                       would only race it. Show progress instead; Retry appears
                       only once the pipeline has actually given up. */}
+                  <label
+                    className="text-muted-foreground inline-flex items-center gap-1 text-xs"
+                    title={
+                      doc.includeInRfiAnalysis
+                        ? "Used as evidence by RFI reviews. Untick for an RFI or other reference document."
+                        : (doc.rfiExclusionReason ?? "Kept out of RFI review input")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={doc.includeInRfiAnalysis}
+                      disabled={rfiAnalysis.isPending}
+                      onChange={(e) => rfiAnalysis.mutate({ documentId: doc.id, include: e.target.checked })}
+                      aria-label={`Use ${doc.filename} in RFI reviews`}
+                    />
+                    RFI review input
+                  </label>
                   {(doc.status === "uploaded" || doc.status === "processing") && (
                     <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Spinner />
@@ -214,6 +240,11 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                 </>
               )}
             </div>
+            {!doc.supersededAt && !doc.includeInRfiAnalysis && (
+              <p className="text-muted-foreground mt-1 text-xs">
+                Not used by RFI reviews: {doc.rfiExclusionReason ?? "excluded"}
+              </p>
+            )}
           </li>
         ))}
         {documents.data?.length === 0 && (

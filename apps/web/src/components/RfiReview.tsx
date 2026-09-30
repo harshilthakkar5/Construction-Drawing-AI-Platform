@@ -78,7 +78,8 @@ function evidenceLabel(e: RfiEvidenceDto): string {
 
 const tokens = (n: number) => n.toLocaleString();
 
-function dollars(n: number): string {
+function dollars(n: number | null): string {
+  if (n === null) return "unknown";
   if (n === 0) return "$0";
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
 }

@@ -37,16 +37,25 @@ describe.skipIf(!url)("planReview against a real database", () => {
     return id;
   }
 
-  async function sheet(name: string, documentId: string, sheetNumber: string, n: number, texts: string[]) {
+  async function sheet(
+    name: string,
+    documentId: string,
+    sheetNumber: string,
+    n: number,
+    texts: string[],
+    over: { region?: string; discipline?: string } = {},
+  ) {
     const id = randomUUID();
     page[name] = id;
     await prisma.$executeRawUnsafe(
-      `INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "sheetNumber")
-       VALUES ($1, $2, $3, $3, $4)`,
+      `INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "sheetNumber", "sheetRegionText", discipline)
+       VALUES ($1, $2, $3, $3, $4, $5, $6)`,
       id,
       documentId,
       n,
       sheetNumber,
+      over.region ?? null,
+      over.discipline ?? null,
     );
     for (const text of texts) {
       const chunk = randomUUID();
@@ -83,9 +92,20 @@ describe.skipIf(!url)("planReview against a real database", () => {
       await prisma.$executeRawUnsafe(`INSERT INTO projects (id, name) VALUES ($1, 'review plan test')`, id);
     }
     const live = await doc(projectId);
-    await sheet("target", live, "S2.105", 1, ["COLUMN C-6 (14 x 30) AT GRID 3/C", "LEVEL 5 FORMING PLAN"]);
-    await sheet("schedule", live, "S6.01", 2, ["COLUMN SCHEDULE C-6 14 x 30 CONCRETE COLUMN"]);
-    await sheet("arch", live, "A3.01", 3, ["ENLARGED UNIT PLAN COLUMN AT GRID 3/C"]);
+    await sheet(
+      "target",
+      live,
+      "S2.105",
+      1,
+      ["COLUMN C-6 (14 x 30) AT GRID 3/C", "LEVEL 5 FORMING PLAN", "REFER TO SHEET S6.01 AND S5.99 FOR COLUMN SCHEDULE"],
+      { region: "S2.105 LEVEL 5 FORMING PLAN", discipline: "structural" },
+    );
+    await sheet("schedule", live, "S6.01", 2, ["COLUMN SCHEDULE C-6 14 x 30 CONCRETE COLUMN"], { discipline: "structural" });
+    await sheet("arch", live, "A3.01", 3, ["ENLARGED UNIT PLAN COLUMN AT GRID 3/C"], {
+      region: "A3.01 LEVEL 5 ENLARGED UNIT PLAN",
+      discipline: "architectural",
+    });
+    await sheet("pilecap", live, "S1.01", 6, ["PILE CAP PC1 AT GRID 1/A"], { region: "S1.01 FOUNDATION PLAN", discipline: "structural" });
     await sheet("superseded", await doc(projectId, { superseded: true }), "S6.02", 4, ["COLUMN SCHEDULE C-6 OLD"]);
     await sheet("excluded", await doc(projectId, { excluded: true }), "S6.03", 5, ["COLUMN C-6 EXCLUDED"]);
     await sheet("foreign", await doc(otherProject), "S6.04", 1, ["COLUMN SCHEDULE C-6 OTHER PROJECT"]);
@@ -116,11 +136,96 @@ describe.skipIf(!url)("planReview against a real database", () => {
     const ids = dto.pages.map((p) => p.pageId);
     expect(ids).toContain(page.schedule);
     for (const never of ["superseded", "excluded", "foreign"]) expect(ids).not.toContain(page[never]);
-    expect(dto.checkIds).toEqual(["G01", "C01"]);
+    expect(dto.checkIds).toEqual(expect.arrayContaining(["G01", "G02", "C01", "C03"]));
+    expect(dto.checkIds).not.toContain("F04");
+    expect(dto.checkPlan.F04).toMatchObject({ selected: false, applicability: "unknown" });
+    expect(Object.keys(dto.checkPlan)).toHaveLength(16);
+    expect(dto.catalogueVersion).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
     expect(dto.estimate?.modelCalls).toBe(3);
+    expect(dto.pages.every((p) => p.reason.length > 0)).toBe(true);
     expect(dto.estimate?.imageParts).toBeGreaterThan(0);
     expect(dto.scopeHash).toMatch(/^[0-9a-f]{64}$/);
     expect(dto.notes.join(" ")).toMatch(/Semantic search returned nothing/);
+  });
+
+  it("forces the sheets the target refers to into the scope, and names the ones that are not in the project", async () => {
+    const dto = planner.toReviewDto(await planner.planReview(projectId, userId, request()), 0);
+    const ref = dto.pages.find((p) => p.pageId === page.schedule)!;
+    expect(ref).toMatchObject({ role: "reference", visual: true });
+    expect(ref.reason).toMatch(/refers to S6.01/);
+    expect(dto.coverage.unresolvedReferences).toEqual(["S599"]);
+    expect(dto.notes.join(" ")).toMatch(/S599/);
+  });
+
+  it("brings in the same level drawn by another discipline", async () => {
+    const dto = planner.toReviewDto(await planner.planReview(projectId, userId, request()), 0);
+    const arch = dto.pages.find((p) => p.pageId === page.arch)!;
+    expect(arch).toMatchObject({ role: "correspondence" });
+    expect(arch.reason).toMatch(/LEVEL 5.*architectural/);
+  });
+
+  it("an element target finds the mark's sheets and routes by its family", async () => {
+    const dto = planner.toReviewDto(
+      await planner.planReview(projectId, userId, request({ target: { type: "element", value: "c-6" } })),
+      0,
+    );
+    const roles = dto.pages.filter((p) => p.role === "element").map((p) => p.pageId);
+    expect(roles).toEqual(expect.arrayContaining([page.target, page.schedule]));
+    for (const never of ["superseded", "excluded", "foreign"]) expect(roles).not.toContain(page[never]);
+    expect(dto.checkIds).toEqual(["G01", "G02", "C01", "C03"]);
+    expect(dto.ambiguous).toEqual(["c-6"]);
+    const pile = planner.toReviewDto(
+      await planner.planReview(projectId, userId, request({ target: { type: "element", value: "PC1" } })),
+      0,
+    );
+    expect(pile.checkIds).toEqual(["G01", "G02", "F04"]);
+  });
+
+  it("an element narrowed to a level no sheet has is a 404 listing where it IS", async () => {
+    const err = await planner
+      .planReview(projectId, userId, request({ target: { type: "element", value: "C-6", level: "9" } }))
+      .catch((e) => e);
+    expect(err.status).toBe(404);
+    expect(err.details.choices.length).toBeGreaterThan(0);
+  });
+
+  it("an unknown mark is a 404", async () => {
+    const err = await planner
+      .planReview(projectId, userId, request({ target: { type: "element", value: "C-77" } }))
+      .catch((e) => e);
+    expect(err.status).toBe(404);
+  });
+
+  it("stores the model, limits and planning spend on the run, tagged in the ledger", async () => {
+    const { recordUsage } = await import("./usage.js");
+    const { retrieveChunkIds } = await import("./retrieval.js");
+    const run = await planner.planReview(projectId, userId, request({ provider: "claude", model: "claude-haiku-4-5", maxInputTokens: 50_000, maxThinkingTokens: 4096 }), {
+      retrieve: async (p, q, o) => {
+        await recordUsage(p, "embedding", "voyage-3", { inputTokens: 1_000 });
+        return retrieveChunkIds(p, q, o);
+      },
+    });
+    const dto = planner.toReviewDto(run, 0);
+    expect(dto).toMatchObject({ provider: "claude", model: "claude-haiku-4-5" });
+    expect(dto.limits).toMatchObject({ maxInputTokens: 50_000, maxThinkingTokens: 4096, thinkingEffort: "medium" });
+    const rows = await prisma.usageEvent.findMany({ where: { reviewRunId: run.id } });
+    expect(rows.length).toBe(dto.checkIds.length);
+    expect(rows.every((r) => r.stage === "planning")).toBe(true);
+    expect(dto.estimate?.planningTokens).toBe(1_000 * rows.length);
+    expect(dto.estimate?.planningCostUsd).toBeGreaterThan(0);
+    expect(dto.coverage.searchLog).toHaveLength(dto.checkIds.length);
+  });
+
+  it("refuses a thinking token limit on a model that takes only an effort", async () => {
+    const err = await planner
+      .planReview(projectId, userId, request({ provider: "gemini", model: "gemini-3.6-flash", maxThinkingTokens: 4096 }))
+      .catch((e) => e);
+    expect(err.status).toBe(400);
+    expect(err.message).toMatch(/thinking token limit/);
+    const unknown = await planner
+      .planReview(projectId, userId, request({ provider: "claude", model: "claude-typo-9" }))
+      .catch((e) => e);
+    expect(unknown.status).toBe(400);
   });
 
   it("a new plan replaces the person's earlier unstarted one", async () => {
@@ -148,6 +253,7 @@ describe.skipIf(!url)("planReview against a real database", () => {
       request({ target: { type: "compare", values: ["S2.105", "A3.01"] } }),
     );
     const dto = planner.toReviewDto(run, 0);
+    expect(dto.pages.some((p) => p.role === "correspondence")).toBe(false);
     expect(dto.pages.slice(0, 2).map((p) => [p.pageId, p.role])).toEqual([
       [page.target, "side:0"],
       [page.arch, "side:1"],

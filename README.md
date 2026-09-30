@@ -909,6 +909,28 @@ OpenTelemetry metrics with a Prometheus/Grafana stack, and this deployment guide
 Unit tests: manifest, citations, sanitization, RBAC/passwords (`apps/api/src/*.test.ts`),
 classifier, chunker, summarizer, embedding reuse (`workers/tests/`).
 
+### RFI status
+
+The one place that says what the RFI features are and are not. Design: `docs/rfi-targeted-review.md`.
+
+| Feature | State | How it is checked |
+|---|---|---|
+| RFI log (numbers, statuses, pins, Excel export) | built | API tests; number allocator in one transaction |
+| Project checks (`rfi-scan`: dangling reference, unscheduled mark, open-item note, grid mismatch) | built | worker tests against real SQL; RFI 002 found on the client's S2.105/A3.01 |
+| Targeted review — targets: one sheet, one element (mark, level, area), 2–4 sheets compared | built | planner tests against a real database |
+| The 16 original questions, verbatim, one catalogue for routing, prompts and UI; version stored per run | built | golden fixture read by both test suites |
+| Question modes: Choose for me / All 16 / I will choose; an outcome for all 16 in every run | built | unit + worker tests |
+| Depth presets, per-run provider and model, input and thinking token limits, effort | built | options/plan/estimate tests; capability fixture shared with the worker |
+| Cost: estimated range before Start, planning cost already spent, pricing version, actual cost after, comparison between runs with caveats | built | unit + route tests; unknown prices stay "unknown" |
+| Idempotent Start, cancel, stale-plan refusal (revision, exclusion, re-ingest), revoked access, token ceiling → `partial` | built | route and worker tests against a real database |
+| Forced references, same-level correspondences, page reasons, omitted pages, unresolved references, search log | built | planner tests |
+| Evidence manifest, stored pictures, inventory, gaps, needs-evidence search | built | worker tests |
+| Exact checks: G01 grid names, C01 column overlay; aids: C03 measured offsets, G02 level index | built | geometry tests on drawn fixtures and the client's sheets |
+| Historical RFIs kept out of review input (filename at upload, form text at ingest, Docs-tab override) | built | API + worker tests |
+| Report: draft (every candidate, marked not issued) and accepted (with RFI numbers), PDF and JSON | built | report tests |
+| **Review ACCURACY** | **not measured** | every review test uses a stub model. `benchmarks/rfi_eval.py` against real issued RFIs on clean drawings is the only measure; nothing else may be quoted as one |
+| Whole-project review (RFI-B), persisted sheet-relationship edges | not built | waits for RFI-A to meet its acceptance criteria on real evals |
+
 ## Measuring it
 
 Nothing here was benchmarked until these existed, so treat any capacity claim

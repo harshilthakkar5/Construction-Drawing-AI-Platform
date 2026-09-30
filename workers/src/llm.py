@@ -127,6 +127,31 @@ class Reply:
 THINKING_SETTINGS = ("off", "minimal", "low", "medium", "high")
 
 
+def thinking_budget(setting: str | None) -> int | None:
+    """N for a numeric stage setting "budget:N", else None.
+
+    A targeted review may cap reasoning at a number instead of an effort —
+    ONLY on a model that takes one (Claude before 4.6, Gemini before 3); the
+    plan refuses it anywhere else, because a number sent to an effort- or
+    level-taking model would be silently re-mapped. It is still mapped here
+    rather than crashing, for a run planned before a model id changed."""
+    if not setting or not setting.startswith("budget:"):
+        return None
+    try:
+        return max(1024, int(setting.split(":", 1)[1]))
+    except ValueError:
+        return None
+
+
+def _nearest_effort(budget: int) -> str:
+    return "low" if budget <= 2048 else "medium" if budget <= 6000 else "high"
+
+
+def _gemini_headroom(setting: str) -> int:
+    budget = thinking_budget(setting)
+    return budget if budget is not None else _GEMINI_STAGE_HEADROOM[setting]
+
+
 def stage_thinking(env_var: str) -> str | None:
     """A stage's own thinking setting (e.g. RFI_THINKING), or None to leave the
     transport's global defaults (CLAUDE_THINKING / GEMINI_THINKING_LEVEL) in
@@ -259,6 +284,13 @@ def _claude_stage_thinking(model: str, setting: str) -> tuple[dict, dict | None,
     """
     if setting == "off":
         return {"type": "disabled"}, None, 0
+    budget = thinking_budget(setting)
+    if budget is not None:
+        if _claude_takes_effort(model):
+            effort = _nearest_effort(budget)
+            log.warning("%s takes an effort, not a thinking budget — %d tokens sent as effort=%s", model, budget, effort)
+            return {"type": "adaptive"}, {"effort": effort}, _CLAUDE_EFFORT_HEADROOM[effort]
+        return {"type": "enabled", "budget_tokens": budget}, None, budget
     if _claude_takes_effort(model):
         # Adaptive thinking has no budget to add, but it is still spent from
         # max_tokens before the answer — so an effort setting gets the same
@@ -573,6 +605,11 @@ _stage_thinking_latched: dict[tuple[str, str], dict | None] = {}
 
 def _stage_thinking_intended(model: str, setting: str) -> dict:
     """What a stage setting means on this model, before any refusal."""
+    budget = thinking_budget(setting)
+    if budget is not None:
+        if _takes_thinking_level(model):
+            return {"thinking_level": _nearest_effort(budget)}
+        return {"thinking_budget": budget}
     if _takes_thinking_level(model):
         return {"thinking_level": "minimal" if setting == "off" else setting}
     return {"thinking_budget": _GEMINI_STAGE_BUDGETS[setting]}
@@ -902,7 +939,7 @@ def _complete_gemini(
     if client is None:
         return Reply(text="", stop_reason="unavailable")
     if thinking_setting is not None:
-        max_tokens += _GEMINI_STAGE_HEADROOM[thinking_setting]
+        max_tokens += _gemini_headroom(thinking_setting)
 
     def send(thinking: bool | dict, *, media_model: str):
         return client.models.generate_content(
@@ -1179,7 +1216,7 @@ def _batch_gemini(
     if thinking_setting is not None:
         # The same headroom a single call gets: thinking is spent from the
         # output cap before the JSON is written.
-        max_tokens += _GEMINI_STAGE_HEADROOM[thinking_setting]
+        max_tokens += _gemini_headroom(thinking_setting)
         first: bool | dict = ladder[0] if ladder[0] is not None else False
     else:
         first = True

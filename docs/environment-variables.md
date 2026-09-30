@@ -183,7 +183,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `SUMMARIZE_PORTION_CONCURRENCY` | `WORKER_CONCURRENCY` | Worker | Discipline summaries at once. |
 | `SUMMARIZE_PROJECT_CONCURRENCY` | `1` | Worker | Project rollups at once. |
 | `RFI_SCAN_CONCURRENCY` | `1` | Worker | RFI scans at once (one per project is always enforced). |
-| `RFI_REVIEW_MODEL` | `claude-sonnet-5` | API + worker | Targeted RFI review model (Claude). The API prices it on the plan screen; the worker runs it. Keep both sides equal. |
+| `RFI_REVIEW_MODEL` | `claude-sonnet-5` | API + worker | DEFAULT targeted RFI review model (Claude) — the plan screen can choose another per run, and the run stores it. Keep both sides equal. |
 | `RFI_REVIEW_GEMINI_MODEL` | `gemini-3.6-flash` | API + worker | The same, when `RFI_PROVIDER=gemini`. |
 | `RFI_REVIEW_OVERVIEW_EDGE` | `1600` | Worker | Long edge (px) of the whole-sheet image a review sends. |
 | `RFI_REVIEW_CROP_EDGE` | `1400` | Worker | Long edge (px) of each close-up a review sends. |

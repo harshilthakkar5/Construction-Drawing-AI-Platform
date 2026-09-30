@@ -226,3 +226,16 @@ function isNotFound(err: unknown): boolean {
     (err.$metadata.httpStatusCode === 404 || err.name === "NoSuchKey" || err.name === "NotFound")
   );
 }
+
+/** A small object's bytes, or null when it does not exist. For server-side
+ * reads of files the API itself assembles into something (a review report's
+ * evidence pictures) — never a PDF, whose bytes the API does not proxy. */
+export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
+  try {
+    const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    return out.Body ? await out.Body.transformToByteArray() : null;
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}

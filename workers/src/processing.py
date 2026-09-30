@@ -575,6 +575,13 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
             len(to_embed),
         )
 
+    try:
+        import rfi_sources
+
+        with db.connect() as conn:
+            rfi_sources.exclude_if_rfi(conn, document_id)
+    except Exception as exc:  # never fail an ingest over this
+        log.warning("[doc %s] could not check whether this is an RFI form: %s", doc_tag, exc)
     db.set_document_status(document_id, "completed")
     cache.invalidate_summaries(project_id)
     result = {

@@ -1,0 +1,21 @@
+{
+  "_comment": "The 16 original RFI review questions, transcribed VERBATIM (spelling included) from the user's 'Question for RFI's.txt'. This file is the golden copy: RFI_REVIEW_CHECKS in src/index.ts must carry exactly these ids, positions and strings, and tests in apps/api and workers read this file to fail on any drift. IDs are implementation identifiers, not from the source file.",
+  "questions": [
+    { "id": "G01", "section": "General", "number": 1, "question": "what are the Grid to Grid Dimensions, compare the grids with architecture if there is any mismatch isolate and highlight" },
+    { "id": "G02", "section": "General", "number": 2, "question": "Find all the Level and there elevation from the drawings set, compare the Levels with architecture if there is any mismatch isolate and highlight" },
+    { "id": "F01", "section": "Foundations", "number": 1, "question": "What are all the isolated footing types in the floor plans and foundation schedules, location sizes, and elevation." },
+    { "id": "F02", "section": "Foundations", "number": 2, "question": "What are all the Wall footing in the floor plans and foundation schedule, also find there size location and elevation from grids." },
+    { "id": "F03", "section": "Foundations", "number": 3, "question": "what are all the Mat foundation in floor plans and foundation schedules." },
+    { "id": "F04", "section": "Foundations", "number": 4, "question": "Are there any piles in the floor plans, if so what are the size and location." },
+    { "id": "FL01", "section": "Floor", "number": 1, "question": "What are the floor edges location from Grids" },
+    { "id": "FL02", "section": "Floor", "number": 2, "question": "What are the Floor top Elevation and Thickness" },
+    { "id": "FL03", "section": "Floor", "number": 3, "question": "are there any stepping in floor, if yes what are the location and elevation different at stepping" },
+    { "id": "FL04", "section": "Floor", "number": 4, "question": "are there any slop on the floor, if yes what is the sloping direction span and sloping percentage" },
+    { "id": "C01", "section": "Columns & Shear walls", "number": 1, "question": "Find all the columns in the floor plans and columns schedule, find sizes, location from Grids and base and top elevation of all the columns." },
+    { "id": "C02", "section": "Columns & Shear walls", "number": 2, "question": "Find all the shear Wall or Core wall in the floor plan, find sizes, location from Grids and base and top elevation of all the Core Walls." },
+    { "id": "C03", "section": "Columns & Shear walls", "number": 3, "question": "if any column is centered to grid, most probably it is not dimensioned from grid, but if any column is off from the grids and not dimensioned from grid isolate and highlight." },
+    { "id": "B01", "section": "Beams", "number": 1, "question": "what is the start and end of the beams with reference to grids" },
+    { "id": "B02", "section": "Beams", "number": 2, "question": "what is the size of the beam." },
+    { "id": "B03", "section": "Beams", "number": 3, "question": "what is the elevation of the beams." }
+  ]
+}

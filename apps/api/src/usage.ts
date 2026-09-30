@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { prisma } from "./db.js";
 
 /**
@@ -25,6 +26,19 @@ export interface TokenCounts {
 }
 
 /**
+ * Which review run (and stage) the calls made inside `fn` belong to. The
+ * planner runs the chat's own retrieval, which embeds the query and may
+ * rerank — real spend, recorded by embedding.ts and rerank.ts with no idea a
+ * review asked for it. This tags those rows so the plan screen can show what
+ * planning ALREADY cost, from the ledger rather than from a guess.
+ */
+const usageContext = new AsyncLocalStorage<{ reviewRunId: string; stage: string }>();
+
+export function withUsageContext<T>(context: { reviewRunId: string; stage: string }, fn: () => Promise<T>): Promise<T> {
+  return usageContext.run(context, fn);
+}
+
+/**
  * Off for traffic that is not a user's: the evaluation harness and the load
  * benchmarks run the real retrieval path, and their calls would otherwise land
  * in the dashboard as project spend nobody incurred — and, when the project id
@@ -42,11 +56,14 @@ export async function recordUsage(
 ): Promise<void> {
   if (!trackingEnabled()) return;
   try {
+    const context = usageContext.getStore();
     await prisma.usageEvent.create({
       data: {
         projectId,
         kind,
         model,
+        reviewRunId: context?.reviewRunId ?? null,
+        stage: context?.stage ?? null,
         inputTokens: tokens.inputTokens ?? 0,
         outputTokens: tokens.outputTokens ?? 0,
         cacheReadTokens: tokens.cacheReadTokens ?? 0,
@@ -150,6 +167,22 @@ const FAMILY_RATES: ReadonlyArray<[string, { input: number; output: number }]> =
   ["opus", { input: 5, output: 25 }],
   ["voyage", { input: 0.06, output: 0 }],
 ];
+
+/** When the rates below were last checked against the providers' published
+ * prices. Shown beside every review cost, because a price is only as current
+ * as the table it came from. */
+export const PRICING_VERSION = "published rates as checked 2026-09";
+
+/**
+ * How sure a price is: `exact` (the model is in RATES), `family` (estimated
+ * from its family's rate) or `unknown` (the default rate — a guess). A review
+ * reports an unknown price as unknown rather than quoting the guess.
+ */
+export function pricingConfidence(model: string): "exact" | "family" | "unknown" {
+  if (RATES[model]) return "exact";
+  const name = model.toLowerCase();
+  return FAMILY_RATES.some(([key]) => name.includes(key)) ? "family" : "unknown";
+}
 
 /** Warn once per unknown model, not once per row — a dashboard query is thousands. */
 const warned = new Set<string>();

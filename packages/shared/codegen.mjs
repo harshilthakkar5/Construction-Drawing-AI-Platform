@@ -19,8 +19,11 @@ import {
   JOB_FIELD_TYPES,
   OBJECT_KEY_TEMPLATES,
   QUEUES,
+  RFI_REVIEW_CATALOGUE_VERSION,
   RFI_REVIEW_CHECKS,
   RFI_REVIEW_DEPTHS,
+  RFI_REVIEW_INPUT_LIMITS,
+  RFI_REVIEW_THINKING_LIMITS,
 } from "./dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -110,6 +113,10 @@ function render() {
   lines.push(`RFI_REVIEW_CHECKS = ${py(RFI_REVIEW_CHECKS)}`);
   lines.push("");
   lines.push(`RFI_REVIEW_DEPTHS = ${py(RFI_REVIEW_DEPTHS)}`);
+  lines.push("");
+  lines.push(`RFI_REVIEW_CATALOGUE_VERSION = ${py(RFI_REVIEW_CATALOGUE_VERSION)}`);
+  lines.push(`RFI_REVIEW_INPUT_LIMITS = ${py(RFI_REVIEW_INPUT_LIMITS)}`);
+  lines.push(`RFI_REVIEW_THINKING_LIMITS = ${py(RFI_REVIEW_THINKING_LIMITS)}`);
   lines.push("");
   return lines.join("\n");
 }

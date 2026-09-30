@@ -3,6 +3,7 @@ import { objectKeys } from "@cdip/shared";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { processDocumentQueue } from "../queues.js";
+import { FILENAME_EXCLUSION_REASON, looksLikeRfi } from "../rfiSources.js";
 import { isValidPdfFilename, sanitizeFilename } from "../sanitize.js";
 import { objectLooksLikePdf, scanUploadedObject } from "../scan.js";
 import { deleteDocumentPoints } from "../qdrant.js";
@@ -88,6 +89,8 @@ documentsRouter.post("/", async (req, res) => {
       pages: 0,
       revision,
       previousVersionId: replacesDocumentId ?? null,
+      // An RFI uploaded for reference is the answer key, never review input.
+      ...(looksLikeRfi(safeName) ? { includeInRfiAnalysis: false, rfiExclusionReason: FILENAME_EXCLUSION_REASON } : {}),
     },
   });
   const key = objectKeys.originalPdf(projectId, document.id);
@@ -101,6 +104,29 @@ documentsRouter.post("/", async (req, res) => {
     partSize: PART_SIZE,
     partCount: Math.max(1, Math.ceil(size / PART_SIZE)),
   });
+});
+
+/**
+ * Keep a document out of RFI review input, or put it back. A historical RFI
+ * is excluded automatically on upload (by name) and at ingest (by its text);
+ * this is the person's override either way, and it records why. A review
+ * already planned over the document is refused at Start as stale.
+ */
+documentsRouter.patch("/:documentId/rfi-analysis", async (req, res) => {
+  const { projectId, documentId } = docParams.parse(req.params);
+  const { include, reason } = z
+    .object({ include: z.boolean(), reason: z.string().trim().max(300).optional() })
+    .parse(req.body ?? {});
+  const document = await prisma.document.update({
+    where: { id: documentId, projectId },
+    data: {
+      includeInRfiAnalysis: include,
+      // Never null once a person decided: the ingest-time check only excludes
+      // a document nobody has decided about, and must not undo this choice.
+      rfiExclusionReason: include ? "Included in RFI review by a person" : reason || "Excluded from RFI review by a person",
+    },
+  });
+  res.json(document);
 });
 
 /** Presigned PUT URLs for a batch of part numbers. */

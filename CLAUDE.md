@@ -25,6 +25,11 @@ job), the project rollup is its own button, and a re-scrape that moves pages mar
 summaries `stale` instead of deleting them. Full spec:
 docs/region-based-classification.md.
 
+RFIs: a log, deterministic project checks, and the targeted review (RFI-A) against the 16 original
+questions are built — see "Targeted RFI review" below and README "RFI status" for the canonical
+table. Review ACCURACY is not measured (all review tests use stub models); whole-project review
+(RFI-B) is not built.
+
 Phase 5 additions: FR-19 bbox highlighting (pages store pdfWidth/pdfHeight; chat sources carry
 bbox+dims; summary items resolve via GET /projects/:id/chunks/:chunkId/location; overlay in
 CombinedViewer scales bbox percentages); auth + RBAC (scrypt passwords in users, Redis
@@ -127,6 +132,12 @@ exact PDF document, page, and bounding box, verifiable with one click.
 The AI NEVER chats directly with raw PDFs. PDFs are the source of truth for viewing/verification
 only. The AI operates on a derived knowledge base: extracted text → markdown → chunks →
 embeddings → summaries.
+
+ONE bounded exception: a targeted RFI review (and the opt-in vision pass, `VLM_ENABLED`) RENDERS
+pages of the original PDF as images for the model, because a coordination problem is often a
+picture and never a word. Only pages a person approved in the review's plan, with annotations
+stripped (`grid.without_markup`), never from a document excluded from RFI analysis, and every
+picture stored so the report shows what the model saw. Chat and summaries stay text-only.
 
 ## Tech stack (fixed — do not substitute)
 
@@ -2421,23 +2432,53 @@ finding the drawings no longer produce is not reopened: there is nothing left to
 upsert replaces wording only where THIS scan actually worded the finding, so a failed model call
 on a full rescan keeps the previous AI question instead of downgrading it to the template.
 
-## Targeted RFI review — one sheet, or sheets that should agree
+## Targeted RFI review — one sheet, one element, or sheets that should agree
 
-The RFIs tab's other mode (docs/rfi-targeted-review.md). The API PLANS with no model call —
-resolves the named sheet(s), picks checks from the `RFI_REVIEW_CHECKS` catalogue in `@cdip/shared`
-(codegen'd to `generated.py`), retrieves related pages with the chat's own `retrieveChunkIds`,
-caps and prices the scope, and stores it on an `rfi_review_runs` row. A person sees the pages and
-the cost and presses Start; the worker (`workers/src/rfi_review.py`) reads that STORED scope and
-nothing else. Three model stages — discovery (whole-sheet images + close-ups rendered from the
-original PDF), reasoning (text only), verification (only the cited evidence) — and then the rules
-the code applies because the model is not trusted to: an evidence id the server did not issue is
-dropped, description-only support is rejected, a conflict needs two pages, and a question may not
-contain an identifier or ANY digit run the cited evidence does not (`W14x90` slipped past the
-scan's free-standing-number pattern). G01 runs the scan's exact `rfi_grid` comparison and keeps
-its fingerprint, so one grid disagreement is one candidate in either mode. A failed call fails
-the run at a named stage — never "no RFIs found". First slice: sheet/compare targets, G01/C01/C02,
-`standard` depth. `benchmarks/rfi_eval.py` scores a run against RFIs a person really issued
-(expected output only, never input); RFI 002 is found on the client's S2.105/A3.01.
+The RFIs tab's other mode (docs/rfi-targeted-review.md; README "RFI status" is the canonical
+what-is-built table). The 16 original RFI questions live VERBATIM in ONE catalogue,
+`RFI_REVIEW_CHECKS` in `@cdip/shared` (codegen'd to `generated.py`, golden-checked against
+`packages/shared/fixtures/rfi-original-questions.json` by both suites; version stored per run).
+Routing, prompts and UI all read it. Modes: `auto` (G01+G02 always, families from the target's
+words as whole WORDS or an element mark's shape; a target naming no family runs all 16),
+`all_original`, `custom`. Every run ends with an outcome for all 16 — `not_selected` is never a
+pass, and a run that left evidence unread can never say `complete_no_issue`.
+
+The API PLANS with no review-model call (`rfiReviewPlanner.ts` + the pure `rfiReviewRules.ts`):
+resolves the target (sheet; element mark through `cdip_identifiers()` with level/area narrowing
+and ambiguity; compare sides), FORCES in the sheets the target refers to and same-level plans of
+another discipline, retrieves related pages with the chat's own `retrieveChunkIds` (its
+embedding/rerank spend tagged to the run via `withUsageContext`, so planning cost is read from the
+ledger), ranks and caps by depth, gives every page a reason and lists what the cap left out, and
+prices a RANGE on the provider/model the person chose (`reviewThinkingCapability` — a numeric
+thinking limit is refused on a model that takes only an effort, never silently re-mapped; unknown
+prices stay `null`). `scopeHash` canonicalises settings because JSONB reorders keys. Start is
+IDEMPOTENT (Idempotency-Key + conditional planned→queued claim; concurrent same-key requests get
+200/202, one job) and refuses a stale plan (revision number, supersede, exclusion, re-ingest).
+
+The worker (`workers/src/rfi_review.py`) reads that STORED scope and nothing else, re-checks
+staleness and that the starter can still see the project (between stages too — a revoked run is
+cancelled), renders pages with annotations stripped, stores every picture and an
+`evidenceManifest`, adds measured AIDS (`review_aids.py`: C03 column-to-grid offsets at the
+printed scale, G02 level index — never sole support, never grounding for a number), splits
+discovery by `maxInputTokens` into at most `maxBatches` calls (the rest is written to
+`coverage.omissions` and the run ends `partial`), then reasoning (text only, with a
+`needs_evidence` disposition that triggers a bounded project search logged in
+`coverage.searchLog`) and verification (only cited + searched evidence). The code's rules follow:
+an evidence id the server did not issue is dropped, description-only or aid-only support is
+rejected, a conflict needs two pages, and a question may not contain an identifier or ANY digit
+run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern).
+`maxTotalTokens` is checked BEFORE each call and stops the run `partial` with what it found saved.
+Usage rows carry `reviewRunId`/`stage`/`attempt` (`usage.tagged`, a ContextVar). G01 runs the
+scan's exact `rfi_grid` comparison and keeps its fingerprint. A failed call fails the run at a
+named stage — never "no RFIs found". Reports: `report.pdf|json?kind=draft|accepted`
+(`rfiReviewReport.ts`, pdf-lib), draft marks every candidate NOT issued.
+
+Historical RFIs are the answer key, never input: `documents.includeInRfiAnalysis=false` is set at
+upload by filename (`rfiSources.ts`, same pattern as the migration's backfill, test-held) and at
+ingest by form text (`rfi_sources.py`, which never overrules a person's Docs-tab choice), and every
+review path filters on it. All review tests use STUB models: they prove what the code does with
+any reply and nothing about accuracy — only `benchmarks/rfi_eval.py` on real RFIs measures that.
+RFI-B (whole-project review) is not built until RFI-A meets its acceptance criteria on real evals.
 
 C01's exact half is the COLUMN OVERLAY (`workers/src/plan_match.py` + `rfi_columns.py`, docs/rfi-
 targeted-review.md), built from the client's RFI 015 (A3.27 vs A3.35), which the first slice found
@@ -2504,10 +2545,13 @@ rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subjec
      origin (deterministic_scan|targeted_review), reviewRunId, reasoning, priority)
      // UNIQUE(projectId, fingerprint): a finding, NOT an RFI — no number until a
      // person accepts it, so a dismissed finding never burns one
-rfi_review_runs(id, projectId, target, checkIds, depth, status, stage, scope JSON,
-     scopeHash, estimate, observations, reasoningOutput, usage, heartbeatAt, ...)
+rfi_review_runs(id, projectId, target, checkIds, depth, status (+partial), stage, scope JSON,
+     scopeHash, estimate, observations, reasoningOutput, usage, heartbeatAt, catalogueVersion,
+     checkPlan, checkResults, inventory, coverage, limits, planningUsage, sourceRevisions,
+     evidenceManifest, idempotencyKey UNIQUE(projectId, idempotencyKey), ...)
      // scope is immutable once planned; start refuses a stale or altered one
-documents.includeInRfiAnalysis   // false keeps a document out of every review scope
+usage_events.reviewRunId / stage / attempt   // no FK: spend outlives the run row
+documents.includeInRfiAnalysis, rfiExclusionReason   // false keeps a document out of every review path
 ```
 
 PostgreSQL is the single source of truth for references; Qdrant holds vectors only.
