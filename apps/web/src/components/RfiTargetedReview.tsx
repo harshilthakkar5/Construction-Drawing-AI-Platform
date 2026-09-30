@@ -17,6 +17,7 @@ import {
   type RfiReviewThinking,
 } from "@cdip/shared";
 import { api, type RfiReviewPlanRequest } from "@/api";
+import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -757,7 +758,10 @@ function Downloads({ projectId, run }: { projectId: string; run: RfiReviewRunDto
     </a>
   );
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap items-center gap-3">
+      {run.candidates > 0 && (
+        <MarkedUpPdfButton projectId={projectId} reviewRunId={run.id} label="Marked-up PDF of the findings" />
+      )}
       {link("draft", "pdf", "Draft report (PDF)")}
       {link("accepted", "pdf", "Accepted RFIs (PDF)")}
       {link("draft", "json", "JSON")}

@@ -20,6 +20,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { regionRouter } from "./routes/region.js";
 import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
+import { rfiPackagesRouter } from "./routes/rfiPackages.js";
 import { rfiReviewRouter } from "./routes/rfiReview.js";
 import { rfisRouter } from "./routes/rfis.js";
 import { summariesRouter } from "./routes/summaries.js";
@@ -121,6 +122,7 @@ export function createApp() {
   // be read as an RFI id and refused as a malformed uuid.
   app.use("/projects/:projectId/rfis/generated", requireGeneratedModels, rfiGeneratedRouter);
   app.use("/projects/:projectId/rfis/reviews", requireGeneratedModels, rfiReviewRouter);
+  app.use("/projects/:projectId/rfis/packages", requireGeneratedModels, rfiPackagesRouter);
   app.use("/projects/:projectId/rfis", requireGeneratedModels, rfisRouter);
   app.use("/projects/:projectId", pagesRouter);
 

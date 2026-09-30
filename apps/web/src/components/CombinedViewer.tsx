@@ -1,3 +1,4 @@
+import { displayBox } from "@cdip/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ManifestEntryDto } from "@cdip/shared";
@@ -447,7 +448,8 @@ export function CombinedViewer({
 function HighlightOverlay({ highlight, entry }: { highlight: Highlight; entry: ManifestEntryDto }) {
   if (!entry.pageWidth || !entry.pageHeight) return null;
   const clamp = (v: number) => Math.min(100, Math.max(0, v));
-  const { bbox } = highlight;
+  // Stored boxes are in the page's UNROTATED space; draw on the displayed one.
+  const bbox = displayBox(highlight.bbox, entry.rotation, entry.pageWidth, entry.pageHeight);
   return (
     <div
       className="pointer-events-none absolute animate-pulse rounded-sm border-2 border-warning bg-warning/30"

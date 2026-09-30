@@ -3,6 +3,7 @@ import {
   QUEUES,
   type ProcessDocumentJob,
   type RegionPreviewJob,
+  type RfiPackageJob,
   type RfiReviewJob,
   type RfiScanJob,
   type ScrapeRegionJob,
@@ -86,6 +87,18 @@ export const rfiReviewQueue = new Queue<RfiReviewJob>(QUEUES.rfiReview, {
   connection: redis,
   defaultJobOptions: {
     attempts: 1,
+    removeOnComplete: { count: 200 },
+    removeOnFail: false,
+  },
+});
+
+/** One marked-up RFI package to render. Cheap and model-free, so a failure is
+ * retried once — the usual cause is a storage hiccup, not the drawings. */
+export const rfiPackageQueue = new Queue<RfiPackageJob>(QUEUES.rfiPackage, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: "exponential", delay: 5000 },
     removeOnComplete: { count: 200 },
     removeOnFail: false,
   },

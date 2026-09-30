@@ -2473,6 +2473,22 @@ scan's exact `rfi_grid` comparison and keeps its fingerprint. A failed call fail
 named stage — never "no RFIs found". Reports: `report.pdf|json?kind=draft|accepted`
 (`rfiReviewReport.ts`, pdf-lib), draft marks every candidate NOT issued.
 
+**The output is a marked-up RFI, not a text report** (`workers/src/rfi_package.py`, the
+`rfi-package` job, `rfi_packages` table, `POST /rfis/packages`): a cover form in the team's own
+layout (project, `RFI: 002` or `DRAFT RFI`, date, author initials, discipline, description,
+plan/sheet, the `Q.1)` question box, cropped pictures captioned by sheet) followed by the ORIGINAL
+sheets copied as vector pages with a red cloud per piece of evidence, a yellow callout and a leader
+— real Polygon/FreeText/Line annotations, editable in Bluebeam. PyMuPDF 1.25 draws a FreeText only
+when its colours are passed AGAIN to `update()`, and `set_info()` blanks it.
+
+BOX SPACE is a rule now, and it was being broken: every stored box (chunk, evidence, pin) is in the
+page's UNROTATED space — what `get_text` reports and PDF annotations take. The grid check stored
+DISPLAY-space boxes (fixed: `GridSystem.to_unrotated`, `GRID_CACHE_VERSION` 3; gridmarks likewise),
+and the viewer drew unrotated boxes as displayed ones on every /Rotate 90 sheet (fixed:
+`displayBox` in `@cdip/shared` + `pages.rotation`, fixture regenerated from PyMuPDF). Test box
+placement by clipping the page's words out of the stored box — comparing a box with the box it was
+made from is the green test that hid this.
+
 Historical RFIs are the answer key, never input: `documents.includeInRfiAnalysis=false` is set at
 upload by filename (`rfiSources.ts`, same pattern as the migration's backfill, test-held) and at
 ingest by form text (`rfi_sources.py`, which never overrules a person's Docs-tab choice), and every
@@ -2512,7 +2528,8 @@ summary, scan or review.
 projects(id, name, description, roles[], createdAt)
 sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, counters)
 documents(id, projectId, filename, spacesKey, pages, revision, status)
-pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text,
+rfi_packages(id, projectId, createdById, items JSON, status, key, pages, notes, error)  // marked-up PDFs
+pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, summaryHeartbeatAt, summaryDetail, ...)

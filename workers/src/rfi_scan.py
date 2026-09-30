@@ -66,7 +66,10 @@ _TOKENS_PER_FINDING = 220
 GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # Bump when grid.styled_systems changes what it reads: cached reads are keyed
 # on it, and a stale one would compare grids the new code would not find.
-GRID_CACHE_VERSION = 2
+# 3: each system carries its page's display -> unrotated matrix, so evidence
+# boxes are stored in the space every other box uses (the page's UNROTATED
+# space, like chunk bboxes). Version 2 entries lack it.
+GRID_CACHE_VERSION = 3
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
@@ -467,7 +470,12 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
                         found: list[dict] = []
                         if 0 <= index < pdf.page_count:
                             try:
-                                found = grid.styled_systems(grid.without_markup(pdf.load_page(index)))
+                                loaded = grid.without_markup(pdf.load_page(index))
+                                found = grid.styled_systems(loaded)
+                                # Grids are read in DISPLAY space; evidence is
+                                # stored unrotated. Carry the way back.
+                                for system in found:
+                                    system["toUnrotated"] = list(loaded.derotation_matrix)
                             except Exception as exc:
                                 # One unreadable page is a sheet with no grid,
                                 # not a failed scan.
@@ -490,7 +498,10 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
         )
 
     systems = [
-        GridSystem(page_id, s["style"], s["along_x"], s["along_y"], s.get("bubbles") or {})
+        GridSystem(
+            page_id, s["style"], s["along_x"], s["along_y"], s.get("bubbles") or {},
+            tuple(s["toUnrotated"]) if s.get("toUnrotated") else None,
+        )
         for page_id, found in raw.items()
         for s in found
     ]

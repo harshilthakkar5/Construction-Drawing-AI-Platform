@@ -274,6 +274,7 @@ def upsert_page(
     text: str,
     pdf_width: float | None = None,
     pdf_height: float | None = None,
+    rotation: int | None = None,
 ) -> None:
     """Committed per page so a failure at page N preserves pages 1..N-1.
     pdf_width/pdf_height are the PDF page size in points — the coordinate
@@ -283,14 +284,15 @@ def upsert_page(
         conn.execute(
             """
             INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "imageUrl",
-                               text, "pdfWidth", "pdfHeight")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                               text, "pdfWidth", "pdfHeight", rotation)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ("documentId", "pageNumber")
             DO UPDATE SET "combinedPageNumber" = EXCLUDED."combinedPageNumber",
                           "imageUrl" = EXCLUDED."imageUrl",
                           text = EXCLUDED.text,
                           "pdfWidth" = EXCLUDED."pdfWidth",
-                          "pdfHeight" = EXCLUDED."pdfHeight"
+                          "pdfHeight" = EXCLUDED."pdfHeight",
+                          rotation = EXCLUDED.rotation
             """,
             (
                 str(uuid.uuid4()),
@@ -301,6 +303,7 @@ def upsert_page(
                 text,
                 pdf_width,
                 pdf_height,
+                rotation,
             ),
         )
 
@@ -519,17 +522,20 @@ def sample_pages(project_id: str, count: int) -> list[dict]:
     ]
 
 
-def set_page_region_text(page_id: str, text: str, method: str, version: int) -> None:
+def set_page_region_text(page_id: str, text: str, method: str, version: int, rotation: int | None = None) -> None:
     """One page's scrape result. Committed per page so a crash at page 700
-    keeps pages 1..699 (same rule as the extraction pipeline)."""
+    keeps pages 1..699 (same rule as the extraction pipeline). The scrape has
+    the page open anyway, so it also records its /Rotate — which is how pages
+    ingested before that column existed get one without a reprocess."""
     with connect() as conn:
         conn.execute(
             """
             UPDATE pages
-            SET "sheetRegionText" = %s, "regionMethod" = %s, "regionVersion" = %s
+            SET "sheetRegionText" = %s, "regionMethod" = %s, "regionVersion" = %s,
+                rotation = COALESCE(%s, rotation)
             WHERE id = %s
             """,
-            ((text or "").replace("\x00", ""), method, version, page_id),
+            ((text or "").replace("\x00", ""), method, version, rotation, page_id),
         )
 
 

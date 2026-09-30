@@ -198,6 +198,45 @@ correctly, and the RFI becomes findable with the level-13 plan in the project: t
 a 1:1 ratio reports level-14 columns that do not stack (confidence capped at medium, since a column
 that does not stack may be an intended transfer).
 
+## Marked-up RFI packages — the output the team sends
+
+A text report is not an RFI. The team's own issued RFIs (RFI 001–019 on UT Law Student Housing)
+are all one shape, and `workers/src/rfi_package.py` produces that shape:
+
+1. **A cover form** — PROJECT - <name>, `RFI: 002` (or `DRAFT RFI` for a finding nobody accepted),
+   Date Issued, Author (initials), Discipline, Description, Plan/Sheet, Revision, the question in the
+   shaded box as `Q.1)`, and cropped pictures of each clouded area captioned with its sheet.
+2. **The drawing sheets themselves**, copied from the ORIGINAL PDF as vector pages (they zoom and
+   print like the drawing), with a red revision **cloud** round each piece of evidence, a yellow
+   **callout** carrying the RFI number and question, and a **leader** from the callout to the cloud.
+
+The marks are real PDF annotations — Polygon with a cloudy border, FreeText, Line — the same kinds
+the team draws in Bluebeam, so every mark can be moved, edited or deleted there. Earlier markup on
+the source sheet is not copied. A cloud is never drawn round a box covering most of a sheet (it
+would point at nothing), round a model's description or round a server aid.
+
+Where the clouds go comes from what the RFI or finding already stores (`rfi_locations`, or the
+candidate's evidence), in the page's UNROTATED space — the space `get_text` reports, chunk boxes
+use and PDF annotations take. Only the callout is placed in DISPLAY space (beside the first cloud,
+on the sheet, clear of every cloud) and mapped back. Tested at 0/90/180/270 by clipping the
+drawing's words out of the cloud, never by comparing the cloud with the box it was made from.
+
+Building this found that the grid check stored its evidence in DISPLAY space: on the /Rotate 90
+A3.01 the cloud landed on the title-block strip instead of the grid bubbles. Grid systems now carry
+their page's display→unrotated matrix (`GRID_CACHE_VERSION` 3), gridmarks chunk boxes are mapped the
+same way, and the viewer's highlight — which had drawn every UNROTATED chunk box as if it were
+displayed — now maps boxes through `displayBox` (`@cdip/shared`, golden fixture
+`fixtures/display-box.json` regenerated from PyMuPDF by `test_display_box.py`) using
+`pages.rotation`, recorded at ingest and back-filled by the next region scrape. Pending scan
+findings are corrected by the next scan; an RFI already accepted keeps the pin it was given.
+
+Flow: `POST /projects/:id/rfis/packages {items: [{type: "rfi"|"candidate", id}] | reviewRunId}` →
+an `rfi_packages` row → the `rfi-package` job (`RFI_PACKAGE_CONCURRENCY`, default 2) → the PDF at
+`projects/{projectId}/rfi-packages/{packageId}.pdf` → `GET /…/packages/:id` returns a short-lived
+download link once ready. The API never opens a drawing. Buttons: "Marked-up PDF" on an RFI,
+"Marked-up preview" on a finding, "Marked-up PDF of the findings" on a finished review. On the
+client sheets a package renders in about two seconds.
+
 ## Trust order
 
 `text` (the drawing's own words) > `gridmarks` (measured geometry) > `page`/`crop` images (the

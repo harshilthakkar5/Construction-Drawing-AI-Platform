@@ -18,6 +18,8 @@ import type {
   RfiConfidence,
   RfiDto,
   RfiPriority,
+  RfiPackageDto,
+  RfiPackageItemRef,
   RfiReviewCheckId,
   RfiReviewCheckMode,
   RfiReviewComparisonDto,
@@ -509,6 +511,15 @@ export const api = {
 
   rfiReviewReportUrl: (projectId: string, runId: string, kind: "draft" | "accepted", format: "pdf" | "json") =>
     withToken(`${API_URL}/projects/${projectId}/rfis/reviews/${runId}/report.${format}?kind=${kind}`),
+
+  /** Ask the worker for a marked-up package: a cover form per item and the
+   * drawing sheets with clouds and callouts. `reviewRunId` adds every finding
+   * of that review. */
+  createRfiPackage: (projectId: string, body: { items?: RfiPackageItemRef[]; reviewRunId?: string }) =>
+    request<RfiPackageDto>(`/projects/${projectId}/rfis/packages`, { method: "POST", body: JSON.stringify(body) }),
+
+  getRfiPackage: (projectId: string, packageId: string) =>
+    request<RfiPackageDto>(`/projects/${projectId}/rfis/packages/${packageId}`),
 
   /** Keep a document out of RFI review input, or put it back. */
   setDocumentRfiAnalysis: (projectId: string, documentId: string, include: boolean) =>

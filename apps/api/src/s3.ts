@@ -140,9 +140,15 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
   await s3.send(new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: key, UploadId: uploadId }));
 }
 
-/** A URL for the BROWSER: page images, thumbnails, the original PDF. */
-export function presignGetObject(key: string, expiresIn = 3600) {
-  return getSignedUrl(s3Public, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });
+/** A URL for the BROWSER: page images, thumbnails, the original PDF. A
+ * `filename` makes it download under that name instead of the object key's. */
+export function presignGetObject(key: string, expiresIn = 3600, filename?: string) {
+  const disposition = filename ? `attachment; filename="${filename.replace(/["\\\r\n]/g, "")}"` : undefined;
+  return getSignedUrl(
+    s3Public,
+    new GetObjectCommand({ Bucket: BUCKET, Key: key, ResponseContentDisposition: disposition }),
+    { expiresIn },
+  );
 }
 
 /** A URL for another SERVER-side service (the malware scanner), which sits on

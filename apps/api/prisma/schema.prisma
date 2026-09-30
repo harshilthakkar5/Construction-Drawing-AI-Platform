@@ -136,18 +136,20 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
-  memberships    ProjectMember[]
-  ownedProjects  Project[]
-  supportTickets SupportTicket[]
-  sheetRegions   SheetRegion[]
+  memberships               ProjectMember[]
+  ownedProjects             Project[]
+  supportTickets            SupportTicket[]
+  sheetRegions              SheetRegion[]
   requestedPortionSummaries Portion[]
-  createdRfis    Rfi[] @relation("RfiCreatedBy")
-  assignedRfis   Rfi[] @relation("RfiAssignedTo")
-  answeredRfis   Rfi[] @relation("RfiAnsweredBy")
-  rfiEvents      RfiEvent[]
-  rfiScans       RfiScan[]
-  rfiDecisions   RfiCandidate[]
-  rfiReviewRuns  RfiReviewRun[]
+  createdRfis               Rfi[]           @relation("RfiCreatedBy")
+  assignedRfis              Rfi[]           @relation("RfiAssignedTo")
+  answeredRfis              Rfi[]           @relation("RfiAnsweredBy")
+  rfiEvents                 RfiEvent[]
+  rfiScans                  RfiScan[]
+  rfiDecisions              RfiCandidate[]
+  rfiReviewRuns             RfiReviewRun[]
+
+  rfiPackages RfiPackage[]
 
   @@map("users")
 }
@@ -169,24 +171,24 @@ enum UsageKind {
 }
 
 model UsageEvent {
-  id        String    @id @default(uuid())
+  id               String    @id @default(uuid())
   /// Null for calls not tied to a project (none today; kept for future
   /// account-level calls). SetNull rather than Cascade so deleting a project
   /// does not erase its historical spend.
-  projectId String?
-  kind      UsageKind
-  model     String
-  inputTokens      Int @default(0)
-  outputTokens     Int @default(0)
-  cacheReadTokens  Int @default(0)
-  cacheWriteTokens Int @default(0)
+  projectId        String?
+  kind             UsageKind
+  model            String
+  inputTokens      Int       @default(0)
+  outputTokens     Int       @default(0)
+  cacheReadTokens  Int       @default(0)
+  cacheWriteTokens Int       @default(0)
   /// Set by a targeted review: which run, stage and attempt this call belongs
   /// to, so a run's cost is summed from the ledger rather than re-estimated.
   /// No FK — spend history outlives the run row.
-  reviewRunId String?
-  stage       String?
-  attempt     Int?
-  createdAt DateTime @default(now())
+  reviewRunId      String?
+  stage            String?
+  attempt          Int?
+  createdAt        DateTime  @default(now())
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
@@ -244,20 +246,22 @@ model Project {
   /// duplicate RFI number is worse than a missing one because it is already
   /// quoted in someone's email. Numbers are never reused, so a voided RFI
   /// leaves a visible gap rather than letting the next one take its place.
-  rfiCounter  Int      @default(0)
+  rfiCounter Int @default(0)
 
-  owner        User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  members      ProjectMember[]
-  documents    Document[]
-  portions     Portion[]
-  summaries    Summary[]
-  chatSessions ChatSession[]
-  usageEvents  UsageEvent[]
-  sheetRegion  SheetRegion?
-  rfis         Rfi[]
+  owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  members       ProjectMember[]
+  documents     Document[]
+  portions      Portion[]
+  summaries     Summary[]
+  chatSessions  ChatSession[]
+  usageEvents   UsageEvent[]
+  sheetRegion   SheetRegion?
+  rfis          Rfi[]
   rfiScans      RfiScan[]
   rfiCandidates RfiCandidate[]
   rfiReviewRuns RfiReviewRun[]
+
+  rfiPackages RfiPackage[]
 
   @@map("projects")
 }
@@ -284,12 +288,12 @@ model SheetRegion {
   /// so the pages needing a re-scrape are a single WHERE away.
   version Int @default(1)
 
-  scrapeStatus RegionScrapeStatus @default(pending)
-  scrapedPages Int                @default(0)
-  totalPages   Int                @default(0)
+  scrapeStatus  RegionScrapeStatus @default(pending)
+  scrapedPages  Int                @default(0)
+  totalPages    Int                @default(0)
   /// Pages where the box came back empty — surfaced so the user can widen the
   /// box instead of silently getting "unclassified".
-  notFoundPages Int @default(0)
+  notFoundPages Int                @default(0)
   lastError     String?
   lastScrapedAt DateTime?
 
@@ -305,33 +309,33 @@ model SheetRegion {
 }
 
 model Document {
-  id        String         @id @default(uuid())
-  projectId String
-  filename  String
-  spacesKey String
-  pages     Int
-  revision  Int            @default(1)
-  status    DocumentStatus @default(uploaded)
+  id                   String         @id @default(uuid())
+  projectId            String
+  filename             String
+  spacesKey            String
+  pages                Int
+  revision             Int            @default(1)
+  status               DocumentStatus @default(uploaded)
   /// FR-4 revision chain: the document this one replaces (same drawing set).
-  previousVersionId String?   @unique
+  previousVersionId    String?        @unique
   /// Set when a newer revision finishes processing. Superseded documents are
   /// excluded from the manifest, combined numbering, and retrieval; rows are
   /// kept for audit/history.
-  supersededAt      DateTime?
+  supersededAt         DateTime?
   /// False keeps a document out of targeted RFI review — for a project that
   /// also holds historical/issued RFI PDFs, which must never be fed back in
   /// to generate new RFIs. Chat and summaries are unaffected.
-  includeInRfiAnalysis Boolean @default(true)
+  includeInRfiAnalysis Boolean        @default(true)
   /// Why a document is kept out of RFI review — "looks like an RFI" (set at
   /// upload or ingest) or "excluded by a user". A historical RFI must never be
   /// review INPUT: it is the answer key.
   rfiExclusionReason   String?
   /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
-  createdAt DateTime       @default(now())
+  createdAt            DateTime       @default(now())
 
-  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  previousVersion Document? @relation("DocumentRevisions", fields: [previousVersionId], references: [id], onDelete: SetNull)
-  nextVersion     Document? @relation("DocumentRevisions")
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  previousVersion Document?     @relation("DocumentRevisions", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersion     Document?     @relation("DocumentRevisions")
   pageRows        Page[]
   regionSamples   SheetRegion[]
   rfiLocations    RfiLocation[]
@@ -356,17 +360,21 @@ model Page {
   /// viewer scales bbox highlights (FR-19) with these.
   pdfWidth           Float?
   pdfHeight          Float?
+  /// The page's /Rotate. Stored boxes are UNROTATED; the viewer needs this to
+  /// draw them on the displayed page (displayBox in @cdip/shared). Null until
+  /// the worker has recorded it (ingest, or a region re-scrape).
+  rotation           Int?
 
   /// Raw text scraped out of the project's title-block region on this page.
   /// The only input the sheet-number classifier sees.
-  sheetRegionText String?
+  sheetRegionText  String?
   /// Sheet number read out of sheetRegionText ("S-003.0", "A17-11").
-  sheetNumber     String?
+  sheetNumber      String?
   /// How sheetRegionText was obtained: vector | words | ocr | none.
-  regionMethod    String?
+  regionMethod     String?
   /// SheetRegion.version that produced the three fields above. NULL, or lower
   /// than the project's current version, means this page needs a re-scrape.
-  regionVersion   Int?
+  regionVersion    Int?
   /// Where `discipline` came from: region_ai | region_rules | filename |
   /// inherited | manual. A manual override survives re-classification.
   disciplineSource String?
@@ -423,30 +431,30 @@ model Portion {
 }
 
 model Chunk {
-  id          String  @id @default(uuid())
-  pageId      String
-  portionId   String?
-  text        String
+  id             String  @id @default(uuid())
+  pageId         String
+  portionId      String?
+  text           String
   /// {x, y, width, height} in PDF page coordinates — citation-critical.
-  bbox        Json
-  tokenCount  Int
+  bbox           Json
+  tokenCount     Int
   /// "text" = words lifted off the sheet. "description" = a vision model's
   /// account of the drawing's geometry (workers/src/vlm.py), which the text
   /// layer cannot carry. The two must never be confused downstream: FR-13
   /// promises a citation leads to the thing it cites, so a description is
   /// labelled as one in the answer prompt and in the UI rather than being
   /// passed off as a quotation from the drawing.
-  kind        String  @default("text")
+  kind           String  @default("text")
   /// sha256 of text — lets a new revision reuse the previous revision's
   /// embedding when the chunk text is unchanged (no Voyage call).
-  textHash    String?
+  textHash       String?
   /// Qdrant point ID; PostgreSQL is the source of truth for references.
-  embeddingId String? @unique
+  embeddingId    String? @unique
   /// "<provider>/<model>" for a chunk a model WROTE — today only kind=
   /// "description". NULL on every text chunk and on everything written before
   /// this column existed, and those two must stay distinguishable from a
   /// description whose settings were never recorded.
-  sourceModel String?
+  sourceModel    String?
   /// The settings that decided what that description says, as vlm
   /// ._report_settings names them. `VLM_*` is read at ingest and the chunks
   /// carried none of it, so the only record of a run's configuration was a
@@ -545,10 +553,10 @@ model Rfi {
   /// allocator fails the insert rather than issuing a duplicate.
   number    Int
 
-  subject  String
-  question String
-  status   RfiStatus   @default(draft)
-  priority RfiPriority @default(normal)
+  subject    String
+  question   String
+  status     RfiStatus   @default(draft)
+  priority   RfiPriority @default(normal)
   /// The `Discipline` vocabulary (@cdip/shared), same as pages.discipline and
   /// projects.roles. A plain String for the same reason those are: the list
   /// belongs to the shared package and adding one must not need a migration.
@@ -639,7 +647,7 @@ model RfiLocation {
 /// phase for a column nothing branches on. The vocabulary lives in
 /// RFI_EVENT_KINDS in @cdip/shared.
 model RfiEvent {
-  id      String @id @default(uuid())
+  id      String  @id @default(uuid())
   rfiId   String
   actorId String?
   kind    String
@@ -703,22 +711,22 @@ model RfiScan {
 /// FINDING (check + the identifiers involved), never from the model's
 /// wording, which changes every time it is asked.
 model RfiCandidate {
-  id          String             @id @default(uuid())
-  projectId   String
-  scanId      String?
+  id             String             @id @default(uuid())
+  projectId      String
+  scanId         String?
   /// "deterministic_scan" or "targeted_review". A targeted candidate names its
   /// run; the rfi_scans row names a scan's (checked in the migration SQL).
-  origin      String             @default("deterministic_scan")
-  reviewRunId String?
+  origin         String             @default("deterministic_scan")
+  reviewRunId    String?
   /// Targeted review only: the one-sentence "why flagged" the review list
   /// shows, and the priority it suggests.
-  reasoning   String?
-  priority    String?
-  fingerprint String
-  checkType   String
-  confidence  RfiConfidence
-  subject     String
-  question    String
+  reasoning      String?
+  priority       String?
+  fingerprint    String
+  checkType      String
+  confidence     RfiConfidence
+  subject        String
+  question       String
   /// "model" or "template" — whether the AI worded this or the check's own
   /// template did (no key, a refused reply, or a reply that named something
   /// the evidence does not contain).
@@ -726,19 +734,19 @@ model RfiCandidate {
   /// [{documentId, pageNumber, combinedPageNumber, sheetNumber, bbox,
   ///   chunkId, quote}] — where the finding is on the drawings. Pinned by
   /// page and bbox like rfi_locations; chunkId is informational only.
-  evidence    Json
-  status      RfiCandidateStatus @default(pending)
-  rfiId       String?            @unique
-  decidedById String?
-  decidedAt   DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  evidence       Json
+  status         RfiCandidateStatus @default(pending)
+  rfiId          String?            @unique
+  decidedById    String?
+  decidedAt      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  scan      RfiScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan      RfiScan?      @relation(fields: [scanId], references: [id], onDelete: SetNull)
   reviewRun RfiReviewRun? @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
-  rfi       Rfi?     @relation(fields: [rfiId], references: [id], onDelete: SetNull)
-  decidedBy User?    @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+  rfi       Rfi?          @relation(fields: [rfiId], references: [id], onDelete: SetNull)
+  decidedBy User?         @relation(fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([projectId, fingerprint])
   @@index([projectId, status])
@@ -811,4 +819,31 @@ model RfiReviewRun {
   @@unique([projectId, idempotencyKey])
   @@index([projectId, createdAt])
   @@map("rfi_review_runs")
+}
+
+/// One marked-up RFI package: a cover form per RFI (or finding) and the
+/// drawing sheets with clouds and callouts as PDF annotations
+/// (workers/src/rfi_package.py). Rendered by the worker from the ORIGINAL
+/// PDFs — the API never opens a drawing — and stored under `key`.
+model RfiPackage {
+  id          String    @id @default(uuid())
+  projectId   String
+  createdById String?
+  /// [{type: "rfi" | "candidate", id}] in the order they appear.
+  items       Json
+  /// queued | running | ready | failed
+  status      String    @default("queued")
+  key         String?
+  pages       Int?
+  /// What could not be marked up (a sheet no longer in the project, …).
+  notes       Json?
+  error       String?
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@map("rfi_packages")
 }

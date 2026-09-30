@@ -107,6 +107,7 @@ def _process_page(
         text,
         pdf_width=page.rect.width,
         pdf_height=page.rect.height,
+        rotation=page.rotation,
     )
 
     # Hybrid chunking: schedules lifted out whole, then the remaining blocks

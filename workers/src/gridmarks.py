@@ -262,9 +262,13 @@ def chunks_for(page: fitz.Page) -> list[chunker.Chunk]:
     if not text:
         return []
     header, body = text.split("\n", 1)
+    # The grid is read in DISPLAY space; a chunk box is stored unrotated.
+    e = marks.extent
+    shown = fitz.Rect(e["x"], e["y"], e["x"] + e["width"], e["y"] + e["height"]) * page.derotation_matrix
+    shown.normalize()
     pieces = chunker.split_description(
         body,
-        marks.extent,
+        {"x": shown.x0, "y": shown.y0, "width": shown.width, "height": shown.height},
         kind="gridmarks",
         source_model=SOURCE,
         source_settings={"reader": SOURCE, "maxPt": MAX_PT, "marginPt": MARGIN_PT},

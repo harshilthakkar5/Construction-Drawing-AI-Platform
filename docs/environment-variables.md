@@ -188,6 +188,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RFI_REVIEW_OVERVIEW_EDGE` | `1600` | Worker | Long edge (px) of the whole-sheet image a review sends. |
 | `RFI_REVIEW_CROP_EDGE` | `1400` | Worker | Long edge (px) of each close-up a review sends. |
 | `RFI_REVIEW_CONCURRENCY` | `2` | Worker | Targeted reviews at once. |
+| `RFI_PACKAGE_CONCURRENCY` | `2` | Worker | Marked-up RFI packages (cover form + clouded sheets) rendered at once. |
 | `WORKER_LOCK_DURATION_MS` | `600000` (10 min) | Worker | Job lock, renewed while running. A dead worker's job waits this long before another picks it up. |
 | `DB_POOL_SIZE` | computed (`16` with defaults) | Worker | Postgres connections per worker process. |
 
