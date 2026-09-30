@@ -10,14 +10,62 @@
       "id": "rfi-002",
       "source": "BIM RFI 002 'CONFIRM THE GRID LAYOUT': 'Please confirm the correct grid layout, as a mismatch has been observed between the Architectural and Structural drawings.'",
       "pdf": "clean_S2.105_A3.01.pdf",
-      "target": { "type": "compare", "values": ["S2.105", "A3.01"] },
-      "checks": ["G01"],
+      "target": {
+        "type": "compare",
+        "values": [
+          "S2.105",
+          "A3.01"
+        ]
+      },
+      "checks": [
+        "G01"
+      ],
       "expected": [
         {
           "what": "The same grid lines are named differently on the structural and the architectural plan",
-          "checkTypes": ["grid_mismatch", "G01"],
-          "sheets": ["S2.105", "A3.01"],
-          "pairs": [["6", "9"]]
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "S2.105",
+            "A3.01"
+          ],
+          "pairs": [
+            [
+              "6",
+              "9"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rfi-015",
+      "source": "BIM RFI 015 'Discrepancies in dimensions and column location' (A3.27, A3.35): 'Please clarify the correct column locations and intended markings so the model can be updated accurately for further coordination and development.' Markup: the columns along one wall line of the Level 14 enlarged plan (A3.35, 1/4\") do not sit where the Level 14 overall plan (A3.27, 1/8\") shows them.",
+      "pdf": "RFI_015 pages 2-3 (A3.35, A3.27), markups stripped",
+      "target": {
+        "type": "compare",
+        "values": [
+          "A3.27",
+          "A3.35"
+        ]
+      },
+      "checks": [
+        "C01"
+      ],
+      "knownGap": "Not found by the first slice (2026-09-29 run: 7 observations, 0 proposed). Both sheets are architectural, so G01 compares nothing; A3.35 has no grid bubbles at all; the sheets are at two scales; and close-ups are placed around text chunks, not around the clouded wall line.",
+      "expected": [
+        {
+          "what": "Column locations along the Level 14 wall line differ between the enlarged plan and the overall plan",
+          "checkTypes": [
+            "C01"
+          ],
+          "sheets": [
+            "A3.27",
+            "A3.35"
+          ],
+          "pairs": []
         }
       ]
     }
