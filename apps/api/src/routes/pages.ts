@@ -44,6 +44,7 @@ pagesRouter.get("/manifest", async (req, res) => {
       imageUrl: true,
       pdfWidth: true,
       pdfHeight: true,
+      rotation: true,
       discipline: true,
       sheetNumber: true,
     },
@@ -58,6 +59,7 @@ pagesRouter.get("/manifest", async (req, res) => {
         hasImage: page?.imageUrl != null,
         pageWidth: page?.pdfWidth ?? null,
         pageHeight: page?.pdfHeight ?? null,
+        rotation: page?.rotation ?? null,
         discipline: page?.discipline ?? null,
         sheetNumber: page?.sheetNumber ?? null,
       };

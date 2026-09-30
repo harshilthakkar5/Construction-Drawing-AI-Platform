@@ -268,6 +268,25 @@ def test_the_whole_path_finds_the_mismatch_on_a_drawn_sheet():
     assert box["width"] < 60  # one end, not the sheet
 
 
+@pytest.mark.parametrize("rotate", [0, 90, 180, 270])
+def test_the_evidence_box_is_stored_where_its_labels_are_printed(rotate):
+    """Evidence boxes are stored in the page's UNROTATED space, like chunk
+    boxes and PDF annotations. Checked independently of the matrix code: the
+    words `get_text` clips out of the stored box (get_text is unrotated too)
+    must be the renamed labels. A display-space box on a rotated sheet clipped
+    the title block instead, and the marked-up RFI clouded that."""
+    pdf_page = _sheet(rotate)[0]
+    systems = [
+        GridSystem("s", s["style"], s["along_x"], s["along_y"], s["bubbles"], tuple(pdf_page.derotation_matrix))
+        for s in grid.styled_systems(pdf_page)
+    ]
+    findings, _ = grid_mismatches([page("s", "S2.105", "structural")], systems)
+    box = findings[0].evidence[0]["bbox"]
+    clip = fitz.Rect(box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"])
+    words = {w[4] for w in pdf_page.get_text("words", clip=clip)}
+    assert words and words <= set(STRUCT_ROWS) | set(ARCH_ROWS), words
+
+
 def test_a_page_without_enough_grid_words_is_not_scanned(monkeypatch):
     doc = fitz.open()
     pg = doc.new_page()

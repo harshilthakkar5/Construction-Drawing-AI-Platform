@@ -75,6 +75,11 @@ class GridSystem:
     along_y: dict[str, float]
     # Every bubble of each label, [x0, y0, x1, y1] — both ends of a line.
     bubbles: dict[str, list[list[float]]] = field(default_factory=dict, hash=False, compare=False)
+    # The page's display -> unrotated matrix (6 floats). Everything above is
+    # in DISPLAY space; an evidence box is stored UNROTATED, the space chunk
+    # boxes and PDF annotations use. None for a system read without it — an
+    # unrotated page, where the two spaces are the same.
+    to_unrotated: tuple | None = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -222,6 +227,20 @@ def _bubble_row(system: GridSystem, labels: list[str], axis: str) -> dict | None
     best = max(rows, key=len)
     x0, y0 = min(r[0] for r in best), min(r[1] for r in best)
     x1, y1 = max(r[2] for r in best), max(r[3] for r in best)
+    return unrotated_box(system, x0, y0, x1, y1)
+
+
+def unrotated_box(system: GridSystem, x0: float, y0: float, x1: float, y1: float) -> dict:
+    """A display-space rectangle as the stored evidence box. On a rotated sheet
+    the two spaces differ, and a box left in display space puts the reviewer's
+    highlight — and the cloud on a marked-up RFI — on the wrong part of the
+    drawing (A3.01, /Rotate 90: the title-block strip instead of the grid)."""
+    if system.to_unrotated:
+        import fitz
+
+        r = fitz.Rect(x0, y0, x1, y1) * fitz.Matrix(*system.to_unrotated)
+        r.normalize()
+        x0, y0, x1, y1 = r.x0, r.y0, r.x1, r.y1
     return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
 
 

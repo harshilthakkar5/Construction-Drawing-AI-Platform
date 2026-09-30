@@ -102,6 +102,8 @@ export const OBJECT_KEY_TEMPLATES = {
   /** A targeted RFI review's evidence picture — the exact image the model
    * saw, kept so the report shows what a finding was drawn from. */
   reviewEvidence: "projects/{projectId}/rfi-reviews/{runId}/evidence/{evidenceId}.png",
+  /** A marked-up RFI package: cover form + the drawing sheets with clouds. */
+  rfiPackage: "projects/{projectId}/rfi-packages/{packageId}.pdf",
 } as const;
 
 function fillTemplate(
@@ -126,6 +128,8 @@ export const objectKeys = {
     fillTemplate(OBJECT_KEY_TEMPLATES.pageText, { projectId, documentId, page }),
   reviewEvidence: (projectId: string, runId: string, evidenceId: string) =>
     fillTemplate(OBJECT_KEY_TEMPLATES.reviewEvidence, { projectId, runId, evidenceId }),
+  rfiPackage: (projectId: string, packageId: string) =>
+    fillTemplate(OBJECT_KEY_TEMPLATES.rfiPackage, { projectId, packageId }),
 } as const;
 
 // --- API DTOs ---
@@ -159,6 +163,37 @@ export interface DocumentDto {
   createdAt: string;
 }
 
+/**
+ * A stored box as the viewer must draw it. Every box this system stores — a
+ * chunk's, a piece of RFI evidence's, an RFI pin's — is in the page's
+ * UNROTATED space, because that is the space PyMuPDF's `get_text` reports and
+ * its annotations take. The viewer shows the page as DISPLAYED, so on a
+ * /Rotate 90 sheet (most of a client's architectural set) an unmapped box
+ * lands on the wrong part of the drawing. `pageWidth`/`pageHeight` are the
+ * DISPLAY size (`pages.pdfWidth`/`pdfHeight`). An unknown rotation is drawn
+ * as 0 — the old behaviour — rather than guessed.
+ * Golden fixture: packages/shared/fixtures/display-box.json (PyMuPDF's own
+ * rotation_matrix), read by this package's tests and the worker's.
+ */
+export function displayBox(
+  bbox: { x: number; y: number; width: number; height: number },
+  rotation: number | null | undefined,
+  pageWidth: number,
+  pageHeight: number,
+): { x: number; y: number; width: number; height: number } {
+  const { x, y, width: w, height: h } = bbox;
+  switch ((((rotation ?? 0) % 360) + 360) % 360) {
+    case 90:
+      return { x: pageWidth - (y + h), y: x, width: h, height: w };
+    case 180:
+      return { x: pageWidth - (x + w), y: pageHeight - (y + h), width: w, height: h };
+    case 270:
+      return { x: y, y: pageHeight - (x + w), width: h, height: w };
+    default:
+      return { x, y, width: w, height: h };
+  }
+}
+
 /** One combined-viewer page, in manifest order. */
 export interface ManifestEntryDto extends PageManifestEntry {
   filename: string;
@@ -166,6 +201,10 @@ export interface ManifestEntryDto extends PageManifestEntry {
   /** PDF page size in points (bbox coordinate space) — null until processed. */
   pageWidth: number | null;
   pageHeight: number | null;
+  /** The page's /Rotate (0/90/180/270) — what maps a stored (unrotated) box
+   * onto the displayed page. Null for a page ingested before it was recorded
+   * until the region is re-scraped or the document reprocessed. */
+  rotation: number | null;
   /** Discipline read off this page's sheet number; null until classified.
    * The viewer filters on it, so it is per PAGE — a discipline's pages are
    * routinely non-contiguous and a portion's span alone cannot express that. */
@@ -385,6 +424,7 @@ export const QUEUES = {
   summarizeProject: "summarize-project",
   rfiScan: "rfi-scan",
   rfiReview: "rfi-review",
+  rfiPackage: "rfi-package",
 } as const;
 
 export interface ProcessDocumentJob {
@@ -463,6 +503,12 @@ export interface RfiReviewJob {
   runId: string;
 }
 
+/** Render one marked-up RFI package (cover form + drawing sheets with
+ * clouds). What goes in it lives on the rfi_packages row. */
+export interface RfiPackageJob {
+  packageId: string;
+}
+
 /**
  * The wire shape of each job, as data — because the Python worker parses these
  * payloads and TypeScript interfaces do not survive to runtime.
@@ -513,6 +559,7 @@ export const JOB_FIELDS = {
   summarizeProject: jobFields<SummarizeProjectJob>()(["projectId", "detail"], ["detail"]),
   rfiScan: jobFields<RfiScanJob>()(["projectId", "scanId"]),
   rfiReview: jobFields<RfiReviewJob>()(["runId"]),
+  rfiPackage: jobFields<RfiPackageJob>()(["packageId"]),
 } as const;
 
 /** Field types the generator needs to emit a correct Python cast. */
@@ -1431,6 +1478,31 @@ export interface RfiReviewRunDto {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+/** One thing a marked-up package can hold: an RFI from the log, or a finding
+ * nobody has accepted yet (rendered as a DRAFT with no number). */
+export interface RfiPackageItemRef {
+  type: "rfi" | "candidate";
+  id: string;
+}
+
+export type RfiPackageStatus = "queued" | "running" | "ready" | "failed";
+
+/** A marked-up RFI package — a cover form per item and the drawing sheets
+ * with clouds and callouts (workers/src/rfi_package.py). */
+export interface RfiPackageDto {
+  id: string;
+  status: RfiPackageStatus;
+  items: RfiPackageItemRef[];
+  pages: number | null;
+  /** What could not be marked up, e.g. a sheet no longer in the project. */
+  notes: string[];
+  error: string | null;
+  /** Presigned, short-lived; present only when ready. */
+  downloadUrl: string | null;
+  createdAt: string;
+  finishedAt: string | null;
 }
 
 /** Two runs' cost side by side, and whether they are comparable at all. */

@@ -150,6 +150,10 @@ RFI_SCAN_CONCURRENCY = _int("RFI_SCAN_CONCURRENCY", 1)
 # Targeted RFI reviews at once. Each sends several images and three reasoning
 # calls, so this is bounded by provider rate limits and spend, not by CPU.
 RFI_REVIEW_CONCURRENCY = _int("RFI_REVIEW_CONCURRENCY", 2)
+# Marked-up RFI packages rendered at once. Each opens the original PDFs its
+# RFIs point at (one page at a time) and writes one PDF; 2 keeps a burst of
+# "download" clicks from starving document processing.
+RFI_PACKAGE_CONCURRENCY = _int("RFI_PACKAGE_CONCURRENCY", 2)
 
 # Postgres connections held by this process. Every db helper borrows one for
 # the length of a single statement, so the pool has to cover the threads that

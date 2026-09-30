@@ -90,8 +90,9 @@ def _scrape_pages(project_id: str, box: region_mod.Region, version: int, pending
                             document_id[:8],
                         )
                         continue
-                    text, method = region_mod.extract_region_text(pdf.load_page(index), box)
-                    db.set_page_region_text(page_row["page_id"], text, method, version)
+                    loaded = pdf.load_page(index)
+                    text, method = region_mod.extract_region_text(loaded, box)
+                    db.set_page_region_text(page_row["page_id"], text, method, version, loaded.rotation)
                     scraped += 1
                     if text:
                         found += 1

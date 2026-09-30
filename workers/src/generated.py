@@ -18,6 +18,7 @@ SUMMARIZE_PORTION_QUEUE = "summarize-portion"
 SUMMARIZE_PROJECT_QUEUE = "summarize-project"
 RFI_SCAN_QUEUE = "rfi-scan"
 RFI_REVIEW_QUEUE = "rfi-review"
+RFI_PACKAGE_QUEUE = "rfi-package"
 
 # --- Object keys (Spaces/MinIO bucket layout) ---
 
@@ -35,6 +36,9 @@ def page_text_key(project_id: str, document_id: str, page: int) -> str:
 
 def review_evidence_key(project_id: str, run_id: str, evidence_id: str) -> str:
     return f"projects/{project_id}/rfi-reviews/{run_id}/evidence/{evidence_id}.png"
+
+def rfi_package_key(project_id: str, package_id: str) -> str:
+    return f"projects/{project_id}/rfi-packages/{package_id}.pdf"
 
 
 # --- Job payload fields ---
@@ -67,6 +71,9 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
     ),
     "rfiReview": (
         ("runId", "run_id", False, "str"),
+    ),
+    "rfiPackage": (
+        ("packageId", "package_id", False, "str"),
     ),
 }
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ManifestEntryDto, RfiDto, RfiPriority, RfiStatus } from "@cdip/shared";
 import { RFI_PRIORITIES, RFI_STATUSES } from "@cdip/shared";
+import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { api } from "@/api";
 import { FileSpreadsheetIcon, PlusIcon, SparklesIcon } from "lucide-react";
 import { RfiReview } from "@/components/RfiReview";
@@ -446,6 +447,7 @@ function RfiDetail({
                 {TRANSITION_LABEL[status] ?? status}
               </Button>
             ))}
+          <MarkedUpPdfButton projectId={projectId} items={[{ type: "rfi", id: rfiId }]} size="default" />
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

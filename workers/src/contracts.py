@@ -15,6 +15,7 @@ from dataclasses import dataclass, fields as dataclass_fields
 from generated import (  # noqa: F401 — re-exported for the worker's imports
     JOB_FIELDS,
     PROCESS_DOCUMENT_QUEUE,
+    RFI_PACKAGE_QUEUE,
     RFI_REVIEW_QUEUE,
     RFI_SCAN_QUEUE,
     SCRAPE_REGION_QUEUE,
@@ -134,8 +135,20 @@ class RfiReviewJob:
         return _build(cls, "rfiReview", data)
 
 
+@dataclass
+class RfiPackageJob:
+    """Render one marked-up RFI package; its items live on the rfi_packages row."""
+
+    package_id: str
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "RfiPackageJob":
+        return _build(cls, "rfiPackage", data)
+
+
 for _cls, _job in (
     (ProcessDocumentJob, "processDocument"),
+    (RfiPackageJob, "rfiPackage"),
     (RfiScanJob, "rfiScan"),
     (RfiReviewJob, "rfiReview"),
     (ScrapeRegionJob, "scrapeRegion"),

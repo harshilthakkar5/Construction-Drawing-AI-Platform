@@ -928,6 +928,8 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | Exact checks: G01 grid names, C01 column overlay; aids: C03 measured offsets, G02 level index | built | geometry tests on drawn fixtures and the client's sheets |
 | Historical RFIs kept out of review input (filename at upload, form text at ingest, Docs-tab override) | built | API + worker tests |
 | Report: draft (every candidate, marked not issued) and accepted (with RFI numbers), PDF and JSON | built | report tests |
+| **Marked-up RFI package**: cover form + the drawing sheets with red clouds, callouts and leaders as editable PDF annotations — the shape of the team's own RFIs; per RFI, per finding, or per review | built | worker tests at 0/90/180/270 on drawn sheets and the client's S2.105/A3.01; route tests |
+| Viewer highlight on rotated sheets (boxes mapped through the page's /Rotate) | built | `displayBox` checked against PyMuPDF on both sides; pages ingested earlier need a region re-scrape or reprocess |
 | **Review ACCURACY** | **not measured** | every review test uses a stub model. `benchmarks/rfi_eval.py` against real issued RFIs on clean drawings is the only measure; nothing else may be quoted as one |
 | Whole-project review (RFI-B), persisted sheet-relationship edges | not built | waits for RFI-A to meet its acceptance criteria on real evals |
 

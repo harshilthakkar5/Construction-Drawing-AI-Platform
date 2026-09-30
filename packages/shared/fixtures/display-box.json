@@ -1,0 +1,141 @@
+{
+  "_comment": "Stored boxes are in a page's UNROTATED space (chunk bboxes, get_text, PDF annotations); the viewer draws in DISPLAY space. Each case is PyMuPDF's own rotation_matrix applied to one box. pageWidth/pageHeight are the DISPLAY size (pages.pdfWidth/pdfHeight = page.rect). Read by packages/shared (displayBox) and workers/tests/test_display_box.py.",
+  "cases": [
+    {
+      "rotation": 0,
+      "pageWidth": 1728.0,
+      "pageHeight": 2592.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 100.0,
+        "y": 200.0,
+        "width": 50.0,
+        "height": 60.0
+      }
+    },
+    {
+      "rotation": 90,
+      "pageWidth": 2592.0,
+      "pageHeight": 1728.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 2332.0,
+        "y": 100.0,
+        "width": 60.0,
+        "height": 50.0
+      }
+    },
+    {
+      "rotation": 180,
+      "pageWidth": 1728.0,
+      "pageHeight": 2592.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 1578.0,
+        "y": 2332.0,
+        "width": 50.0,
+        "height": 60.0
+      }
+    },
+    {
+      "rotation": 270,
+      "pageWidth": 2592.0,
+      "pageHeight": 1728.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 200.0,
+        "y": 1578.0,
+        "width": 60.0,
+        "height": 50.0
+      }
+    },
+    {
+      "rotation": 0,
+      "pageWidth": 2592.0,
+      "pageHeight": 1728.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 100.0,
+        "y": 200.0,
+        "width": 50.0,
+        "height": 60.0
+      }
+    },
+    {
+      "rotation": 90,
+      "pageWidth": 1728.0,
+      "pageHeight": 2592.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 1468.0,
+        "y": 100.0,
+        "width": 60.0,
+        "height": 50.0
+      }
+    },
+    {
+      "rotation": 180,
+      "pageWidth": 2592.0,
+      "pageHeight": 1728.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 2442.0,
+        "y": 1468.0,
+        "width": 50.0,
+        "height": 60.0
+      }
+    },
+    {
+      "rotation": 270,
+      "pageWidth": 1728.0,
+      "pageHeight": 2592.0,
+      "bbox": {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 60
+      },
+      "display": {
+        "x": 200.0,
+        "y": 2442.0,
+        "width": 60.0,
+        "height": 50.0
+      }
+    }
+  ]
+}

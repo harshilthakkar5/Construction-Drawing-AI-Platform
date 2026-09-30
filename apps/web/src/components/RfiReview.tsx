@@ -21,6 +21,7 @@ import {
   type RfiScanUsageDto,
   type RfiUsageTotalsDto,
 } from "@cdip/shared";
+import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { api } from "@/api";
 import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
@@ -300,6 +301,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
           <ul className="flex flex-col gap-2">
             {candidates.map((c) => (
               <CandidateCard
+                projectId={projectId}
                 key={c.id}
                 candidate={c}
                 busy={busy}
@@ -487,11 +489,13 @@ function ScanUsage({
 }
 
 function CandidateCard({
+  projectId,
   candidate,
   busy,
   onAccept,
   onDismiss,
 }: {
+  projectId: string;
   candidate: RfiCandidateDto;
   busy: boolean;
   onAccept: () => void;
@@ -545,7 +549,7 @@ function CandidateCard({
         ))}
       </ul>
 
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex flex-wrap gap-2">
         <Button size="sm" onClick={onAccept} disabled={busy}>
           <CheckIcon />
           Accept as RFI
@@ -554,6 +558,13 @@ function CandidateCard({
           <XIcon />
           Dismiss
         </Button>
+        <MarkedUpPdfButton
+          projectId={projectId}
+          items={[{ type: "candidate", id: candidate.id }]}
+          label="Marked-up preview"
+          variant="ghost"
+          title="What this would look like as an RFI: a DRAFT cover form and the sheets with clouds"
+        />
       </div>
     </li>
   );
