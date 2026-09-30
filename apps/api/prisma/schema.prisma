@@ -89,6 +89,9 @@ enum RfiReviewStatus {
   queued
   running
   ready
+  /// Finished, but some evidence was not looked at (a batch cap, a failed
+  /// batch, the token ceiling) or some selected checks failed.
+  partial
   failed
   cancelled
   stale
@@ -177,12 +180,19 @@ model UsageEvent {
   outputTokens     Int @default(0)
   cacheReadTokens  Int @default(0)
   cacheWriteTokens Int @default(0)
+  /// Set by a targeted review: which run, stage and attempt this call belongs
+  /// to, so a run's cost is summed from the ledger rather than re-estimated.
+  /// No FK — spend history outlives the run row.
+  reviewRunId String?
+  stage       String?
+  attempt     Int?
   createdAt DateTime @default(now())
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([createdAt])
+  @@index([reviewRunId])
   @@map("usage_events")
 }
 
@@ -312,6 +322,10 @@ model Document {
   /// also holds historical/issued RFI PDFs, which must never be fed back in
   /// to generate new RFIs. Chat and summaries are unaffected.
   includeInRfiAnalysis Boolean @default(true)
+  /// Why a document is kept out of RFI review — "looks like an RFI" (set at
+  /// upload or ingest) or "excluded by a user". A historical RFI must never be
+  /// review INPUT: it is the answer key.
+  rfiExclusionReason   String?
   /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
   createdAt DateTime       @default(now())
 
@@ -762,6 +776,25 @@ model RfiReviewRun {
   estimate          Json?
   observations      Json?
   reasoningOutput   Json?
+  /// The catalogue this run was planned against (RFI_REVIEW_CATALOGUE_VERSION).
+  catalogueVersion  String          @default("")
+  /// All 16 checks: selected, applicability, reason — decided at plan time.
+  checkPlan         Json?
+  /// All 16 checks' outcomes once the run finished.
+  checkResults      Json?
+  inventory         Json?
+  /// Omitted pages, unresolved references, the search log, omissions.
+  coverage          Json?
+  /// maxInputTokens, maxThinkingTokens, thinkingEffort, maxTotalTokens, maxBatches.
+  limits            Json?
+  /// Tokens and cost planning itself spent (query embeddings, reranking).
+  planningUsage     Json?
+  /// documentId -> revision at plan time; start refuses a changed set.
+  sourceRevisions   Json?
+  /// Every evidence item the worker issued an id for, and where it points.
+  evidenceManifest  Json?
+  /// A repeated Start with the same key returns the run it already started.
+  idempotencyKey    String?
   usage             Json?
   notes             Json?
   error             String?
@@ -775,6 +808,7 @@ model RfiReviewRun {
   createdBy  User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
   candidates RfiCandidate[]
 
+  @@unique([projectId, idempotencyKey])
   @@index([projectId, createdAt])
   @@map("rfi_review_runs")
 }

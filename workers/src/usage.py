@@ -10,7 +10,9 @@ Recording must never break the pipeline: failures are logged and swallowed.
 
 from __future__ import annotations
 
+import contextvars
 import uuid
+from contextlib import contextmanager
 
 import logutil
 
@@ -23,6 +25,27 @@ log = logutil.get("usage")
 # the API, 26 seconds of latency, then "unknown usage kind 'vlm'" and a
 # discarded answer.
 KINDS = ("chat", "summary", "classification", "embedding", "rerank", "vlm", "rfi")
+
+
+# Which targeted review, stage and attempt the calls made inside `tagged()`
+# belong to — so a run's cost is summed from the ledger, per stage, rather
+# than re-estimated. The API tags its planning calls the same way
+# (apps/api/src/usage.ts withUsageContext). A ContextVar, not a global: review
+# jobs run concurrently in threads, and one run's tag must not bill another.
+_context: contextvars.ContextVar[dict | None] = contextvars.ContextVar("usage_context", default=None)
+
+
+@contextmanager
+def tagged(review_run_id: str, stage: str, attempt: int | None = None):
+    token = _context.set({"reviewRunId": review_run_id, "stage": stage, "attempt": attempt})
+    try:
+        yield
+    finally:
+        _context.reset(token)
+
+
+def current_tag() -> dict | None:
+    return _context.get()
 
 
 def record(
@@ -47,6 +70,7 @@ def record(
             kind,
         )
         return
+    tag = _context.get() or {}
     try:
         import db
 
@@ -55,8 +79,8 @@ def record(
                 """
                 INSERT INTO usage_events
                   (id, "projectId", kind, model, "inputTokens", "outputTokens",
-                   "cacheReadTokens", "cacheWriteTokens")
-                VALUES (%s, %s, %s::"UsageKind", %s, %s, %s, %s, %s)
+                   "cacheReadTokens", "cacheWriteTokens", "reviewRunId", stage, attempt)
+                VALUES (%s, %s, %s::"UsageKind", %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -67,6 +91,9 @@ def record(
                     int(output_tokens),
                     int(cache_read_tokens),
                     int(cache_write_tokens),
+                    tag.get("reviewRunId"),
+                    tag.get("stage"),
+                    tag.get("attempt"),
                 ),
             )
     except Exception as exc:  # never fail a job over accounting

@@ -64,11 +64,13 @@ def test_the_review_model_defaults_match_the_api_estimate():
 
 def test_statuses_match_the_enum():
     body = re.search(r"enum RfiReviewStatus \{([^}]*)\}", SCHEMA.read_text()).group(1)
-    assert tuple(body.split()) == rfi_review.STATUSES
+    values = [line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("//")]
+    assert tuple(values) == rfi_review.STATUSES
 
 
 def test_every_check_the_catalogue_has_is_known_to_the_worker():
-    assert set(rfi_review.CHECKS) == {"G01", "C01", "C02"}
+    assert len(rfi_review.CHECKS) == 16
+    assert {"G01", "G02", "F04", "C01", "C03", "B03"} <= set(rfi_review.CHECKS)
 
 
 # --- parsing ---------------------------------------------------------------------
@@ -261,6 +263,9 @@ def database(monkeypatch):
     monkeypatch.setattr(rfi_review, "CALL_RETRY_DELAYS", (0.01, 0.01))
     monkeypatch.setattr(storage, "download_to_file", lambda key, path: shutil.copy(CLIENT_PDF, path))
     monkeypatch.setattr(llm, "available", lambda provider: True)
+    stored: dict[str, bytes] = {}
+    monkeypatch.setattr(storage, "put_bytes", lambda key, data, content_type: stored.__setitem__(key, data))
+    db.stored_images = stored
     return db
 
 
@@ -276,13 +281,17 @@ def _chunks_of(page: fitz.Page, limit: int) -> list[dict]:
     return out
 
 
-def _seed(db, checks=("G01", "C01")) -> dict:
-    project, document = str(uuid.uuid4()), str(uuid.uuid4())
+def _seed(db, checks=("G01", "C01"), limits: dict | None = None) -> dict:
+    project, document, user = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
     pdf = fitz.open(CLIENT_PDF)
     sheets = [("S2.105", "structural"), ("A3.01", "architectural")]
     scope = {"sides": [], "pages": [], "chunks": []}
     with db.connect() as conn:
-        conn.execute("INSERT INTO projects (id, name) VALUES (%s, 'rfi review test')", (project,))
+        conn.execute(
+            "INSERT INTO users (id, email, name, \"passwordHash\") VALUES (%s, %s, 'review test', 'x')",
+            (user, f"{user}@test.invalid"),
+        )
+        conn.execute('INSERT INTO projects (id, name, "ownerId") VALUES (%s, \'rfi review test\', %s)', (project, user))
         conn.execute(
             'INSERT INTO documents (id, "projectId", filename, "spacesKey", pages, status) '
             "VALUES (%s, %s, 'set.pdf', 'k', 2, 'completed')",
@@ -313,12 +322,12 @@ def _seed(db, checks=("G01", "C01")) -> dict:
                                    "visual": True, "crops": crops})
         run_id = str(uuid.uuid4())
         conn.execute(
-            'INSERT INTO rfi_review_runs (id, "projectId", target, "checkIds", status, provider, "thinkingRequested", '
-            'scope, "scopeHash") VALUES (%s, %s, %s, %s, \'queued\', \'claude\', \'low\', %s, \'h\')',
-            (run_id, project, json.dumps({"type": "compare", "values": ["S2.105", "A3.01"]}),
-             json.dumps(list(checks)), json.dumps(scope)),
+            'INSERT INTO rfi_review_runs (id, "projectId", "createdById", target, "checkIds", status, provider, '
+            '"thinkingRequested", scope, "scopeHash", limits) VALUES (%s, %s, %s, %s, %s, \'queued\', \'claude\', \'low\', %s, \'h\', %s)',
+            (run_id, project, user, json.dumps({"type": "compare", "values": ["S2.105", "A3.01"]}),
+             json.dumps(list(checks)), json.dumps(scope), json.dumps(limits) if limits else None),
         )
-    return {"project": project, "run": run_id, "scope": scope}
+    return {"project": project, "run": run_id, "scope": scope, "user": user}
 
 
 class FakeModel:
@@ -418,8 +427,26 @@ def test_a_review_saves_verified_candidates_and_reports_into_its_row(database, m
     assert (status, error) == ("ready", None) and beat is not None
     assert usage["stages"]["discovery"]["calls"] == 1 and usage["total"]["calls"] == 3
     assert usage["total"]["inputTokens"] == 300 and sent == ["effort=low"]
-    assert any("1 dropped" in n for n in notes)
+    assert any("1 observation(s) dropped" in n for n in notes)
     assert any("two sources" in n for n in notes)  # the one-page conflict, rejected by the code
+
+    with database.connect() as conn:
+        results, manifest, coverage = conn.execute(
+            'SELECT "checkResults", "evidenceManifest", coverage FROM rfi_review_runs WHERE id = %s', (seeded["run"],)
+        ).fetchone()
+        tagged = conn.execute(
+            'SELECT stage, attempt FROM usage_events WHERE "reviewRunId" = %s ORDER BY "createdAt"', (seeded["run"],)
+        ).fetchall()
+    # Every one of the 16 questions has an outcome; the unselected say so.
+    assert len(results) == 16 and results["C01"]["outcome"] == "candidate_found"
+    assert results["G01"]["outcome"] == "candidate_found" and results["F04"]["outcome"] == "not_selected"
+    # Every id the server issued is in the manifest, and each picture was kept.
+    assert {m["evidenceId"] for m in manifest} >= set(re.findall(r'id="(ev\d+)"', discovery["user"]))
+    pictures = [m for m in manifest if m["kind"] in ("page", "crop")]
+    assert pictures and all(m["imageKey"] in database.stored_images for m in pictures)
+    assert coverage["omissions"] == []
+    # The ledger knows which run and stage paid for each call.
+    assert [t[0] for t in tagged] == ["discovery", "reasoning", "verification"] or tagged == []
 
     rows = _candidates(database, seeded["project"])
     by_check = {r[0]: r for r in rows}
@@ -586,8 +613,13 @@ def test_a_review_lays_an_enlarged_plan_over_its_overall_plan(database, monkeypa
     monkeypatch.setattr(storage, "download_to_file", lambda key, path: doc.save(path))
     project, document, run_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
     scope = {"sides": [], "pages": [], "chunks": []}
+    user = str(uuid.uuid4())
     with database.connect() as conn:
-        conn.execute("INSERT INTO projects (id, name) VALUES (%s, 'overlay test')", (project,))
+        conn.execute(
+            "INSERT INTO users (id, email, name, \"passwordHash\") VALUES (%s, %s, 'overlay test', 'x')",
+            (user, f"{user}@test.invalid"),
+        )
+        conn.execute('INSERT INTO projects (id, name, "ownerId") VALUES (%s, \'overlay test\', %s)', (project, user))
         conn.execute(
             'INSERT INTO documents (id, "projectId", filename, "spacesKey", pages, status) '
             "VALUES (%s, %s, 'exhibit.pdf', 'k', 2, 'completed')",
@@ -612,9 +644,9 @@ def test_a_review_lays_an_enlarged_plan_over_its_overall_plan(database, monkeypa
             scope["chunks"].append({"chunkId": chunk_id, "pageId": page_id, "kind": "text",
                                     "text": f"CONCRETE EXHIBIT {sheet}", "bbox": None, "tokenCount": 5, "score": 0})
         conn.execute(
-            'INSERT INTO rfi_review_runs (id, "projectId", target, "checkIds", status, provider, "thinkingRequested", '
-            'scope, "scopeHash") VALUES (%s, %s, %s, %s, \'queued\', \'claude\', \'low\', %s, \'h\')',
-            (run_id, project, json.dumps({"type": "compare", "values": ["A3.27", "A3.35"]}),
+            'INSERT INTO rfi_review_runs (id, "projectId", "createdById", target, "checkIds", status, provider, "thinkingRequested", '
+            'scope, "scopeHash") VALUES (%s, %s, %s, %s, %s, \'queued\', \'claude\', \'low\', %s, \'h\')',
+            (run_id, project, user, json.dumps({"type": "compare", "values": ["A3.27", "A3.35"]}),
              json.dumps(["C01"]), json.dumps(scope)),
         )
 

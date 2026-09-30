@@ -19,7 +19,12 @@ import type {
   RfiDto,
   RfiPriority,
   RfiReviewCheckId,
+  RfiReviewCheckMode,
+  RfiReviewComparisonDto,
   RfiReviewDepth,
+  RfiReviewEstimateDto,
+  RfiReviewModelOptionDto,
+  RfiReviewProvider,
   RfiReviewRunDto,
   RfiReviewTarget,
   RfiReviewThinking,
@@ -63,11 +68,23 @@ const CREDENTIAL_PATHS = [
 
 export interface RfiReviewPlanRequest {
   target: RfiReviewTarget;
-  checkMode: "auto" | "custom";
+  checkMode: RfiReviewCheckMode;
   checkIds: RfiReviewCheckId[];
   depth: RfiReviewDepth;
   thinking: RfiReviewThinking;
+  provider?: RfiReviewProvider;
+  model?: string;
+  maxInputTokens?: number;
+  maxThinkingTokens?: number | null;
   excludePageIds: string[];
+}
+
+export interface RfiReviewOptions {
+  catalogueVersion: string;
+  inputLimits: { min: number; max: number; default: number };
+  thinkingLimits: { min: number; max: number };
+  default: { provider: RfiReviewProvider; model: string };
+  options: RfiReviewModelOptionDto[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -464,10 +481,40 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  startRfiReview: (projectId: string, runId: string) =>
+  /** The catalogue, depths, limits and the models a review can run on. */
+  rfiReviewOptions: (projectId: string) => request<RfiReviewOptions>(`/projects/${projectId}/rfis/reviews/options`),
+
+  /** What an already-planned scope would cost on another model. Stores nothing. */
+  reestimateRfiReview: (
+    projectId: string,
+    runId: string,
+    body: Pick<RfiReviewPlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking">,
+  ) =>
+    request<RfiReviewEstimateDto>(`/projects/${projectId}/rfis/reviews/${runId}/estimate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** `key` makes a double click or a retry start ONE review: the API returns
+   * the run it already started for a key it has seen. */
+  startRfiReview: (projectId: string, runId: string, key: string) =>
     request<RfiReviewRunDto>(`/projects/${projectId}/rfis/reviews/${runId}/start`, {
       method: "POST",
       body: JSON.stringify({}),
+      headers: { "Idempotency-Key": key },
+    }),
+
+  compareRfiReviews: (projectId: string, runId: string, otherId: string) =>
+    request<RfiReviewComparisonDto>(`/projects/${projectId}/rfis/reviews/${runId}/compare/${otherId}`),
+
+  rfiReviewReportUrl: (projectId: string, runId: string, kind: "draft" | "accepted", format: "pdf" | "json") =>
+    withToken(`${API_URL}/projects/${projectId}/rfis/reviews/${runId}/report.${format}?kind=${kind}`),
+
+  /** Keep a document out of RFI review input, or put it back. */
+  setDocumentRfiAnalysis: (projectId: string, documentId: string, include: boolean) =>
+    request<DocumentDto>(`/projects/${projectId}/documents/${documentId}/rfi-analysis`, {
+      method: "PATCH",
+      body: JSON.stringify({ include }),
     }),
 
   cancelRfiReview: (projectId: string, runId: string) =>
