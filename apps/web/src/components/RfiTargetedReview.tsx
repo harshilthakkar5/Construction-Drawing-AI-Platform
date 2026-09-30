@@ -556,6 +556,19 @@ function PlannedQuestions({ run }: { run: RfiReviewRunDto }) {
   );
 }
 
+/** A run that found a problem ALREADY on file (an RFI, a dismissal, a
+ * scan's finding) adds no candidate — which must not read as "no problems". */
+function headline(run: RfiReviewRunDto): string {
+  if (run.candidates > 0) {
+    return `${run.candidates} finding${run.candidates === 1 ? "" : "s"} added to “Needs your review” below. None is an RFI until you accept it.`;
+  }
+  const again = Object.values(run.checkResults ?? {}).filter((r) => r.outcome === "candidate_found").length;
+  if (again > 0) {
+    return "Nothing new: what this run found was already found before. “The 16 questions” below says where each one is — the RFI log, Needs your review, or Dismissed.";
+  }
+  return "No problems were confirmed on these pages.";
+}
+
 function Outcomes({ run }: { run: RfiReviewRunDto }) {
   if (!run.checkResults) return null;
   return (
@@ -908,11 +921,7 @@ function RunView({
               could not finish say so below.
             </Notice>
           )}
-          <p className="text-sm">
-            {run.candidates === 0
-              ? "No problems were confirmed on these pages."
-              : `${run.candidates} finding${run.candidates === 1 ? "" : "s"} added to “Needs your review” below. None is an RFI until you accept it.`}
-          </p>
+          <p className="text-sm">{headline(run)}</p>
           <Outcomes run={run} />
           <Inventory run={run} />
           <Coverage run={run} />

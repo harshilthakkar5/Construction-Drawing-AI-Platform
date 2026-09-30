@@ -473,15 +473,26 @@ def test_a_rerun_keeps_a_dismissed_finding_dismissed(database, monkeypatch):
         conn.execute("UPDATE rfi_candidates SET status = 'dismissed' WHERE \"projectId\" = %s", (seeded["project"],))
         again = str(uuid.uuid4())
         conn.execute(
-            'INSERT INTO rfi_review_runs (id, "projectId", target, "checkIds", status, scope, "scopeHash") '
-            "SELECT %s, \"projectId\", target, \"checkIds\", 'queued', scope, 'h' FROM rfi_review_runs WHERE id = %s",
+            # createdById too: without it the access re-check cancels the run
+            # before it saves anything, and this test passed without a re-run.
+            'INSERT INTO rfi_review_runs (id, "projectId", "createdById", target, "checkIds", status, scope, "scopeHash") '
+            "SELECT %s, \"projectId\", \"createdById\", target, \"checkIds\", 'queued', scope, 'h' FROM rfi_review_runs WHERE id = %s",
             (again, seeded["run"]),
         )
     monkeypatch.setattr(llm, "complete", FakeModel(keep_question="S2.105 and A3.01 disagree about C-6. Which is correct?"))
-    rfi_review.run(again)
+    assert rfi_review.run(again).get("cancelled") is None
     rows = _candidates(database, seeded["project"])
     assert len(rows) == 1
     assert rows[0][9] == "dismissed" and rows[0][2] == seeded["run"]
+    # The second run found the problem again. It must say where the existing
+    # finding is, not read as "no problems" because it added nothing.
+    with database.connect() as conn:
+        results, notes = conn.execute(
+            'SELECT "checkResults", notes FROM rfi_review_runs WHERE id = %s', (again,)
+        ).fetchone()
+    assert results["C01"]["outcome"] == "candidate_found" and results["C01"]["candidates"] == 0
+    assert "dismissed earlier" in results["C01"]["reason"]
+    assert any("Found again" in n and "dismissed earlier" in n for n in notes)
 
 
 @needs_db

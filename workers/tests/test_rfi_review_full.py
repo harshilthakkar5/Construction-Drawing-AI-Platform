@@ -127,6 +127,29 @@ def test_every_question_gets_an_outcome_and_none_is_a_silent_pass():
     assert got["F04"] == {"outcome": "not_selected", "reason": "not chosen", "observations": 0, "candidates": 0, "gaps": []}
 
 
+def test_a_problem_already_on_file_is_a_finding_not_a_clean_pass():
+    got = rfi_review.check_results(
+        ALL, ["G01", "C02"], {}, [_obs("G01"), _obs("C02")], [], [], {},
+        known={"G01": ["“Grid names differ” is already RFI 002 in the RFI log"]},
+    )
+    assert got["G01"]["outcome"] == "candidate_found" and got["G01"]["candidates"] == 0
+    assert "RFI 002" in got["G01"]["reason"]
+    assert got["C02"]["outcome"] == "complete_no_issue"
+
+
+def test_new_and_known_findings_are_both_reported():
+    got = rfi_review.check_results(ALL, ["C01"], {}, [], [], [], {"C01": 1}, known={"C01": ["a", "b", "c", "d"]})
+    reason = got["C01"]["reason"]
+    assert reason.startswith("1 new candidate(s)") and "found again: c" in reason and "1 more" in reason
+
+
+def test_already_found_names_the_place_to_act():
+    assert rfi_review.already_found("accepted", "targeted_review", 2, "open") == "already RFI 002 in the RFI log"
+    assert "(voided)" in rfi_review.already_found("accepted", "deterministic_scan", 7, "void")
+    assert "Dismissed" in rfi_review.already_found("dismissed", "targeted_review", None, None)
+    assert "Find RFIs in drawings" in rfi_review.already_found("pending", "deterministic_scan", None, None)
+
+
 def test_unread_evidence_never_reports_no_issue():
     got = rfi_review.check_results(ALL, ["C02"], {}, [_obs("C02")], [], [], {}, omitted=True)
     assert got["C02"]["outcome"] == "insufficient_evidence" and "not read" in got["C02"]["reason"]

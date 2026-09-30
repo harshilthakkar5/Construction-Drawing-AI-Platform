@@ -2470,7 +2470,8 @@ run the cited evidence does not (`W14x90` slipped past the scan's free-standing-
 `maxTotalTokens` is checked BEFORE each call and stops the run `partial` with what it found saved.
 Usage rows carry `reviewRunId`/`stage`/`attempt` (`usage.tagged`, a ContextVar). G01 runs the
 scan's exact `rfi_grid` comparison and keeps its fingerprint. A failed call fails the run at a
-named stage — never "no RFIs found". Reports: `report.pdf|json?kind=draft|accepted`
+named stage — never "no RFIs found". A finding already on file (UNIQUE fingerprint) is reported
+as "found again" with where it lives, never as "no problems". Reports: `report.pdf|json?kind=draft|accepted`
 (`rfiReviewReport.ts`, pdf-lib), draft marks every candidate NOT issued.
 
 **The output is a marked-up RFI, not a text report** (`workers/src/rfi_package.py`, the
