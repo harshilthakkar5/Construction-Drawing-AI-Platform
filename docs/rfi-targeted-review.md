@@ -45,7 +45,9 @@ cost. Removing a page re-plans without it. Nothing is spent before Start.
    unrotated space and rendering in the displayed one, so each crop goes through
    `page.rotation_matrix` (tested at 0/90/180/270).
 2. **Exact geometry.** G01 runs the project scan's grid comparison (`rfi_grid`) on the scoped
-   pages. Its findings keep the scan's fingerprint, so one grid disagreement is one candidate
+   pages. It only compares sheets of DIFFERENT disciplines, so a one-sheet review whose related
+   pages are all structural compares nothing; the run's note (`grid_scope_note`) names every
+   sheet with a grid and every pair compared, and says so when none was, instead of a bare "0". Its findings keep the scan's fingerprint, so one grid disagreement is one candidate
    whichever mode found it, and the model is told not to report it again.
 3. **Discovery** (images + text): what each source SHOWS, cited by evidence id. No verdicts.
 4. **Reasoning** (text only): which observations are a conflict, a missing value, a plan/schedule
@@ -62,8 +64,10 @@ cost. Removing a page re-plans without it. Nothing is spent before Start.
    the identifiers — never the wording — and the upsert never touches a candidate someone has
    accepted or dismissed, or one the project scan owns.
 
-A failed or unparseable model call fails the run (after one salvage retry) and says at which
-stage. It is never turned into "no RFIs found", which would read as a clean bill of health.
+A call that FAILS (a 503 "high demand", a 429, a timeout) is asked again after 5s and 20s
+(`CALL_RETRY_DELAYS`) — one busy moment at Gemini once failed a whole review at the reasoning
+stage and threw away the discovery call already paid for. A reply that is not usable JSON gets
+one salvage retry. After that the run fails and says at which stage. It is never turned into "no RFIs found", which would read as a clean bill of health.
 Cancel is checked between stages; a heartbeat lets the API report a dead worker's run as failed.
 
 ## Trust order
