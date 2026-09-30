@@ -87,7 +87,7 @@ RFI_REVIEW_CHECKS = [
         "objective": "Compare each column's mark, size and position relative to the grid across plans and schedules. Localize any column shown at a different place, with a different size or mark, or without a dimension locating it off the grid.",
         "query": "column schedule column size mark location grid offset",
         "autoKeywords": [],
-        "deterministic": None,
+        "deterministic": "column_mismatch",
     },
     {
         "id": "C02",
@@ -111,5 +111,6 @@ RFI_REVIEW_DEPTHS = {
         "chunks": 48,
         "visualPages": 8,
         "cropsPerPage": 3,
+        "pairWindows": 4,
     },
 }

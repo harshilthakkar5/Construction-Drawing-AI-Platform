@@ -2439,6 +2439,19 @@ the run at a named stage — never "no RFIs found". First slice: sheet/compare t
 `standard` depth. `benchmarks/rfi_eval.py` scores a run against RFIs a person really issued
 (expected output only, never input); RFI 002 is found on the client's S2.105/A3.01.
 
+C01's exact half is the COLUMN OVERLAY (`workers/src/plan_match.py` + `rfi_columns.py`, docs/rfi-
+targeted-review.md), built from the client's RFI 015 (A3.27 vs A3.35), which the first slice found
+nothing in: both sheets architectural, no grid on A3.35, 1/8" against 1/4". It lines two rendered
+sheets up by the columns BOTH draw (scale ratio from the printed `1/4" = 1'-0"` lines, concrete
+elements = column-sized filled boxes with stipple, one alignment per detail of the enlarged sheet,
+3 votes and a margin of 2 like rfi_grid), then reports columns missing, moved or resized
+(`column_mismatch`, review-only, so `rfi_checks.REVIEW_CHECK_TYPES`), and cuts the same area out of
+both as labelled "Pair N" images for the model (`pairWindows`, priced in the estimate). Each filter
+exists because the real sheets produced that false finding: a dimension's text mask, a wall corner's
+two legs, a grey pad, a column cut off at a detail's edge, and a 1/8" column with only two stipple
+dots. On RFI 015 itself the two sheets AGREE — the RFI's green boxes are the author's annotations of
+the level below — so that case needs the level-13 plan, compared at 1:1.
+
 Every rate-limit tier has its OWN Redis prefix (`rl:<tier>:`). They shared `rl:` and every tier
 keys on the user id, so they were one counter: loading a project spent the 30-an-hour summary
 tier, and a user who had never pressed a button got "too many summary runs" from the first

@@ -566,3 +566,81 @@ def test_pages_without_a_grid_are_named():
     assert "No grid bubbles read on S6.01" in note
     none = rfi_review.grid_scope_note(pages, [], 0, ["Grid check found no grid bubbles on any sheet"])
     assert none.count("grid bubbles") == 1 and "nothing was compared" in none
+
+
+# --- the column overlay, through the job ---------------------------------------------
+
+
+@pytest.mark.skipif(not TEST_DB, reason="set RFI_TEST_DATABASE_URL to a migrated database")
+def test_a_review_lays_an_enlarged_plan_over_its_overall_plan(database, monkeypatch):
+    """RFI 015's shape, drawn: an enlarged plan (1/4") with one column the
+    overall plan (1/8") does not show. C01's exact half must save it without
+    any model involvement, and the model must be shown the SAME area of both
+    sheets as labelled pairs."""
+    import llm
+    import storage
+
+    import test_plan_match as drawn
+
+    doc = drawn.build(drawn.COLUMNS + [(36, 20, 2, 2)])
+    monkeypatch.setattr(storage, "download_to_file", lambda key, path: doc.save(path))
+    project, document, run_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    scope = {"sides": [], "pages": [], "chunks": []}
+    with database.connect() as conn:
+        conn.execute("INSERT INTO projects (id, name) VALUES (%s, 'overlay test')", (project,))
+        conn.execute(
+            'INSERT INTO documents (id, "projectId", filename, "spacesKey", pages, status) '
+            "VALUES (%s, %s, 'exhibit.pdf', 'k', 2, 'completed')",
+            (document, project),
+        )
+        for n, sheet in ((1, "A3.27"), (2, "A3.35")):
+            page_id, chunk_id = str(uuid.uuid4()), str(uuid.uuid4())
+            conn.execute(
+                'INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "sheetNumber", discipline) '
+                "VALUES (%s, %s, %s, %s, %s, 'architectural')",
+                (page_id, document, n, n, sheet),
+            )
+            conn.execute(
+                'INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", kind) '
+                "VALUES (%s, %s, %s, '{\"x\": 300, \"y\": 990, \"width\": 200, \"height\": 12}', 5, 'text')",
+                (chunk_id, page_id, f"CONCRETE EXHIBIT {sheet}"),
+            )
+            scope["sides"].append({"label": sheet, "pageIds": [page_id]})
+            scope["pages"].append({"pageId": page_id, "documentId": document, "pageNumber": n,
+                                   "combinedPageNumber": n, "sheetNumber": sheet, "discipline": "architectural",
+                                   "role": f"side:{n - 1}", "visual": True, "crops": []})
+            scope["chunks"].append({"chunkId": chunk_id, "pageId": page_id, "kind": "text",
+                                    "text": f"CONCRETE EXHIBIT {sheet}", "bbox": None, "tokenCount": 5, "score": 0})
+        conn.execute(
+            'INSERT INTO rfi_review_runs (id, "projectId", target, "checkIds", status, provider, "thinkingRequested", '
+            'scope, "scopeHash") VALUES (%s, %s, %s, %s, \'queued\', \'claude\', \'low\', %s, \'h\')',
+            (run_id, project, json.dumps({"type": "compare", "values": ["A3.27", "A3.35"]}),
+             json.dumps(["C01"]), json.dumps(scope)),
+        )
+
+    calls = []
+
+    def quiet_model(system, user, **kw):
+        calls.append(kw)
+        body = {"observations": []} if "DISCOVERY" in system else {"candidates": []}
+        return llm.Reply(text=json.dumps(body), stop_reason="end_turn", model="stub", input_tokens=10, output_tokens=5)
+
+    monkeypatch.setattr(llm, "complete", quiet_model)
+    result = rfi_review.run(run_id)
+
+    assert result["columnFindings"] == 1
+    labels = calls[0]["image_labels"]
+    pairs = [label for label in labels if "Pair 1 of" in label]
+    assert len(pairs) == 2
+    assert "first half: A3.35 detail 1 (1/4\" = 1'-0\")" in pairs[0]
+    assert "second half: the same area on A3.27 (1/8\" = 1'-0\")" in pairs[1]
+    with database.connect() as conn:
+        rows = conn.execute(
+            'SELECT "checkType", origin, "questionSource", question, evidence FROM rfi_candidates WHERE "projectId" = %s',
+            (project,),
+        ).fetchall()
+        notes = conn.execute('SELECT notes FROM rfi_review_runs WHERE id = %s', (run_id,)).fetchone()[0]
+    assert [(r[0], r[1], r[2]) for r in rows] == [("column_mismatch", "targeted_review", "template")]
+    assert "A3.35 shows a 2'-0\" x 2'-0\" column" in rows[0][3]
+    assert {e["sheetNumber"] for e in rows[0][4]} == {"A3.35", "A3.27"}
+    assert any("line up, 1 differ" in n for n in notes)

@@ -70,6 +70,42 @@ stage and threw away the discovery call already paid for. A reply that is not us
 one salvage retry. After that the run fails and says at which stage. It is never turned into "no RFIs found", which would read as a clean bill of health.
 Cancel is checked between stages; a heartbeat lets the API report a dead worker's run as failed.
 
+## Column overlay — laying one sheet over another (C01's exact half, and the picture pairs)
+
+Built from the client's RFI 015 ("Discrepancies in dimensions and column location", A3.27 against
+A3.35), which the first slice read and found nothing in, for reasons nothing could see: both sheets
+are architectural (the grid check compares only across disciplines), A3.35 has no grid bubbles, the
+two are drawn at 1/8" and 1/4", and each was shown to the model whole at ~44 DPI where a 2'x1' column
+is a speck. What the two sheets DO share is the columns, so the columns line them up
+(`workers/src/plan_match.py`):
+
+1. **Scales** — every `1/4" = 1'-0"` on each sheet, read line by line (joined into one string, a date
+   on the line before turned `1/4"` into 27 1/4"). The ratios between them are the candidates.
+2. **Elements** — a filled rectangle of column size (8" to 4') with the concrete stipple drawn inside.
+   At 1/8" a 2'x1' column holds only two dots, so one or two also count when the box carries its own
+   outline. Three look-alikes are refused, each once reported as a missing column on the real sheets:
+   a box with a word in it (the white mask behind a dimension), a box touching another short stippled
+   box (a wall corner drawn as two rectangles), and a box of another fill than the columns that lined
+   up (a grey pad).
+3. **Details** — the enlarged sheet is split into its drawings (connected ink), because each detail is
+   its own window onto the overall plan with its own offset. Named "detail 1" off the sheet's own title.
+4. **Alignment** — every size-matched pair votes for a translation; the winner needs 3 columns and must
+   beat the runner-up by 2, because a regular bay lines up with itself one bay over.
+
+`rfi_columns.column_mismatches` (A) then reports, per aligned detail, a column one sheet shows and
+the other does not, one moved, or one resized — never a size difference at the detail's edge (the
+window may cut the column off), and never when differences outnumber matches (the alignment is
+suspect, and the note says so). `rfi_columns.pair_windows` (B) cuts the SAME area out of both sheets,
+differences first, as labelled image pairs ("Pair 1 of 4, first half: A3.35 detail 1 (1/4")").
+`RFI_REVIEW_DEPTHS.pairWindows` (4) caps them and the estimate prices them.
+
+**What RFI 015 turned out to be.** Laid over each other, A3.35 and A3.27 agree: 9 columns in two
+details, every one where the other sheet has it. The green boxes in the RFI are the author's
+annotations of where the LEVEL BELOW puts its columns. So the check reports nothing for that pair,
+correctly, and the RFI becomes findable with the level-13 plan in the project: the same overlay at
+a 1:1 ratio reports level-14 columns that do not stack (confidence capped at medium, since a column
+that does not stack may be an intended transfer).
+
 ## Trust order
 
 `text` (the drawing's own words) > `gridmarks` (measured geometry) > `page`/`crop` images (the

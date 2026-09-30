@@ -54,11 +54,12 @@
       "checks": [
         "C01"
       ],
-      "knownGap": "Not found by the first slice (2026-09-29 run: 7 observations, 0 proposed). Both sheets are architectural, so G01 compares nothing; A3.35 has no grid bubbles at all; the sheets are at two scales; and close-ups are placed around text chunks, not around the clouded wall line.",
+      "knownGap": "Not findable from these two sheets, and correctly so. Laid over each other by the column overlay (plan_match), A3.35 and A3.27 AGREE: detail 1 matches 4 columns and detail 2 matches 5, with no difference except a column the enlarged detail's window cuts off. The RFI's green boxes are the author's own markup (Square annotations) showing where the LEVEL BELOW puts its columns, which neither sheet carries. The case becomes findable when the level-13 plan is in the project: the same overlay at a 1:1 ratio reports level-14 columns that do not stack on level-13 ones.",
       "expected": [
         {
           "what": "Column locations along the Level 14 wall line differ between the enlarged plan and the overall plan",
           "checkTypes": [
+            "column_mismatch",
             "C01"
           ],
           "sheets": [
@@ -67,7 +68,8 @@
           ],
           "pairs": []
         }
-      ]
+      ],
+      "needs": "The Level 13 plan (the level below), compared with A3.27 at the same scale."
     }
   ]
 }
