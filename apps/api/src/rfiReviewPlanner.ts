@@ -235,7 +235,7 @@ export async function planReview(
   const scope = rankScope({ depth: request.depth, sides, targetChunks, hitLists, chunks, pages });
   const hash = scopeHash(scope, selection.checkIds, request.depth);
   const model = rfiReviewModel();
-  const estimate = estimateReview(scope, model, estimateCostUsd);
+  const estimate = estimateReview(scope, model, estimateCostUsd, request.depth);
 
   // A new plan replaces this person's earlier unstarted plans for the project:
   // re-planning after removing a sheet must not leave a trail of dead ones.

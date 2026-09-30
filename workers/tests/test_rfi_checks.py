@@ -362,4 +362,10 @@ def test_check_types_match_the_labels_the_ui_renders():
     block = re.search(r"export const RFI_CHECK_LABELS = \{(.*?)\} as const;", source, re.S)
     assert block, "RFI_CHECK_LABELS not found in @cdip/shared"
     keys = set(re.findall(r"^\s*(\w+):", block.group(1), re.M))
-    assert keys == set(rfi_checks.CHECK_TYPES)
+    assert keys == set(rfi_checks.CHECK_TYPES) | set(rfi_checks.REVIEW_CHECK_TYPES)
+
+
+def test_the_column_check_writes_a_labelled_type():
+    import rfi_columns
+
+    assert rfi_columns.CHECK_TYPE in rfi_checks.REVIEW_CHECK_TYPES

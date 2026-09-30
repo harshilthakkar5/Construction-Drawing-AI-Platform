@@ -784,6 +784,9 @@ export const RFI_CHECK_LABELS = {
   unscheduled_mark: "Mark with no row in its schedule",
   open_item_note: "Note left open on the drawing (TBD / verify)",
   grid_mismatch: "Grid line named differently between drawings",
+  // Targeted review only (workers/src/rfi_columns.py): it needs two named
+  // sheets laid over each other, which a whole-project scan does not have.
+  column_mismatch: "Column drawn differently on two drawings",
 } as const;
 export type RfiCheckType = keyof typeof RFI_CHECK_LABELS;
 
@@ -908,8 +911,10 @@ export interface RfiUsageTotalsDto {
  * never writes a retrieval query. `autoKeywords` decide whether the check is
  * chosen automatically; an empty list means it always is.
  *
- * `deterministic` names an existing project-scan check that decides the same
- * question exactly. The review then runs THAT check on its own pages and
+ * `deterministic` names an exact check (no model) that decides the same
+ * question: G01 the project scan's grid comparison, C01 the column overlay
+ * (workers/src/plan_match.py) that lays an enlarged plan over its overall
+ * plan, or one level over another, by the columns both draw. The review then runs THAT check on its own pages and
  * stores its finding under the scan's fingerprint, so one grid disagreement
  * found by both paths is one candidate, not two.
  *
@@ -935,7 +940,7 @@ export const RFI_REVIEW_CHECKS = [
       "Compare each column's mark, size and position relative to the grid across plans and schedules. Localize any column shown at a different place, with a different size or mark, or without a dimension locating it off the grid.",
     query: "column schedule column size mark location grid offset",
     autoKeywords: [],
-    deterministic: null,
+    deterministic: "column_mismatch",
   },
   {
     id: "C02",
@@ -958,7 +963,9 @@ export const RFI_REVIEW_CHECK_IDS = RFI_REVIEW_CHECKS.map((c) => c.id) as RfiRev
  * estimate cannot price a scope the worker then does not build.
  */
 export const RFI_REVIEW_DEPTHS = {
-  standard: { label: "Standard", chunks: 48, visualPages: 8, cropsPerPage: 3 },
+  // pairWindows: the SAME area cut from two sheets that line up (an enlarged
+  // plan and its overall plan), shown side by side — two images per pair.
+  standard: { label: "Standard", chunks: 48, visualPages: 8, cropsPerPage: 3, pairWindows: 4 },
 } as const;
 export type RfiReviewDepth = keyof typeof RFI_REVIEW_DEPTHS;
 

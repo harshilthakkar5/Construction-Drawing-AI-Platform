@@ -10,16 +10,66 @@
       "id": "rfi-002",
       "source": "BIM RFI 002 'CONFIRM THE GRID LAYOUT': 'Please confirm the correct grid layout, as a mismatch has been observed between the Architectural and Structural drawings.'",
       "pdf": "clean_S2.105_A3.01.pdf",
-      "target": { "type": "compare", "values": ["S2.105", "A3.01"] },
-      "checks": ["G01"],
+      "target": {
+        "type": "compare",
+        "values": [
+          "S2.105",
+          "A3.01"
+        ]
+      },
+      "checks": [
+        "G01"
+      ],
       "expected": [
         {
           "what": "The same grid lines are named differently on the structural and the architectural plan",
-          "checkTypes": ["grid_mismatch", "G01"],
-          "sheets": ["S2.105", "A3.01"],
-          "pairs": [["6", "9"]]
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "S2.105",
+            "A3.01"
+          ],
+          "pairs": [
+            [
+              "6",
+              "9"
+            ]
+          ]
         }
       ]
+    },
+    {
+      "id": "rfi-015",
+      "source": "BIM RFI 015 'Discrepancies in dimensions and column location' (A3.27, A3.35): 'Please clarify the correct column locations and intended markings so the model can be updated accurately for further coordination and development.' Markup: the columns along one wall line of the Level 14 enlarged plan (A3.35, 1/4\") do not sit where the Level 14 overall plan (A3.27, 1/8\") shows them.",
+      "pdf": "RFI_015 pages 2-3 (A3.35, A3.27), markups stripped",
+      "target": {
+        "type": "compare",
+        "values": [
+          "A3.27",
+          "A3.35"
+        ]
+      },
+      "checks": [
+        "C01"
+      ],
+      "knownGap": "Not findable from these two sheets, and correctly so. Laid over each other by the column overlay (plan_match), A3.35 and A3.27 AGREE: detail 1 matches 4 columns and detail 2 matches 5, with no difference except a column the enlarged detail's window cuts off. The RFI's green boxes are the author's own markup (Square annotations) showing where the LEVEL BELOW puts its columns, which neither sheet carries. The case becomes findable when the level-13 plan is in the project: the same overlay at a 1:1 ratio reports level-14 columns that do not stack on level-13 ones.",
+      "expected": [
+        {
+          "what": "Column locations along the Level 14 wall line differ between the enlarged plan and the overall plan",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "A3.27",
+            "A3.35"
+          ],
+          "pairs": []
+        }
+      ],
+      "needs": "The Level 13 plan (the level below), compared with A3.27 at the same scale."
     }
   ]
 }

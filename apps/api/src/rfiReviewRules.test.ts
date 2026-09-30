@@ -219,8 +219,20 @@ describe("estimateReview", () => {
     expect(est.costUsd).toBe(0.42);
     expect(est.model).toBe("claude-sonnet-5");
     const visual = scope.pages.filter((p) => p.visual);
-    expect(est.imageParts).toBe(visual.reduce((n, p) => n + 1 + p.crops.length, 0));
+    const pairs = visual.length >= 2 ? 2 * RFI_REVIEW_DEPTHS.standard.pairWindows : 0;
+    expect(est.imageParts).toBe(visual.reduce((n, p) => n + 1 + p.crops.length, 0) + pairs);
     expect(seen[0]!.inputTokens).toBe(est.inputTokens);
+  });
+
+  it("prices side-by-side pairs only when two sheets are rendered", () => {
+    const one = estimateReview(rankScope(input({ hitLists: [] })), "m", () => 0);
+    expect(one.imageParts).toBe(1 + (rankScope(input({ hitLists: [] })).pages[0]?.crops.length ?? 0));
+    const two = estimateReview(rankScope(input()), "m", () => 0);
+    const visual = rankScope(input()).pages.filter((p) => p.visual);
+    expect(visual.length).toBeGreaterThanOrEqual(2);
+    expect(two.imageParts - visual.reduce((n, p) => n + 1 + p.crops.length, 0)).toBe(
+      2 * RFI_REVIEW_DEPTHS.standard.pairWindows,
+    );
   });
 
   it("grows with the evidence it has to read", () => {

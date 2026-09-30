@@ -271,9 +271,15 @@ export function estimateReview(
   scope: ReviewScope,
   model: string,
   costOf: (row: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }) => number,
+  depth: RfiReviewDepth = "standard",
 ): RfiReviewEstimateDto {
   const chunkTokens = scope.chunks.reduce((sum, c) => sum + c.tokenCount + PER_CHUNK_OVERHEAD, 0);
-  const imageParts = scope.pages.reduce((sum, p) => sum + (p.visual ? 1 + p.crops.length : 0), 0);
+  const visualPages = scope.pages.filter((p) => p.visual);
+  // Side-by-side pairs exist only where two rendered sheets line up, which the
+  // worker learns from the PDFs; priced at the most it may send, so the quote
+  // is an upper bound rather than a surprise.
+  const pairImages = visualPages.length >= 2 ? 2 * RFI_REVIEW_DEPTHS[depth].pairWindows : 0;
+  const imageParts = visualPages.reduce((sum, p) => sum + 1 + p.crops.length, 0) + pairImages;
   const imageTokens = imageParts * IMAGE_TOKENS;
   const discovery = SYSTEM_TOKENS + chunkTokens + imageTokens;
   const reasoning = SYSTEM_TOKENS + OUTPUT.discovery + scope.chunks.length * 15;
