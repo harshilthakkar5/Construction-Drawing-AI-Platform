@@ -150,6 +150,16 @@ one salvage retry. After that the run fails and says at which stage (and every s
 reads `failed`). It is never turned into "no RFIs found", which would read as a clean bill of health.
 Cancel is checked between stages; a heartbeat lets the API report a dead worker's run as failed.
 
+**A problem found AGAIN is still a problem.** Findings are UNIQUE on `(projectId, fingerprint)`,
+so a second review of the same sheets re-finds the same grid mismatch and cannot add it twice. It
+used to skip it in silence, count 0 candidates and print "No problems were confirmed" — on a run
+whose G01 had found exactly the problem an earlier run filed. Now a finding already on file keeps
+its question `candidate_found` with 0 new candidates, and the reason and the run's notes say where
+it is (`rfi_review.already_found`): "already RFI 002 in the RFI log", "dismissed earlier —
+restore it", or "already waiting in Needs your review". A PENDING finding of an earlier review
+moves to the newest run that still finds it, like a model-worded one; a person's decision and a
+scan's finding stay where they are.
+
 ## Historical RFIs are never input
 
 An RFI someone already issued is the ANSWER KEY. `documents.includeInRfiAnalysis = false` keeps a

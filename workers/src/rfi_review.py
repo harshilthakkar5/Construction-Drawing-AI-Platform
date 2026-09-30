@@ -1260,10 +1260,12 @@ def grid_scope_note(pages: list, systems: list, found: int, notes: list[str]) ->
     return " ".join(parts)
 
 
-def _save_exact_findings(conn, run_id: str, project_id: str, findings: list[rfi_checks.Finding]) -> int:
+def _save_exact_findings(conn, run_id: str, project_id: str, findings: list[rfi_checks.Finding]) -> list[bool]:
     """Findings of an exact check (grid names, column overlay): no model
-    wrote them, so their question is the check's own template."""
-    saved = 0
+    wrote them, so their question is the check's own template. One flag per
+    finding: True when this run now owns it, False when a person's decision
+    (or a scan's finding) was already standing on that fingerprint."""
+    saved = []
     for f in findings:
         cur = conn.execute(
             """
@@ -1272,12 +1274,46 @@ def _save_exact_findings(conn, run_id: str, project_id: str, findings: list[rfi_
                  subject, question, "questionSource", evidence, status, "createdAt", "updatedAt")
             VALUES (gen_random_uuid()::text, %s, %s, 'targeted_review', %s, %s, %s::"RfiConfidence",
                     %s, %s, 'template', %s::jsonb, 'pending', now(), now())
-            ON CONFLICT ("projectId", fingerprint) DO NOTHING
+            ON CONFLICT ("projectId", fingerprint) DO UPDATE
+               SET "reviewRunId" = EXCLUDED."reviewRunId", confidence = EXCLUDED.confidence,
+                   evidence = EXCLUDED.evidence, "updatedAt" = now()
+             -- Same rule as _save_candidate: the newest run that still finds a
+             -- pending finding shows it; a decision or a scan's finding stands.
+             WHERE rfi_candidates.status = 'pending' AND rfi_candidates.origin = 'targeted_review'
             """,
             (project_id, run_id, f.fingerprint, f.check_type, f.confidence, f.subject, f.question, json.dumps(f.evidence)),
         )
-        saved += cur.rowcount
+        saved.append(cur.rowcount > 0)
     return saved
+
+
+def already_found(status: str, origin: str, rfi_number: int | None, rfi_status: str | None) -> str:
+    """Where a finding this run made again already lives, said as the place a
+    person would go to act on it. Without this a run that re-finds a known
+    problem reads "No problems were confirmed" — its finding is real, it is
+    simply filed under an earlier run, an earlier scan, or an RFI."""
+    if status == "accepted" and rfi_number is not None:
+        tail = " (voided)" if rfi_status == "void" else ""
+        return f"already RFI {rfi_number:03d}{tail} in the RFI log"
+    if status == "dismissed":
+        return "dismissed earlier — restore it under “Dismissed” in Needs your review to accept it"
+    if origin == "deterministic_scan":
+        return "already waiting in Needs your review (found by Find RFIs in drawings)"
+    return "already waiting in Needs your review"
+
+
+def _where_found(conn, project_id: str, fp: str) -> str:
+    row = conn.execute(
+        """
+        SELECT c.status::text, c.origin::text, r.number, r.status::text
+          FROM rfi_candidates c LEFT JOIN rfis r ON r.id = c."rfiId"
+         WHERE c."projectId" = %s AND c.fingerprint = %s
+        """,
+        (project_id, fp),
+    ).fetchone()
+    if row is None:
+        return "already found"
+    return already_found(row[0], row[1], row[2], row[3])
 
 
 def _save_candidate(conn, run: dict, fp: str, candidate: dict, decision: dict, evidence: list[dict], reasoning: str) -> int:
@@ -1412,8 +1448,14 @@ def check_results(
     *,
     omitted: bool = False,
     stopped: str | None = None,
+    known: dict[str, list[str]] | None = None,
 ) -> dict[str, dict]:
     """One outcome for EVERY catalogue question, never a blank.
+
+    `known` holds findings this run made again that were ALREADY on file (an
+    RFI, a dismissal, a pending finding of a scan): the question still found
+    a problem, so it is `candidate_found` with 0 new candidates and a reason
+    saying where the existing one is — never `complete_no_issue`.
 
     `complete_no_issue` is claimed only when the check was answered from the
     whole planned scope with nothing wrong in it; a run that left evidence
@@ -1431,8 +1473,14 @@ def check_results(
         mine_gaps = [f"{g['field']}: {g['reason']}".strip(": ") for g in gaps if g["checkId"] == cid]
         na = [n for n in not_applicable if n["checkId"] == cid]
         count = found.get(cid, 0)
-        if count:
-            outcome, reason = "candidate_found", f"{count} candidate(s) for a person to review"
+        again = (known or {}).get(cid, [])
+        if count or again:
+            outcome = "candidate_found"
+            reason = "; ".join(
+                ([f"{count} new candidate(s) for a person to review"] if count else [])
+                + [f"found again: {line}" for line in again[:3]]
+                + ([f"and {len(again) - 3} more found again"] if len(again) > 3 else [])
+            )
         elif stopped:
             outcome, reason = "failed", f"the run {stopped} before this question was finished"
         elif na and not obs:
@@ -1719,8 +1767,19 @@ def _run(run: dict) -> dict:
     # 6. Save.
     searched = sorted({ev.where for ev in sent})
     saved = 0
+    found_by_check: dict[str, int] = {}
+    known: dict[str, list[str]] = {}
+
+    def tally(cid: str, fp: str, wrote: bool, subject: str) -> None:
+        if wrote:
+            found_by_check[cid] = found_by_check.get(cid, 0) + 1
+        else:
+            known.setdefault(cid, []).append(f"“{subject}” is {_where_found(conn, project_id, fp)}")
+
     with db.connect() as conn:
-        saved += _save_exact_findings(conn, run_id, project_id, exact)
+        for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
+            saved += wrote
+            tally("G01" if f.check_type == rfi_grid.CHECK_TYPE else "C01", f.fingerprint, wrote, f.subject)
         by_ev: dict[str, list[str]] = {}
         for obs in observations:
             for e in obs["evidenceIds"]:
@@ -1737,17 +1796,15 @@ def _run(run: dict) -> dict:
             reasoning = " ".join(x for x in (decision["why"] or candidate["why"], candidate.get("impact") and f"Impact: {candidate['impact']}") if x)
             if candidate["kind"] == "missing":
                 reasoning = f"{reasoning} Checked: {', '.join(searched)}.".strip()
-            saved += _save_candidate(conn, run, fp, candidate, decision, items, reasoning)
+            wrote = _save_candidate(conn, run, fp, candidate, decision, items, reasoning) > 0
+            saved += wrote
+            tally(candidate["checkId"], fp, wrote, decision["subject"])
 
-    found_by_check: dict[str, int] = {}
-    for f in exact:
-        cid = "G01" if f.check_type == rfi_grid.CHECK_TYPE else "C01"
-        found_by_check[cid] = found_by_check.get(cid, 0) + 1
-    for candidate, _ in kept:
-        found_by_check[candidate["checkId"]] = found_by_check.get(candidate["checkId"], 0) + 1
+    for lines in known.values():
+        notes.extend(f"Found again, not added twice: {line}." for line in lines)
     results = check_results(
         list(CHECKS), check_ids, run.get("checkPlan") or {}, observations, gaps, not_applicable, found_by_check,
-        omitted=bool(unread), stopped=stopped,
+        omitted=bool(unread), stopped=stopped, known=known,
     )
     partial = bool(unread) or stopped is not None
     coverage = {
