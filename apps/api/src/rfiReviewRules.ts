@@ -149,7 +149,8 @@ export function checkQuery(checkId: RfiReviewCheckId, anchors: readonly string[]
  * same-level correspondence is matched on. Null when the title names none. */
 export function levelOf(text: string | null | undefined): string | null {
   const found = /\bLEVEL\s*([0-9]{1,3}|[A-Z]{1,2}\d?)\b/.exec((text ?? "").toUpperCase());
-  return found ? `LEVEL ${found[1]}` : null;
+  // "LEVEL 01" and "LEVEL 1" are one floor.
+  return found ? `LEVEL ${(found[1] ?? "").replace(/^0+(?=\d)/, "")}` : null;
 }
 
 /** A sheet number's SHAPE: its letters and how many digits follow. "A3.35"

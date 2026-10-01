@@ -204,9 +204,32 @@ differences first, as labelled image pairs ("Pair 1 of 4, first half: A3.35 deta
 **What RFI 015 turned out to be.** Laid over each other, A3.35 and A3.27 agree: 9 columns in two
 details, every one where the other sheet has it. The green boxes in the RFI are the author's
 annotations of where the LEVEL BELOW puts its columns. So the check reports nothing for that pair,
-correctly, and the RFI becomes findable with the level-13 plan in the project: the same overlay at
-a 1:1 ratio reports level-14 columns that do not stack (confidence capped at medium, since a column
-that does not stack may be an intended transfer).
+correctly — and RFI 015 stays a known gap, on purpose (next section).
+
+**Never two different floors.** The first client test of the drafts rejected A3.03 (Level 4) laid
+over A3.05 (Level 6): the two floors share most columns, so they lined up, and every column of the
+southeast wing that stops at the Level 6 roof deck was reported as missing. Columns stop, move and
+shrink between floors by design. `rfi_columns.comparable_alignments` now decides which alignments
+may be read as a disagreement, from the level each sheet's drawing TITLES name
+(`rfi_columns.sheet_level`: a short line naming a kind of drawing — "LEVEL 4 BUILDING PLAN",
+"CONCRETE EXHIBIT - LEVEL 14" — never a note pointing elsewhere, and a bare "LEVEL n" line only when
+no titled line exists, since S2.105 also carries a level schedule listing LEVEL 1..14):
+
+  * two sheets naming different levels are never compared (no finding and no picture pair);
+  * two sheets at the SAME scale are compared only when both name the same level;
+  * an enlarged plan over its overall plan is compared unless the levels are known to differ.
+
+The level token is read by the planner's `levelOf` too; both read
+`packages/shared/fixtures/sheet-level.json` ("LEVEL 01" is "LEVEL 1"). This closes RFI 015's
+level-14-over-level-13 route as well: whether two floors' columns stack is a structural judgement
+the overlay cannot make.
+
+**The grid comparison needs a common scale.** The same test rejected S1.102 (overall plan, 1/8")
+against A3.36 (two enlarged 1/4" details): four lines of one fell on four of the other by
+translation, and grid 4 was reported as grid 1 on two sheets that name every line the same. Each
+page's printed scales now travel with its grid (`GRID_CACHE_VERSION` 4); two pages are compared only
+when they share one, and a grid whose label is bubbled at two places along its axis (two views on
+one sheet) is not compared across pages at all. Both refusals are written to the scan's notes.
 
 ## Marked-up RFI packages — the output the team sends
 

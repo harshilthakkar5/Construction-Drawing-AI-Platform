@@ -278,3 +278,104 @@ def test_a_regular_bay_that_lines_up_one_bay_over_is_refused():
     row = [(4 + 10 * i, 2, 2, 1) for i in range(8)]
     _, _, alignments, _ = compare(build(row[2:6], row, enlarged_width_ft=65))
     assert alignments == []
+
+
+# --- levels: columns change between floors by design ------------------------------
+
+import json  # noqa: E402
+
+LEVEL_FIXTURE = Path(__file__).resolve().parents[2] / "packages" / "shared" / "fixtures" / "sheet-level.json"
+
+
+@pytest.mark.parametrize("case", json.loads(LEVEL_FIXTURE.read_text())["cases"], ids=lambda c: c["text"] or "empty")
+def test_level_of_agrees_with_the_api_planner(case):
+    # apps/api levelOf reads the same file; a drift fails one suite or the other.
+    assert rc.level_of(case["text"]) == case["level"]
+
+
+def test_a_sheets_level_comes_from_its_titles_not_its_level_schedule():
+    # S2.105 lists LEVEL 1..14 one per line in a level schedule, beside its
+    # title; the title decides.
+    lines = ["FORMING PLAN - LEVEL 5", *[f"LEVEL {n}" for n in range(1, 15)], "3. TOP OF CONCRETE = SEE PLAN"]
+    assert rc.sheet_level(lines) == "LEVEL 5"
+    # A note pointing at another floor's plan is not a title.
+    assert rc.sheet_level(["LEVEL 4 BUILDING PLAN", "REFER TO LEVEL 5 PLAN FOR SLAB EDGE"]) == "LEVEL 4"
+    # A label inside the drawing is not a title either.
+    assert rc.sheet_level(["ENLARGED CONCRETE EXHIBIT - LEVEL 14", "LEVEL 13 ROOF DECK CONCRETE HEIGHTS"]) == "LEVEL 14"
+    # Two floors on one sheet: no one level.
+    assert rc.sheet_level(["LEVEL 4 FLOOR PLAN", "LEVEL 5 FLOOR PLAN"]) is None
+    assert rc.sheet_level(["GENERAL NOTES"]) is None
+
+
+def same_scale_pair(title_a: str, title_b: str, columns_b=COLUMNS):
+    """Two building plans at 1/8", like A3.03 and A3.05: B is missing the wing
+    A has, as a floor above a setback is."""
+    doc = fitz.open()
+    for title_text, cols in ((title_a, COLUMNS), (title_b, columns_b)):
+        page = doc.new_page(width=1728, height=1152)
+        plan(page, 300, 200, OVERALL, cols)
+        title(page, 300, 1000, "1", title_text, '1/8" = 1\'-0"')
+    a = rc.Sheet.read(Page("a", "d", 1, 1, "A3.03", None, "architectural"), doc[0])
+    b = rc.Sheet.read(Page("b", "d", 2, 2, "A3.05", None, "architectural"), doc[1])
+    return a, b, pm.align_sheets(a.geometry, b.geometry)
+
+
+def test_two_different_levels_are_never_compared():
+    """The client's A3.03 (Level 4) over A3.05 (Level 6): the southeast wing
+    steps back to a roof deck, so its columns stop. That was reported as
+    columns missing from Level 6."""
+    a, b, alignments = same_scale_pair("LEVEL 4 BUILDING PLAN", "LEVEL 6 BUILDING PLAN", COLUMNS[:-2])
+    assert alignments, "the shared columns DO line up — which is exactly the trap"
+    assert (a.level, b.level) == ("LEVEL 4", "LEVEL 6")
+    kept, note = rc.comparable_alignments(a, b, alignments)
+    assert kept == []
+    assert "different levels" in note and "Level 4" in note and "Level 6" in note
+
+
+def test_one_level_drawn_twice_at_one_scale_is_still_compared():
+    a, b, alignments = same_scale_pair("LEVEL 14 FLOOR PLAN", "LEVEL 14 FORMING PLAN", COLUMNS[:-1])
+    kept, note = rc.comparable_alignments(a, b, alignments)
+    assert kept == alignments and note is None
+    findings, _ = rc.column_mismatches(a, b, kept)
+    assert len(findings) == 1
+
+
+def test_two_same_scale_plans_naming_no_level_are_not_compared():
+    a, b, alignments = same_scale_pair("BUILDING PLAN", "BUILDING PLAN", COLUMNS[:-1])
+    kept, note = rc.comparable_alignments(a, b, alignments)
+    assert kept == [] and "usually two different floors" in note
+
+
+def test_an_enlarged_plan_is_compared_with_its_overall_plan_even_without_a_level():
+    doc = build(COLUMNS)
+    for page in doc:  # titles without a level
+        page.add_redact_annot(page.search_for("LEVEL 14")[0])
+        page.apply_redactions()
+    a, b = sheets(doc)
+    alignments = pm.align_sheets(a.geometry, b.geometry)
+    assert (a.level, b.level) == (None, None)
+    kept, note = rc.comparable_alignments(a, b, alignments)
+    assert kept == alignments and note is None
+
+
+def test_the_review_overlay_skips_different_levels_end_to_end():
+    """The wiring: plan_overlay must apply the rule to the exact check AND to
+    the pictures the model is shown."""
+    import rfi_review
+
+    doc = fitz.open()
+    for title_text, cols in (("LEVEL 4 BUILDING PLAN", COLUMNS), ("LEVEL 6 BUILDING PLAN", COLUMNS[:-2])):
+        page = doc.new_page(width=1728, height=1152)
+        plan(page, 300, 200, OVERALL, cols)
+        title(page, 300, 1000, "1", title_text, '1/8" = 1\'-0"')
+    scope = {
+        "pages": [
+            {"pageId": "a", "documentId": "d", "pageNumber": 1, "combinedPageNumber": 1, "sheetNumber": "A3.03",
+             "discipline": "architectural", "visual": True},
+            {"pageId": "b", "documentId": "d", "pageNumber": 2, "combinedPageNumber": 2, "sheetNumber": "A3.05",
+             "discipline": "architectural", "visual": True},
+        ]
+    }
+    out = rfi_review.plan_overlay(scope, lambda _doc, n: doc[n - 1], columns=True, pair_windows=2, start=1)
+    assert out.findings == [] and out.pairs == []
+    assert any("different levels" in n for n in out.notes)

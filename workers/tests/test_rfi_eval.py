@@ -40,6 +40,34 @@ def test_unmatched_candidates_are_listed_not_scored():
 def test_the_checked_in_cases_are_well_formed():
     data = json.loads(rfi_eval.CASES.read_text())
     for case in data["cases"]:
-        assert case["expected"] and case["target"]["type"] in ("sheet", "compare")
+        # A case expects something, or names something it must NOT raise.
+        assert case["expected"] or case.get("rejected")
+        assert case["target"]["type"] in ("sheet", "compare", "scan")
         for exp in case["expected"]:
             assert exp["checkTypes"] and all(len(p) == 2 for p in exp.get("pairs", []))
+        for rej in case.get("rejected", []):
+            assert rej["checkTypes"] and rej["why"] and (rej.get("sheets") or rej.get("mentions"))
+
+
+REJ = {"what": "S8", "why": "a screw", "checkTypes": ["unscheduled_mark"], "sheets": [], "mentions": ["S8"]}
+
+
+def test_a_finding_a_person_rejected_is_a_false_positive_when_raised_again():
+    case = {"id": "fp", "expected": [], "rejected": [REJ]}
+    raised = cand("Mark S-8 is shown on A1.06 but the DOOR SCHEDULE lists S1, S2", sheets=("A1.06",), check="unscheduled_mark")
+    result = rfi_eval.score(case, [raised])
+    assert [f["what"] for f in result["falsePositives"]] == ["S8"]
+    assert result["unmatched"] == []
+
+
+def test_a_rejection_does_not_swallow_a_different_finding():
+    case = {"id": "fp", "expected": [], "rejected": [REJ]}
+    other = cand("Mark S18 is shown on A1.06", sheets=("A1.06",), check="unscheduled_mark")
+    wrong_check = cand("S8 open item", check="open_item_note")
+    result = rfi_eval.score(case, [other, wrong_check])
+    assert result["falsePositives"] == [] and len(result["unmatched"]) == 2
+
+
+def test_the_four_client_rejections_are_in_the_benchmark():
+    ids = {c["id"] for c in json.loads(rfi_eval.CASES.read_text())["cases"]}
+    assert {"fp-a303-a305-levels", "fp-s1102-a336-scales", "fp-s8-door-schedule", "fp-sr25-level-schedule"} <= ids

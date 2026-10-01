@@ -269,6 +269,82 @@ def test_an_indexed_mark_the_text_does_not_show_is_skipped():
     assert unscheduled_marks(pages, chunks)[0] == []
 
 
+def test_a_note_pointing_at_a_schedule_does_not_make_the_page_a_schedule():
+    """The client's SR-25: a forming plan carrying stud rails SR-1, SR-2 and
+    the note "SR-X DENOTES STUD RAILS. FOR STUD RAIL SCHEDULE AND DETAILS SEE
+    SHEET S5.131" (plus a small LEVEL SCHEDULE table) was read as THE stud rail
+    schedule, so SR-25 on the next plan was "missing from the Level Schedule".
+    The real schedule is on S5.131, which is not in this set — so there is
+    nothing to check SR-25 against, and nothing to report."""
+    pages = [page("p1", "S2.103"), page("p2", "S2.107")]
+    chunks = [
+        chunk(
+            "plan1", "p1",
+            "LEVEL SCHEDULE\nLEVEL 3 28'-0\"\nLEVEL 4 38'-0\"\n"
+            "8. SR-X DENOTES STUD RAILS. FOR STUD RAIL SCHEDULE AND DETAILS SEE SHEET S5.131.\nSR-1 SR-2 AT C/4",
+            ["SR1", "SR2"],
+        ),
+        chunk("plan2", "p2", "SR-25 AT D/5", ["SR25"]),
+    ]
+    findings, notes = unscheduled_marks(pages, chunks)
+    assert findings == []
+    assert any("no schedule" in n for n in notes)
+
+
+def test_a_mark_is_checked_only_against_a_schedule_named_for_its_family():
+    # Two LEVEL entries do not make a LEVEL SCHEDULE a stud rail schedule.
+    pages = [page("p1", "S2.103"), page("p2", "S2.107")]
+    chunks = [
+        chunk("sched", "p1", "LEVEL SCHEDULE SR-10 SR-11", ["SR10", "SR11"]),
+        chunk("plan", "p2", "SR-25 AT D/5", ["SR25"]),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
+    # ...while the stud rail schedule itself still checks it.
+    chunks[0] = chunk("sched", "p1", "DECON STUDRAIL SCHEDULE SR-10 SR-11", ["SR10", "SR11"])
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["SR25"]
+
+
+def test_a_fastener_type_is_not_a_door_missing_from_the_door_schedule():
+    """The client's S8: "TYPE S-8 PAN HEAD STEEL SCREWS" on three UL assembly
+    sheets, reported as a mark missing from the door schedule."""
+    pages = [page("p1", "A1.06"), page("p2", "A1.08"), page("p9", "A1.24")]
+    screws = "ATTACH LEAD BATTEN STRIPS WITH TYPE S-8 PAN HEAD STEEL SCREWS 12 IN. OC"
+    chunks = [
+        chunk("sched", "p9", "DOOR SCHEDULE S1 S2 S3", ["S1", "S2", "S3"]),
+        chunk("a", "p1", screws, ["S8"]),
+        chunk("b", "p2", screws, ["S8"]),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
+    # Neither rule alone is relied on: under a schedule that DOES name the S
+    # family, the screw is still not a mark.
+    chunks[0] = chunk("sched", "p9", "STOREFRONT SCHEDULE S1 S2 S3", ["S1", "S2", "S3"])
+    assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_schedule_titles_are_headings_not_pointers():
+    assert rfi_checks.schedule_titles("PILE CAP SCHEDULE") == ["PILE CAP SCHEDULE"]
+    assert rfi_checks.schedule_titles("FOR STUD RAIL SCHEDULE AND DETAILS SEE SHEET S5.131") == []
+    assert rfi_checks.schedule_titles("REFER TO PILE CAP SCHEDULE ON S5.131") == []
+    assert rfi_checks.schedule_titles("COLUMN SCHEDULE SEE S5.1") == []
+
+
+@pytest.mark.parametrize(
+    "title, family, names",
+    [
+        ("PILE CAP SCHEDULE", "PC", True),
+        ("DECON STUDRAIL SCHEDULE", "SR", True),
+        ("SHEAR WALL SCHEDULE", "SW", True),
+        ("COLUMN SCHEDULE", "C", True),
+        ("LEVEL SCHEDULE", "SR", False),
+        ("DOOR SCHEDULE", "S", False),
+        ("PILE CAP SCHEDULE", "C", True),  # CAP: a cap schedule of C marks is plausible
+        ("FOOTING SCHEDULE", "PC", False),
+    ],
+)
+def test_a_schedule_title_names_its_mark_family(title, family, names):
+    assert rfi_checks.title_names_family(title, family) is names
+
+
 # --- open items --------------------------------------------------------------------
 
 

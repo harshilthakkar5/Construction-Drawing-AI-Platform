@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RFI_REVIEW_CHECK_IDS, RFI_REVIEW_DEPTHS } from "@cdip/shared";
 import {
@@ -135,6 +136,15 @@ describe("levelOf and sheetShape", () => {
     expect(levelOf("LEVEL 14 FLOOR PLAN")).toBe("LEVEL 14");
     expect(levelOf("level 5 forming plan")).toBe("LEVEL 5");
     expect(levelOf("FOUNDATION PLAN")).toBeNull();
+  });
+
+  // The worker's column overlay reads levels with the same rule
+  // (rfi_columns.level_of); both read this fixture so the two cannot drift.
+  it("agrees with the shared sheet-level fixture", () => {
+    const fixture = JSON.parse(
+      readFileSync(new URL("../../../packages/shared/fixtures/sheet-level.json", import.meta.url), "utf8"),
+    ) as { cases: { text: string; level: string | null }[] };
+    for (const c of fixture.cases) expect([c.text, levelOf(c.text)]).toEqual([c.text, c.level]);
   });
 
   it("gives sheets of one numbering the same shape and a column mark another", () => {

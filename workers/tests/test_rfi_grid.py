@@ -109,6 +109,51 @@ def test_an_architectural_and_a_structural_sheet_are_compared():
     assert {e["sheetNumber"] for e in findings[0].evidence} == {"S2.105", "A3.01"}
 
 
+def _cross_sheet(scale_s=(), scale_a=(), bubbles_a=None):
+    pages = [page("s", "S1.102", "structural", 1), page("a", "A3.36", "architectural", 2)]
+    systems = [
+        GridSystem("s", "blue 27pt", COLUMNS, STRUCT_ROWS, scales=scale_s),
+        GridSystem(
+            "a", "grey 18pt", shifted(COLUMNS, -146), shifted(ARCH_ROWS, -30),
+            bubbles=bubbles_a or {}, scales=scale_a,
+        ),
+    ]
+    return grid_mismatches(pages, systems)
+
+
+def test_sheets_printing_different_scales_are_never_compared():
+    """The client's S1.102 (overall plan, 1/8") against A3.36 (two enlarged
+    1/4" details): four lines of one fell on four of the other by translation
+    and the check reported grid 4 = grid 1, on two sheets that name every line
+    the same. A shared printed scale is now required."""
+    findings, notes = _cross_sheet(scale_s=(9.0,), scale_a=(18.0,))
+    assert findings == []
+    assert any("different drawing scales" in n and "S1.102" in n and "A3.36" in n for n in notes)
+
+
+def test_sheets_sharing_a_scale_are_still_compared():
+    # The same pair at one scale is RFI 002's shape and must stay a finding;
+    # a page that also prints a detail scale shares the plan scale.
+    assert len(_cross_sheet(scale_s=(9.0,), scale_a=(9.0, 36.0))[0]) == 1
+    # No scale read on one side compares as before.
+    assert len(_cross_sheet(scale_s=(9.0,), scale_a=())[0]) == 1
+
+
+def test_a_sheet_showing_one_label_in_two_places_is_several_views_not_one_grid():
+    """Two enlarged details side by side each bubble their own A: the label
+    sits at two positions, and positions on that sheet are paper-space."""
+    two_views = {"A": [[100.0, 50.0, 118.0, 68.0], [900.0, 50.0, 918.0, 68.0]]}
+    findings, notes = _cross_sheet(bubbles_a=two_views)
+    assert findings == []
+    assert any("A3.36" in n and "two places" in n for n in notes)
+
+
+def test_the_two_ends_of_one_kinked_line_are_still_one_line():
+    # S2.105's H is bubbled 18pt apart at its two ends.
+    kinked = {"A": [[100.0, 50.0, 118.0, 68.0], [118.0, 1600.0, 136.0, 1618.0]]}
+    assert len(_cross_sheet(bubbles_a=kinked)[0]) == 1
+
+
 def test_two_sheets_of_one_discipline_are_not_compared():
     """Two structural levels with different grids are usually two parts of a
     building, not a naming dispute."""

@@ -1126,6 +1126,14 @@ def plan_overlay(scope: dict, open_page, *, columns: bool, pair_windows: int, st
             alignments = plan_match.align_sheets(a.geometry, b.geometry)
             if not alignments:
                 continue
+            # Never two different floors, and same-scale plans only when both
+            # name one level — the pictures as well as the exact check, or the
+            # model is shown Level 4 beside Level 6 as "the same area".
+            alignments, why_not = rfi_columns.comparable_alignments(a, b, alignments)
+            if why_not:
+                out.notes.append(why_not)
+            if not alignments:
+                continue
             if columns:
                 found, notes = rfi_columns.column_mismatches(a, b, alignments)
                 out.findings += found

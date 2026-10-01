@@ -1,0 +1,19 @@
+{
+  "_comment": "Which floor LEVEL a piece of title text names. The rule exists twice: levelOf in apps/api/src/rfiReviewRules.ts (the planner's same-level pairing, read off the title-block text) and rfi_columns.level_of in workers (the column overlay, which refuses to compare sheets of two different levels — A3.03 Level 4 against A3.05 Level 6 was reported as moved columns). Both suites read this file, so the two cannot drift.",
+  "cases": [
+    {"text": "LEVEL 14 FLOOR PLAN", "level": "LEVEL 14"},
+    {"text": "level 5 forming plan", "level": "LEVEL 5"},
+    {"text": "Forming Plan - Level 5", "level": "LEVEL 5"},
+    {"text": "LEVEL 4 BUILDING PLAN", "level": "LEVEL 4"},
+    {"text": "LEVEL 6 BUILDING PLAN", "level": "LEVEL 6"},
+    {"text": "LEVEL P1 PARKING PLAN", "level": "LEVEL P1"},
+    {"text": "LEVEL B FOUNDATION PLAN", "level": "LEVEL B"},
+    {"text": "LEVEL4 PLAN", "level": "LEVEL 4"},
+    {"text": "GARAGE LEVEL 01 FOUNDATION PLAN", "level": "LEVEL 1"},
+    {"text": "LEVEL 00 PLAN", "level": "LEVEL 0"},
+    {"text": "FOUNDATION PLAN", "level": null},
+    {"text": "GARAGE LEVEL FOUNDATION PLAN - OVERALL", "level": null},
+    {"text": "LEVEL SCHEDULE", "level": null},
+    {"text": "", "level": null}
+  ]
+}

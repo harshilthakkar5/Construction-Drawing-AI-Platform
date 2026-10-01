@@ -2318,7 +2318,12 @@ false one is a question someone has to answer:
     schedule's shape (a slab schedule of S1, S2 says nothing about S501) and must not be a sheet
     number (a small set numbered P1..P3 beside a P4..P6 fixture schedule). High when called out
     in two places. The cost of the page rule is blindness on a plan sheet that carries its own
-    schedule — a missed finding, the direction an error here is allowed to fall.
+    schedule — a missed finding, the direction an error here is allowed to fall. A schedule is a
+    HEADING (`schedule_titles`: "FOR STUD RAIL SCHEDULE … SEE SHEET S5.131" points elsewhere and
+    made a forming plan "the" stud rail schedule) named for the mark's FAMILY
+    (`title_names_family`: SR is STUD RAIL or STUDRAIL, never LEVEL; S is not DOOR), and a mark
+    followed by SCREWS/BOLTS/… is a product type ("TYPE S-8 PAN HEAD STEEL SCREWS"). The client
+    rejected SR-25 "missing from the level schedule" and S8 "missing from the door schedule".
   * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
     (medium), V.I.F. / VERIFY IN FIELD (low: often boilerplate). Grouped by the NOTE, so a TBD in
     the general notes of forty sheets is one finding with up to five evidence locations.
@@ -2354,7 +2359,10 @@ false one is a question someone has to answer:
     with no discipline read) — two structural levels whose grids differ are usually two parts of
     a building, and the flip side is that ONE sheet alone finds nothing: the structural and the
     architectural plan both have to be in the project. Fingerprinted on the unordered renamed
-    pairs, so the same disagreement seen from several sheets is one finding. The highlight is ONE END of the
+    pairs, so the same disagreement seen from several sheets is one finding. Pages are compared only when they PRINT A COMMON SCALE
+    (each page's `plan_match.page_scales` travels with its grid, `GRID_CACHE_VERSION` 4), and a grid
+    whose label is bubbled at two places along its axis (two views on one sheet) never across pages:
+    S1.102 (1/8") against A3.36 (two 1/4" details) was reported as grid 4 = grid 1. The highlight is ONE END of the
     renamed lines, never their union, which spans the sheet. `RFI_GRID_CHECK=false` skips it.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
@@ -2508,7 +2516,15 @@ both as labelled "Pair N" images for the model (`pairWindows`, priced in the est
 exists because the real sheets produced that false finding: a dimension's text mask, a wall corner's
 two legs, a grey pad, a column cut off at a detail's edge, and a 1/8" column with only two stipple
 dots. On RFI 015 itself the two sheets AGREE — the RFI's green boxes are the author's annotations of
-the level below — so that case needs the level-13 plan, compared at 1:1.
+the level below. Two DIFFERENT levels are never compared (`rfi_columns.comparable_alignments`, the
+level read off each sheet's drawing titles by `sheet_level`; same-scale pairs need both titles to
+name one level): the client rejected A3.03 Level 4 over A3.05 Level 6, whose setback columns were
+reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
+`packages/shared/fixtures/sheet-level.json`. So RFI 015 stays a known gap on purpose.
+
+The client's first test rejected all four drafts it was shown; each is now a `rejected` entry in
+`benchmarks/rfi_eval_cases.json` (a run that raises one again fails, `--scan` scores the project
+checks) and a regression test.
 
 Every rate-limit tier has its OWN Redis prefix (`rl:<tier>:`). They shared `rl:` and every tier
 keys on the user id, so they were one counter: loading a project spent the 30-an-hour summary
