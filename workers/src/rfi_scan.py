@@ -100,7 +100,14 @@ _SYSTEM = (
     "dimension, value, code section or date that is not in them.\n"
     "- Ask the question. Do not propose an answer, a value or a design.\n"
     "- Name where the issue was found, using the sheet names given.\n"
-    "- subject: at most 90 characters. question: one to three sentences.\n"
+    "- Write for a reviewer who has never seen these drawings, in this order: what "
+    "the drawings show (cite the sheet, and the detail or grid line when the facts "
+    "give one), then what is missing or in conflict, then ONE direct question that "
+    "a decision or a value can answer. Never only \"please advise\".\n"
+    "- One issue per RFI: never merge two findings or add a second question.\n"
+    "- subject: the item and where it is, at most 90 characters "
+    "(for example \"Grid naming differs: structural vs architectural\"). "
+    "question: one to three sentences.\n"
     'Respond with ONLY JSON, no prose and no code fences: {"items": '
     '[{"index": <n>, "subject": "...", "question": "..."}]} — one item per '
     "finding, echoing its index."

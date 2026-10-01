@@ -391,7 +391,13 @@ def _seed(db) -> tuple[str, str]:
     texts = {
         "S-101": ("PILE CAP PC4 PER 5/S-501", ["PC4", "S501"]),
         "S-102": ("PC-4 AT GRID 9/D\nTOP OF PILE ELEV TBD", ["PC4"]),
-        "S-500": ("PILE CAP SCHEDULE\nPC1 6'X6'\nPC2 8'X8'\nPC3 10'X10'", ["PC1", "PC2", "PC3"]),
+        # The cover-sheet drawing list rides on the schedule sheet: without an
+        # index a reference to S-501 is "not uploaded", never an RFI.
+        "S-500": (
+            "PILE CAP SCHEDULE\nPC1 6'X6'\nPC2 8'X8'\nPC3 10'X10'\n"
+            "SHEET INDEX\nG-001 COVER\nS-101 PLAN\nS-102 PLAN\nS-500 SCHEDULES\nS-502 DETAILS",
+            ["PC1", "PC2", "PC3"],
+        ),
     }
     with db.connect() as conn:
         conn.execute("INSERT INTO projects (id, name) VALUES (%s, 'rfi scan test')", (project,))

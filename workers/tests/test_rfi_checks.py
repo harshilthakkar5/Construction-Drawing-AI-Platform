@@ -54,6 +54,13 @@ def chunk(cid, pid, text, identifiers=()):
 SET = [page("p1", "S-101"), page("p2", "S-102"), page("p3", "S-103")]
 
 
+def index(pid="p1", sheets=("G-001", "S-101", "S-102", "S-103", "S-104", "A-101")):
+    """The cover sheet's drawing list — the ISSUED set. A reference is only an
+    RFI when the sheet it names is missing from this, not merely from the
+    upload."""
+    return chunk("index", pid, "SHEET INDEX\n" + "\n".join(f"{s} SHEET TITLE" for s in sheets))
+
+
 # --- normalization -------------------------------------------------------------
 
 
@@ -113,7 +120,7 @@ def test_text_without_a_pointer_is_not_a_reference(text):
 
 
 def test_a_reference_to_a_missing_sheet_in_an_issued_discipline_is_high():
-    chunks = [chunk("c1", "p1", "PILE CAP PER 5/S-501")]
+    chunks = [chunk("c1", "p1", "PILE CAP PER 5/S-501"), index()]
     findings, _ = dangling_references(SET, chunks)
     assert len(findings) == 1
     f = findings[0]
@@ -139,13 +146,13 @@ def test_a_suffix_that_differs_from_the_set_is_kept_as_low():
     # A set numbered S-101P referencing S-501: maybe another package's sheet,
     # maybe a missing one. Weaker evidence, not none — shown, not dropped.
     pages = [page("p1", "S-101P"), page("p2", "S-102P")]
-    findings, _ = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501")])
+    findings, _ = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501"), index(sheets=("S-101P", "S-102P", "S-103P", "S-104P", "S-105P"))])
     assert [(f.facts["missingSheet"], f.confidence) for f in findings] == [("S-501", "low")]
 
 
 def test_a_matching_suffix_is_not_downgraded():
     pages = [page("p1", "S-101P"), page("p2", "S-102P")]
-    findings, _ = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501P")])
+    findings, _ = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501P"), index(sheets=("S-101P", "S-102P", "S-103P", "S-104P", "S-105P"))])
     assert [f.confidence for f in findings] == ["high"]
 
 
@@ -160,15 +167,44 @@ def test_a_sheet_whose_number_was_misread_is_not_reported_missing():
 def test_a_whole_missing_discipline_is_low_not_high():
     # No architectural sheet is in the project at all — most likely just not
     # uploaded, which is a note to the uploader rather than an RFI.
-    findings, _ = dangling_references(SET, [chunk("c1", "p1", "SEE A-301 FOR FINISHES")])
+    findings, _ = dangling_references(SET, [chunk("c1", "p1", "SEE A-301 FOR FINISHES"), index(sheets=("G-001", "S-101", "S-102", "S-103", "S-104"))])
     assert [f.confidence for f in findings] == ["low"]
 
 
 def test_unread_pages_downgrade_high_to_medium_and_say_why():
     pages = SET + [page("p4", None)]
-    findings, notes = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501")])
+    findings, notes = dangling_references(pages, [chunk("c1", "p1", "SEE 5/S-501"), index()])
     assert [f.confidence for f in findings] == ["medium"]
     assert any("no sheet number read" in n for n in notes)
+
+
+def test_with_no_sheet_index_a_missing_sheet_is_a_note_not_an_rfi():
+    """The client's set: A3.32 says "REFER TO RAMP SECTIONS ON A5.14", and
+    A5.14 is part of the issued set — it was simply not uploaded. Without the
+    drawing list nothing can tell those apart, so nothing is proposed."""
+    findings, notes = dangling_references(SET, [chunk("c1", "p1", "REFER TO RAMP SECTIONS ON S-514")])
+    assert findings == []
+    assert any("No sheet index" in n and "S-514" in n for n in notes)
+
+
+def test_a_sheet_the_index_lists_was_issued_and_merely_not_uploaded():
+    chunks = [chunk("c1", "p1", "SEE 5/S-104"), index()]  # S-104 is listed, not uploaded
+    findings, notes = dangling_references(SET, chunks)
+    assert findings == []
+    assert any("listed in the sheet index but were not uploaded" in n and "S-104" in n for n in notes)
+
+
+def test_a_page_mentioning_a_drawing_list_is_not_the_index():
+    # Fewer than MIN_INDEX_ENTRIES sheet numbers: a note, not the list.
+    note = chunk("n", "p2", "SEE SHEET INDEX ON G-001 AND S-101")
+    assert rfi_checks.sheet_index(SET, [note]) is None
+    assert rfi_checks.sheet_index(SET, [index()]) == {"G001", "S101", "S102", "S103", "S104", "A101"}
+    # A reference made ON the cover sheet is not an index entry...
+    noted = chunk("note", "p1", "SEE A-301 FOR FINISHES")
+    assert "A301" not in rfi_checks.sheet_index(SET, [index(), noted])
+    # ...but a sheet both listed and referenced there is still listed.
+    both = chunk("both", "p1", "SHEET INDEX\n" + "\n".join(f"{x} TITLE" for x in ("A-301", "S-101", "S-102", "S-103", "G-001")) + "\nSEE A-301")
+    assert "A301" in rfi_checks.sheet_index(SET, [both])
 
 
 def test_a_project_with_no_sheet_numbers_skips_the_check_out_loud():
@@ -179,7 +215,7 @@ def test_a_project_with_no_sheet_numbers_skips_the_check_out_loud():
 
 def test_one_missing_sheet_referenced_everywhere_is_one_finding():
     pages = [page(f"p{i}", f"S-10{i}") for i in range(1, 9)]
-    chunks = [chunk(f"c{i}", f"p{i}", "SEE 5/S-501") for i in range(1, 9)]
+    chunks = [chunk(f"c{i}", f"p{i}", "SEE 5/S-501") for i in range(1, 9)] + [index()]
     findings, _ = dangling_references(pages, chunks)
     assert len(findings) == 1
     assert len(findings[0].evidence) == rfi_checks.MAX_EVIDENCE
@@ -356,8 +392,6 @@ def test_a_schedule_title_names_its_mark_family(title, family, names):
         ("ELEVATION TO BE DETERMINED", "high"),
         ("FINISH TBC", "medium"),
         ("ANCHOR EMBED ???", "medium"),
-        ("VERIFY IN FIELD", "low"),
-        ("DIM V.I.F.", "low"),
     ],
 )
 def test_open_item_markers(text, confidence):
@@ -376,7 +410,7 @@ def test_overlapping_patterns_report_once_at_the_stronger_confidence(monkeypatch
     assert [h[2] for h in open_items("ELEV TBD")] == ["high"]
 
 
-@pytest.mark.parametrize("text", ["STBD SIDE", "TBDX", "WHAT? YES", "VIFTER"])
+@pytest.mark.parametrize("text", ["STBD SIDE", "TBDX", "WHAT? YES", "VIFTER", "VERIFY IN FIELD", "DIM V.I.F."])
 def test_look_alikes_are_not_open_items(text):
     assert open_items(text) == []
 
@@ -390,11 +424,36 @@ def test_the_same_note_on_many_sheets_is_one_open_item():
     assert findings[0].facts["note"] == "TOP OF PILE ELEV TBD"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ALL DIMENSIONS TO BE CONFIRMED BY CONTRACTOR",
+        "CONNECTION TO BE DETERMINED BY FABRICATOR",
+        "ANCHOR LAYOUT TBD PER SHOP DRAWINGS",
+        "FINAL ELEVATION TO BE CONFIRMED IN FIELD",
+    ],
+)
+def test_an_open_item_handed_to_another_party_is_not_an_rfi(text):
+    """An RFI asks the designer what the documents cannot answer. A note that
+    hands the item to the contractor, a fabricator or a submittal is their
+    work, settled through that channel."""
+    findings, notes = open_item_notes([page("p1", "S-101")], [chunk("c1", "p1", text)])
+    assert findings == []
+    assert any("not a question for the designer" in n for n in notes)
+
+
+def test_a_designer_open_item_on_the_next_line_is_still_found():
+    # The hand-off applies to its own note, not to its neighbour.
+    text = "1. DIMENSIONS TO BE CONFIRMED BY CONTRACTOR\n2. BEAM SIZE TBD"
+    findings, _ = open_item_notes([page("p1", "S-101")], [chunk("c1", "p1", text)])
+    assert [f.facts["note"] for f in findings] == ["2. BEAM SIZE TBD"]
+
+
 def test_open_items_are_ordered_strongest_first():
     pages = [page("p1", "S-101")]
-    chunks = [chunk("c1", "p1", "DIM VERIFY IN FIELD\nBEAM TBD")]
+    chunks = [chunk("c1", "p1", "SLAB EDGE TBC\nBEAM TBD")]
     findings, _ = open_item_notes(pages, chunks)
-    assert [f.confidence for f in findings] == ["high", "low"]
+    assert [f.confidence for f in findings] == ["high", "medium"]
 
 
 # --- running them ------------------------------------------------------------------
@@ -403,7 +462,7 @@ def test_open_items_are_ordered_strongest_first():
 def test_the_cap_keeps_the_strongest_and_says_so(monkeypatch):
     monkeypatch.setattr(rfi_checks, "MAX_FINDINGS_PER_CHECK", 3)
     pages = [page("p1", "S-101")]
-    text = "\n".join([f"ITEM {i} TBD" for i in range(5)] + ["DIM VERIFY IN FIELD"])
+    text = "\n".join([f"ITEM {i} TBD" for i in range(5)] + ["SLAB EDGE TBC"])
     findings, notes = open_item_notes(pages, [chunk("c1", "p1", text)])
     assert len(findings) == 3
     assert all(f.confidence == "high" for f in findings)
@@ -414,6 +473,7 @@ def test_run_all_runs_every_check():
     from rfi_grid import GridSystem
 
     pages, chunks = mark_project([("p1", "PC4 AT 7/D. SEE 5/S-509. PILE TIP TBD", ["PC4"])])
+    chunks.append(index(sheets=("S-101", "S-102", "S-501", "S-502", "S-503")))
     rows = {"1": 100.0, "2": 330.0, "3": 470.0, "4": 800.0}
     grids = [
         GridSystem(pages[0].id, "blue 27pt", {}, rows),

@@ -2311,6 +2311,12 @@ false one is a question someone has to answer:
     (probably not uploaded) or the suffix differs from every sheet ("S-501" in a set numbered
     S-101P — possibly another package). The suffix case was first written to DROP the finding,
     and the first screenshot of the review list is what showed a real reference missing.
+    NOT UPLOADED IS NOT NOT ISSUED, and only the second is an RFI: the project's own SHEET INDEX
+    (`sheet_index`: a page carrying "SHEET INDEX"/"DRAWING LIST" and ≥5 sheet numbers that are
+    not themselves pointed-at references) decides. A sheet the index lists, and EVERY reference in
+    a project with no index uploaded, goes to the notes ("upload the cover sheet") and never
+    becomes a candidate. A full scan of eleven client sheets proposed A5.14 and A3.31 — ramp
+    sections and an enlarged plan that are part of the set and were simply not in the upload.
   * `unscheduled_mark` — PC4 on a plan, and a PILE CAP SCHEDULE listing PC1..PC3. Marks come from
     `chunk_identifiers` (the one identifier definition), never a re-derived regex. A family needs
     two scheduled marks before it counts as a schedule; the SCHEDULE PAGE counts, not just the
@@ -2325,8 +2331,12 @@ false one is a question someone has to answer:
     followed by SCREWS/BOLTS/… is a product type ("TYPE S-8 PAN HEAD STEEL SCREWS"). The client
     rejected SR-25 "missing from the level schedule" and S8 "missing from the door schedule".
   * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
-    (medium), V.I.F. / VERIFY IN FIELD (low: often boilerplate). Grouped by the NOTE, so a TBD in
-    the general notes of forty sheets is one finding with up to five evidence locations.
+    (medium). Grouped by the NOTE, so a TBD in the general notes of forty sheets is one finding
+    with up to five evidence locations. VERIFY IN FIELD is NOT an open item: field verification is
+    the contractor's contractual duty, not a question for the designer. Nor is a note that hands
+    the item to another party (`_OTHER_PARTY`, read on the note's own sentence: BY CONTRACTOR,
+    FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD…) — that is settled through their
+    channel. Both are counted in the scan's notes.
   * `grid_mismatch` (`workers/src/rfi_grid.py`) — one grid line named differently by two
     drawings: the structural sheet's row 6 is the architectural sheet's row 9. Built from a real
     client RFI ("CONFIRM THE GRID LAYOUT", S2.105 against A3.01) that the three text checks
@@ -2362,7 +2372,12 @@ false one is a question someone has to answer:
     pairs, so the same disagreement seen from several sheets is one finding. Pages are compared only when they PRINT A COMMON SCALE
     (each page's `plan_match.page_scales` travels with its grid, `GRID_CACHE_VERSION` 4), and a grid
     whose label is bubbled at two places along its axis (two views on one sheet) never across pages:
-    S1.102 (1/8") against A3.36 (two 1/4" details) was reported as grid 4 = grid 1. The highlight is ONE END of the
+    S1.102 (1/8") against A3.36 (two 1/4" details) was reported as grid 4 = grid 1. ONE naming
+    dispute between two disciplines is ONE RFI (`_merge_by_discipline`): the full-scan audit
+    turned the client's RFI 002 into five findings (two sheet pairs, both axes) where the team
+    wrote one. Cross-page findings between the same two disciplines merge when their renamings
+    agree; one that contradicts the merged mapping is a separate dispute; a lone finding keeps its
+    old fingerprint so an RFI already accepted from it is not proposed again. The highlight is ONE END of the
     renamed lines, never their union, which spans the sheet. `RFI_GRID_CHECK=false` skips it.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
@@ -2521,6 +2536,15 @@ level read off each sheet's drawing titles by `sheet_level`; same-scale pairs ne
 name one level): the client rejected A3.03 Level 4 over A3.05 Level 6, whose setback columns were
 reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
 `packages/shared/fixtures/sheet-level.json`. So RFI 015 stays a known gap on purpose.
+
+How a valid RFI looks (industry practice — AIA G716-style forms, contractor guides) is now the
+standard the checks are held to: raised only when the documents cannot answer it (so "not
+uploaded", "verify in field" and "by contractor" are not RFIs), one issue per RFI, citing sheet,
+detail and grid, stating what the drawings show and what is missing or in conflict, then one
+direct question. The wording prompt (`rfi_scan._SYSTEM`) asks for exactly that order. A full scan
+of the eleven client sheets in this workspace went from 8 findings (1 real) to 2 (the merged RFI
+002 grid finding, and an open-item note that exists only because those sheets were cut from a
+marked-up RFI).
 
 The client's first test rejected all four drafts it was shown; each is now a `rejected` entry in
 `benchmarks/rfi_eval_cases.json` (a run that raises one again fails, `--scan` scores the project

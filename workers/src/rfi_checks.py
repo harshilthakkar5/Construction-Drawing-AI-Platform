@@ -13,12 +13,14 @@ is the design, not a convenience:
 Four checks, each precise before it is thorough — a missed gap is found the
 normal way, a false one is a question someone has to answer:
 
-  dangling_reference   a sheet the drawings point at ("SEE 5/S-501") that is
-                       not in the set.
+  dangling_reference   a sheet the drawings point at ("SEE 5/S-501") that the
+                       set's own sheet index does not list (one merely not
+                       uploaded is a note, not an RFI).
   unscheduled_mark     a mark on a plan (PC4) whose family has a schedule in
                        the set (PC1, PC2, PC3) with no row for it.
-  open_item_note       text the drafter left open: TBD, TO BE DETERMINED,
-                       ???, verify in field.
+  open_item_note       text the drafter left open for the DESIGNER: TBD, TO BE
+                       DETERMINED, ???. Not "verify in field" or "by
+                       contractor", which are someone else's work.
   grid_mismatch        one grid line named differently by two drawings
                        (rfi_grid.py — read from the PDF's geometry, the one
                        check that is not built on text).
@@ -247,7 +249,64 @@ def sheet_references(text: str) -> list[tuple[str, int, int]]:
     return found
 
 
+# A drawing list / sheet index heading. The index is the ISSUED SET: a sheet it
+# lists exists whether or not it was uploaded here.
+_INDEX_HEADING = re.compile(
+    r"\b(?:SHEET|DRAWING)S?\s+(?:INDEX|LIST)\b|\bINDEX\s+OF\s+(?:DRAWINGS|SHEETS)\b|\bLIST\s+OF\s+(?:DRAWINGS|SHEETS)\b"
+)
+_BARE_SHEET = re.compile(r"(?<![A-Z0-9/.-])" + _SHEET_TOKEN + r"(?![A-Z0-9/])")
+# Sheet numbers a page must list before it counts as the index rather than a
+# note that mentions one.
+MIN_INDEX_ENTRIES = 5
+
+
+def sheet_index(pages: list[Page], chunks: list[Chunk]) -> set[str] | None:
+    """Every sheet the project's SHEET INDEX lists, normalized — or None when
+    no index page was uploaded.
+
+    The index page is the one whose text carries an index heading; every
+    sheet-shaped token on that page with a discipline prefix counts. A cover
+    sheet often splits its index across several chunks, so the PAGE is read,
+    not only the chunk with the heading."""
+    by_page: dict[str, list[Chunk]] = {}
+    for chunk in chunks:
+        by_page.setdefault(chunk.page_id, []).append(chunk)
+    listed: set[str] = set()
+    found = False
+    for page_id, page_chunks in by_page.items():
+        if not any(_INDEX_HEADING.search(c.text.upper()) for c in page_chunks):
+            continue
+        tokens = set()
+        for c in page_chunks:
+            text = c.text.upper()
+            # A sheet number with a pointer before it ("SEE A-301") is a
+            # reference made on the cover sheet, not an entry in its list.
+            # By POSITION: the same sheet may also be listed in the index.
+            pointed = {end - len(token) for token, _, end in sheet_references(text)}
+            for m in _BARE_SHEET.finditer(text):
+                ref = normalize(m.group(1))
+                sig = signature(ref)
+                if m.start(1) in pointed:
+                    continue
+                if sig and _discipline_prefix(sig[0]):
+                    tokens.add(ref)
+        if len(tokens) >= MIN_INDEX_ENTRIES:
+            found = True
+            listed |= tokens
+    return listed if found else None
+
+
 def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Finding], list[str]]:
+    """A sheet the drawings point at that is not in the ISSUED set.
+
+    "Not uploaded here" is not "not issued", and only the second is an RFI:
+    the first is answered by uploading the rest of the set. The project's own
+    SHEET INDEX is what tells them apart, so a reference becomes a finding only
+    when an index was uploaded and does NOT list the sheet. A sheet the index
+    lists, and every reference in a project with no index, goes to the notes
+    as "not uploaded" — the client's test returned references to ramp
+    sections (A5.14) and an enlarged plan (A3.31) that were part of the set
+    and simply not in the upload."""
     notes: list[str] = []
     live = [p for p in pages if p.sheet_number]
     if len(live) < MIN_KNOWN_SHEETS:
@@ -300,6 +359,26 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
                 items.append(_evidence(page, chunk, quote))
             raw_form.setdefault(ref, token)
 
+    index = sheet_index(pages, chunks)
+    not_uploaded = sorted(ref for ref in hits if index is None or ref in index)
+    if not_uploaded:
+        shown = ", ".join(raw_form[r] for r in not_uploaded[:12]) + ("…" if len(not_uploaded) > 12 else "")
+        if index is None:
+            notes.append(
+                f"Sheet-reference check: the drawings refer to {len(not_uploaded)} sheet(s) that are not in "
+                f"this upload ({shown}). No sheet index (drawing list) was uploaded, so a sheet that was never "
+                "issued cannot be told from one that was simply not uploaded, and none is proposed as an RFI. "
+                "Upload the cover sheet with the drawing list, or the rest of the set, to check them."
+            )
+        else:
+            notes.append(
+                f"Sheet-reference check: {len(not_uploaded)} referenced sheet(s) are listed in the sheet index "
+                f"but were not uploaded ({shown}). They exist in the issued set, so they are not RFIs — upload "
+                "them to review what they show."
+            )
+    for ref in not_uploaded:
+        hits.pop(ref)
+
     findings: list[Finding] = []
     for ref, evidence in sorted(hits.items()):
         token = raw_form[ref]
@@ -320,9 +399,9 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
         where = _where(evidence)
         subject = f"Sheet {token} referenced but not in the drawing set"
         question = (
-            f"{where} references sheet {token}, but no sheet {token} is in the "
-            f"drawing set issued for this project. Please issue sheet {token} or "
-            "confirm the correct sheet reference."
+            f"{where} references sheet {token}, but sheet {token} is not listed in the "
+            f"sheet index of the drawing set issued for this project. Please issue sheet "
+            f"{token} or confirm the correct sheet reference."
         )
         findings.append(
             Finding(
@@ -572,9 +651,18 @@ _OPEN_ITEM_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"(?<![A-Z0-9])T\.?B\.?C\.?(?![A-Z0-9])"), "medium", "to be confirmed"),
     (re.compile(r"\?{2,}"), "medium", "unresolved"),
     (re.compile(r"\bPENDING (?:APPROVAL|CONFIRMATION|DESIGN|REVIEW|INFORMATION)\b"), "medium", "pending"),
-    (re.compile(r"(?<![A-Z0-9])V\.I\.F\.?(?![A-Z0-9])|\bVIF\b"), "low", "verify in field"),
-    (re.compile(r"\b(?:VERIFY IN FIELD|FIELD VERIFY|TO BE VERIFIED)\b"), "low", "verify in field"),
 ]
+# "VERIFY IN FIELD" is not on this list on purpose. It is an instruction to the
+# contractor — take the measurement on site — and the contract makes that the
+# contractor's job; an RFI is for what the documents cannot answer.
+# A note handing the open item to another party is that party's work, settled
+# through a submittal or shop drawing, not a question to the designer:
+# "CONNECTION TO BE DETERMINED BY FABRICATOR", "DIMENSIONS TO BE CONFIRMED BY
+# CONTRACTOR".
+_OTHER_PARTY = re.compile(
+    r"\b(?:CONTRACTOR|SUB-?CONTRACTOR|G\.?C\.?|FABRICATOR|SUPPLIER|MANUFACTURER|VENDOR|INSTALLER|"
+    r"SUBMITTALS?|SHOP\s+DRAWINGS?|DELEGATED|BY\s+OTHERS|IN\s+FIELD|ON\s+SITE)\b"
+)
 _RANK = {"high": 0, "medium": 1, "low": 2}
 
 
@@ -601,11 +689,15 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
     # Keyed on the NOTE, not the page: the same "BEAM SIZE TBD" in the general
     # notes of forty sheets is one open item seen forty times.
     grouped: dict[str, dict] = {}
+    handed_off = 0
     for chunk in chunks:
         page = by_page.get(chunk.page_id)
         if page is None:
             continue
         for start, end, confidence, meaning in open_items(chunk.text):
+            if _OTHER_PARTY.search(_sentence(chunk.text, start, end).upper()):
+                handed_off += 1
+                continue
             quote = _quote(chunk.text, start, end)
             key = normalize(quote)
             if not key:
@@ -623,13 +715,7 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
     for key, entry in sorted(grouped.items(), key=lambda kv: (_RANK[kv[1]["confidence"]], kv[0])):
         quote, where = entry["quote"], _where(entry["evidence"])
         short = quote if len(quote) <= 60 else quote[:57] + "…"
-        if entry["meaning"] == "verify in field":
-            ask = (
-                "Please confirm whether this can be resolved from the design "
-                "information, or provide the value needed before fabrication."
-            )
-        else:
-            ask = "Please provide the missing information."
+        ask = "Please provide the missing information, or confirm when it will be issued."
         findings.append(
             Finding(
                 check_type="open_item_note",
@@ -642,7 +728,21 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
             )
         )
     notes: list[str] = []
+    if handed_off:
+        notes.append(
+            f"Open-item check: {handed_off} open-item note(s) assign the item to the contractor, a supplier "
+            "or a submittal (\"… BY CONTRACTOR\", \"VERIFY IN FIELD\"); that is their work, not a question for "
+            "the designer, so none was proposed as an RFI."
+        )
     return _cap("open_item_note", findings, notes), notes
+
+
+def _sentence(text: str, start: int, end: int) -> str:
+    """The sentence (or note line) around a match: back to the previous full
+    stop or line break, forward to the next."""
+    left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
+    stops = [i for i in (text.find(".", end), text.find("\n", end)) if i != -1]
+    return text[left + 1 : min(stops) if stops else len(text)]
 
 
 # --- Running them -------------------------------------------------------------
