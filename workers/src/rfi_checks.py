@@ -368,9 +368,62 @@ def _mark_pattern(mark: str) -> re.Pattern:
     )
 
 
-def _schedule_title(text: str) -> str | None:
-    m = _SCHEDULE_TITLE.search(text.upper())
-    return " ".join(m.group(1).split()) if m else None
+# Words that make "... SCHEDULE" a pointer to a schedule rather than its
+# heading: "FOR STUD RAIL SCHEDULE AND DETAILS SEE SHEET S5.131" is a note on a
+# forming plan, and the plan is not the stud rail schedule.
+_REFERENCE_WORDS = {"SEE", "REFER", "REF", "FOR", "PER", "TO", "IN", "ON", "FROM", "WITH"}
+# Words a title carries that name no element.
+_TITLE_FILLER = {"AND", "OF", "THE", "&", "/", "TYPICAL", "TYP", "TYP.", "SCHEDULE", "SCHEDULES"}
+_SEE_AFTER = re.compile(r"^\W{0,3}(?:[A-Z]+\s+){0,3}(?:SEE|REFER|REF\.?)\b")
+# A mark followed by one of these is a product designation, not a drawn
+# element: "TYPE S-8 PAN HEAD STEEL SCREWS" is a screw, and was proposed as a
+# door missing from the door schedule.
+_FASTENER_AFTER = re.compile(
+    r"^\W{0,3}(?:[A-Z#/.-]+\s+){0,4}(?:SCREWS?|BOLTS?|NAILS?|ANCHORS?|WASHERS?|RIVETS?|FASTENERS?|STAPLES?|PINS?)\b"
+)
+
+
+def schedule_titles(text: str) -> list[str]:
+    """Every schedule HEADING in `text` — "PILE CAP SCHEDULE", never the
+    "FOR STUD RAIL SCHEDULE … SEE SHEET S5.131" that points somewhere else.
+    A title whose own words include a pointer word, or that is followed by
+    SEE / REFER, is a reference and is left out."""
+    upper = text.upper()
+    titles = []
+    for m in _SCHEDULE_TITLE.finditer(upper):
+        words = m.group(1).split()
+        if any(w.strip(".,:") in _REFERENCE_WORDS for w in words[:-1]):
+            continue
+        if _SEE_AFTER.match(upper[m.end() : m.end() + 60]):
+            continue
+        titles.append(" ".join(words))
+    return titles
+
+
+def title_names_family(title: str, family: str) -> bool:
+    """Whether a schedule's title is about marks of `family`.
+
+    The letters of a mark family are the initials of what it marks: PC is a
+    PILE CAP, SR a STUD RAIL, SW a SHEAR WALL, C a COLUMN, D a DOOR. So the
+    family must be the initials of consecutive title words, or spelled in
+    order inside one word ("DECON STUDRAIL SCHEDULE" for SR). Without it a
+    forming plan's LEVEL SCHEDULE became the schedule SR-25 was "missing"
+    from, and a DOOR SCHEDULE the one a screw type was "missing" from. A
+    family a title does not name — a lighting schedule of A1, B2 fixtures —
+    is a missed finding, the direction an error here is allowed to fall.
+    """
+    words = [w.strip(".,:()") for w in title.upper().split()]
+    words = [w for w in words if w and w not in _TITLE_FILLER]
+    initials = "".join(w[0] for w in words)
+    if family in initials:
+        return True
+    for word in words:
+        if word[0] != family[0]:
+            continue
+        rest = iter(word[1:])
+        if all(ch in rest for ch in family[1:]):
+            return True
+    return False
 
 
 def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Finding], list[str]]:
@@ -397,19 +450,28 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
     # direction an error here is allowed to fall.
     schedule_pages: dict[str, set[str]] = {}
     schedule_chunk: dict[str, Chunk] = {}
+    schedule_name: dict[str, str] = {}
     for chunk in chunks:
         if not _SCHEDULE_WORD.search(chunk.text):
             continue
+        titles = schedule_titles(chunk.text)
         for family, marks in marks_of(chunk).items():
-            if len(marks) >= MIN_SCHEDULE_MARKS:
-                schedule_pages.setdefault(family, set()).add(chunk.page_id)
-                schedule_chunk.setdefault(family, chunk)
+            if len(marks) < MIN_SCHEDULE_MARKS:
+                continue
+            # The schedule must be a heading, and a heading about THIS family.
+            named = [t for t in titles if title_names_family(t, family)]
+            if not named:
+                continue
+            schedule_pages.setdefault(family, set()).add(chunk.page_id)
+            schedule_chunk.setdefault(family, chunk)
+            schedule_name.setdefault(family, named[0])
 
     if not schedule_pages:
         notes.append(
             "Schedule check found no schedule in this project's text (no chunk "
-            "carrying the word SCHEDULE and at least two marks of one family), "
-            "so no mark could be checked against one."
+            "carrying a schedule heading that names a mark family — PILE CAP "
+            "SCHEDULE for PC marks — and at least two of its marks), so no mark "
+            "could be checked against one."
         )
         return [], notes
 
@@ -434,7 +496,7 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
         # Only marks SHAPED like the schedule's own: a schedule of S1, S2 slab
         # marks says nothing about S501, which is a sheet number.
         shapes = {_mark_parts(m)[1:] for m in in_schedule}
-        title = _schedule_title(schedule_chunk[family].text) or f"{family} schedule"
+        title = schedule_name.get(family) or f"{family} schedule"
         schedule_page = by_page[schedule_chunk[family].page_id]
         listed = sorted(in_schedule, key=lambda m: (len(m), m))
 
@@ -444,10 +506,15 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
             pattern = _mark_pattern(mark)
             evidence: list[dict] = []
             for page, chunk in places:
-                hit = pattern.search(chunk.text.upper())
+                upper = chunk.text.upper()
+                hit = next(
+                    (h for h in pattern.finditer(upper) if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])),
+                    None,
+                )
                 if hit is None:
                     # The identifier index saw it and the raw text does not
-                    # show it plainly; no quote means nothing to check.
+                    # show it plainly — or shows it only as a product type
+                    # ("TYPE S-8 … SCREWS"); no quote means nothing to check.
                     continue
                 if len(evidence) < MAX_EVIDENCE:
                     evidence.append(_evidence(page, chunk, _quote(chunk.text, hit.start(), hit.end())))

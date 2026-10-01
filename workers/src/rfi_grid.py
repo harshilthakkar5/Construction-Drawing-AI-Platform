@@ -27,9 +27,19 @@ Precision first, like every check in rfi_checks:
     that shift renames every line — the one false finding this check could
     produce in bulk. So the best offset must beat the runner-up by
     MIN_MARGIN lines, or nothing is reported.
-  * No scale search. Two drawings at different scales do not align and are
-    not compared; an enlarged plan beside an overall plan is a missed finding,
-    which is the direction an error here is allowed to fall.
+  * No scale search, and no comparison ACROSS scales. Two pages are compared
+    only when they print a common drawing scale (`scales`, read off the page's
+    own `1/8" = 1'-0"` text). Without that rule a translation still "aligns"
+    two grids at different scales whenever four lines happen to fall on four
+    others, and renames all of them: S1.102 (an overall plan at 1/8") against
+    A3.36 (two enlarged 1/4" details) was reported as grid 4 = grid 1, on two
+    sheets that name every line identically. An enlarged plan beside an
+    overall plan is now a missed finding, the direction an error here is
+    allowed to fall.
+  * A grid whose label appears at two DIFFERENT positions on its axis is not
+    one grid but several views on one sheet (two enlarged details side by
+    side, each with its own A and B). Its positions are paper-space
+    coincidences, so it is not compared with another page at all.
   * Across pages, only sheets of DIFFERENT disciplines are compared (or a
     sheet whose discipline is unknown). Two structural levels whose grids
     differ are usually two parts of a building, not a naming dispute.
@@ -63,6 +73,13 @@ MIN_MARGIN = 2
 # gridded identically collapses to a handful, and a set that does not is not
 # one this check can read in bulk.
 MAX_SYSTEMS = 80
+# A label's bubbles further apart than this ALONG its axis are two different
+# lines that share a name — two viewports, not one grid. The two ends of one
+# line differ by a few points (S2.105's H: 18pt for a kinked line); two views
+# of the same building sit hundreds of points apart.
+REPEAT_PT = 60.0
+# Two printed scales are the same scale within this fraction.
+SCALE_TOL = 0.02
 
 
 @dataclass(frozen=True)
@@ -80,6 +97,29 @@ class GridSystem:
     # boxes and PDF annotations use. None for a system read without it — an
     # unrotated page, where the two spaces are the same.
     to_unrotated: tuple | None = field(default=None, hash=False, compare=False)
+    # Every drawing scale the page prints, in points per foot
+    # (plan_match.page_scales). Empty when none was read — or for a system
+    # cached before scales were stored, which compares as before.
+    scales: tuple[float, ...] = field(default=(), hash=False, compare=False)
+
+    def repeats_a_label(self) -> bool:
+        """True when one label is bubbled at two places on its axis: several
+        views on one sheet, not one grid (see REPEAT_PT)."""
+        for axis, i in ((self.along_x, 0), (self.along_y, 1)):
+            for label in axis:
+                centres = [(r[i] + r[i + 2]) / 2 for r in self.bubbles.get(label, [])]
+                if centres and max(centres) - min(centres) > REPEAT_PT:
+                    return True
+        return False
+
+
+def share_a_scale(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
+    """Whether two pages print a common drawing scale. Unknown on either side
+    is not a disagreement — a sheet printing no scale compares as it always
+    did."""
+    if not a or not b:
+        return True
+    return any(abs(x - y) <= SCALE_TOL * max(x, y) for x in a for y in b)
 
 
 @dataclass(frozen=True)
@@ -175,7 +215,9 @@ def _comparable(a: GridSystem, b: GridSystem, pages: dict[str, Page]) -> bool:
     if a.page_id == b.page_id:
         return a.style != b.style
     da, db = pages[a.page_id].discipline, pages[b.page_id].discipline
-    return da is None or db is None or da != db
+    if not (da is None or db is None or da != db):
+        return False
+    return share_a_scale(a.scales, b.scales) and not a.repeats_a_label() and not b.repeats_a_label()
 
 
 def _signature(system: GridSystem) -> tuple:
@@ -284,9 +326,17 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
 
     # fingerprint -> accumulating finding
     found: dict[str, dict] = {}
+    other_scale: set[tuple[str, str]] = set()
+    several_views: set[str] = set()
     for i, a in enumerate(reps):
         for b in reps[i + 1 :]:
             if not _comparable(a, b, by_page):
+                if a.page_id != b.page_id:
+                    for system in (a, b):
+                        if system.repeats_a_label():
+                            several_views.add(page_label(by_page[system.page_id]))
+                    if not share_a_scale(a.scales, b.scales):
+                        other_scale.add(tuple(sorted((page_label(by_page[a.page_id]), page_label(by_page[b.page_id])))))
                 continue
             if _signature(a) == _signature(b):
                 continue
@@ -325,6 +375,18 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
                         _evidence(system, by_page[system.page_id], labels, name, axis)
                     )
 
+    if other_scale:
+        shown = ", ".join(f"{x} / {y}" for x, y in sorted(other_scale)[:6])
+        notes.append(
+            f"Grid check: {len(other_scale)} sheet pair(s) print different drawing scales and were not "
+            f"compared ({shown}{'…' if len(other_scale) > 6 else ''}) — an enlarged plan and an overall plan "
+            "line up on paper only by coincidence."
+        )
+    if several_views:
+        notes.append(
+            "Grid check: " + ", ".join(sorted(several_views)[:6]) + " show the same grid label in two places "
+            "(several views on one sheet), so their grids were not compared with other sheets."
+        )
     findings: list[Finding] = []
     for fp, entry in found.items():
         a, b, renamed = entry["a"], entry["b"], entry["renamed"]

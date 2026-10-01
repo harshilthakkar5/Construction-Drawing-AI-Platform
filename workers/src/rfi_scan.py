@@ -39,6 +39,7 @@ import db
 import grid
 import llm
 import logutil
+import plan_match
 import rfi_checks
 import storage
 from rfi_checks import Chunk, Finding, Page
@@ -69,7 +70,9 @@ GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # 3: each system carries its page's display -> unrotated matrix, so evidence
 # boxes are stored in the space every other box uses (the page's UNROTATED
 # space, like chunk bboxes). Version 2 entries lack it.
-GRID_CACHE_VERSION = 3
+# 4: each system carries its page's printed scales, so grids at different
+# scales (an enlarged detail and an overall plan) are never compared.
+GRID_CACHE_VERSION = 4
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
@@ -474,8 +477,11 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
                                 found = grid.styled_systems(loaded)
                                 # Grids are read in DISPLAY space; evidence is
                                 # stored unrotated. Carry the way back.
+                                scales = plan_match.page_scales(loaded) if found else []
                                 for system in found:
                                     system["toUnrotated"] = list(loaded.derotation_matrix)
+                                    # v4: grids at different scales are never compared.
+                                    system["scales"] = scales
                             except Exception as exc:
                                 # One unreadable page is a sheet with no grid,
                                 # not a failed scan.
@@ -501,6 +507,7 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
         GridSystem(
             page_id, s["style"], s["along_x"], s["along_y"], s.get("bubbles") or {},
             tuple(s["toUnrotated"]) if s.get("toUnrotated") else None,
+            tuple(s.get("scales") or ()),
         )
         for page_id, found in raw.items()
         for s in found

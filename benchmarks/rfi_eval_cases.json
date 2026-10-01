@@ -3,6 +3,7 @@
     "Targeted RFI review benchmark. Each case is an RFI a person really issued, used ONLY as the expected OUTPUT: the review never sees it.",
     "A case passes when one candidate of the run matches every field of an expected finding. `pairs` are grid names or values that must appear as 'a = b' in either order;",
     "`sheets` must each be named in the finding's evidence. Candidates matching no expected finding are listed, never scored as wrong: the sheets may carry real problems nobody wrote an RFI for.",
+    "`rejected` lists findings a person reviewed and judged WRONG, with why: a run that raises one again is a false positive and fails (the one exception to 'never scored as wrong'). Match on checkTypes, sheets in the evidence, and `mentions` in the wording. Target type 'scan' means the project-wide checks: score with --scan <rfi scan id>.",
     "Run: python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002] with DATABASE_URL set."
   ],
   "cases": [
@@ -54,7 +55,7 @@
       "checks": [
         "C01"
       ],
-      "knownGap": "Not findable from these two sheets, and correctly so. Laid over each other by the column overlay (plan_match), A3.35 and A3.27 AGREE: detail 1 matches 4 columns and detail 2 matches 5, with no difference except a column the enlarged detail's window cuts off. The RFI's green boxes are the author's own markup (Square annotations) showing where the LEVEL BELOW puts its columns, which neither sheet carries. The case becomes findable when the level-13 plan is in the project: the same overlay at a 1:1 ratio reports level-14 columns that do not stack on level-13 ones.",
+      "knownGap": "Not findable from these two sheets, and correctly so. Laid over each other by the column overlay (plan_match), A3.35 and A3.27 AGREE: detail 1 matches 4 columns and detail 2 matches 5, with no difference except a column the enlarged detail's window cuts off. The RFI's green boxes are the author's own markup (Square annotations) showing where the LEVEL BELOW puts its columns, which neither sheet carries. Comparing level 14 with level 13 is now refused by design (rfi_columns.comparable_alignments): the client rejected A3.03 (Level 4) vs A3.05 (Level 6) because columns legitimately stop and move between floors. Whether two adjacent floors' columns stack is a structural judgement the overlay cannot make, so this RFI stays a known gap.",
       "expected": [
         {
           "what": "Column locations along the Level 14 wall line differ between the enlarged plan and the overall plan",
@@ -69,7 +70,117 @@
           "pairs": []
         }
       ],
-      "needs": "The Level 13 plan (the level below), compared with A3.27 at the same scale."
+      "needs": "A same-level comparison that shows the discrepancy; a level-13 vs level-14 overlay is refused on purpose (see knownGap)."
+    },
+    {
+      "id": "fp-a303-a305-levels",
+      "source": "Client review of a draft RFI: 'Sheet A3.03 represents the Level 4 Building Plan. Sheet A3.05 represents the Level 6 Building Plan… that entire southeast wing has stepped back into an exterior low-slope roof deck… This is a false positive.'",
+      "pdf": "A3.03, A3.05 (not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "A3.03",
+          "A3.05"
+        ]
+      },
+      "checks": [
+        "C01"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "Columns 'missing' from Level 6 that stop at the Level 4 setback",
+          "why": "Two different floors; columns terminate below a roof deck by design. Fixed by refusing to compare sheets whose titles name different levels.",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "A3.03",
+            "A3.05"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fp-s1102-a336-scales",
+      "source": "Client review of a draft RFI: 'Sheet S1.102 is an overall building plan… at 1/8\" = 1'-0\". Sheet A3.36 … contains two separate enlarged details at 1/4\" = 1'-0\"… both drawings use identical grid numbering… The tool falsely compared Grid 4 from the enlarged callout … to Grid 1 at the bottom of the overall building plan.'",
+      "pdf": "S1.102, A3.36 (not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S1.102",
+          "A3.36"
+        ]
+      },
+      "checks": [
+        "G01"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "Grid lines 'named differently' on an overall plan and two enlarged details",
+          "why": "Different scales and two viewports on one sheet; the grids agree. Fixed by comparing grids only across pages that print a common scale, and never a grid whose label appears in two places.",
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "S1.102",
+            "A3.36"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fp-s8-door-schedule",
+      "source": "Client review of a draft RFI: '\"S-8\" refers to … Type S-8 pan head steel screws … on A1.06, A1.08, A1.11 … S-8 is a fastener, not a door mark and does not belong in the door schedule on A1.24.'",
+      "pdf": "A1.06, A1.08, A1.11, A1.24 (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "unscheduled_mark"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "S8 missing from the door schedule",
+          "why": "A screw type, not a door mark. Fixed twice over: a schedule must be named for the mark's family (S is not DOOR), and a mark followed by SCREWS/BOLTS/… is a product type.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [],
+          "mentions": [
+            "S8"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fp-sr25-level-schedule",
+      "source": "Client review of a draft RFI: 'SR-25 is a Shear Stud Rail… Note 8: SR-X DENOTES STUD RAILS. FOR STUD RAIL SCHEDULE AND DETAILS SEE SHEET S5.131… SR-25 is already fully scheduled on S5.131… The Level Schedule … is simply a table listing building floor elevations.'",
+      "pdf": "S2.103, S2.107, S5.131 (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "unscheduled_mark"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "SR-25 missing from the level schedule",
+          "why": "A note pointing at the stud rail schedule made the forming plan count as one, and a LEVEL schedule was taken as the stud rails' schedule. Fixed: a schedule must be a heading (not 'FOR … SCHEDULE … SEE SHEET') and named for the mark's family.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [],
+          "mentions": [
+            "SR25"
+          ]
+        }
+      ]
     }
   ]
 }

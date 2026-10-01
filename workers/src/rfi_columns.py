@@ -32,6 +32,7 @@ Precision first, like every check in rfi_checks:
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 import fitz
@@ -50,6 +51,53 @@ MAX_DIFF_SHARE = 1.0
 GRID_NAME_FT = 15.0
 
 
+# The planner's levelOf (apps/api/src/rfiReviewRules.ts), mirrored: both read
+# packages/shared/fixtures/sheet-level.json, so they cannot drift.
+_LEVEL = re.compile(r"\bLEVEL\s*([0-9]{1,3}|[A-Z]{1,2}\d?)\b")
+# A title line, not a note pointing elsewhere ("REFER TO LEVEL 5 PLAN").
+_POINTER = re.compile(r"\b(?:SEE|REFER|REF|SIM|SIMILAR|TYP|ABOVE|BELOW)\b")
+
+
+def level_of(text: str | None) -> str | None:
+    """"LEVEL 14", "LEVEL 5" out of a title; None when it names none."""
+    found = _LEVEL.search((text or "").upper())
+    # "LEVEL 01" and "LEVEL 1" are one floor.
+    return f"LEVEL {re.sub(r'^0+(?=[0-9])', '', found.group(1))}" if found else None
+
+
+# What a drawing title calls itself. "LEVEL 13 ROOF DECK CONCRETE HEIGHTS" is a
+# label inside a drawing, not its title.
+_DRAWING_KIND = re.compile(r"\b(?:PLANS?|EXHIBITS?|FRAMING|FORMING|LAYOUT)\b")
+
+
+def sheet_level(lines: list[str]) -> str | None:
+    """The one level a sheet's drawing titles name ("LEVEL 4 BUILDING PLAN",
+    "Forming Plan - Level 5", "CONCRETE EXHIBIT - LEVEL 14"), or None when
+    they name none or several.
+
+    A title is a short line that names a kind of drawing, and never one that
+    points somewhere else — so a note mentioning another floor does not decide
+    which floor this is. Only when no line names a kind of drawing does a line
+    that is the level on its own ("LEVEL 14") count: S2.105 carries a level
+    schedule listing LEVEL 1 to LEVEL 14 one per line, beside its title
+    "FORMING PLAN - LEVEL 5". A sheet whose titles name two levels holds two
+    floors and has no one level."""
+    titled, bare = set(), set()
+    for line in lines:
+        upper = " ".join(line.upper().split())
+        if len(upper) > 60 or _POINTER.search(upper):
+            continue
+        level = level_of(upper)
+        if not level:
+            continue
+        if _DRAWING_KIND.search(upper):
+            titled.add(level)
+        elif upper.replace(" ", "") == level.replace(" ", ""):
+            bare.add(level)
+    levels = titled or bare
+    return levels.pop() if len(levels) == 1 else None
+
+
 @dataclass
 class Sheet:
     """One page as the check sees it: its database row and its geometry."""
@@ -60,6 +108,8 @@ class Sheet:
     grid_y: dict[str, float]
     # {region: "detail 1"}, from plan_match.detail_names
     details: dict[int, str] = field(default_factory=dict)
+    # The floor its drawing titles name, or None (see sheet_level).
+    level: str | None = None
 
     @classmethod
     def read(cls, page_row: Page, fitz_page: fitz.Page) -> "Sheet":
@@ -71,7 +121,8 @@ class Sheet:
             except Exception:  # a sheet with no readable grid is still comparable
                 pass
         details = pm.detail_names(geometry.page, geometry) if geometry.elements else {}
-        return cls(page_row, geometry, grid_x, grid_y, details)
+        level = sheet_level([text for _, text in pm.text_lines(geometry.page, geometry.words)])
+        return cls(page_row, geometry, grid_x, grid_y, details, level)
 
     @property
     def label(self) -> str:
@@ -158,6 +209,40 @@ def _position_key(diff: pm.Difference, al: pm.Alignment, b: Sheet) -> str:
     ptft_b = min(b.geometry.scales)
     x, y = (diff.b.cx, diff.b.cy) if diff.b is not None else al.to_b(diff.a.cx, diff.a.cy)
     return f"{diff.kind}@{round(x / ptft_b)},{round(y / ptft_b)}"
+
+
+def comparable_alignments(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) -> tuple[list[pm.Alignment], str | None]:
+    """The alignments of A over B that may be read as a column disagreement,
+    and a note when some were set aside.
+
+    Columns legitimately change between LEVELS: a wing steps back to a roof
+    deck, a transfer moves a column, sizes drop as loads fall. A3.03 (Level 4)
+    laid over A3.05 (Level 6) lined up on the columns the two floors share and
+    reported every one that stops at the setback as "missing". So:
+
+      * two sheets naming DIFFERENT levels are never compared;
+      * two sheets at the SAME scale (scale ratio 1) are compared only when
+        both name the same level — two plans at one scale are usually two
+        floors, and nothing else on the page says which;
+      * an enlarged plan over an overall plan (ratio below 1) is compared
+        unless their levels are known to differ: an enlarged plan rarely
+        repeats its level in a title the reader finds.
+    """
+    if a.level and b.level and a.level != b.level:
+        return [], (
+            f"Column comparison: {a.label} ({a.level.title()}) and {b.label} ({b.level.title()}) show different "
+            "levels, so their columns were not compared — columns stop, move and change size between floors "
+            "by design."
+        )
+    kept = [al for al in alignments if abs(al.scale - 1) > 1e-6 or (a.level and a.level == b.level)]
+    if len(kept) < len(alignments):
+        return kept, (
+            f"Column comparison: {a.label} and {b.label} line up at the same scale, but "
+            + ("neither names" if not (a.level or b.level) else "only one names")
+            + " its level in a plan title, so they were not compared — two same-scale plans are usually two "
+            "different floors."
+        )
+    return kept, None
 
 
 def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) -> tuple[list[Finding], list[str]]:
