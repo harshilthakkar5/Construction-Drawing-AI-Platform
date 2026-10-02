@@ -124,6 +124,36 @@ def column_offsets_for_page(page, sheet: str) -> tuple[str | None, str]:
     return describe_offsets(sheet, offsets, ptft), f"C03 aid: {len(offsets)} column offset(s) measured on {sheet}."
 
 
+def column_occurrences_for_page(page, sheet: str) -> tuple[list, str | None, str]:
+    """(occurrences, aid text or None, note) for C03.
+
+    Column MARKS first (`column_locate`): each printed occurrence of a mark,
+    its own body found in a high-resolution render beside the label, and that
+    body measured against the grid in BOTH directions, minor lines included.
+    That is what the first real C03 run lacked: `column_offsets_for_page`
+    finds columns as vector filled boxes with stipple (an architectural
+    convention), so on a structural forming plan — whose column fills are
+    raster tiles — it found nothing and the model judged offsets from a
+    whole-sheet picture. A sheet with no column marks keeps the old reading.
+    """
+    import column_locate
+    import grid
+
+    clean = grid.without_markup(page)
+    occurrences, note = column_locate.locate(clean)
+    if occurrences:
+        measured = sum(1 for o in occurrences if o.body is not None)
+        return (
+            occurrences,
+            column_locate.describe(sheet, occurrences, note),
+            f"C03 aid: {len(occurrences)} column mark occurrence(s) on {sheet}, {measured} measured against the grid"
+            + (f" ({note})" if note else "")
+            + ".",
+        )
+    text, old_note = column_offsets_for_page(page, sheet)
+    return [], text, old_note
+
+
 # --- G02 --------------------------------------------------------------------------
 
 _LEVEL = re.compile(r"\b(?:LEVEL|LVL\.?)\s*([0-9]{1,3}|[A-Z]{1,2}\d?|ROOF|BASEMENT|GROUND|MEZZANINE)\b", re.I)

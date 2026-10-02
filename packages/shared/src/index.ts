@@ -877,10 +877,41 @@ export interface RfiEvidenceDto {
   /** Targeted review only: which evidence item this was (text, gridmarks,
    * description, a whole-page image or a close-up), how far it can be trusted,
    * which named sheet it belongs to, and what the review said it shows. */
-  kind?: "text" | "gridmarks" | "description" | "page" | "crop";
+  kind?: "text" | "gridmarks" | "description" | "page" | "crop" | "occurrence";
   sourceTrust?: "project_text" | "geometry" | "visual" | "model_description";
   side?: string | null;
   observation?: string | null;
+  /** C03 only: a column OCCURRENCE measured against the grid. "verified" is
+   * off grid with nothing near it that locates it (the finding);
+   * "not_verified" could not be settled and is shown for a person to check.
+   * Absent on everything else, and absent never means verified. */
+  verification?: "verified" | "not_verified";
+  occurrence?: RfiColumnOccurrenceDto;
+}
+
+/** One printed occurrence of a column mark and where its body stands
+ * against the grid in each direction (workers/src/column_locate.py). The
+ * measured offset is for the audit only; it is not a printed dimension. */
+export interface RfiColumnOccurrenceDto {
+  mark: string;
+  occurrence: string;
+  crossing: string | null;
+  status: "located_by_grid" | "off_grid" | "unknown";
+  reason: string;
+  sizePrinted: string | null;
+  x: RfiOccurrenceAxisDto | null;
+  y: RfiOccurrenceAxisDto | null;
+  dimensionsNear: string[];
+  relation: "centreline";
+  bbox: BBox | null;
+}
+
+export interface RfiOccurrenceAxisDto {
+  direction: "x" | "y";
+  line: string | null;
+  alsoNamed: string[];
+  state: "centred" | "offset" | "face" | "uncertain" | "no_grid";
+  measuredOffsetIn: number | null;
 }
 
 export interface RfiCandidateDto {
@@ -1380,6 +1411,8 @@ export interface RfiCheckResultDto {
   observations: number;
   candidates: number;
   gaps: string[];
+  /** C03: every column-mark occurrence measured on the reviewed sheets. */
+  occurrences?: (RfiColumnOccurrenceDto & { sheetNumber: string | null; documentId: string; pageNumber: number })[];
 }
 
 /** One element a review inventoried, field by field. */

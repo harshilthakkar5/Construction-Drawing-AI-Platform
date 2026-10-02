@@ -48,6 +48,10 @@ from generated import rfi_package_key
 log = logutil.get("rfi_package")
 
 RED = (0.9, 0.0, 0.0)
+# Context (a supporting note, a typical detail, an occurrence nobody verified)
+# is outlined in this, dashed, never clouded: a cloud says "the problem is
+# HERE", and a referenced note is not where the problem is.
+CONTEXT = (0.1, 0.35, 0.8)
 CALLOUT_FILL = (1.0, 1.0, 0.6)  # the yellow note the team uses (RFI 010)
 QUESTION_FILL = (0.82, 0.87, 0.94)  # the cover form's shaded question box
 MAX_SHEETS_PER_ITEM = 6
@@ -56,6 +60,11 @@ MAX_SNIPPETS = 2
 # Evidence covering more than this share of its page is "the whole sheet":
 # clouding it would say nothing about where the problem is.
 WHOLE_SHEET_SHARE = 0.5
+# A finding box larger than this share is a broad AREA, not a location: it is
+# outlined and labelled "not pinpointed" instead of clouded, and clouds are
+# never merged into anything larger. A forming plan's grouped column claim
+# came out as one cloud over nearly the whole plan.
+PRECISE_SHARE = 0.08
 STATUSES = ("queued", "running", "ready", "failed")
 
 LETTER = fitz.Rect(0, 0, 612, 792)
@@ -69,6 +78,11 @@ class Mark:
     sheet_number: str | None
     bbox: dict | None  # unrotated PDF points, like chunk bboxes
     note: str | None = None
+    # "finding": where the problem is (clouded). "context": what it was
+    # checked against, or an occurrence nobody verified (outlined, labelled).
+    role: str = "finding"
+    label: str | None = None
+    kind: str | None = None  # the evidence kind (text, crop, page, occurrence, ...)
 
 
 @dataclass
@@ -86,6 +100,10 @@ class Item:
     draft: bool
     marks: list[Mark] = field(default_factory=list)
     reasoning: str | None = None
+    # The sheet revision the RFI is about. Nothing reads it off the title
+    # block yet, so it is None and the form says so in words — a blank field
+    # reads as "no revision", which is a claim.
+    revision: str | None = None
 
     @property
     def title(self) -> str:
@@ -126,9 +144,11 @@ def cloud_rect(bbox: dict | None, unrotated_page: fitz.Rect, pad: float) -> fitz
     return None if rect.is_empty else rect
 
 
-def merge_rects(rects: list[fitz.Rect], gap: float) -> list[fitz.Rect]:
+def merge_rects(rects: list[fitz.Rect], gap: float, max_area: float | None = None) -> list[fitz.Rect]:
     """Clouds that touch or nearly touch become one: two clouds on one note
-    read as two problems."""
+    read as two problems. Never into a union larger than `max_area`: chained
+    merges of nearby occurrences are how one cloud ended up over a whole plan,
+    and a cloud that large points at nothing."""
     out = [fitz.Rect(r) for r in rects]
     changed = True
     while changed:
@@ -137,6 +157,9 @@ def merge_rects(rects: list[fitz.Rect], gap: float) -> list[fitz.Rect]:
             for j in range(i + 1, len(out)):
                 a, b = out[i], out[j]
                 grown = fitz.Rect(a.x0 - gap, a.y0 - gap, a.x1 + gap, a.y1 + gap)
+                union = a | b
+                if max_area is not None and union.width * union.height > max_area:
+                    continue
                 if grown.intersects(b):
                     out[i] = a | b
                     del out[j]
@@ -145,6 +168,30 @@ def merge_rects(rects: list[fitz.Rect], gap: float) -> list[fitz.Rect]:
             if changed:
                 break
     return out
+
+
+def box_share(bbox: dict | None, unrotated_page: fitz.Rect) -> float | None:
+    """How much of its page a stored box covers, or None for no usable box."""
+    if not bbox:
+        return None
+    try:
+        w, h = float(bbox["width"]), float(bbox["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return w * h / (unrotated_page.width * unrotated_page.height)
+
+
+def outline_rect(bbox: dict, unrotated_page: fitz.Rect, pad: float) -> fitz.Rect | None:
+    """The box itself, padded and on the page, whatever its size (an
+    outline, unlike a cloud, claims nothing about precision)."""
+    try:
+        x, y, w, h = (float(bbox[k]) for k in ("x", "y", "width", "height"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    rect = fitz.Rect(x - pad, y - pad, x + w + pad, y + h + pad) & unrotated_page
+    return None if rect.is_empty else rect
 
 
 def font_size_for(page_rect: fitz.Rect) -> float:
@@ -218,18 +265,55 @@ def _unrotated(page: fitz.Page) -> fitz.Rect:
 
 def mark_sheet(
     page: fitz.Page, item: Item, marks: list[Mark], taken: list[fitz.Rect] | None = None
-) -> tuple[list[fitz.Rect], fitz.Rect]:
-    """Cloud every piece of evidence on this page, write one callout with the
-    question, and draw a leader from it to each cloud. Returns the clouds and
-    the callout in DISPLAY space (for the cover's snippets)."""
+) -> tuple[list[fitz.Rect], fitz.Rect, list[str]]:
+    """Cloud the FINDING evidence on this page, outline the CONTEXT, write one
+    callout and draw a leader from it to each cloud. Returns the clouds and
+    the callout in DISPLAY space (for the cover's snippets), and what could
+    not be pinpointed, said in words for the cover.
+
+    A finding box too broad to be a location (`PRECISE_SHARE`) is outlined
+    and labelled "not pinpointed" rather than clouded; one that is most of the
+    sheet is not drawn at all. Either way the callout and the cover say so —
+    a missing cloud must never read as "nothing here"."""
     unrot = _unrotated(page)
     fs = font_size_for(page.rect)
     pad = fs * 1.5
-    clouds_u = merge_rects(
-        [r for r in (cloud_rect(m.bbox, unrot, pad) for m in marks) if r is not None], gap=pad
-    )
+    page_area = unrot.width * unrot.height
+    sheet = marks[0].sheet_number or f"page {marks[0].combined_page_number or marks[0].page_number}"
+    flags: list[str] = []
+    precise: list[fitz.Rect] = []
+    broad: list[fitz.Rect] = []
+    whole = False
+    context: list[tuple[fitz.Rect, str | None]] = []
+    for m in marks:
+        share = box_share(m.bbox, unrot)
+        if m.role == "context":
+            if share is not None and share <= WHOLE_SHEET_SHARE:
+                r = outline_rect(m.bbox, unrot, pad / 2)
+                if r is not None:
+                    context.append((r, m.label))
+            continue
+        if share is None or share > WHOLE_SHEET_SHARE:
+            whole = True
+        elif share > PRECISE_SHARE:
+            r = outline_rect(m.bbox, unrot, pad / 2)
+            if r is not None:
+                broad.append(r)
+        else:
+            r = cloud_rect(m.bbox, unrot, pad)
+            if r is not None:
+                precise.append(r)
+    clouds_u = merge_rects(precise, gap=pad, max_area=PRECISE_SHARE * page_area)
     to_display, to_unrot = page.rotation_matrix, page.derotation_matrix
     clouds_d = [fitz.Rect(r * to_display).normalize() for r in clouds_u]
+    findings = [m for m in marks if m.role != "context"]
+    if findings and not clouds_u:
+        flags.append(
+            f"{sheet}: the cited evidence covers a broad area, so the exact location is NOT pinpointed — review the "
+            + ("outlined area." if broad else "whole sheet.")
+        )
+    elif whole or broad:
+        flags.append(f"{sheet}: part of the cited evidence covers a broad area and is outlined, not clouded.")
 
     width = max(2.0, round(fs / 3, 1))  # the team's clouds are ~5pt on a 36x24 sheet
     for r in clouds_u:
@@ -238,28 +322,49 @@ def mark_sheet(
         cloud.set_colors(stroke=RED)
         cloud.set_info(title="RFI review", content=item.callout_heading, subject="Cloud")
         cloud.update()
+    for r in broad:
+        _outline(page, r, RED, width, "AREA CITED — NOT PINPOINTED", fs)
+    for r, label in context:
+        _outline(page, r, CONTEXT, max(1.0, width * 0.6), label or "CONTEXT — referenced, not the issue location", fs * 0.7)
 
-    body = f"{item.callout_heading}\n{item.question}"
+    if findings:
+        heading = item.callout_heading
+        body = f"{heading}\n{item.question}"
+        if not clouds_u:
+            body += "\n(Location on this sheet not pinpointed — see the cover.)"
+    else:
+        # A sheet that only carries context: a typical detail, a general
+        # note. Saying the question here would read as though the column
+        # were on this sheet.
+        body = f"{item.callout_heading}\nCONTEXT ONLY: referenced by this RFI. The issue is not located on this sheet."
     chars = 48
     lines = wrap(body, chars)
     w = fs * chars * 0.52 + fs
     h = (len(lines) + 0.6) * fs * 1.25
-    callout_d = place_callout((w, h), clouds_d, page.rect, taken or [], gap=fs * 3)
+    targets_d = clouds_d or [fitz.Rect(r * to_display).normalize() for r in broad] or [
+        fitz.Rect(r * to_display).normalize() for r, _ in context
+    ]
+    # The callout must not cover an outlined occurrence or note either.
+    others_d = [fitz.Rect(r * to_display).normalize() for r in broad] + [
+        fitz.Rect(r * to_display).normalize() for r, _ in context
+    ]
+    callout_d = place_callout((w, h), targets_d, page.rect, (taken or []) + others_d, gap=fs * 3)
     callout_u = fitz.Rect(callout_d * to_unrot).normalize()
+    colour = RED if findings else CONTEXT
     note = page.add_freetext_annot(
         callout_u,
         "\n".join(lines),
         fontsize=fs,
         fontname="helv",
-        text_color=RED,
+        text_color=colour,
         fill_color=CALLOUT_FILL,
-        border_color=RED,
+        border_color=colour,
         rotate=page.rotation,
     )
     # PyMuPDF 1.25 draws a FreeText only when its colours are given AGAIN on
     # update(), and set_info() blanks its appearance — so no title on this one.
     note.set_border(width=max(1.0, width * 0.5))
-    note.update(fontsize=fs, text_color=RED, fill_color=CALLOUT_FILL, border_color=RED, rotate=page.rotation)
+    note.update(fontsize=fs, text_color=colour, fill_color=CALLOUT_FILL, border_color=colour, rotate=page.rotation)
 
     for cd in clouds_d:
         a, b = leader(callout_d, cd)
@@ -271,14 +376,44 @@ def mark_sheet(
         line.update()
     if taken is not None:
         taken.append(callout_d)
-    return clouds_d, callout_d
+    return clouds_d, callout_d, flags
+
+
+def _outline(page: fitz.Page, r: fitz.Rect, colour, width: float, label: str, fs: float) -> None:
+    """A dashed rectangle (a Square annotation, editable like the clouds)
+    with its label written just above it."""
+    box = page.add_rect_annot(r)
+    box.set_border(width=width, dashes=[6, 4])
+    box.set_colors(stroke=colour)
+    box.set_info(title="RFI review", content=label, subject="Context" if colour == CONTEXT else "Area")
+    box.update()
+    shown = fitz.Rect(r * page.rotation_matrix).normalize()
+    size = max(6.0, fs)
+    tw = fitz.get_text_length(label, fontname="helv", fontsize=size) + size
+    # Tall enough for the line to fit: a FreeText whose box is shorter than
+    # its line draws nothing at all.
+    tag_d = fitz.Rect(shown.x0, shown.y0 - size * 2.4, shown.x0 + tw + size, shown.y0) & page.rect
+    if tag_d.is_empty or tag_d.width < tw * 0.5:
+        return
+    white = (1.0, 1.0, 1.0)
+    tag = page.add_freetext_annot(
+        fitz.Rect(tag_d * page.derotation_matrix).normalize(), label, fontsize=size, fontname="helv",
+        text_color=colour, fill_color=white, rotate=page.rotation,
+    )
+    tag.update(fontsize=size, text_color=colour, fill_color=white, rotate=page.rotation)
 
 
 # --- the cover form ------------------------------------------------------------------
 
 
+def _plain(text: str) -> str:
+    """The cover's base-14 font has no em dash (it printed as a dot)."""
+    return (text or "").replace("\u2014", "-").replace("\u2013", "-")
+
+
 def _text(page, x, y, text, size=10, bold=False, color=(0, 0, 0), right=False):
     font = "helv" if not bold else "hebo"
+    text = _plain(text)
     if right:
         x -= fitz.get_text_length(text, fontname=font, fontsize=size)
     page.insert_text((x, y), text, fontsize=size, fontname=font, color=color)
@@ -287,7 +422,7 @@ def _text(page, x, y, text, size=10, bold=False, color=(0, 0, 0), right=False):
 def _box_text(page, rect, text, size=10, color=(0, 0, 0)) -> float:
     """Wrapped text inside rect; returns the height used."""
     chars = max(20, int(rect.width / (size * 0.5)))
-    lines = wrap(text, chars)
+    lines = wrap(_plain(text), chars)
     y = rect.y0 + size
     for line in lines:
         if y > rect.y1:
@@ -295,6 +430,26 @@ def _box_text(page, rect, text, size=10, color=(0, 0, 0)) -> float:
         page.insert_text((rect.x0, y), line, fontsize=size, fontname="helv", color=color)
         y += size * 1.25
     return y - rect.y0
+
+
+def _text_height(text: str, width: float, size: float) -> float:
+    chars = max(20, int(width / (size * 0.5)))
+    return len(wrap(text, chars)) * size * 1.25 + size
+
+
+def _flow(out: fitz.Document, page: fitz.Page, y: float, text: str, item: "Item", size: float, color) -> fitz.Page:
+    """Write wrapped text from `y` down, continuing on new pages of `out`
+    for as long as it runs — nothing is dropped at the bottom of the form."""
+    chars = max(20, int(532 / (size * 0.5)))
+    y += size
+    for line in wrap(_plain(text), chars):
+        if y > 770:
+            page = out.new_page(width=LETTER.width, height=LETTER.height)
+            _text(page, 576, 40, f"{item.title} — continued", size=12, bold=True, right=True)
+            y = 70
+        page.insert_text((40, y), line, fontsize=size, fontname="helv", color=color)
+        y += size * 1.25
+    return page
 
 
 def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]], missing: list[str]) -> fitz.Page:
@@ -318,6 +473,7 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
     _text(page, 376, 162, "Plan/Sheet:", bold=True, right=True)
     _text(page, 382, 162, ", ".join(item.sheets)[:44])
     _text(page, 376, 180, "Revision:", bold=True, right=True)
+    _text(page, 382, 180, (item.revision or "Unknown - not read from the title block")[:44], size=9 if not item.revision else 10)
 
     heading = "BIM RFI Description:" if not item.draft else "Proposed RFI Description:"
     _text(page, 26, 220, heading, size=12, bold=True)
@@ -330,15 +486,20 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
     page.draw_rect(q, color=None, fill=QUESTION_FILL)
     used = _box_text(page, fitz.Rect(q.x0 + 4, q.y0 + 2, q.x1 - 4, q.y1), body)
     y = max(q.y1, q.y0 + used) + 10
+    for m in missing:
+        y += _box_text(page, fitz.Rect(40, y, 572, 760), m, size=8.5, color=(0.7, 0.1, 0.1)) + 2
+    note = None
     if item.draft:
         note = "DRAFT — proposed by the RFI review and not issued. A person must accept it before it has an RFI number."
         if item.reasoning:
             note += f" Why flagged: {item.reasoning}"
-        y += _box_text(page, fitz.Rect(40, y, 572, y + 60), note, size=8.5, color=(0.45, 0.45, 0.45)) + 6
-    for m in missing:
-        y += _box_text(page, fitz.Rect(40, y, 572, y + 20), m, size=8.5, color=(0.7, 0.1, 0.1)) + 2
 
-    room = 760 - y
+    # The pictures get the room the audit note leaves; the note itself is
+    # never cut short. It used to sit in a fixed 60pt box and stopped
+    # mid-list ("Checked: S2.106, S2.107,") — a list that ends in a comma
+    # tells the reader nothing about what was or was not checked.
+    note_h = _text_height(note, 532, 8.5) + 6 if note else 0
+    room = min(760 - y - note_h, 420)
     if snippets and room > 120:
         each = room / len(snippets)
         for png, caption in snippets:
@@ -351,6 +512,8 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
             page.insert_image(r, stream=png)
             _text(page, 306 + fitz.get_text_length(caption, fontsize=16) / -2, r.y1 + 20, caption, size=16, color=RED)
             y += each
+    if note:
+        _flow(out, page, y + 4, note, item, size=8.5, color=(0.45, 0.45, 0.45))
     _text(page, 36, 780, "Clouds mark the evidence this question cites. Marks are PDF annotations and can be edited.",
           size=7, color=(0.5, 0.5, 0.5))
     return page
@@ -389,6 +552,15 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
                 by_page[key] = []
                 order.append(key)
             by_page[key].append(m)
+        # A whole-sheet picture is context once a finding is pinned to an
+        # occurrence. Without one, it is the only record that the problem is
+        # on that sheet at all, so it stays a finding — drawn as "not
+        # pinpointed", never as a cloud.
+        anchored = any(m.kind == "occurrence" and m.role == "finding" for m in item.marks)
+        if not anchored:
+            for m in item.marks:
+                if m.kind == "page":
+                    m.role = "finding"
         snippets: list[tuple[bytes, str]] = []
         for doc_id, page_no in order[:MAX_SHEETS_PER_ITEM]:
             src = open_doc(doc_id)
@@ -398,7 +570,8 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
             sheets.insert_pdf(src, from_page=page_no - 1, to_page=page_no - 1, annots=False)
             page = sheets[-1]
             marks = by_page[(doc_id, page_no)]
-            clouds, callout = mark_sheet(page, item, marks, taken_by_page.setdefault(len(sheets) - 1, []))
+            clouds, callout, flags = mark_sheet(page, item, marks, taken_by_page.setdefault(len(sheets) - 1, []))
+            missing += flags
             label = marks[0].sheet_number or f"page {marks[0].combined_page_number or page_no}"
             for c in clouds:
                 if len(snippets) < MAX_SNIPPETS:
@@ -425,8 +598,13 @@ def _marks_from_evidence(evidence) -> list[Mark]:
         # the drawing; the cloud marks the drawing's own evidence.
         if e.get("kind") in ("description", "aid"):
             continue
+        role = "context" if e.get("role") == "context" else "finding"
+        label = None
+        if role == "context":
+            label = "NOT VERIFIED — check this occurrence" if e.get("verification") == "not_verified" else None
         out.append(Mark(e.get("documentId"), int(e["pageNumber"]), e.get("combinedPageNumber"),
-                        e.get("sheetNumber"), e.get("bbox"), e.get("observation")))
+                        e.get("sheetNumber"), e.get("bbox"), e.get("observation"), role=role, label=label,
+                        kind=e.get("kind")))
     return out
 
 

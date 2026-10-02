@@ -608,7 +608,7 @@ function EvidenceLine({
         disabled={page === null}
         onClick={() => onOpen(page, evidence.bbox ?? undefined)}
       >
-        {context ? "Checked against " : ""}
+        {evidence.verification === "not_verified" ? "Not verified — check: " : context ? "Checked against " : ""}
         {evidenceLabel(evidence)}
       </button>
       {evidence.kind === "page" || evidence.kind === "crop" ? (

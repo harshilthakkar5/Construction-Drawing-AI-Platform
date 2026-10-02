@@ -927,6 +927,7 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | Forced references, same-level correspondences, page reasons, omitted pages, unresolved references, search log | built | planner tests |
 | Evidence manifest, stored pictures, inventory, gaps, needs-evidence search | built | worker tests |
 | Exact checks: G01 grid names, C01 column overlay; aids: C03 measured offsets, G02 level index | built | geometry tests on drawn fixtures and the client's sheets |
+| C03 occurrence gate: each column-mark occurrence measured against the grid both ways; centred claims rejected, off-grid ones narrowed and clouded one by one, unsettled ones left as gaps | built | synthetic sheet at 0/90/180/270 + client S2.105; no real-model replay |
 | Historical RFIs kept out of review input (filename at upload, form text at ingest, Docs-tab override) | built | API + worker tests |
 | Report: draft (every candidate, marked not issued) and accepted (with RFI numbers), PDF and JSON | built | report tests |
 | **Marked-up RFI package**: cover form + the drawing sheets with red clouds, callouts and leaders as editable PDF annotations — the shape of the team's own RFIs; per RFI, per finding, or per review | built | worker tests at 0/90/180/270 on drawn sheets and the client's S2.105/A3.01; route tests |

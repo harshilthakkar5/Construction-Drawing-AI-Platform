@@ -2539,6 +2539,25 @@ name one level): the client rejected A3.03 Level 4 over A3.05 Level 6, whose set
 reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
 `packages/shared/fixtures/sheet-level.json`. So RFI 015 stays a known gap on purpose.
 
+C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
+`rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
+time"). The first real forming-plan review grouped five marks into one "missing offsets" RFI, two
+of them centred on their crossings, and clouded the whole plan: the old aid looked for VECTOR
+stippled columns and the client's structural column fills are RASTER tiles, so nothing was
+measured. Now each label's BODY is found in a ~200 DPI render beside it (size checked against the
+"(14 x 48)" under the mark), its centre is measured against the grid in BOTH directions, minor
+lines included, with tolerances in drawn inches (3 in / 6 in, floors 2 / 4 pt); centred one way
+settles only that way, and the band between, a face on a line, a dimension within 3 ft, no body
+or no scale are all `unknown`, never forced. A C03 missing/ambiguity claim whose occurrences are
+all centred is rejected before verification is paid for; otherwise it is narrowed to the off-grid
+occurrences, reworded by template from grid names and marks (never a measured distance), and
+evidenced by one tight `kind: occurrence` box each; unsettled ones are context marked
+`not_verified` and C03 gaps, so C03 is never `complete_no_issue` over them. The package clouds
+FINDING boxes only when they are under `PRECISE_SHARE` of the sheet (larger: dashed "not
+pinpointed" outline, flagged on the cover), outlines context in blue, never merges clouds past
+that size, prints Revision "Unknown" and never truncates the "Why flagged" audit. Stub-model tests
+only — no real replay has measured it.
+
 How a valid RFI looks (industry practice — AIA G716-style forms, contractor guides) is now the
 standard the checks are held to: raised only when the documents cannot answer it (so "not
 uploaded", "verify in field" and "by contractor" are not RFIs), one issue per RFI, citing sheet,
