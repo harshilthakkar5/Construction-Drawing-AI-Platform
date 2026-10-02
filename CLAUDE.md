@@ -2577,6 +2577,21 @@ calls in flight; batch rows carry stage `discovery_batch` and the API halves the
 `rfi_eval.py --fullscan <id> --case a,b` scores it; the `rfi-015` case is loose (any C01 on
 A3.27+A3.35 hits — a stub did), so read a hit there.
 
+The first real run (423 client pages) returned eight AI findings and about ONE held up
+(docs/rfi-full-scan.md has the table). Two of the wrong ones were numbers, so a rule now measures
+them: `grid_spacing_agrees` rejects "the dimension between grid X and Y differs" when both sheets
+DRAW X and Y the same distance apart at their printed scales — A3.34's 6'-1" ended 2 1/2" past
+grid 3.5, a dimension to something else. The same run exposed two grid-READING bugs that also
+fed Project checks: a bubble pushed sideways on a kinked LEADER was placed where it is printed
+(S2.106's G.9/H 18pt off → "G.9 = H"); `grid.leader_target` now follows the drafter's leader
+shape (stub, one diagonal, parallel piece; across the stub only, ≤ 2 bubble widths). Bubbles are
+still GROUPED by printed position — grouping by the moved one chained A3.01's dense secondaries
+into false axes and hid RFI 002. And a line with two names (S2.105/S2.106 bubble one line 2.3 at
+one end and 2.4 at the other) matched the architectural 2.3 to "2.4"; `rfi_grid._match` now lets
+the same name win inside tolerance. The schedule check read grid line F.7 as mark "F7" (the
+identifier index strips the dot): a dotted label is never a mark, and a schedule title never runs
+across a line break. All are `rejected` benchmark entries.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.

@@ -72,7 +72,9 @@ GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # space, like chunk bboxes). Version 2 entries lack it.
 # 4: each system carries its page's printed scales, so grids at different
 # scales (an enlarged detail and an overall plan) are never compared.
-GRID_CACHE_VERSION = 4
+# 5: a bubble on a kinked leader is placed on the line its leader runs to,
+# not where it is printed (grid.leader_target).
+GRID_CACHE_VERSION = 5
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from

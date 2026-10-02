@@ -439,3 +439,67 @@ def test_markup_is_not_read_as_part_of_the_drawing():
     cleaned = grid.without_markup(pg)
     assert circles(cleaned) == 0
     assert [s["style"] for s in grid.styled_systems(cleaned)] == ["blue 27pt"]
+
+
+# --- bubbles on kinked leaders, and lines with two names -------------------------------
+
+import os  # noqa: E402
+
+CLIENT_PDF = Path(os.environ.get("RFI_REVIEW_TEST_PDF") or "/nonexistent")
+needs_client_pdf = pytest.mark.skipif(not CLIENT_PDF.exists(), reason="set RFI_REVIEW_TEST_PDF to the S2.105/A3.01 set")
+
+
+BUBBLE = fitz.Rect(90, 490, 110, 510)  # display space, a 20pt bubble at (100, 500)
+
+
+def test_a_kinked_leader_moves_the_bubble_onto_its_line():
+    # Stub up out of the bubble, a diagonal, then up the grid line at x=118.
+    segs = [(100, 490, 100, 480), (100, 480, 118, 462), (118, 462, 118, 400)]
+    assert grid.leader_target(BUBBLE, segs) == (118, None)
+    # Drawn in the other direction, piece by piece, it is the same leader.
+    segs = [(100, 480, 100, 490), (118, 462, 100, 480), (118, 400, 118, 462)]
+    assert grid.leader_target(BUBBLE, segs) == (118, None)
+
+
+def test_a_row_bubble_leader_moves_only_its_y():
+    bubble = fitz.Rect(10, 290, 30, 310)
+    segs = [(30, 300, 40, 300), (40, 300, 55, 315), (55, 315, 300, 315)]
+    assert grid.leader_target(bubble, segs) == (None, 315)
+
+
+@pytest.mark.parametrize(
+    "segs",
+    [
+        [(100, 490, 100, 300)],  # a straight stub: already on its line
+        [(100, 490, 100, 480), (100, 480, 118, 462), (118, 462, 400, 462)],  # turns sideways: not a leader
+        [(100, 490, 100, 480), (100, 480, 118, 462), (118, 462, 118, 470)],  # doubles back
+        [(100, 490, 100, 480), (100, 480, 160, 420), (160, 420, 160, 300)],  # too far: 3 bubble widths
+        [(140, 490, 140, 480), (140, 480, 158, 462), (158, 462, 158, 400)],  # never touches the bubble
+    ],
+)
+def test_anything_but_a_leader_leaves_the_bubble_where_it_is(segs):
+    assert grid.leader_target(BUBBLE, segs) == (None, None)
+
+
+def test_a_line_with_two_names_matches_the_name_both_drawings_use():
+    """The client's structural sheets bubble one line "2.3" at one end and
+    "2.4" at the other; the architectural sheets call it 2.3 at both. Nearest
+    first paired 2.3 with 2.4 and the scan asked "2.3 = 2.4"."""
+    arch = {"1": 40.0, "2": 100.0, "2.3": 190.0, "2.7": 255.0, "3": 370.0}
+    struct = {"1": 47.0, "2": 107.0, "2.3": 197.0, "2.4": 197.0, "2.7": 262.0, "3": 377.0}
+    found = align(arch, struct)
+    assert found is not None
+    assert [(x, y) for x, y in found.pairs if x != y] == []
+
+
+@needs_client_pdf
+def test_s2105_grid_lines_sit_where_their_leaders_land():
+    """S2.105 pushes G.9, H and H.1 sideways on kinked leaders. Read at the
+    bubble, G.9 and H were 18pt (2 ft) off their lines and a full scan
+    reported "G.9 = H" against the architectural sheets."""
+    page = grid.without_markup(fitz.open(CLIENT_PDF)[0])
+    (system,) = [s for s in grid.styled_systems(page) if s["style"] == "blue 27pt"]
+    assert system["along_x"]["G.9"] == pytest.approx(2109.24, abs=0.5)
+    assert system["along_x"]["H"] == pytest.approx(2129.52, abs=0.5)
+    # Lines bubbled straight on are untouched.
+    assert system["along_x"]["G"] == pytest.approx(1939.56, abs=0.5)

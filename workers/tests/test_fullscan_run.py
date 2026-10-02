@@ -505,3 +505,58 @@ def test_the_close_look_setting_falls_back_to_low(monkeypatch):
     assert fr.verify_thinking() == "low"
     monkeypatch.setenv("FULL_SCAN_VERIFY_THINKING", "high")
     assert fr.verify_thinking() == "high"
+
+
+# --- the measured rule for "the dimension between grid X and Y differs" -----------------
+
+# The client's A3.34 (1/4" = 1'-0" and 3/4" printed) and A3.13 (1/8"), as the
+# catalogue stores them: display-space grid positions, scales in pt per foot.
+A3_34 = {"grid": {"y": {"3.7": 260.4, "3.5": 365.2, "2.3": 1000.8, "2": 1180.7}}, "scales": [18.0, 54.0]}
+A3_13 = {"grid": {"y": {"3.7": 714.2, "3.5": 766.7, "2.3": 1084.4, "2": 1174.4}}, "scales": [9.0]}
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Sheet A3.34 shows the dimension between grid line 3.7 and grid line 3.5 as 6'-1\", while sheet A3.13 "
+        "shows this dimension as 5'-10\". What is the correct dimension between grid lines 3.7 and 3.5?",
+        "Sheet A3.34 indicates a dimension of 10'-1\" between grid lines 2 and 2.3, while Sheet A3.13 shows "
+        "this dimension as 10'-0\". Which is the correct grid dimension?",
+    ],
+)
+def test_a_dimension_dispute_the_drawn_grid_settles_is_rejected(question):
+    why = fr.grid_spacing_agrees(question, A3_34, A3_13)
+    assert why and "apart on both sheets" in why
+
+
+def test_a_grid_that_really_differs_is_left_for_the_model():
+    moved = {"grid": {"y": {"3.7": 714.2, "3.5": 769.9}}, "scales": [9.0]}  # 6'-1" on A3.13 too? no: 6'-2"
+    q = "A3.34 shows 6'-1\" between grid lines 3.7 and 3.5, A3.13 shows 6'-2\"."
+    assert fr.grid_spacing_agrees(q, A3_34, moved) is None
+
+
+@pytest.mark.parametrize(
+    "question, a, b",
+    [
+        ("Column C-5 at grid lines 3.7 and 3.5 is missing.", A3_34, A3_13),  # no dimension: not a dimension claim
+        ("6'-1\" between grid lines 9 and 10.", A3_34, A3_13),  # lines this sheet does not have
+        ("6'-1\" between grid lines 3.7 and 3.5.", A3_34, {"grid": A3_13["grid"], "scales": []}),  # no scale read
+        ("6'-1\" between grid lines 3.7 and 3.5.", None, A3_13),
+    ],
+)
+def test_what_cannot_be_measured_decides_nothing(question, a, b):
+    assert fr.grid_spacing_agrees(question, a, b) is None
+
+
+def test_rule_out_applies_the_measured_rule():
+    pair = {"a": {"sheetNumber": "A3.34", "level": "14"}, "b": {"sheetNumber": "A3.13", "level": "14"}}
+    verdict = _keep(subject="Dimension between grid 3.7 and 3.5",
+                    question="A3.34 shows 6'-1\" between grid lines 3.7 and 3.5, A3.13 shows 5'-10\". Which governs?")
+    material = "A3.34 A3.13 6'-1\" 5'-10\" 3.7 3.5 14"
+    assert fr.rule_out(pair, verdict, material) is None  # without the facts, nothing to measure
+    assert "apart on both sheets" in fr.rule_out(pair, verdict, material, (A3_34, A3_13))
+
+
+def test_both_prompts_name_the_mistakes_the_first_real_scan_made():
+    for prompt in (fr.discovery_system(), fr.verify_system()):
+        assert fr._NOT_A_PROBLEM in prompt

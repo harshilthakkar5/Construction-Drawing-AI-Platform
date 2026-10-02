@@ -357,6 +357,28 @@ def test_a_fastener_type_is_not_a_door_missing_from_the_door_schedule():
     assert unscheduled_marks(pages, chunks)[0] == []
 
 
+def test_a_secondary_grid_line_is_not_a_mark():
+    """The client's full scan: grid line F.7 (indexed as F7, since the
+    identifier index strips separators) was proposed as "Mark F7 missing from
+    the concrete finish schedule" on four sheets — every quote a grid bubble."""
+    pages = [page("sched", "A1.05"), page("p1", "A3.25"), page("p2", "A3.22")]
+    chunks = [
+        chunk("s", "sched", "FLOOR FINISH SCHEDULE F1 F2 F3", ["F1", "F2", "F3"]),
+        chunk("a", "p1", "E F F.7 G.9 H", ["F7"]),
+        chunk("b", "p2", "GRID F.7", ["F7"]),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
+    # The same mark written as a mark is still checked.
+    chunks[2] = chunk("b", "p2", "FINISH F7 AT CORRIDOR", ["F7"])
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["F7"]
+
+
+def test_a_schedule_title_does_not_run_across_a_line_break():
+    assert rfi_checks.schedule_titles("EXPOSED SLAB EDGE: SMOOTH FINISH\nCONCRETE FINISH SCHEDULE") == [
+        "CONCRETE FINISH SCHEDULE"
+    ]
+
+
 def test_schedule_titles_are_headings_not_pointers():
     assert rfi_checks.schedule_titles("PILE CAP SCHEDULE") == ["PILE CAP SCHEDULE"]
     assert rfi_checks.schedule_titles("FOR STUD RAIL SCHEDULE AND DETAILS SEE SHEET S5.131") == []

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("worker.sheet_facts")
 
-FACTS_VERSION = 1
+FACTS_VERSION = 2  # 2: grid positions follow kinked leaders (grid.leader_target)
 
 # Mirrors SHEET_KINDS in @cdip/shared; test_sheet_facts reads the TypeScript.
 SHEET_KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", "notes", "cover", "other")

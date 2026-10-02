@@ -100,6 +100,46 @@ twice. A cancel stops between calls. The person who started it losing access
 stops it. A document added, replaced, removed or excluded since the plan makes
 the scan `stale` before its first call: the tiles point at pages that moved.
 
+## The first real run — 423 client pages, 2 Oct 2026
+
+63 pairs, 498 tiles, Gemini in batch mode. Ten marked-up packages came back
+(eight AI findings and two from Project checks), and each was checked against
+the drawings: by measurement where the claim is a number, by eye otherwise.
+
+| Finding | Verdict | Why |
+|---|---|---|
+| C-32 drawn across an interior wall on A3.01, along the outside wall on S2.102 | **plausible** | the one a reviewer should look at |
+| C-5 (S2.106) vs wall tag W1-14 (A3.05) | wrong | C-5 is on grid D on both sheets; the cloud is the next wall, where W1-14 is a tag |
+| round column (A3.22) vs square (S2.402) | wrong | S2.402 draws the same round column inside its cap |
+| 6'-1" vs 5'-10" between grids 3.7 and 3.5 (A3.34 / A3.13) | wrong, **measured** | both sheets draw the lines 5'-10" apart; the 6'-1" ends 2 1/2" past 3.5 |
+| 10'-1" vs 10'-0" between grids 2 and 2.3 | wrong, measured | same: 10'-0" on both, the 10'-1" starts short of 2.3 |
+| SW-1.6 vs "shaft opening" (A3.25 / S2.106) | probably wrong | the same rectangle in the same place, hatched differently |
+| slab edge "steps" (A3.26) vs "straight" (S2.407) | probably wrong | S2.407 also stops the slab at the shaft wall |
+| C-10.S offset in its planter (A3.00 / S1.101) | doubtful | a planter box against a pier, a few inches apart |
+| Project checks: mark F7 missing from a finish schedule | wrong | F7 is grid line F.7 |
+| Project checks: grids 2.3 = 2.4, 1.4 = 1.5, G.9 = H | wrong | one line with two names on the structural sheets; leader bubbles |
+
+About one AI finding in eight held up. What changed because of it:
+
+- **Measured, not instructed:** `grid_spacing_agrees` rejects a "dimension
+  between grid X and Y differs" finding when both sheets draw X and Y the same
+  distance apart at their printed scales (from the catalogue's grid and scales).
+- **Grid reading** (`grid.leader_target`): a bubble pushed sideways on a kinked
+  leader is placed where its leader lands. Bubbles are still GROUPED by where
+  they are printed; grouping by the moved position chained A3.01's dense
+  secondary lines into false axes and hid RFI 002 — caught by its tests. RFI 002
+  is still found, with more of its lines paired (B.5 = B1.5, 8.2 = 5) and two
+  leader artefacts gone. `GRID_CACHE_VERSION` 5, `FACTS_VERSION` 2.
+- **Two names, one line:** in `rfi_grid._match` the same name wins inside the
+  tolerance, so a structural "2.3/2.4" line matches the architectural "2.3".
+- **Schedule check:** a dotted label (F.7) is never a mark, and a schedule title
+  never runs across a line break.
+- **Prompts** name the shapes the wrong findings took (a label beside an element,
+  the same element in another symbol or hatch, inches of drafting tolerance,
+  a dimension read as grid-to-grid).
+- **Benchmark:** the proven ones are `rejected` entries (`fp-full-scan-ai`,
+  `fp-full-scan-project-checks`), so a run that raises them again fails.
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with

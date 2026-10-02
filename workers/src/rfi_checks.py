@@ -428,7 +428,10 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
 
 _MARK = re.compile(r"^([A-Z]{1,3})(\d{1,3})([A-Z]?)$")
 _SCHEDULE_WORD = re.compile(r"\bSCHEDULE\b", re.I)
-_SCHEDULE_TITLE = re.compile(r"((?:[A-Z][A-Z/&-]*\s+){0,4}SCHEDULE)\b")
+# One LINE of words before SCHEDULE: `\s` crossed line breaks, so a finish
+# schedule whose previous line read "SMOOTH FINISH" became the "SMOOTH FINISH
+# CONCRETE FINISH SCHEDULE" — a heading no drawing carries, quoted in an RFI.
+_SCHEDULE_TITLE = re.compile(r"((?:[A-Z][A-Z/&-]*[ \t]+){0,4}SCHEDULE)\b")
 
 
 def _mark_parts(identifier: str) -> tuple[str, int, bool] | None:
@@ -439,11 +442,18 @@ def _mark_parts(identifier: str) -> tuple[str, int, bool] | None:
 
 
 def _mark_pattern(mark: str) -> re.Pattern:
-    """Find a normalized mark in raw text, however it was separated: PC4, PC-4."""
+    """Find a normalized mark in raw text, however it was separated: PC4, PC-4.
+
+    Never with a DOT. `cdip_identifiers` strips every separator, so the grid
+    line F.7 — bubbled on every plan of a set — is indexed as F7, exactly the
+    shape of a mark. A full scan of 423 client pages proposed "Mark F7 missing
+    from the concrete finish schedule" with four sheets of evidence, every one
+    of them the grid bubble. A dotted label is a secondary grid line (F.7,
+    B1.6, 2.3) or a section number, never a schedule mark."""
     m = _MARK.match(mark)
     assert m, mark
     return re.compile(
-        rf"(?<![A-Z0-9]){m.group(1)}[-. ]?{m.group(2)}{m.group(3)}(?![A-Z0-9])"
+        rf"(?<![A-Z0-9.]){m.group(1)}[- ]?{m.group(2)}{m.group(3)}(?![A-Z0-9]|\.\d)"
     )
 
 

@@ -144,6 +144,16 @@ def _match(a: list[tuple[float, str]], b: list[tuple[float, str]], offset: float
             d = abs(other - (pos + offset))
             if j not in used and d <= best_d:
                 best, best_d = j, d
+        # A line drawn with TWO names sits at one position under both: the
+        # client's structural sheets bubble one line "2.3" at its left end and
+        # "2.4" at its right. Nearest-first paired the architectural "2.3" with
+        # whichever came first, and the scan asked which naming governs
+        # "2.3 = 2.4" — a line both drawings call 2.3. Within tolerance, the
+        # same name wins.
+        same = [j for j, (other, other_label) in enumerate(b)
+                if j not in used and other_label == label and abs(other - (pos + offset)) <= MATCH_TOL_PT]
+        if same:
+            best = same[0]
         if best is not None:
             used.add(best)
             pairs.append((label, b[best][1]))
