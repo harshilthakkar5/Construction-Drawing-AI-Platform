@@ -485,3 +485,23 @@ def test_calls_still_in_flight_count_against_the_ceiling(database, monkeypatch):
     fullscan.handle(seed["scan"], "run")
     assert sum(fullscan.spent_tokens(seed["scan"])) <= 16000
     assert _scan(database, seed["scan"])["status"] == "partial"
+
+
+# --- stage thinking settings ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value,expected", [(None, "off"), ("", "off"), ("on", "off"), ("ON", "off"),
+                                            ("medium", "medium"), ("none", "off")])
+def test_the_first_look_setting_is_checked_and_falls_back_to_its_own_default(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv("FULL_SCAN_THINKING", raising=False)
+    else:
+        monkeypatch.setenv("FULL_SCAN_THINKING", value)
+    assert fr.discovery_thinking() == expected
+
+
+def test_the_close_look_setting_falls_back_to_low(monkeypatch):
+    monkeypatch.setenv("FULL_SCAN_VERIFY_THINKING", "on")
+    assert fr.verify_thinking() == "low"
+    monkeypatch.setenv("FULL_SCAN_VERIFY_THINKING", "high")
+    assert fr.verify_thinking() == "high"

@@ -56,8 +56,36 @@ VERIFY_TOKENS = 1500
 # Looking at a drawing is perception; deciding whether two drawings really
 # disagree is judgement. Each stage has its own switch (the RFI_THINKING
 # vocabulary); a thinking budget is spent from the same output cap as the JSON.
-DISCOVERY_THINKING = os.environ.get("FULL_SCAN_THINKING", "off")
-VERIFY_THINKING = os.environ.get("FULL_SCAN_VERIFY_THINKING", "low")
+
+
+def stage_setting(env_var: str, default: str) -> str:
+    """The stage's thinking setting, checked: one of llm.THINKING_SETTINGS.
+
+    Read per call (like llm.stage_thinking), never at import. An unset or
+    unknown value falls back to THIS stage's default, not to the global
+    CLAUDE_THINKING / GEMINI_THINKING_LEVEL — those are often set for the chat
+    (`on` is a common one), and the first look runs on hundreds of tiles.
+    `FULL_SCAN_THINKING=on` once reached the transport unchecked and failed
+    the scan before its first batch was sent."""
+    raw = (os.environ.get(env_var) or "").strip().lower()
+    if not raw:
+        return default
+    checked = llm.stage_thinking(env_var)
+    if checked is None:
+        log.warning("%s=%r is not one of %s — using %r for this stage",
+                    env_var, raw, ", ".join(llm.THINKING_SETTINGS), default)
+        return default
+    return checked
+
+
+def discovery_thinking() -> str:
+    return stage_setting("FULL_SCAN_THINKING", "off")
+
+
+def verify_thinking() -> str:
+    return stage_setting("FULL_SCAN_VERIFY_THINKING", "low")
+
+
 MAX_ISSUES_PER_TILE = 4
 MAX_WORDS_CHARS = 2500
 # The close look: a window around the issue's box, at least this big, padded
@@ -487,13 +515,13 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) 
     in_flight: dict = {}
 
     def call(user, images, labels):
-        reply = run.ask("discovery", system, user, images, labels, DISCOVERY_TOKENS, DISCOVERY_THINKING)
+        reply = run.ask("discovery", system, user, images, labels, DISCOVERY_TOKENS, discovery_thinking())
         if reply is None:
             return None, "the model call failed twice"
         issues = parse_issues(reply.text)
         if issues is None:
             reply = run.ask("discovery", system, user + "\n\nRespond with ONLY the JSON object described.",
-                            images, labels, DISCOVERY_TOKENS * 2, DISCOVERY_THINKING)
+                            images, labels, DISCOVERY_TOKENS * 2, discovery_thinking())
             issues = parse_issues(reply.text if reply else None)
         return issues, None if issues is not None else "the reply was not the JSON asked for"
 
@@ -559,7 +587,7 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -
                     claude_model=run.model if run.provider == "claude" else REVIEW_MODEL,
                     gemini_model=run.model if run.provider == "gemini" else REVIEW_GEMINI_MODEL,
                     max_tokens=DISCOVERY_TOKENS, kind="rfi", project_id=run.project_id, json_only=True,
-                    thinking=DISCOVERY_THINKING, images=images, image_labels=labels,
+                    thinking=discovery_thinking(), images=images, image_labels=labels,
                 )
             except llm.BatchTimeout as exc:
                 # The wave's tiles stay pending; a resume submits them again.
@@ -568,7 +596,7 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -
             issues = parse_issues(answers.get(cid))
             if issues is None:
                 # One direct call for what the batch did not return usably.
-                reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2, DISCOVERY_THINKING)
+                reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2, discovery_thinking())
                 issues = parse_issues(reply.text if reply else None)
             _save_tile(tile["id"], issues, None if issues is not None else "no usable answer from the batch or a retry")
         _progress(run, total)
@@ -620,11 +648,11 @@ def close_look(run: Run, sheets: Sheets) -> None:
     done_count = [0]
 
     def call(user, images, labels):
-        reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, VERIFY_THINKING)
+        reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, verify_thinking())
         verdict = parse_verdict(reply.text if reply else None)
         if verdict is None and reply is not None:
             reply = run.ask("verification", system, user + "\n\nRespond with ONLY the JSON object described.",
-                            images, labels, VERIFY_TOKENS * 2, VERIFY_THINKING)
+                            images, labels, VERIFY_TOKENS * 2, verify_thinking())
             verdict = parse_verdict(reply.text if reply else None)
         return verdict
 

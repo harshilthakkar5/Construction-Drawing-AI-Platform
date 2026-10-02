@@ -1276,3 +1276,45 @@ class TestStageThinking:
         assert len(sent) == 1 and sent[0]["thinking_config"] == {"thinking_level": "low"}
         # Latched calls skip the refused rung and are STILL not what was asked.
         assert again.thinking_adjusted is True
+
+
+# --- an unknown stage setting never reaches a transport -------------------------------
+
+
+@pytest.mark.parametrize("setting", ["off", "minimal", "low", "medium", "high", "budget:4096", None])
+def test_known_stage_settings_pass_through(setting):
+    assert llm.valid_stage_setting(setting) == setting
+
+
+@pytest.mark.parametrize("setting", ["on", "true", "max", "budget:lots"])
+def test_an_unknown_stage_setting_becomes_the_global_default(setting):
+    assert llm.valid_stage_setting(setting) is None
+
+
+def test_on_is_not_sent_to_a_gemini_3_batch(monkeypatch):
+    """FULL_SCAN_THINKING=on reached _thinking_ladder as a Gemini level and
+    raised ValueError("'on' is not in list") before the batch was sent."""
+    seen = {}
+
+    def fake_batch(prompts, **kw):
+        seen["setting"] = kw["thinking_setting"]
+        llm._thinking_ladder(kw["model"], kw["thinking_setting"])  # the line that raised
+        return {}
+
+    monkeypatch.setattr(llm, "_batch_gemini", fake_batch)
+    llm.complete_batch({"a": "x"}, system="s", provider="gemini", claude_model="c", gemini_model="gemini-3.6-flash",
+                       max_tokens=100, kind="rfi", thinking="on")
+    assert seen["setting"] is None
+
+
+def test_on_is_not_sent_to_a_single_call(monkeypatch):
+    seen = {}
+
+    def fake(system, user, **kw):
+        seen["setting"] = kw["thinking_setting"]
+        return llm.Reply(text="{}", stop_reason="end_turn")
+
+    monkeypatch.setattr(llm, "_complete_claude", fake)
+    llm.complete("s", "u", provider="claude", claude_model="claude-sonnet-5", gemini_model="g",
+                 max_tokens=100, kind="rfi", thinking="on")
+    assert seen["setting"] is None
