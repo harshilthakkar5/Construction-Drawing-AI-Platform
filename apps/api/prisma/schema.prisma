@@ -150,6 +150,7 @@ model User {
   rfiReviewRuns             RfiReviewRun[]
 
   rfiPackages RfiPackage[]
+  rfiFullScans RfiFullScan[]
 
   @@map("users")
 }
@@ -262,6 +263,7 @@ model Project {
   rfiReviewRuns RfiReviewRun[]
 
   rfiPackages RfiPackage[]
+  rfiFullScans RfiFullScan[]
 
   @@map("projects")
 }
@@ -378,6 +380,17 @@ model Page {
   /// Where `discipline` came from: region_ai | region_rules | filename |
   /// inherited | manual. A manual override survives re-classification.
   disciplineSource String?
+
+  /// The full AI scan's page catalogue (workers/src/sheet_facts.py), read off
+  /// the PDF and cached here: what the sheet is (plan, section, schedule…),
+  /// the level its drawing titles name, every printed scale (points per foot)
+  /// and its grid labels. NULL until a full scan has read the page;
+  /// factsVersion lower than sheet_facts.FACTS_VERSION means re-read it.
+  sheetKind    String?
+  level        String?
+  scales       Json?
+  gridSummary  Json?
+  factsVersion Int?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   chunks   Chunk[]
@@ -714,10 +727,11 @@ model RfiCandidate {
   id             String             @id @default(uuid())
   projectId      String
   scanId         String?
-  /// "deterministic_scan" or "targeted_review". A targeted candidate names its
-  /// run; the rfi_scans row names a scan's (checked in the migration SQL).
+  /// "deterministic_scan", "targeted_review" or "full_scan". A targeted or full
+  /// scan candidate names its run (checked in the migration SQL).
   origin         String             @default("deterministic_scan")
   reviewRunId    String?
+  fullScanId     String?
   /// Targeted review only: the one-sentence "why flagged" the review list
   /// shows, and the priority it suggests.
   reasoning      String?
@@ -745,6 +759,7 @@ model RfiCandidate {
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scan      RfiScan?      @relation(fields: [scanId], references: [id], onDelete: SetNull)
   reviewRun RfiReviewRun? @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+  fullScan  RfiFullScan?  @relation(fields: [fullScanId], references: [id], onDelete: Cascade)
   rfi       Rfi?          @relation(fields: [rfiId], references: [id], onDelete: SetNull)
   decidedBy User?         @relation(fields: [decidedById], references: [id], onDelete: SetNull)
 
@@ -819,6 +834,80 @@ model RfiReviewRun {
   @@unique([projectId, idempotencyKey])
   @@index([projectId, createdAt])
   @@map("rfi_review_runs")
+}
+
+/// One full AI scan of a project (workers/src/fullscan.py). A `plan` job reads
+/// every page into the catalogue, pairs the sheets that should agree and cuts
+/// matching tiles; the person approves the plan with its price and a token
+/// ceiling; a `run` job sends the tiles to the model, checks every possible
+/// problem close up and saves what survives the code rules as candidates.
+model RfiFullScan {
+  id              String    @id @default(uuid())
+  projectId       String
+  createdById     String?
+  /// planning | planned | queued | running | ready | partial | failed |
+  /// cancelled | stale
+  status          String    @default("planning")
+  stage           String?
+  progress        Int       @default(0)
+  provider        String?
+  model           String?
+  useBatch        Boolean   @default(true)
+  /// Pages by kind, with level/scale/grid counts.
+  catalogue       Json?
+  /// The approved pairs, each with its sheets, reason and tile count.
+  pairs           Json?
+  /// Pages and pairs left out, grouped by reason.
+  skipped         Json?
+  /// Worker's token count; the API prices it.
+  estimate        Json?
+  /// maxTotalTokens and the dollar budget it was set from.
+  limits          Json?
+  /// documentId -> page count at plan time; a run on a changed set is stale.
+  sourceRevisions Json?
+  usage           Json?
+  notes           Json?
+  findings        Int       @default(0)
+  error           String?
+  idempotencyKey  String?
+  heartbeatAt     DateTime?
+  createdAt       DateTime  @default(now())
+  plannedAt       DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  tiles      RfiFullScanTile[]
+  candidates RfiCandidate[]
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, createdAt])
+  @@map("rfi_full_scans")
+}
+
+/// One matching pair of windows — the same area of two sheets — sent to the
+/// model together. Its own row so a run that stops (a dead worker, a budget,
+/// a cancel) resumes at the first tile not yet done instead of paying again.
+model RfiFullScanTile {
+  id        String   @id @default(uuid())
+  scanId    String
+  pairIndex Int
+  tileIndex Int
+  /// {a: {documentId, pageNumber, rect}, b: {...}} — DISPLAY-space rects.
+  windows   Json
+  /// pending | done | failed
+  status    String   @default("pending")
+  /// The first look's possible problems for this tile, as parsed.
+  issues    Json?
+  error     String?
+  updatedAt DateTime @updatedAt
+
+  scan RfiFullScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@unique([scanId, pairIndex, tileIndex])
+  @@index([scanId, status])
+  @@map("rfi_full_scan_tiles")
 }
 
 /// One marked-up RFI package: a cover form per RFI (or finding) and the

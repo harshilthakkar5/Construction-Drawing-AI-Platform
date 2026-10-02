@@ -27,6 +27,7 @@ import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { RfiFullScan } from "@/components/RfiFullScan";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -109,7 +110,10 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [showDismissed, setShowDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
-  const [mode, setMode] = useState<"targeted" | "project">("targeted");
+  const [mode, setMode] = useState<"targeted" | "project" | "full">("targeted");
+  // Turned off on this server (RFI_FULL_SCAN=off) the list 404s: no option.
+  const fullScan = useQuery({ queryKey: ["rfi-full-scans", projectId], queryFn: () => api.listRfiFullScans(projectId), retry: false });
+  const fullScanOffered = !fullScan.isError;
 
   const scan = useQuery({
     queryKey: ["rfi-scan", projectId],
@@ -190,7 +194,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
         size="sm"
         className="mb-2 w-full"
         value={mode}
-        onValueChange={(value) => value && setMode(value as "targeted" | "project")}
+        onValueChange={(value) => value && setMode(value as "targeted" | "project" | "full")}
         aria-label="How to find RFIs"
       >
         <ToggleGroupItem value="targeted" className="flex-1 text-xs">
@@ -199,10 +203,19 @@ export function RfiReview({ projectId }: { projectId: string }) {
         <ToggleGroupItem value="project" className="flex-1 text-xs">
           Project checks
         </ToggleGroupItem>
+        {fullScanOffered && (
+          <ToggleGroupItem value="full" className="flex-1 text-xs">
+            Full AI scan
+          </ToggleGroupItem>
+        )}
       </ToggleGroup>
       {mode === "targeted" ? (
         <div className="bg-muted/40 rounded-lg border p-3">
           <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
+        </div>
+      ) : mode === "full" && fullScanOffered ? (
+        <div className="bg-muted/40 rounded-lg border p-3">
+          <RfiFullScan projectId={projectId} onFinished={refreshAll} />
         </div>
       ) : (
       <div className="bg-muted/40 rounded-lg border p-3">
@@ -516,6 +529,11 @@ function CandidateCard({
         {candidate.origin === "targeted_review" && (
           <Badge variant="outline" title="Found by a targeted review of named sheets">
             Targeted review
+          </Badge>
+        )}
+        {candidate.origin === "full_scan" && (
+          <Badge variant="outline" title="Found by the full AI scan, checked close up on both sheets. Beta: accuracy not yet measured.">
+            Full AI scan
           </Badge>
         )}
         {candidate.priority && candidate.priority !== "normal" && (

@@ -414,6 +414,7 @@ function candidate(over: Partial<RfiCandidateDto> = {}): RfiCandidateDto {
     createdAt: "2026-05-01T00:00:00.000Z",
     origin: "deterministic_scan",
     reviewRunId: null,
+    fullScanId: null,
     reasoning: null,
     priority: null,
     ...over,

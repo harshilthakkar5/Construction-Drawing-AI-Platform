@@ -32,8 +32,11 @@ const createBody = z
       .default([]),
     /** Every finding of one targeted review, strongest first. */
     reviewRunId: z.string().uuid().optional(),
+    fullScanId: z.string().uuid().optional(),
   })
-  .refine((b) => b.items.length > 0 || b.reviewRunId, { message: "name at least one RFI or finding, or a review" });
+  .refine((b) => b.items.length > 0 || b.reviewRunId || b.fullScanId, {
+    message: "name at least one RFI or finding, a review, or a full scan",
+  });
 
 type PackageRow = Awaited<ReturnType<typeof prisma.rfiPackage.findFirstOrThrow>>;
 
@@ -83,6 +86,17 @@ rfiPackagesRouter.post("/", async (req, res) => {
       take: MAX_PACKAGE_ITEMS,
     });
     if (!found.length) return void res.status(404).json({ error: "this review has no findings to mark up" });
+    items = [...items, ...found.map((c) => ({ type: "candidate" as const, id: c.id }))].slice(0, MAX_PACKAGE_ITEMS);
+  }
+  if (body.fullScanId) {
+    await prisma.rfiFullScan.findFirstOrThrow({ where: { id: body.fullScanId, projectId }, select: { id: true } });
+    const found = await prisma.rfiCandidate.findMany({
+      where: { projectId, fullScanId: body.fullScanId, status: { not: "dismissed" } },
+      orderBy: [{ confidence: "asc" }, { createdAt: "asc" }],
+      select: { id: true },
+      take: MAX_PACKAGE_ITEMS,
+    });
+    if (!found.length) return void res.status(404).json({ error: "this full scan has no findings to mark up" });
     items = [...items, ...found.map((c) => ({ type: "candidate" as const, id: c.id }))].slice(0, MAX_PACKAGE_ITEMS);
   }
   const unique = items.filter((it, i) => items.findIndex((o) => o.type === it.type && o.id === it.id) === i);

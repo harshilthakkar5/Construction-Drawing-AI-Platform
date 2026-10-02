@@ -19,6 +19,7 @@ SUMMARIZE_PROJECT_QUEUE = "summarize-project"
 RFI_SCAN_QUEUE = "rfi-scan"
 RFI_REVIEW_QUEUE = "rfi-review"
 RFI_PACKAGE_QUEUE = "rfi-package"
+RFI_FULL_SCAN_QUEUE = "rfi-full-scan"
 
 # --- Object keys (Spaces/MinIO bucket layout) ---
 
@@ -74,6 +75,10 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
     ),
     "rfiPackage": (
         ("packageId", "package_id", False, "str"),
+    ),
+    "rfiFullScan": (
+        ("scanId", "scan_id", False, "str"),
+        ("mode", "mode", False, "str"),
     ),
 }
 

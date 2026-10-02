@@ -28,7 +28,9 @@ docs/region-based-classification.md.
 RFIs: a log, deterministic project checks, and the targeted review (RFI-A) against the 16 original
 questions are built — see "Targeted RFI review" below and README "RFI status" for the canonical
 table. Review ACCURACY is not measured (all review tests use stub models); whole-project review
-(RFI-B) is not built.
+(RFI-B) is not built. The FULL AI SCAN (docs/rfi-full-scan.md, `RFI_FULL_SCAN=off|beta|on`,
+default beta) is built: it shows the AI every pair of sheets that should agree, area by area —
+see "Full AI scan" below. Its accuracy is not measured either.
 
 Phase 5 additions: FR-19 bbox highlighting (pages store pdfWidth/pdfHeight; chat sources carry
 bbox+dims; summary items resolve via GET /projects/:id/chunks/:chunkId/location; overlay in
@@ -71,7 +73,7 @@ worker venv):
 - `npm run typecheck` / `npm run build` / `npm test` — all TS workspaces (tests: vitest in `apps/api`)
 - Single test file: `npx vitest run src/manifest.test.ts` from `apps/api`
 - Workers: `cd workers && python src/worker.py` (consumes process-document, scrape-region,
-  summarize-portion, summarize-project, rfi-scan and rfi-review; deps in `requirements.txt`;
+  summarize-portion, summarize-project, rfi-scan, rfi-review, rfi-package and rfi-full-scan; deps in `requirements.txt`;
   PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
   does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
@@ -2555,6 +2557,26 @@ keys on the user id, so they were one counter: loading a project spent the 30-an
 tier, and a user who had never pressed a button got "too many summary runs" from the first
 summary, scan or review.
 
+## Full AI scan — code pairs and lines up, the model only compares
+
+The RFIs tab's third mode (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:
+plan|run}`, tables `rfi_full_scans` + `rfi_full_scan_tiles`, candidates `origin = full_scan`).
+PLAN spends no model call: `sheet_facts.catalogue` reads every live page once (kind, level,
+printed scales, grid; cached on `pages` by `factsVersion`), `fullscan_plan.candidate_pairs` pairs
+same-level plans of two disciplines at a common scale and enlarged plans with their overall plan,
+lines them up by grid line POSITIONS or shared columns (never grid NAMES — RFI 002 is two
+disciplines naming one line differently), and cuts matching windows. Every left-out page is listed
+with its reason. RUN (`fullscan_run.py`): a first look per tile pair (two images + the PDF words
+inside each; direct pool or batch waves) and a close look per possible problem; a kept finding is
+still rejected unless both sheets are one level and its wording is `rfi_review.grounded` in the
+close-ups' words (never in the model's own first-look description). Tiles and verdicts are saved
+as they land, so a stopped scan resumes without asking twice. The token ceiling comes from a
+dollar budget at the FULL rate, is read from `usage_events."reviewRunId"` (= scan id) and counts
+calls in flight; batch rows carry stage `discovery_batch` and the API halves their price
+(`rfiFullScanRules.spentOf`). `llm.complete_batch` takes per-entry `images`/`image_labels`.
+`rfi_eval.py --fullscan <id> --case a,b` scores it; the `rfi-015` case is loose (any C01 on
+A3.27+A3.35 hits — a stub did), so read a hit there.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2570,6 +2592,10 @@ projects(id, name, description, roles[], createdAt)
 sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, counters)
 documents(id, projectId, filename, spacesKey, pages, revision, status)
 rfi_packages(id, projectId, createdById, items JSON, status, key, pages, notes, error)  // marked-up PDFs
+rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBatch, catalogue, pairs,
+     skipped, estimate (tokens), limits {maxTotalTokens, budgetUsd}, sourceRevisions, notes, findings,
+     idempotencyKey, heartbeatAt, ...)   // + rfi_full_scan_tiles(scanId, pairIndex, tileIndex,
+     windows, status, issues[+verdict]); pages.sheetKind/level/scales/gridSummary/factsVersion
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,

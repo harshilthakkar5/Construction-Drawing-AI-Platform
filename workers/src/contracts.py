@@ -16,6 +16,7 @@ from generated import (  # noqa: F401 — re-exported for the worker's imports
     JOB_FIELDS,
     PROCESS_DOCUMENT_QUEUE,
     RFI_PACKAGE_QUEUE,
+    RFI_FULL_SCAN_QUEUE,
     RFI_REVIEW_QUEUE,
     RFI_SCAN_QUEUE,
     SCRAPE_REGION_QUEUE,
@@ -146,8 +147,23 @@ class RfiPackageJob:
         return _build(cls, "rfiPackage", data)
 
 
+@dataclass
+class RfiFullScanJob:
+    """One step of a full AI scan: `plan` (catalogue, pairs, tiles, estimate)
+    or `run` (the approved tiles to the model). The plan lives on the
+    rfi_full_scans row, so a retry or a resume reads what was approved."""
+
+    scan_id: str
+    mode: str
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "RfiFullScanJob":
+        return _build(cls, "rfiFullScan", data)
+
+
 for _cls, _job in (
     (ProcessDocumentJob, "processDocument"),
+    (RfiFullScanJob, "rfiFullScan"),
     (RfiPackageJob, "rfiPackage"),
     (RfiScanJob, "rfiScan"),
     (RfiReviewJob, "rfiReview"),

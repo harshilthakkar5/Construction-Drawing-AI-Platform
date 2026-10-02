@@ -911,7 +911,8 @@ classifier, chunker, summarizer, embedding reuse (`workers/tests/`).
 
 ### RFI status
 
-The one place that says what the RFI features are and are not. Design: `docs/rfi-targeted-review.md`.
+The one place that says what the RFI features are and are not. Design: `docs/rfi-targeted-review.md`,
+`docs/rfi-full-scan.md`.
 
 | Feature | State | How it is checked |
 |---|---|---|
@@ -932,7 +933,8 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | Viewer highlight on rotated sheets (boxes mapped through the page's /Rotate) | built | `displayBox` checked against PyMuPDF on both sides; pages ingested earlier need a region re-scrape or reprocess |
 | Client test of the first drafts: **4 of 4 rejected as false positives** (two levels compared; two scales compared; a screw type and a stud rail checked against the wrong schedule) | fixed: same-level rule for the column overlay, common-scale rule for grids, schedule must be a heading named for the mark family | each one a regression test, and a `rejected` case in `benchmarks/rfi_eval_cases.json` that fails any run raising it again |
 | Full project-check audit on 11 real client sheets: 8 findings with 1 real → 2 | fixed: missing sheets need the sheet index to be RFIs (else "upload it" note); one grid naming dispute = one RFI; "verify in field" / "by contractor" are not RFIs; wording prompt follows RFI practice (show, conflict, one question) | regression tests; `fp-not-uploaded-references` benchmark case |
-| **Review ACCURACY** | **not measured** | every review test uses a stub model. `benchmarks/rfi_eval.py` against real issued RFIs on clean drawings is the only measure; nothing else may be quoted as one |
+| **Full AI scan** (`RFI_FULL_SCAN=beta`): page catalogue, same-level and enlarged-plan pairs lined up by geometry, matching tiles, token estimate priced per model; first look per tile (direct or batch at half price), close-up check, code rules, candidates; budget ceiling counting calls in flight, resume, cancel, stale | built, **beta** | worker tests against a real database with a stub model (budget stop + resume asks each tile once, batch retry, stale, revoked access, found-again); route tests (one start per click, dollar→token ceiling, resume never below spent); plan verified on 11 real client sheets |
+| **Review ACCURACY** | **not measured** | every review and full-scan test uses a stub model. `benchmarks/rfi_eval.py` (`--run`, `--scan`, `--fullscan`) against real issued RFIs on clean drawings is the only measure; nothing else may be quoted as one |
 | Whole-project review (RFI-B), persisted sheet-relationship edges | not built | waits for RFI-A to meet its acceptance criteria on real evals |
 
 ## Measuring it
