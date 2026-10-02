@@ -16,6 +16,7 @@ export function MarkedUpPdfButton({
   projectId,
   items,
   reviewRunId,
+  fullScanId,
   label = "Marked-up PDF",
   size = "sm",
   variant = "outline",
@@ -24,12 +25,13 @@ export function MarkedUpPdfButton({
   projectId: string;
   items?: RfiPackageItemRef[];
   reviewRunId?: string;
+  fullScanId?: string;
   label?: string;
   size?: "sm" | "default";
   variant?: "outline" | "ghost" | "default";
   title?: string;
 }) {
-  const create = useMutation({ mutationFn: () => api.createRfiPackage(projectId, { items, reviewRunId }) });
+  const create = useMutation({ mutationFn: () => api.createRfiPackage(projectId, { items, reviewRunId, fullScanId }) });
   const packageId = create.data?.id;
   const pkg = useQuery({
     queryKey: ["rfi-package", projectId, packageId],

@@ -5,7 +5,10 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarks"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import rfi_eval  # noqa: E402
 
@@ -72,3 +75,40 @@ def test_the_four_client_rejections_are_in_the_benchmark():
     ids = {c["id"] for c in json.loads(rfi_eval.CASES.read_text())["cases"]}
     assert {"fp-a303-a305-levels", "fp-s1102-a336-scales", "fp-s8-door-schedule", "fp-sr25-level-schedule",
             "fp-not-uploaded-references"} <= ids
+
+
+def test_a_full_scan_is_scored_by_its_own_column():
+    assert rfi_eval.source_column(full_scan_id="f") == ('"fullScanId"', "f")
+    assert rfi_eval.source_column(run_id="r") == ('"reviewRunId"', "r")
+    assert rfi_eval.source_column(scan_id="s") == ('"scanId"', "s")
+    with pytest.raises(ValueError):
+        rfi_eval.source_column(run_id="r", full_scan_id="f")
+    with pytest.raises(ValueError):
+        rfi_eval.source_column()
+
+
+def test_a_full_scan_finding_uses_the_catalogue_ids_the_cases_accept():
+    """The full scan files a finding under the closest original question
+    (C01, G01 …), never a check name. Every expected finding a full scan could
+    produce must therefore accept a catalogue id, or a correct finding would
+    score as a miss."""
+    from generated import RFI_REVIEW_CHECKS
+
+    ids = {c["id"] for c in RFI_REVIEW_CHECKS}
+    cases = json.loads(rfi_eval.CASES.read_text())["cases"]
+    for case in cases:
+        for exp in case["expected"]:
+            if set(exp["checkTypes"]) & {"grid_mismatch", "column_mismatch"}:
+                assert set(exp["checkTypes"]) & ids, case["id"]
+
+
+def test_a_full_scan_candidate_scores_against_rfi_002():
+    candidate = {
+        "id": "c1",
+        "checkType": "G01",
+        "subject": "Grid naming differs between S2.105 and A3.01",
+        "question": "S2.105 shows grid 6 = 9 on A3.01. Which naming governs?",
+        "evidence": [{"sheetNumber": "S2.105"}, {"sheetNumber": "A3.01"}],
+    }
+    case = next(c for c in json.loads(rfi_eval.CASES.read_text())["cases"] if c["id"] == "rfi-002")
+    assert rfi_eval.score(case, [candidate])["hits"] == 1

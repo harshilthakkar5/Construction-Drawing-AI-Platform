@@ -2,6 +2,7 @@
 
     python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002]
     python benchmarks/rfi_eval.py --scan <rfi scan id> --case fp-s8-door-schedule
+    python benchmarks/rfi_eval.py --fullscan <full scan id> --case rfi-002,rfi-015,fp-a303-a305-levels
 
 Reads the run's candidates from Postgres (DATABASE_URL) and, for each expected
 finding in the case, reports whether ONE candidate matches all of it: its check,
@@ -16,6 +17,12 @@ as wrong" — a person has already said so — and a run that raises one again i
 a false positive and fails. Four were added after the client tested the first
 drafts (A3.03 vs A3.05 at two levels; S1.102 vs A3.36 at two scales; S8, a
 screw type, against a door schedule; SR-25 against a level schedule).
+
+A full AI scan covers the whole project, so several cases can be scored
+against it at once (`--case a,b,c`); it passes only if every one does. This is
+the measurement RFI_FULL_SCAN=on waits for: until a full scan of a real set
+finds the issued RFIs and raises none of the rejected ones, the feature stays
+labelled beta.
 
 The issued RFI is the expected OUTPUT only. Nothing here is passed to the
 review; feeding a reference RFI to the model would measure recall of the
@@ -105,10 +112,18 @@ def score(case: dict, candidates: list[dict]) -> dict:
     }
 
 
-def load_candidates(run_id: str | None = None, scan_id: str | None = None) -> list[dict]:
+def source_column(run_id: str | None = None, scan_id: str | None = None, full_scan_id: str | None = None) -> tuple[str, str]:
+    """Which candidate column names the source being scored. Exactly one."""
+    given = [(c, v) for c, v in (('"reviewRunId"', run_id), ('"scanId"', scan_id), ('"fullScanId"', full_scan_id)) if v]
+    if len(given) != 1:
+        raise ValueError("score exactly one run, scan or full scan")
+    return given[0]
+
+
+def load_candidates(run_id: str | None = None, scan_id: str | None = None, full_scan_id: str | None = None) -> list[dict]:
     import psycopg
 
-    column, value = ('"reviewRunId"', run_id) if run_id else ('"scanId"', scan_id)
+    column, value = source_column(run_id, scan_id, full_scan_id)
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         rows = conn.execute(
             f'SELECT id, "checkType", subject, question, evidence FROM rfi_candidates WHERE {column} = %s',
@@ -122,16 +137,26 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--run", help="rfi_review_runs.id to score")
     source.add_argument("--scan", help="rfi_scans.id to score (the project-wide checks)")
-    parser.add_argument("--case", default="rfi-002")
+    source.add_argument("--fullscan", help="rfi_full_scans.id to score (the full AI scan)")
+    parser.add_argument("--case", default="rfi-002", help="a case id, or several separated by commas")
     args = parser.parse_args()
     cases = {c["id"]: c for c in json.loads(CASES.read_text())["cases"]}
-    if args.case not in cases:
-        print(f"no case {args.case!r}; have {', '.join(cases)}", file=sys.stderr)
+    wanted = [c.strip() for c in args.case.split(",") if c.strip()]
+    unknown = [c for c in wanted if c not in cases]
+    if unknown:
+        print(f"no case {', '.join(map(repr, unknown))}; have {', '.join(cases)}", file=sys.stderr)
         return 2
-    candidates = load_candidates(args.run, args.scan)
-    result = score(cases[args.case], candidates)
+    candidates = load_candidates(args.run, args.scan, args.fullscan)
+    failed = 0
+    for case_id in wanted:
+        failed += report(score(cases[case_id], candidates), len(candidates))
+    return 1 if failed else 0
+
+
+def report(result: dict, total: int) -> int:
+    """Print one case's score; 1 when it did not pass."""
     print(f"{result['case']}: {result['hits']} of {result['expected']} expected finding(s) found "
-          f"among {len(candidates)} candidate(s)")
+          f"among {total} candidate(s)")
     for f in result["findings"]:
         print(f"  {'HIT ' if f['hit'] else 'MISS'} {f['what']}")
         if f["hit"]:

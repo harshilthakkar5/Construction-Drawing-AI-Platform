@@ -164,11 +164,30 @@ export function canResume(status: RfiFullScanStatus, tiles: { total: number; don
   return (status === "partial" || status === "failed") && tiles.total > 0;
 }
 
+/** A planned scan's price on every model the screen offers, batch and
+ * direct, keyed `provider|model` — so the number beside Start is always for
+ * the model and mode actually selected. */
+export function pricesByModel(
+  estimate: WorkerEstimate | null,
+  options: { provider: string; model: string }[],
+): Record<string, { batch: { low: number; high: number } | null; direct: { low: number; high: number } | null }> {
+  const out: Record<string, { batch: { low: number; high: number } | null; direct: { low: number; high: number } | null }> = {};
+  if (!estimate) return out;
+  for (const o of options) {
+    out[`${o.provider}|${o.model}`] = {
+      batch: priceEstimate(estimate, o.model, true)?.costUsd ?? null,
+      direct: priceEstimate(estimate, o.model, false)?.costUsd ?? null,
+    };
+  }
+  return out;
+}
+
 export function toFullScanDto(
   scan: ScanRow,
   tiles: RfiFullScanDto["tiles"],
   spent: RfiFullScanDto["spent"],
   now: Date = new Date(),
+  defaultModel: string | null = null,
 ): RfiFullScanDto {
   const shown = shownStatus(scan, now);
   const limits = (scan.limits ?? null) as RfiFullScanDto["limits"];
@@ -190,7 +209,8 @@ export function toFullScanDto(
       tiles: p.tiles,
     })),
     skipped: (Array.isArray(scan.skipped) ? scan.skipped : []) as RfiFullScanDto["skipped"],
-    estimate: priceEstimate((scan.estimate ?? null) as WorkerEstimate | null, scan.model, scan.useBatch),
+    // Before Start no model is chosen yet: priced on the default one.
+    estimate: priceEstimate((scan.estimate ?? null) as WorkerEstimate | null, scan.model ?? defaultModel, scan.useBatch),
     limits: limits && typeof limits.maxTotalTokens === "number" ? limits : null,
     tiles,
     spent,

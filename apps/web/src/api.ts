@@ -17,6 +17,8 @@ import type {
   RfiCandidateStatus,
   RfiConfidence,
   RfiDto,
+  RfiFullScanAvailability,
+  RfiFullScanDto,
   RfiPriority,
   RfiPackageDto,
   RfiPackageItemRef,
@@ -79,6 +81,22 @@ export interface RfiReviewPlanRequest {
   maxInputTokens?: number;
   maxThinkingTokens?: number | null;
   excludePageIds: string[];
+}
+
+export interface RfiFullScanList {
+  availability: RfiFullScanAvailability;
+  models: Pick<RfiReviewOptions, "default" | "options">;
+  /** The latest plan's price per `provider|model`, batch and direct. */
+  prices: Record<string, { batch: { low: number; high: number } | null; direct: { low: number; high: number } | null }>;
+  scans: RfiFullScanDto[];
+}
+
+export interface RfiFullScanStart {
+  provider?: RfiReviewProvider;
+  model?: string;
+  useBatch: boolean;
+  budgetUsd?: number;
+  maxTotalTokens?: number;
 }
 
 export interface RfiReviewOptions {
@@ -512,10 +530,44 @@ export const api = {
   rfiReviewReportUrl: (projectId: string, runId: string, kind: "draft" | "accepted", format: "pdf" | "json") =>
     withToken(`${API_URL}/projects/${projectId}/rfis/reviews/${runId}/report.${format}?kind=${kind}`),
 
+  // --- Full AI scan ---------------------------------------------------------
+
+  /** The project's full scans, newest first. Rejects (404) when the feature
+   * is turned off on this server. */
+  listRfiFullScans: (projectId: string) => request<RfiFullScanList>(`/projects/${projectId}/rfis/full-scans`),
+
+  getRfiFullScan: (projectId: string, scanId: string) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans/${scanId}`),
+
+  /** Catalogue every page, pair the sheets that should agree, count tokens.
+   * No model call. */
+  planRfiFullScan: (projectId: string) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans`, { method: "POST", body: JSON.stringify({}) }),
+
+  /** `key` makes a double click start ONE scan. */
+  startRfiFullScan: (projectId: string, scanId: string, body: RfiFullScanStart, key: string) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans/${scanId}/start`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Idempotency-Key": key },
+    }),
+
+  resumeRfiFullScan: (projectId: string, scanId: string, body: { budgetUsd?: number } = {}) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans/${scanId}/resume`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  cancelRfiFullScan: (projectId: string, scanId: string) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans/${scanId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
   /** Ask the worker for a marked-up package: a cover form per item and the
    * drawing sheets with clouds and callouts. `reviewRunId` adds every finding
    * of that review. */
-  createRfiPackage: (projectId: string, body: { items?: RfiPackageItemRef[]; reviewRunId?: string }) =>
+  createRfiPackage: (projectId: string, body: { items?: RfiPackageItemRef[]; reviewRunId?: string; fullScanId?: string }) =>
     request<RfiPackageDto>(`/projects/${projectId}/rfis/packages`, { method: "POST", body: JSON.stringify(body) }),
 
   getRfiPackage: (projectId: string, packageId: string) =>

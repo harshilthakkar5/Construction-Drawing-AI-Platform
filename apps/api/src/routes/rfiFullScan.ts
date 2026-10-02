@@ -10,6 +10,7 @@ import {
   budgetToTokens,
   canResume,
   fullScanAvailability,
+  pricesByModel,
   scanIsActive,
   shownStatus,
   spentOf,
@@ -81,8 +82,9 @@ async function dtos(scans: ScanRow[]): Promise<RfiFullScanDto[]> {
   const ids = scans.map((s) => s.id);
   const [tiles, money] = await Promise.all([tileCounts(ids), spent(ids)]);
   const now = new Date();
+  const defaultModel = reviewModelOptions().default.model;
   return scans.map((s) =>
-    toFullScanDto(s, tiles.get(s.id) ?? { total: 0, done: 0, failed: 0 }, money.get(s.id) ?? spentOf([]), now),
+    toFullScanDto(s, tiles.get(s.id) ?? { total: 0, done: 0, failed: 0 }, money.get(s.id) ?? spentOf([]), now, defaultModel),
   );
 }
 
@@ -99,7 +101,15 @@ async function one(projectId: string, scanId: string): Promise<RfiFullScanDto> {
 rfiFullScanRouter.get("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const scans = await prisma.rfiFullScan.findMany({ where: { projectId }, orderBy: { createdAt: "desc" }, take: 10 });
-  res.json({ availability: fullScanAvailability(), models: reviewModelOptions(), scans: await dtos(scans) });
+  const models = reviewModelOptions();
+  const latest = scans[0];
+  res.json({
+    availability: fullScanAvailability(),
+    models,
+    // The latest plan priced on every offered model, for the Start form.
+    prices: latest?.status === "planned" ? pricesByModel((latest.estimate ?? null) as WorkerEstimate | null, models.options) : {},
+    scans: await dtos(scans),
+  });
 });
 
 rfiFullScanRouter.get("/:scanId", async (req, res) => {
