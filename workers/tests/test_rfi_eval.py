@@ -70,4 +70,5 @@ def test_a_rejection_does_not_swallow_a_different_finding():
 
 def test_the_four_client_rejections_are_in_the_benchmark():
     ids = {c["id"] for c in json.loads(rfi_eval.CASES.read_text())["cases"]}
-    assert {"fp-a303-a305-levels", "fp-s1102-a336-scales", "fp-s8-door-schedule", "fp-sr25-level-schedule"} <= ids
+    assert {"fp-a303-a305-levels", "fp-s1102-a336-scales", "fp-s8-door-schedule", "fp-sr25-level-schedule",
+            "fp-not-uploaded-references"} <= ids

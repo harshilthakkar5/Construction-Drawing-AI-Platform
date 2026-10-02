@@ -185,6 +185,70 @@ def test_grids_named_alike_are_not_a_finding():
     assert grid_mismatches(pages, systems)[0] == []
 
 
+# Architectural column letters for the same lines the structural sheets letter
+# A..E — a second axis of the same naming dispute.
+ARCH_COLUMNS = {"A": 421.0, "B": 601.0, "C.4": 871.0, "D": 1141.0, "G": 1410.0}
+
+
+def test_one_naming_dispute_between_two_disciplines_is_one_rfi():
+    """The client's set produced FIVE grid findings for one dispute — S2.105 vs
+    A3.01 numbered and lettered, A3.01 vs S2.107 numbered and twice lettered —
+    where the team wrote ONE RFI, "Confirm the grid layout". Findings between
+    the same two disciplines whose renamings agree are one question."""
+    pages = [
+        page("s1", "S2.105", "structural", 1),
+        page("a", "A3.01", "architectural", 2),
+        page("s2", "S2.107", "structural", 3),
+    ]
+    other_rows = dict(STRUCT_ROWS, **{"7": 1600.0})  # a second structural sheet, a different extent
+    systems = [
+        GridSystem("s1", "blue 27pt", COLUMNS, STRUCT_ROWS),
+        GridSystem("a", "grey 18pt", shifted(ARCH_COLUMNS, -146), shifted(ARCH_ROWS, -30)),
+        GridSystem("s2", "blue 27pt", shifted(COLUMNS, 12), shifted(other_rows, 12)),
+    ]
+    findings, _ = grid_mismatches(pages, systems)
+    assert len(findings) == 1, [f.subject for f in findings]
+    f = findings[0]
+    assert "architectural" in f.subject and "structural" in f.subject
+    assert "numbered and lettered" in f.subject
+    assert "(architectural = structural)" in f.question
+    assert "9 = 6" in f.question and "C.4 = C" in f.question and "G = E" in f.question
+    assert set(f.facts["sheets"]) == {"S2.105", "A3.01", "S2.107"}
+
+
+def test_a_renaming_that_contradicts_the_merged_one_is_its_own_rfi():
+    """If S2.107 calls the line architectural 9 by a DIFFERENT name than S2.105
+    does, that is a second dispute, not more evidence for the first."""
+    pages = [
+        page("s1", "S2.105", "structural", 1),
+        page("a", "A3.01", "architectural", 2),
+        page("s2", "S2.107", "structural", 3),
+    ]
+    renamed = {("1" if k == "6" else k): v for k, v in STRUCT_ROWS.items()}  # struct "1" where S2.105 has "6"
+    renamed["6"] = 1473.0
+    systems = [
+        GridSystem("s1", "blue 27pt", {}, STRUCT_ROWS),
+        GridSystem("a", "grey 18pt", {}, shifted(ARCH_ROWS, -30)),
+        GridSystem("s2", "blue 27pt", {}, shifted(renamed, 12)),
+    ]
+    findings, _ = grid_mismatches(pages, systems)
+    assert len(findings) >= 2
+
+
+def test_a_lone_dispute_keeps_the_fingerprint_it_always_had():
+    # An RFI already accepted from it must not be proposed again under a new id.
+    pages = [page("s", "S2.105", "structural", 1), page("a", "A3.01", "architectural", 2)]
+    systems = [
+        GridSystem("s", "blue 27pt", {}, STRUCT_ROWS),
+        GridSystem("a", "grey 18pt", {}, shifted(ARCH_ROWS, -30)),
+    ]
+    (f,), _ = grid_mismatches(pages, systems)
+    # The formula from before merging existed: the axis word and the unordered
+    # renamed pairs.
+    pairs = sorted("~".join(sorted(line.split(" = "))) for line in f.facts["renamedLines"])
+    assert f.fingerprint == rfi_grid.fingerprint(rfi_grid.CHECK_TYPE, "numbered", *pairs)
+
+
 def test_the_same_disagreement_seen_twice_is_one_finding():
     """The background grid on the structural sheet and the architectural sheet
     itself say the same thing; the finding is the disagreement, whichever

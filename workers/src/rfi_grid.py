@@ -387,8 +387,9 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
             "Grid check: " + ", ".join(sorted(several_views)[:6]) + " show the same grid label in two places "
             "(several views on one sheet), so their grids were not compared with other sheets."
         )
-    findings: list[Finding] = []
-    for fp, entry in found.items():
+    groups, singles = _merge_by_discipline(found, by_page)
+    findings: list[Finding] = [_merged_finding(group, by_page) for group in groups]
+    for fp, entry in singles.items():
         a, b, renamed = entry["a"], entry["b"], entry["renamed"]
         same_page = a.page_id == b.page_id
         name_a = _system_name(a, by_page, same_page)
@@ -445,3 +446,118 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
             )
         )
     return _cap(CHECK_TYPE, findings, notes), notes
+
+
+def _discipline(page: Page) -> str:
+    return (page.discipline or "unknown").replace("_", " ")
+
+
+def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page]) -> tuple[list[dict], dict[str, dict]]:
+    """One naming dispute between two disciplines is ONE RFI.
+
+    Laid over each other sheet by sheet, the structural and architectural
+    grids disagree on every pair of sheets and on both axes: the client's set
+    produced five findings — S2.105/A3.01 numbered, S2.105/A3.01 lettered,
+    A3.01/S2.107 numbered and twice lettered — where the team wrote one RFI,
+    "Confirm the grid layout". So cross-page findings between the same two
+    disciplines are merged when their renamings AGREE (architectural 9 is
+    structural 6 in every one of them). A finding that contradicts the merged
+    mapping is a different dispute and stays its own RFI, as does a finding
+    between two grids on one sheet. A lone finding keeps its own fingerprint
+    and wording, so an RFI already accepted from it is not proposed again.
+
+    Returns (merged groups of two or more findings, everything else by
+    fingerprint)."""
+    by_pair: dict[tuple[str, str], list[tuple[str, dict]]] = {}
+    singles: dict[str, dict] = {}
+    for fp, entry in found.items():
+        da, db = _discipline(pages[entry["a"].page_id]), _discipline(pages[entry["b"].page_id])
+        if entry["same_page"] or da == db:
+            singles[fp] = entry
+            continue
+        by_pair.setdefault(tuple(sorted((da, db))), []).append((fp, entry))
+
+    groups = []
+    for (left, right), members in by_pair.items():
+        # Biggest disagreement first: it sets the mapping the others must match.
+        members.sort(key=lambda m: -len(m[1]["renamed"]))
+        fwd: dict[str, str] = {}
+        back: dict[str, str] = {}
+        merged: list[dict] = []
+        for fp, entry in members:
+            flip = _discipline(pages[entry["a"].page_id]) != left
+            oriented = [(y, x) if flip else (x, y) for x, y in entry["renamed"]]
+            if any(fwd.get(l, r) != r or back.get(r, l) != l for l, r in oriented):
+                singles[fp] = entry
+                continue
+            for l, r in oriented:
+                fwd[l], back[r] = r, l
+            merged.append((fp, entry))
+        if len(merged) == 1:
+            fp, entry = merged[0]
+            singles[fp] = entry
+        elif merged:
+            groups.append({"left": left, "right": right, "members": [e for _, e in merged], "mapping": fwd})
+    return groups, singles
+
+
+def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
+    left, right, mapping = group["left"], group["right"], group["mapping"]
+    # Every sheet drawn with each naming, read off the evidence: a grid shared
+    # by several sheets of one discipline is compared once, and the RFI must
+    # still name all of them.
+    by_place = {(p.document_id, p.page_number): p for p in pages.values()}
+    sheets: dict[str, list[str]] = {left: [], right: []}
+    evidence: list[dict] = []
+    places: set = set()
+    for entry in group["members"]:
+        for item in entry["evidence"]:
+            page = by_place.get((item["documentId"], item["pageNumber"]))
+            if page is not None:
+                label = page_label(page)
+                if label not in sheets[_discipline(page)]:
+                    sheets[_discipline(page)].append(label)
+            place = (item["documentId"], item["pageNumber"], item["quote"])
+            if place not in places and len(evidence) < MAX_EVIDENCE:
+                places.add(place)
+                evidence.append(item)
+
+    def listed(names: list[str]) -> str:
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+    def order(label: str) -> tuple:
+        try:
+            return (0, -float(label))
+        except ValueError:
+            return (1, label)
+
+    pairs = sorted(mapping.items(), key=lambda kv: order(kv[0]))
+    numbered = [f"{l} = {r}" for l, r in pairs if not l[:1].isalpha()]
+    lettered = [f"{l} = {r}" for l, r in pairs if l[:1].isalpha()]
+    parts = []
+    if numbered:
+        parts.append("numbered lines " + "; ".join(numbered[:14]) + ("; …" if len(numbered) > 14 else ""))
+    if lettered:
+        parts.append("lettered lines " + "; ".join(lettered[:14]) + ("; …" if len(lettered) > 14 else ""))
+    word = " and ".join(w for w, items in (("numbered", numbered), ("lettered", lettered)) if items)
+    question = (
+        f"The {left} drawings ({listed(sheets[left])}) and the {right} drawings "
+        f"({listed(sheets[right])}) are drawn on the same grid lines, but {len(mapping)} of them are named "
+        f"differently ({left} = {right}): {'. '.join(parts)}. Please confirm which grid naming governs for "
+        "layout and coordination, and whether the other drawings will be reissued to match."
+    )
+    return Finding(
+        check_type=CHECK_TYPE,
+        fingerprint=fingerprint(CHECK_TYPE, "disciplines", left, right, *sorted(f"{l}~{r}" for l, r in mapping.items())),
+        confidence="high" if len(mapping) >= 3 else "medium",
+        subject=f"Grid {word} lines named differently in the {left} and {right} drawings",
+        question=question,
+        evidence=evidence,
+        facts={
+            "sheets": sheets[left] + sheets[right],
+            "axis": word,
+            "renamedLines": (numbered + lettered)[:20],
+            "sharedLines": max(e["shared"] for e in group["members"]),
+        },
+    )
+

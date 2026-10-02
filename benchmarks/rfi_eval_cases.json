@@ -181,6 +181,42 @@
           ]
         }
       ]
+    },
+    {
+      "id": "fp-not-uploaded-references",
+      "source": "Full project-check audit on eleven of the client's sheets (S2.105, A3.01, S5.210, S0.302, S0.200, S1.101, A3.30, A3.35, A3.27, A3.32, S2.107; markups stripped). A3.27/A3.30/A3.32/A3.35 say 'REFER TO RAMP SECTIONS ON A5.14' and S2.107 points at '1/A3.31'; both sheets belong to the issued set and were simply not in the upload.",
+      "pdf": "the eleven sheets above (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "dangling_reference"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "A5.14 'referenced but not in the drawing set'",
+          "why": "Not uploaded is not not-issued. With no sheet index uploaded a missing sheet cannot be told from an unuploaded one, so it is a note asking for the index, never an RFI.",
+          "checkTypes": [
+            "dangling_reference"
+          ],
+          "sheets": [],
+          "mentions": [
+            "A5.14"
+          ]
+        },
+        {
+          "what": "A3.31 'referenced but not in the drawing set'",
+          "why": "Same: part of the issued set, not uploaded.",
+          "checkTypes": [
+            "dangling_reference"
+          ],
+          "sheets": [],
+          "mentions": [
+            "A3.31"
+          ]
+        }
+      ]
     }
   ]
 }
