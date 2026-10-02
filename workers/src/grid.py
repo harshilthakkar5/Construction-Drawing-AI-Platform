@@ -269,6 +269,100 @@ def without_markup(page: fitz.Page) -> fitz.Page:
     return page
 
 
+# --- Leaders: a bubble printed away from its line ---------------------------
+
+# A leader endpoint touches the bubble within this of its circle, and two
+# leader pieces join within LEADER_JOIN_PT.
+LEADER_TOUCH_PT = 2.0
+LEADER_JOIN_PT = 0.75
+# A leader moves a bubble at most this many bubble diameters off its line.
+LEADER_MAX_DIAMETERS = 2.0
+
+
+def _segments(page: fitz.Page, to_display) -> list[tuple[float, float, float, float]]:
+    """Every straight line piece on the page, in display space."""
+    out = []
+    for drawing in page.get_cdrawings():
+        for item in drawing["items"]:
+            if item[0] != "l":
+                continue
+            a, b = fitz.Point(item[1]) * to_display, fitz.Point(item[2]) * to_display
+            out.append((a.x, a.y, b.x, b.y))
+    return out
+
+
+def leader_target(bubble: fitz.Rect, segments: list[tuple[float, float, float, float]]) -> tuple[float | None, float | None]:
+    """Where a bubble's KINKED leader lands: (x of the line it runs to, or None;
+    y of the line it runs to, or None). Pure, on display-space segments.
+
+    Only the drafter's leader SHAPE counts: a straight stub out of the bubble,
+    one diagonal, then a piece PARALLEL to the stub running on toward the
+    drawing. Anything looser walks into whatever line happens to touch a
+    crowded bubble — the first version snapped half of A3.01's bubbles onto
+    the sheet border and hid the client's real RFI 002. The bubble then moves
+    only ACROSS the stub (a vertical stub moves x, never y), by at most
+    LEADER_MAX_DIAMETERS bubble widths.
+    """
+    cx, cy = (bubble.x0 + bubble.x1) / 2, (bubble.y0 + bubble.y1) / 2
+    radius = bubble.width / 2
+
+    def dist(pt) -> float:
+        return ((pt[0] - cx) ** 2 + (pt[1] - cy) ** 2) ** 0.5
+
+    def vertical(t) -> bool:
+        return abs(t[2] - t[0]) <= 0.5 and abs(t[3] - t[1]) > 1
+
+    def horizontal(t) -> bool:
+        return abs(t[3] - t[1]) <= 0.5 and abs(t[2] - t[0]) > 1
+
+    def joined(here, t):
+        """The far end of `t` when one of its ends is at `here`, else None."""
+        if abs(t[0] - here[0]) + abs(t[1] - here[1]) <= LEADER_JOIN_PT:
+            return (t[2], t[3])
+        if abs(t[2] - here[0]) + abs(t[3] - here[1]) <= LEADER_JOIN_PT:
+            return (t[0], t[1])
+        return None
+
+    for stub in segments:
+        if not (vertical(stub) or horizontal(stub)):
+            continue
+        for start, end in (((stub[0], stub[1]), (stub[2], stub[3])), ((stub[2], stub[3]), (stub[0], stub[1]))):
+            if abs(dist(start) - radius) > LEADER_TOUCH_PT or dist(end) <= dist(start) + 1:
+                continue
+            diagonals = [(t, joined(end, t)) for t in segments if t is not stub]
+            for diag, bend in diagonals:
+                if bend is None or vertical(diag) or horizontal(diag):
+                    continue
+                for last in segments:
+                    if last is stub or last is diag:
+                        continue
+                    tip = joined(bend, last)
+                    if tip is None:
+                        continue
+                    if vertical(stub) and vertical(last) and (tip[1] - bend[1]) * (end[1] - start[1]) > 0:
+                        x = last[0]
+                        if abs(x - cx) <= LEADER_MAX_DIAMETERS * bubble.width:
+                            return x, None
+                    if horizontal(stub) and horizontal(last) and (tip[0] - bend[0]) * (end[0] - start[0]) > 0:
+                        y = last[1]
+                        if abs(y - cy) <= LEADER_MAX_DIAMETERS * bubble.width:
+                            return None, y
+    return None, None
+
+
+def _line_at(label: str, printed: float, found, on_line, index: int) -> float:
+    """The line position for the bubble `axes` placed at `printed`."""
+    for other, x, y, _ in found:
+        if other == label and (x, y)[index] == printed:
+            return on_line.get((label, x, y), (x, y))[index]
+    return printed
+
+
+def _on_line(shown: fitz.Rect, x: float, y: float, segments) -> tuple[float, float]:
+    lx, ly = leader_target(shown, segments)
+    return (x if lx is None else lx), (y if ly is None else ly)
+
+
 def styled_systems(page: fitz.Page) -> list[dict]:
     """Every grid on the page, one per bubble STYLE, in display coordinates.
 
@@ -304,6 +398,22 @@ def styled_systems(page: fitz.Page) -> list[dict]:
         shown = rect * to_display
         by_colour.setdefault(colour, []).append((inside[0], *centre(shown), shown, rect.width))
 
+    # A crowded grid end pushes its bubbles sideways on a kinked LEADER, so the
+    # bubble no longer sits on its line. Read at the bubble, S2.106's G.9 and H
+    # were 18pt (2 ft at 1/8") off the lines A3.25 draws them on, and the grid
+    # check reported "G.9 = H" — a naming dispute the drawings do not have.
+    # The bubbles are still GROUPED by where they are printed (a row of
+    # bubbles shares a printed y however far each leader bends); only the
+    # position reported for a line moves to where its leader lands. Grouped by
+    # the corrected positions instead, A3.01's dense secondary lines chained
+    # into false axes and hid the client's real RFI 002.
+    on_line: dict[tuple[str, float, float], tuple[float, float]] = {}
+    if any(by_colour.values()):
+        segments = _segments(page, to_display)
+        for found in by_colour.values():
+            for label, x, y, shown, _ in found:
+                on_line[(label, x, y)] = _on_line(shown, x, y, segments)
+
     # Sizes are CLUSTERED per colour, never bucketed: one drafter's bubble is
     # one size give or take the stroke (26.9 beside 27.0), and a fixed bucket
     # edge between those splits one grid into two systems. Two grids a drafter
@@ -326,6 +436,8 @@ def styled_systems(page: fitz.Page) -> list[dict]:
         along_x, along_y = axes([(label, x, y) for label, x, y, _ in found])
         if not along_x and not along_y:
             continue
+        along_x = {label: _line_at(label, at, found, on_line, 0) for label, at in along_x.items()}
+        along_y = {label: _line_at(label, at, found, on_line, 1) for label, at in along_y.items()}
         # Every bubble of a label, not their union: a grid line is bubbled at
         # BOTH ends, and one box around both is a highlight the width of the
         # sheet. The caller picks one end.

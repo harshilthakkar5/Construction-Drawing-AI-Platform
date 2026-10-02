@@ -172,6 +172,26 @@ def stage_thinking(env_var: str) -> str | None:
     return raw
 
 
+def valid_stage_setting(setting: str | None) -> str | None:
+    """A stage setting the transports know how to send, or None (the global
+    defaults) for anything else, said loudly.
+
+    `stage_thinking` checks values read from the environment, but a caller can
+    hand `complete` a raw string — the full scan read FULL_SCAN_THINKING=on
+    straight from the environment, and `on` reached `_thinking_ladder` as a
+    Gemini level and raised ValueError before the batch was even sent. The
+    same value on Claude is a KeyError. An unknown setting is configuration, so
+    it must cost one log line, never the run."""
+    if setting is None or setting in THINKING_SETTINGS or thinking_budget(setting) is not None:
+        return setting
+    log.error(
+        "thinking setting %r is not one of %s (or budget:N) — sending the global "
+        "thinking defaults instead; fix the stage's env var",
+        setting, ", ".join(THINKING_SETTINGS),
+    )
+    return None
+
+
 def describe_thinking(thinking: dict | None, output_config: dict | None = None) -> str:
     """A thinking config as one short, loggable, storable string."""
     if thinking is None:
@@ -1422,6 +1442,7 @@ def complete_batch(
     stored on the portion row; until then, raise BATCH_TIMEOUT_SECONDS rather
     than lower it.
     """
+    thinking = valid_stage_setting(thinking)
     if provider == "gemini":
         return _batch_gemini(
             prompts,
@@ -1528,6 +1549,7 @@ def complete(
     with empty text is a provider that answered with nothing, which is a
     different thing and is left for the caller's parser to reject.
     """
+    thinking = valid_stage_setting(thinking)
     try:
         if provider == "gemini":
             reply = _complete_gemini(
