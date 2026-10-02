@@ -106,9 +106,10 @@ re-mapped) and the effort.
    pages are all structural compares nothing; the run's note (`grid_scope_note`) names every
    sheet with a grid and every pair compared, and says so when none was, instead of a bare "0". Its findings keep the scan's fingerprint, so one grid disagreement is one candidate
    whichever mode found it, and the model is told not to report it again. C01's overlay is below.
-4. **Aids** (`workers/src/review_aids.py`, kind `aid`, trust `derived`). C03 gets every concrete
-   column's offset from its nearest grid crossing, MEASURED from the PDF at the printed scale
-   ("1'-2\" right of grid line 3"); G02 gets an index of the levels and elevations the text prints,
+4. **Aids** (`workers/src/review_aids.py`, kind `aid`, trust `derived`). C03 gets every column
+   MARK OCCURRENCE on the sheet measured against the grid in both directions (`column_locate`,
+   see "C03: one column occurrence at a time" below), falling back to the older vector-column
+   offsets on a sheet with no column marks; G02 gets an index of the levels and elevations the text prints,
    sheet by sheet. An aid is never a finding's only support, and its numbers are NOT grounding
    material: a question may state an offset only if a printed dimension carries it.
 5. **Discovery** (images + text), split into calls of at most `maxInputTokens`, a page's evidence
@@ -136,6 +137,63 @@ re-mapped) and the effort.
    the identifiers — never the wording — and the upsert never touches a candidate someone has
    accepted or dismissed, or one the project scan owns. Then `checkResults` (all 16), `coverage`,
    `inventory` and usage are written, and the status is `ready` or `partial`.
+
+### C03: one column occurrence at a time
+
+Built from the first real review of a Level 6 forming plan (S2.106), which raised ONE RFI —
+"missing grid offsets for C-8, C-12, C-15.E, C-16.E and C-17" — clouded nearly the whole plan, and
+had at least two of the five standing dead on their crossings (C-12 at D/4.7, C-17 at B1.6/4.6).
+The run itself was not available, so the trace is from the code and the exported package:
+
+| Where | What went wrong |
+|---|---|
+| C03 aid | found columns as VECTOR filled boxes with stipple (an architectural convention). On the client's structural sheets the column fills are RASTER tiles, so the aid measured nothing and said so in a note the model never read as a warning. |
+| Discovery | the only picture of the whole plan is ~44 DPI; "no offset dimension beside the symbol" became "location cannot be determined" with nothing checking the grid. |
+| Reasoning → verification | a MARK was one identity: five marks became one claim, and verification is a model re-reading the same evidence. Nothing in code looked at an occurrence. |
+| Save | the whole-sheet picture became a "finding" box, and every crop and chunk box was clouded and merged — one cloud over the plan. |
+| Cover | the "Why flagged" box was a fixed 60pt, so "Checked: …, S2.107," was cut mid-list; the Revision field was never filled. |
+
+What runs now (`workers/src/column_locate.py`, `rfi_review.occurrence_check`):
+
+1. **Every occurrence of every column mark** on each rendered page (a mark printed twice is two
+   occurrences; a word the PDF draws twice at one spot is one). The BODY is found in a ~200 DPI
+   render of the area beside its label — a neutral filled region of column size and shape —
+   never the label's own position. A size printed under the mark ("(14 x 48)") must agree with
+   the body, a label between two bodies owns neither, and two marks claiming one body lose it.
+2. **Both directions, minor grid lines included** (`grid.page_grid`: 4.7, B1.6, C.1 …). Per axis
+   the body's CENTRE is `centred` (≤ 3 in at the printed scale, floor 2 pt), `offset` (≥ 6 in,
+   floor 4 pt), `face` (its face on the line), `uncertain` (in between) or `no_grid` (nothing
+   within 4 ft). Centred on one line settles that coordinate only.
+3. **Outcome per occurrence**: `located_by_grid` (centred both ways — no offset dimension is
+   needed), `off_grid` (off a line and no printed dimension within 3 ft of the body), `unknown`
+   (everything else, with the reason — a nearby dimension may locate it, the face is on the line,
+   no body, no scale). A `.E`/`.S` suffix is part of the mark and decides nothing.
+4. **The gate**, for C03 `missing`/`ambiguity` claims only (a two-sheet conflict, and every other
+   check, is untouched). The claim's marks — and crossings, when it names them — select the
+   occurrences on the pages it cites. Every one centred → rejected BEFORE the verification call
+   is paid for. Some off grid → the finding is narrowed to exactly those: its question is rebuilt
+   from the measured facts (`questionSource = template`, grid names and marks only, never a
+   measured distance), its evidence is one tight box per occurrence (`kind: occurrence`,
+   `verification: verified`), the model's pictures of that sheet are dropped and its notes and
+   details become context. Unsettled occurrences ride along as context marked `not_verified`, and
+   are written as C03 gaps. A claim with only unsettled occurrences is not saved; it becomes gaps.
+5. **No clean pass on unsettled geometry.** Any measured occurrence that is off grid or unknown
+   and not covered by a saved finding is a C03 gap, so C03 reads `insufficient_evidence`, never
+   `complete_no_issue`. `checkResults.C03.occurrences` keeps every measurement for the audit.
+
+A general note ("COLUMNS SHOWN ON PLAN ARE CENTERED ON GRID LINES U.N.O.") never enters the gate:
+a measured offset is not overruled by a note, and a centred column needs no note. What the gate
+does NOT do: it never proves a dimension is absent from the design. It looks within 3 ft of the
+column on the same sheet; schedules, enlarged plans and details elsewhere are not searched by
+measurement, and the finding's reasoning says so.
+
+On the client's S2.105 (the level under S2.106, drawn the same way) the measurement agrees with the
+drawing at every occurrence checked by eye: C-12 D/4.7 and C-17 B1.6/4.6 centred, C-8 C.1/5 below
+grid line 5. On the S2.106 copy inside the exported package, the original grouped claim becomes
+C-8 only, with C-15.E (face on grid B) and C-16.E (a 2'-6" dimension beside it) left for a person.
+That is a code result on stub-model claims. **No real-model replay was run**: the original run,
+its settings and its evidence payload were not available, so whether a real review now raises a
+better C03 finding is unmeasured.
 
 **Budgets.** `maxTotalTokens` is checked BEFORE every call (a sent call is paid for either way).
 Reaching it stops the run as `partial`: what was found before — the exact findings at least — is
@@ -247,6 +305,15 @@ The marks are real PDF annotations — Polygon with a cloudy border, FreeText, L
 the team draws in Bluebeam, so every mark can be moved, edited or deleted there. Earlier markup on
 the source sheet is not copied. A cloud is never drawn round a box covering most of a sheet (it
 would point at nothing), round a model's description or round a server aid.
+
+Only FINDING evidence is clouded, and only when it is a location: a box over `PRECISE_SHARE` (8%)
+of the sheet is outlined dashed and labelled "AREA CITED — NOT PINPOINTED", and one over half the
+sheet is not drawn — both said in words on the cover, so a missing cloud never reads as "nothing
+here". Clouds never merge into anything larger than that. CONTEXT (a referenced note, a typical
+detail, an occurrence nobody verified) is a blue dashed outline with its label, never a cloud,
+and a sheet carrying only context says "CONTEXT ONLY" in its callout instead of the question. The
+cover's Revision reads "Unknown - not read from the title block" (nothing reads it yet), and the
+"Why flagged" audit is never cut: it continues on a following page.
 
 Where the clouds go comes from what the RFI or finding already stores (`rfi_locations`, or the
 candidate's evidence), in the page's UNROTATED space — the space `get_text` reports, chunk boxes

@@ -239,7 +239,10 @@ class Evidence:
             "bbox": self.bbox,
             "chunkId": self.chunk_id,
             "quote": _clip(self.text, 220) if not self.visual else f"({'whole sheet' if self.kind == 'page' else 'drawing close-up'})",
-            "role": "context" if self.kind == "description" else "finding",
+            # A whole-sheet picture is never WHERE a problem is: it is what
+            # the model looked at, so it is context, and the package does not
+            # cloud it as though it pinpointed anything.
+            "role": "context" if self.kind in ("description", "page") else "finding",
             "evidenceId": self.id,
             "kind": self.kind,
             "sourceTrust": self.trust,
@@ -765,6 +768,251 @@ def fingerprint(candidate: dict, evidence: dict[str, Evidence], observations: li
         }
     )
     return rfi_checks.fingerprint(f"review_{candidate['checkId']}", candidate["kind"], *pages, *idents)
+
+
+# --- C03: verify each column OCCURRENCE before a missing offset is asserted (pure) ------
+
+# Kinds of C03 claim that assert a location cannot be determined. A conflict
+# between two sheets is about something else and is not gated here.
+OCCURRENCE_KINDS = ("missing", "ambiguity")
+_MARK_TOKEN = re.compile(r"(?<![A-Z0-9.])[A-Z]{1,3}-?\d{1,3}[A-Z]?(?:\.[A-Z0-9]{1,2})?(?![A-Z0-9]|\.\d)")
+_GRID_NAME = r"(?:[A-Z]{1,2}\d?(?:\.\d+)?|\d{1,2}(?:\.\d+)?)"
+_CROSSING = re.compile(rf"(?<![A-Z0-9.])({_GRID_NAME})\s*/\s*({_GRID_NAME})(?![A-Z0-9]|\.\d)")
+
+
+@dataclass
+class OccurrencePage:
+    """The measured occurrences of one scoped page, with the page's identity."""
+
+    page: dict  # the scope page (documentId, pageNumber, combinedPageNumber, sheetNumber)
+    occurrences: list  # column_locate.Occurrence
+
+
+@dataclass
+class OccurrenceVerdict:
+    """What measurement says about one C03 claim.
+
+    `applies` is False when the claim is not one this gate judges (another
+    check, a conflict between sheets, or no measured page among its evidence):
+    the existing path then stands unchanged. Otherwise each occurrence the
+    claim names lands in exactly one list."""
+
+    applies: bool
+    supported: list = field(default_factory=list)  # (OccurrencePage, Occurrence) off grid, nothing locates it nearby
+    resolved: list = field(default_factory=list)  # centred on a grid line both ways
+    unknown: list = field(default_factory=list)  # not measurable or not settled
+    reason: str = ""
+
+    @property
+    def rejected(self) -> bool:
+        return self.applies and not self.supported and not self.unknown and bool(self.resolved)
+
+    @property
+    def unresolved_only(self) -> bool:
+        return self.applies and not self.supported and not self.rejected
+
+
+def _claim_text(candidate: dict, decision: dict | None) -> str:
+    parts = [candidate.get(k, "") for k in ("element", "location", "issue")]
+    if decision:
+        parts += [decision.get("subject", ""), decision.get("question", "")]
+    return " ".join(p for p in parts if p).upper()
+
+
+def named_marks(text: str) -> set[str]:
+    import column_locate
+
+    return {column_locate.normalize(t) for t in _MARK_TOKEN.findall(text.upper())}
+
+
+def named_crossings(text: str) -> set[frozenset]:
+    return {frozenset((a.upper(), b.upper())) for a, b in _CROSSING.findall(text.upper())}
+
+
+def _occurrence_names(occ) -> set[frozenset]:
+    """Every way a person could name an occurrence's crossing, including a
+    line's second name."""
+    if occ.x is None or occ.y is None or not occ.x.line or not occ.y.line:
+        return set()
+    xs = {occ.x.line, *occ.x.also_named}
+    ys = {occ.y.line, *occ.y.also_named}
+    return {frozenset((a, b)) for a in xs for b in ys}
+
+
+def occurrence_check(
+    candidate: dict, decision: dict | None, measured: dict[tuple[str, int], OccurrencePage], evidence: dict[str, Evidence]
+) -> OccurrenceVerdict:
+    """Which named occurrences a C03 "location cannot be determined" claim
+    really concerns, and what measurement says about EACH of them.
+
+    The marks come from the claim's own words, matched against marks printed
+    on the pages it cites. A mark printed several times is narrowed to the
+    occurrences at crossings the claim names; when it names none of them,
+    every occurrence of that mark on those pages is judged — separately, so a
+    centred one is removed without discarding an off-grid one of the same
+    mark. A general note ("columns are centred on grid lines unless noted")
+    never enters this: a measured offset is not overruled by a note, and a
+    measured centred column needs no note.
+    """
+    import column_locate
+
+    if candidate.get("checkId") != "C03" or candidate.get("kind") not in OCCURRENCE_KINDS:
+        return OccurrenceVerdict(False)
+    pages = []
+    for eid in candidate.get("evidenceIds", []) + candidate.get("searched", []):
+        ev = evidence.get(eid)
+        if ev is None or ev.kind == "description":
+            continue
+        key = (ev.document_id, ev.page_number)
+        if key in measured and key not in pages:
+            pages.append(key)
+    if not pages:
+        return OccurrenceVerdict(False)
+    text = _claim_text(candidate, decision)
+    marks = named_marks(text)
+    crossings = named_crossings(text)
+    verdict = OccurrenceVerdict(True)
+    found_any = False
+    for key in pages:
+        page = measured[key]
+        mine = [o for o in page.occurrences if column_locate.normalize(o.mark) in marks]
+        found_any = found_any or bool(mine)
+        by_mark: dict[str, list] = {}
+        for o in mine:
+            by_mark.setdefault(column_locate.normalize(o.mark), []).append(o)
+        for occs in by_mark.values():
+            at = [o for o in occs if _occurrence_names(o) & crossings]
+            for o in at or occs:
+                bucket = {
+                    column_locate.LOCATED: verdict.resolved,
+                    column_locate.OFF_GRID: verdict.supported,
+                }.get(o.status, verdict.unknown)
+                bucket.append((page, o))
+    if not found_any:
+        verdict.reason = "it names no column mark that is printed on the sheets it cites, so no occurrence could be located"
+    elif verdict.rejected:
+        verdict.reason = "measured: every occurrence it names is centred on a grid line in both directions (" + ", ".join(
+            o.where() for _, o in verdict.resolved
+        ) + "), so none needs an offset dimension"
+    return verdict
+
+
+def occurrence_wording(verdict: OccurrenceVerdict) -> tuple[str, str]:
+    """(subject, question) for a C03 claim narrowed to its verified
+    occurrences. Built from measured facts only — grid NAMES and marks, never
+    a measured distance, which is not printed on the drawing."""
+    sheets: list[str] = []
+    for page, _ in verdict.supported:
+        name = page.page.get("sheetNumber") or f"page {page.page.get('combinedPageNumber') or page.page['pageNumber']}"
+        if name not in sheets:
+            sheets.append(name)
+    sheet = ", ".join(sheets)
+
+    def line(o) -> str:
+        off = ", ".join(o.unresolved())
+        on = [a.name for a in (o.x, o.y) if a is not None and a.state == "centred"]
+        return f"{o.where()} — off grid line {off}" + (f" (centred on {', '.join(on)})" if on else "")
+
+    occs = [o for _, o in verdict.supported]
+    if len(occs) == 1:
+        o = occs[0]
+        off = ", ".join(o.unresolved())
+        subject = _clip(f"Locate column {o.where()} on {sheet}", 90)
+        question = (
+            f"On {sheet}, column {line(o)}. No dimension locating it from grid line {off} was found near the column "
+            f"on this sheet. Please provide the dimension from grid line {off} to the centreline of {o.mark}, "
+            "or confirm its intended location."
+        )
+    else:
+        marks = ", ".join(dict.fromkeys(o.mark for o in occs))
+        subject = _clip(f"Locate {len(occs)} off-grid columns on {sheet}: {marks}", 90)
+        listed = " ".join(f"{i}) {line(o)}." for i, o in enumerate(occs, start=1))
+        question = (
+            f"On {sheet}, these columns are drawn off the grid lines named and no dimension locating them was found "
+            f"near them on this sheet: {listed} Please provide the dimensions locating each column from the grid "
+            "lines named, or confirm their intended locations."
+        )
+    return subject, question
+
+
+def occurrence_evidence(verdict: OccurrenceVerdict) -> list[dict]:
+    """One evidence item per occurrence, at the occurrence: a tight box round
+    the column body and its label, in the page's unrotated space. Verified
+    ones are the finding; unsettled ones ride along as context marked NOT
+    VERIFIED, so a person sees them without the RFI asserting them."""
+    out = []
+    for (page, o), verified in [(x, True) for x in verdict.supported] + [(x, False) for x in verdict.unknown]:
+        if o.unrotated is None:
+            continue
+        p = page.page
+        out.append({
+            "documentId": p["documentId"],
+            "pageNumber": p["pageNumber"],
+            "combinedPageNumber": p.get("combinedPageNumber"),
+            "sheetNumber": p.get("sheetNumber"),
+            "bbox": {"x": o.unrotated.x0, "y": o.unrotated.y0, "width": o.unrotated.width, "height": o.unrotated.height},
+            "chunkId": None,
+            "quote": _clip(o.summary() if verified else f"NOT VERIFIED — {o.summary()}", 220),
+            "role": "finding" if verified else "context",
+            "evidenceId": None,
+            "kind": "occurrence",
+            "sourceTrust": "geometry",
+            "side": None,
+            "observation": None,
+            "verification": "verified" if verified else "not_verified",
+            "occurrence": o.as_json(),
+        })
+    return out
+
+
+def occurrence_reasoning(verdict: OccurrenceVerdict) -> str:
+    """The audit line: what was measured for each named occurrence."""
+    parts = []
+    if verdict.supported:
+        parts.append("Verified by measurement: " + "; ".join(o.summary() for _, o in verdict.supported) + ".")
+    if verdict.resolved:
+        parts.append("Removed (centred on grid lines both ways): " + "; ".join(o.where() for _, o in verdict.resolved) + ".")
+    if verdict.unknown:
+        parts.append("Not verified — a person must check: " + "; ".join(f"{o.where()} ({o.reason})" for _, o in verdict.unknown) + ".")
+    parts.append(
+        "Measured from the PDF geometry near each column only; schedules, enlarged plans and details elsewhere were "
+        "not searched by measurement."
+    )
+    return " ".join(parts)
+
+
+def occurrence_fingerprint(verdict: OccurrenceVerdict) -> str:
+    """Identity of a narrowed C03 finding: the verified occurrences
+    themselves (page + mark + crossing), never the wording. A rerun that
+    verifies the same occurrences finds the same row."""
+    keys = sorted(f"{p.page['documentId']}:{p.page['pageNumber']}:{o.ident}" for p, o in verdict.supported)
+    return rfi_checks.fingerprint("review_C03", "off_grid", *keys)
+
+
+def uncovered_occurrences(measured: dict[tuple[str, int], OccurrencePage], covered: set[tuple[str, int, str]]) -> list[dict]:
+    """Gap lines for measured occurrences no saved finding speaks for: off
+    grid with nothing near them that locates them, or not settled at all."""
+    import column_locate
+
+    out = []
+    for (doc, page_no), page in measured.items():
+        sheet = page.page.get("sheetNumber") or f"page {page.page.get('combinedPageNumber') or page_no}"
+        for o in page.occurrences:
+            if o.status == column_locate.LOCATED or (doc, page_no, o.ident) in covered:
+                continue
+            why = (
+                "measured off grid and not raised by this review — confirm a dimension, note or detail locates it"
+                if o.status == column_locate.OFF_GRID else f"needs manual verification: {o.reason}"
+            )
+            out.append({"checkId": "C03", "field": f"location of {o.where()} on {sheet}", "reason": why})
+    return out
+
+
+def occurrence_gaps(verdict_unknown: list) -> list[dict]:
+    return [
+        {"checkId": "C03", "field": f"location of {o.where()}", "reason": f"needs manual verification: {o.reason}"}
+        for _, o in verdict_unknown
+    ]
 
 
 # --- Usage ---------------------------------------------------------------------------
@@ -1324,17 +1572,20 @@ def _where_found(conn, project_id: str, fp: str) -> str:
     return already_found(row[0], row[1], row[2], row[3])
 
 
-def _save_candidate(conn, run: dict, fp: str, candidate: dict, decision: dict, evidence: list[dict], reasoning: str) -> int:
+def _save_candidate(
+    conn, run: dict, fp: str, candidate: dict, decision: dict, evidence: list[dict], reasoning: str, *, question_source: str = "model"
+) -> int:
     cur = conn.execute(
         """
         INSERT INTO rfi_candidates
             (id, "projectId", "reviewRunId", origin, fingerprint, "checkType", confidence, subject,
              question, "questionSource", evidence, reasoning, priority, status, "createdAt", "updatedAt")
         VALUES (gen_random_uuid()::text, %s, %s, 'targeted_review', %s, %s, %s::"RfiConfidence", %s, %s,
-                'model', %s::jsonb, %s, %s, 'pending', now(), now())
+                %s, %s::jsonb, %s, %s, 'pending', now(), now())
         ON CONFLICT ("projectId", fingerprint) DO UPDATE
            SET "reviewRunId" = EXCLUDED."reviewRunId", confidence = EXCLUDED.confidence,
-               subject = EXCLUDED.subject, question = EXCLUDED.question, evidence = EXCLUDED.evidence,
+               subject = EXCLUDED.subject, question = EXCLUDED.question, "questionSource" = EXCLUDED."questionSource",
+               evidence = EXCLUDED.evidence,
                reasoning = EXCLUDED.reasoning, priority = EXCLUDED.priority, "updatedAt" = now()
          -- A person's decision stands, and a scan's finding keeps its own wording.
          WHERE rfi_candidates.status = 'pending' AND rfi_candidates.origin = 'targeted_review'
@@ -1347,6 +1598,7 @@ def _save_candidate(conn, run: dict, fp: str, candidate: dict, decision: dict, e
             decision["confidence"],
             decision["subject"],
             decision["question"],
+            question_source,
             json.dumps(evidence),
             reasoning,
             decision["priority"],
@@ -1610,6 +1862,8 @@ def _run(run: dict) -> dict:
     texts = text_evidence(scope)
     aids: list[Evidence] = []
     index_aids: list[Evidence] = []
+    # C03: every column-mark occurrence on each rendered page, measured.
+    measured: dict[tuple[str, int], OccurrencePage] = {}
     with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", []) if p.get("visual")})) as open_page:
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
@@ -1625,10 +1879,12 @@ def _run(run: dict) -> dict:
                 if page is None:
                     continue
                 try:
-                    text, note = review_aids.column_offsets_for_page(page, p.get("sheetNumber") or f"page {p['pageNumber']}")
+                    occurrences, text, note = review_aids.column_occurrences_for_page(page, p.get("sheetNumber") or f"page {p['pageNumber']}")
                 except Exception as exc:
-                    text, note = None, f"C03 aid: could not measure {p.get('sheetNumber') or p['pageNumber']}: {exc}"
+                    occurrences, text, note = [], None, f"C03 aid: could not measure {p.get('sheetNumber') or p['pageNumber']}: {exc}"
                 notes.append(note)
+                if occurrences:
+                    measured[(p["documentId"], p["pageNumber"])] = OccurrencePage(p, occurrences)
                 if text:
                     aids.append(_aid(f"ev{n}", p, text))
                     n += 1
@@ -1669,7 +1925,12 @@ def _run(run: dict) -> dict:
     gaps: list[dict] = []
     not_applicable: list[dict] = []
     candidates: list[dict] = []
-    kept: list[tuple[dict, dict]] = []
+    kept: list[tuple[dict, dict, OccurrenceVerdict]] = []
+    rejected: list[str] = []
+    # C03 occurrences a claim named that measurement could not settle: they
+    # are recorded as needing a person, never dropped and never asserted.
+    unsettled: list[dict] = []
+    covered: set[tuple[str, int, str]] = set()
     stopped: str | None = None
     sent = [ev for b in batches for ev in b]
     try:
@@ -1732,22 +1993,32 @@ def _run(run: dict) -> dict:
                 candidate["why"] = f"{candidate['why']} The project was searched for \"{candidate['searchFor']}\" and nothing was found.".strip()
         _checkpoint(run_id, "verification", 70, run)
 
+        # 4c. Measured counter-examples first: a C03 claim whose every named
+        # occurrence is centred on two grid lines is rejected here, before a
+        # verification call is paid for.
+        to_verify: list[dict] = []
+        for candidate in candidates:
+            early = occurrence_check(candidate, None, measured, evidence)
+            if early.rejected:
+                rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {early.reason}")
+                continue
+            to_verify.append(candidate)
+
         # 5. Verification — only the evidence each problem cites (and found).
-        rejected: list[str] = []
-        if candidates:
-            cited = sorted({e for c in candidates for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
+        if to_verify:
+            cited = sorted({e for c in to_verify for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
             cited_images = [evidence[e] for e in cited if evidence[e].visual]
             body = "\n".join(_evidence_block(evidence[e]) for e in cited)
             problems = json.dumps(
-                [{"index": i, **{k: c[k] for k in ("checkId", "kind", "element", "location", "issue", "why", "evidenceIds", "searched")}} for i, c in enumerate(candidates)],
+                [{"index": i, **{k: c[k] for k in ("checkId", "kind", "element", "location", "issue", "why", "evidenceIds", "searched")}} for i, c in enumerate(to_verify)],
                 ensure_ascii=False,
             )
             decisions = _ask(
                 "verification", verification_system(),
                 f"{body}\n\n<problems>\n{problems}\n</problems>",
-                lambda raw: parse_decisions(raw, len(candidates)), run=run, usage=usage, images=cited_images,
+                lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
-            for i, candidate in enumerate(candidates):
+            for i, candidate in enumerate(to_verify):
                 label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
                 decision = decisions.get(i)
                 if decision is None:
@@ -1760,7 +2031,19 @@ def _run(run: dict) -> dict:
                 if why_not:
                     rejected.append(f"{label}: {why_not}")
                     continue
-                kept.append((candidate, decision))
+                verdict = occurrence_check(candidate, decision, measured, evidence)
+                if verdict.rejected:
+                    rejected.append(f"{label}: {verdict.reason}")
+                    continue
+                if verdict.unresolved_only:
+                    covered.update((p.page["documentId"], p.page["pageNumber"], o.ident) for p, o in verdict.unknown)
+                    unsettled += occurrence_gaps(verdict.unknown) or [
+                        {"checkId": "C03", "field": f"location of {candidate['element'] or 'the column named'}",
+                         "reason": f"needs manual verification: {verdict.reason}"}
+                    ]
+                    rejected.append(f"{label}: not verified by measurement, recorded for a person to check")
+                    continue
+                kept.append((candidate, decision, verdict))
         notes.append(f"Verification kept {len(kept)} of {len(candidates)} proposed issue(s).")
         if rejected:
             notes.append("Rejected: " + "; ".join(rejected[:10]) + ("…" if len(rejected) > 10 else ""))
@@ -1792,8 +2075,7 @@ def _run(run: dict) -> dict:
         for obs in observations:
             for e in obs["evidenceIds"]:
                 by_ev.setdefault(e, []).append(obs["statement"])
-        for candidate, decision in kept:
-            fp = fingerprint(candidate, evidence, observations)
+        for candidate, decision, verdict in kept:
             # Aids are the server's measurements, not places on a drawing: a
             # pin must point at the sheet itself.
             items = [
@@ -1801,19 +2083,60 @@ def _run(run: dict) -> dict:
                 for e in candidate["evidenceIds"] if evidence[e].kind != "aid"
             ]
             items += [dict(evidence[e].as_candidate_evidence("found by searching the project"), role="context") for e in candidate["searched"]]
-            reasoning = " ".join(x for x in (decision["why"] or candidate["why"], candidate.get("impact") and f"Impact: {candidate['impact']}") if x)
+            source = "model"
+            if verdict.applies:
+                # Narrowed to the occurrences that passed: the question names
+                # exactly those, the clouds sit on exactly those, and what the
+                # model cited (sheet pictures, notes, typical details) is
+                # context — none of it is where the column is.
+                subject, question = occurrence_wording(verdict)
+                decision = dict(decision, subject=subject, question=question)
+                # The pictures the model looked at of a measured sheet add
+                # nothing a person needs once each occurrence is boxed (they
+                # stay in the evidence manifest); a note, a detail or another
+                # sheet is kept as context.
+                measured_pages = {(p.page["documentId"], p.page["pageNumber"]) for p, _ in verdict.supported + verdict.unknown + verdict.resolved}
+                items = occurrence_evidence(verdict) + [
+                    dict(item, role="context") for item in items
+                    if not (item["kind"] in ("page", "crop") and (item["documentId"], item["pageNumber"]) in measured_pages)
+                ]
+                reasoning = occurrence_reasoning(verdict)
+                fp = occurrence_fingerprint(verdict)
+                source = "template"
+                unsettled += occurrence_gaps(verdict.unknown)
+                covered.update((p.page["documentId"], p.page["pageNumber"], o.ident) for p, o in verdict.supported + verdict.unknown)
+            else:
+                fp = fingerprint(candidate, evidence, observations)
+                reasoning = decision["why"] or candidate["why"]
+                # A consequence the model inferred is not a fact the drawing
+                # states: never appended to a missing-dimension claim, and
+                # qualified everywhere else.
+                if candidate.get("impact") and candidate["kind"] != "missing":
+                    reasoning = f"{reasoning} Possible impact (the review's reading, not verified): {candidate['impact']}"
             if candidate["kind"] == "missing":
-                reasoning = f"{reasoning} Checked: {', '.join(searched)}.".strip()
-            wrote = _save_candidate(conn, run, fp, candidate, decision, items, reasoning) > 0
+                reasoning = f"{reasoning} Sheets read in this review ({len(searched)}): {', '.join(searched)}.".strip()
+            wrote = _save_candidate(conn, run, fp, candidate, decision, items, reasoning, question_source=source) > 0
             saved += wrote
             tally(candidate["checkId"], fp, wrote, decision["subject"])
 
     for lines in known.values():
         notes.extend(f"Found again, not added twice: {line}." for line in lines)
+    # Occurrences measured off grid or left unsettled that no saved finding
+    # covers: the review did not raise them, but it cannot claim the question
+    # is clean either — "no issue" would be a claim about dimensions nobody
+    # looked for.
+    unsettled += uncovered_occurrences(measured, covered)
+    if unsettled:
+        notes.append(f"C03: {len(unsettled)} column occurrence(s) need a person to confirm their location (see the C03 gaps).")
     results = check_results(
-        list(CHECKS), check_ids, run.get("checkPlan") or {}, observations, gaps, not_applicable, found_by_check,
+        list(CHECKS), check_ids, run.get("checkPlan") or {}, observations, gaps + unsettled, not_applicable, found_by_check,
         omitted=bool(unread), stopped=stopped, known=known,
     )
+    if "C03" in results and measured:
+        results["C03"]["occurrences"] = [
+            dict(o.as_json(), sheetNumber=page.page.get("sheetNumber"), documentId=page.page["documentId"], pageNumber=page.page["pageNumber"])
+            for page in measured.values() for o in page.occurrences
+        ][:300]
     partial = bool(unread) or stopped is not None
     coverage = {
         "omittedPages": planned.get("omittedPages") or [],

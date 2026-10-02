@@ -568,6 +568,99 @@ def test_a_busy_provider_is_asked_again_instead_of_failing_the_run(database, mon
     assert usage["stages"]["reasoning"]["failedCalls"] == 2 and usage["stages"]["reasoning"]["calls"] == 1
 
 
+# --- C03: occurrences measured before an offset is called missing ----------------
+
+
+class ColumnClaimModel:
+    """Makes the claim the first real forming-plan review made: ONE missing-
+    offset RFI over several column marks, cited to a close-up and the C03
+    aid. What the job does with it is the test; the stub says nothing about
+    what a real model would claim."""
+
+    def __init__(self, marks: str):
+        self.marks = marks
+        self.calls: list[dict] = []
+
+    def __call__(self, system, user, **kw):
+        import llm
+
+        stage = "discovery" if "DISCOVERY" in system else "reasoning" if "REASONING" in system else "verification"
+        self.calls.append({"stage": stage, "user": user, **kw})
+        if stage == "discovery":
+            crop = re.search(r'<evidence id="(ev\d+)" kind="crop" sheet="S2.105"', user).group(1)
+            aid = re.search(r'<evidence id="(ev\d+)" kind="aid" sheet="S2.105"', user).group(1)
+            self.ids = [crop, aid]
+            body = {"observations": [{"checkId": "C03", "element": f"columns {self.marks}", "location": "level 5",
+                                      "statement": f"no offset dimension is shown beside {self.marks}",
+                                      "evidenceIds": self.ids}]}
+        elif stage == "reasoning":
+            body = {"candidates": [{"checkId": "C03", "kind": "missing", "element": f"columns {self.marks}",
+                                    "location": "level 5 forming plan", "issue": "no offset dimension from grid",
+                                    "impact": "columns could be cast in the wrong place, a structural risk",
+                                    "evidenceIds": self.ids}]}
+        else:
+            body = {"decisions": [{"index": 0, "decision": "keep", "subject": f"Missing grid offsets for {self.marks}",
+                                   "question": f"Please provide offsets from grid for {self.marks}.",
+                                   "why": "no dimension is shown", "priority": "high", "confidence": "high"}]}
+        return llm.Reply(text=json.dumps(body), stop_reason="end_turn", model="stub-model", input_tokens=100,
+                         output_tokens=50, thinking="effort=low")
+
+
+@needs_db
+def test_a_grouped_column_claim_is_narrowed_to_the_occurrences_that_are_off_grid(database, monkeypatch):
+    """C-12 (D/4.7) and C-17 (B1.6/4.6) stand on their crossings: removed.
+    C-8 (C.1/5) and C-16 (E/5) stand off grid line 5: kept, each clouded at
+    its own column. The question is rebuilt from the measured occurrences."""
+    import llm
+
+    seeded = _seed(database, checks=("C03",))
+    model = ColumnClaimModel("C-8, C-12, C-16, C-17")
+    monkeypatch.setattr(llm, "complete", model)
+    rfi_review.run(seeded["run"])
+    assert [c["stage"] for c in model.calls] == ["discovery", "reasoning", "verification"]
+    rows = _candidates(database, seeded["project"])
+    assert len(rows) == 1
+    check, _, _, subject, question, source, evidence, _, reasoning, *_ = rows[0]
+    assert check == "C03" and source == "template"
+    assert "C-8 near C.1/5" in question and "C-16 near E/5" in question
+    assert "C-12" not in question and "C-17" not in question
+    assert "Removed (centred on grid lines both ways): C-12 near D/4.7; C-17 near B1.6/4.6" in reasoning
+    assert "structural risk" not in reasoning  # an inferred consequence is not appended
+    findings = [e for e in evidence if e["role"] == "finding"]
+    assert sorted(e["occurrence"]["occurrence"] for e in findings) == ["C-16@E/5", "C-8@C.1/5"]
+    page = fitz.open(CLIENT_PDF)[0]
+    for e in findings:
+        box = fitz.Rect(e["bbox"]["x"], e["bbox"]["y"], e["bbox"]["x"] + e["bbox"]["width"], e["bbox"]["y"] + e["bbox"]["height"])
+        assert e["occurrence"]["mark"] in {w[4] for w in page.get_text("words", clip=box)}
+        assert box.width * box.height < 0.005 * page.rect.width * page.rect.height
+    # The picture the model looked at of this sheet is not a location.
+    assert not [e for e in evidence if e["kind"] in ("page", "crop")]
+    with database.connect() as conn:
+        results, = conn.execute('SELECT "checkResults" FROM rfi_review_runs WHERE id = %s', (seeded["run"],)).fetchone()
+    assert results["C03"]["outcome"] == "candidate_found"
+    measured = {o["occurrence"]: o["status"] for o in results["C03"]["occurrences"]}
+    assert measured["C-12@D/4.7"] == "located_by_grid" and measured["C-17@B1.6/4.6"] == "located_by_grid"
+
+
+@needs_db
+def test_a_claim_about_centred_columns_is_rejected_before_verification_is_paid_for(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C03",))
+    model = ColumnClaimModel("C-12, C-17")
+    monkeypatch.setattr(llm, "complete", model)
+    rfi_review.run(seeded["run"])
+    assert [c["stage"] for c in model.calls] == ["discovery", "reasoning"]
+    assert _candidates(database, seeded["project"]) == []
+    status, _, _, _, notes, *_ = _row(database, seeded["run"])
+    assert status == "ready"
+    assert any("every occurrence it names is centred" in n for n in notes)
+    with database.connect() as conn:
+        results, = conn.execute('SELECT "checkResults" FROM rfi_review_runs WHERE id = %s', (seeded["run"],)).fetchone()
+    # The sheet still has columns nobody located: the question is not "no issue".
+    assert results["C03"]["outcome"] == "insufficient_evidence" and results["C03"]["gaps"]
+
+
 # --- what the grid comparison looked at ------------------------------------------
 
 
