@@ -19,6 +19,7 @@ import { portionsRouter } from "./routes/portions.js";
 import { projectsRouter } from "./routes/projects.js";
 import { queuesRouter } from "./routes/queues.js";
 import { regionRouter } from "./routes/region.js";
+import { rfiFullScanRouter } from "./routes/rfiFullScan.js";
 import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
 import { rfiPackagesRouter } from "./routes/rfiPackages.js";
 import { rfiReviewRouter } from "./routes/rfiReview.js";
@@ -123,6 +124,7 @@ export function createApp() {
   app.use("/projects/:projectId/rfis/generated", requireGeneratedModels, rfiGeneratedRouter);
   app.use("/projects/:projectId/rfis/reviews", requireGeneratedModels, rfiReviewRouter);
   app.use("/projects/:projectId/rfis/packages", requireGeneratedModels, rfiPackagesRouter);
+  app.use("/projects/:projectId/rfis/full-scans", requireGeneratedModels, rfiFullScanRouter);
   app.use("/projects/:projectId/rfis", requireGeneratedModels, rfisRouter);
   app.use("/projects/:projectId", pagesRouter);
 

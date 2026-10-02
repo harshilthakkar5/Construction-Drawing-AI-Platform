@@ -1,0 +1,487 @@
+"""Phases 3-4 of the full AI scan: the first look, the close look, the rules.
+
+Every model here is a STUB. These tests prove what the code does with any
+reply — what it parses, refuses, saves, resumes and stops on — and nothing
+about whether a real model finds real problems. Only benchmarks/rfi_eval.py
+against real RFIs measures that.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sys
+import uuid
+from pathlib import Path
+
+import fitz
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import fullscan  # noqa: E402
+import fullscan_run as fr  # noqa: E402
+from generated import RFI_REVIEW_CHECKS  # noqa: E402
+
+CLIENT_PDF = Path(os.environ.get("RFI_REVIEW_TEST_PDF") or "/nonexistent")
+TEST_DB = os.environ.get("RFI_TEST_DATABASE_URL")
+
+
+def _issue(**over):
+    base = {"checkId": "C01", "kind": "missing", "element": "column C-6", "whatA": "a column", "whatB": "nothing",
+            "boxA": [0.1, 0.2, 0.3, 0.4], "boxB": [0.1, 0.2, 0.3, 0.4], "confidence": "high"}
+    base.update(over)
+    return base
+
+
+# --- parsing ----------------------------------------------------------------------------
+
+
+class TestParseIssues:
+    def test_reads_a_valid_issue(self):
+        out = fr.parse_issues(json.dumps({"issues": [_issue()]}))
+        assert out == [_issue()]
+
+    def test_no_issues_is_an_empty_list_not_a_failure(self):
+        assert fr.parse_issues('{"issues": []}') == []
+
+    def test_a_reply_that_is_not_the_json_asked_for_is_none(self):
+        assert fr.parse_issues("The drawings look fine.") is None
+        assert fr.parse_issues('{"problems": []}') is None
+        assert fr.parse_issues(None) is None
+
+    def test_boxes_in_thousandths_are_scaled_down(self):
+        out = fr.parse_issues(json.dumps({"issues": [_issue(boxA=[100, 200, 300, 400])]}))
+        assert out[0]["boxA"] == pytest.approx([0.1, 0.2, 0.3, 0.4])
+
+    @pytest.mark.parametrize("box", [[0.3, 0.2, 0.1, 0.4], [0.1, 0.2], [-0.1, 0, 0.2, 0.2], [1, 2, 3000, 4000], "x"])
+    def test_an_issue_with_an_unusable_box_is_dropped(self, box):
+        assert fr.parse_issues(json.dumps({"issues": [_issue(boxB=box)]})) == []
+
+    def test_an_issue_naming_no_known_question_is_dropped(self):
+        assert fr.parse_issues(json.dumps({"issues": [_issue(checkId="Z99")]})) == []
+
+    def test_an_issue_without_what_each_sheet_shows_is_dropped(self):
+        assert fr.parse_issues(json.dumps({"issues": [_issue(whatB="")]})) == []
+
+    def test_at_most_four_per_tile(self):
+        out = fr.parse_issues(json.dumps({"issues": [_issue(element=f"column {i}") for i in range(9)]}))
+        assert len(out) == fr.MAX_ISSUES_PER_TILE
+
+    def test_unknown_kind_and_confidence_fall_back(self):
+        out = fr.parse_issues(json.dumps({"issues": [_issue(kind="weird", confidence="sure")]}))
+        assert out[0]["kind"] == "conflict" and out[0]["confidence"] == "medium"
+
+
+class TestParseVerdict:
+    def test_keep(self):
+        v = fr.parse_verdict(json.dumps({"decision": "keep", "reason": "r", "subject": "s", "question": "q",
+                                         "confidence": "low", "priority": "high"}))
+        assert v["decision"] == "keep" and v["confidence"] == "low" and v["priority"] == "high"
+
+    def test_a_decision_that_is_neither_keep_nor_reject_is_none(self):
+        assert fr.parse_verdict('{"decision": "maybe"}') is None
+        assert fr.parse_verdict("keep") is None
+
+    def test_defaults(self):
+        v = fr.parse_verdict('{"decision": "reject"}')
+        assert v["confidence"] == "medium" and v["priority"] == "normal"
+
+
+# --- geometry -----------------------------------------------------------------------------
+
+
+WINDOW = {"documentId": "d", "pageNumber": 1, "rect": [100.0, 200.0, 853.0, 953.0]}
+
+
+def test_box_rect_maps_fractions_into_the_window():
+    assert fr.box_rect(WINDOW, [0, 0, 1, 1]) == [100, 200, 853, 953]
+    assert fr.box_rect(WINDOW, [0.5, 0.5, 0.6, 0.6]) == pytest.approx([476.5, 576.5, 551.8, 651.8])
+
+
+def test_a_small_box_gets_a_close_up_of_at_least_the_minimum():
+    r = fr.close_rect(WINDOW, [0.5, 0.5, 0.51, 0.51])
+    assert r[2] - r[0] == pytest.approx(fr.CLOSE_MIN_PT)
+    assert r[3] - r[1] == pytest.approx(fr.CLOSE_MIN_PT)
+    cx = (r[0] + r[2]) / 2
+    assert cx == pytest.approx(100 + 0.505 * 753)  # centred on the box
+
+
+def test_a_large_box_is_padded_by_its_own_size():
+    r = fr.close_rect(WINDOW, [0.1, 0.1, 0.9, 0.9])
+    side = 0.8 * 753
+    assert r[2] - r[0] == pytest.approx(side * (1 + 2 * fr.CLOSE_PAD))
+
+
+# --- the rules the model is not trusted to apply ---------------------------------------------
+
+
+PAIR = {"a": {"sheetNumber": "A3.01", "level": "2"}, "b": {"sheetNumber": "S0.302", "level": "2"}, "reason": "r"}
+
+
+def _keep(subject="Column C-6 at the ramp", question="A3.01 shows column C-6 and S0.302 does not. Which is correct?"):
+    return {"decision": "keep", "reason": "r", "subject": subject, "question": question,
+            "confidence": "high", "priority": "normal"}
+
+
+def test_a_grounded_keep_passes():
+    assert fr.rule_out(PAIR, _keep(), fr.material_for(PAIR, ("COLUMN C-6", ""))) is None
+
+
+def test_a_reject_keeps_its_reason():
+    assert fr.rule_out(PAIR, {"decision": "reject", "reason": "style only"}, "") == "style only"
+
+
+def test_no_verdict_is_rejected():
+    assert fr.rule_out(PAIR, None, "") == "no usable verdict"
+
+
+def test_a_keep_with_no_question_is_rejected():
+    assert "no question" in fr.rule_out(PAIR, _keep(question=""), "C-6")
+
+
+def test_an_invented_number_is_rejected():
+    why = fr.rule_out(PAIR, _keep(question="Is column C-6 987 mm wide?"), fr.material_for(PAIR, ("COLUMN C-6", "")))
+    assert why and "987" in why
+
+
+def test_an_invented_mark_is_rejected():
+    why = fr.rule_out(PAIR, _keep(subject="Column C-99"), fr.material_for(PAIR, ("COLUMN C-6", "")))
+    assert why and "C-99" in why
+
+
+def test_two_levels_are_never_one_finding():
+    pair = {**PAIR, "b": {"sheetNumber": "S0.302", "level": "3"}}
+    assert fr.rule_out(pair, _keep(), fr.material_for(pair, ("COLUMN C-6", ""))) == "the two sheets are not one level"
+
+
+def test_the_first_looks_own_description_is_not_grounding():
+    """The model's whatA/whatB is exactly the claim being checked, so a number
+    it states there must not make the same number in the question 'grounded'."""
+    material = fr.material_for(PAIR, ("COLUMN", "COLUMN"))
+    assert "450" not in material
+    assert fr.rule_out(PAIR, _keep(question="Is the column 450 wide?"), material)
+
+
+# --- prompts --------------------------------------------------------------------------------
+
+
+def test_the_discovery_prompt_offers_every_original_question():
+    system = fr.discovery_system()
+    assert all(c["id"] in system for c in RFI_REVIEW_CHECKS)
+
+
+def test_both_prompts_mark_the_drawings_as_untrusted():
+    assert "UNTRUSTED" in fr.discovery_system() and "UNTRUSTED" in fr.verify_system()
+
+
+def test_the_tile_prompt_names_the_sheets_and_the_scale():
+    pair = {"reason": "enlarged plan", "transform": {"scale": 0.5},
+            "a": {"sheetNumber": "A3.35", "level": "14"}, "b": {"sheetNumber": "A3.27", "level": "14"}}
+    user, labels = fr.tile_prompt(pair, {"tile": 0}, "WORDS A", "WORDS B")
+    assert "A3.35" in user and "A3.27" in user and "2 times larger" in user
+    assert "<words_a>WORDS A</words_a>" in user
+    assert labels[0].startswith("Image A") and labels[1].startswith("Image B")
+
+
+# --- the whole run, against a real database -------------------------------------------------
+
+needs_db = pytest.mark.skipif(
+    not TEST_DB or not CLIENT_PDF.exists(),
+    reason="set RFI_TEST_DATABASE_URL to a migrated database (and RFI_REVIEW_TEST_PDF to the S2.105/A3.01 set)",
+)
+
+
+@pytest.fixture
+def database(monkeypatch):
+    import config
+    import db
+    import llm
+    import storage
+
+    monkeypatch.setattr(config, "DATABASE_URL", TEST_DB)
+    monkeypatch.setattr(db, "_pool", None)
+    monkeypatch.setattr(db, "_pool_unavailable", True)
+    monkeypatch.setattr(fullscan, "HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setattr(fr, "RETRY_DELAY", 0.01)
+    monkeypatch.setattr(storage, "download_to_file", lambda key, path: shutil.copy(CLIENT_PDF, path))
+    monkeypatch.setattr(llm, "available", lambda provider: True)
+    stored: dict[str, bytes] = {}
+    monkeypatch.setattr(storage, "put_bytes", lambda key, data, content_type: stored.__setitem__(key, data))
+    db.stored_images = stored
+    return db
+
+
+def _seed(db, tiles_per_pair=3, limits=None, use_batch=False) -> dict:
+    """A planned scan written by hand: the two client sheets (S2.105, A3.01)
+    are two levels, so the planner would rightly refuse to pair them. The run
+    reads only the stored pairs and tiles, which is what this exercises."""
+    project, document, user, scan = (str(uuid.uuid4()) for _ in range(4))
+    pdf = fitz.open(CLIENT_PDF)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO users (id, email, name, \"passwordHash\") VALUES (%s, %s, 'fs test', 'x')",
+                     (user, f"{user}@test.invalid"))
+        conn.execute('INSERT INTO projects (id, name, "ownerId") VALUES (%s, \'full scan test\', %s)', (project, user))
+        conn.execute('INSERT INTO documents (id, "projectId", filename, "spacesKey", pages, status) '
+                     "VALUES (%s, %s, 'set.pdf', 'k', 2, 'completed')", (document, project))
+        refs = []
+        for n, (sheet, discipline) in enumerate([("S2.105", "structural"), ("A3.01", "architectural")], start=1):
+            page_id = str(uuid.uuid4())
+            conn.execute('INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "sheetNumber", discipline) '
+                         "VALUES (%s, %s, %s, %s, %s, %s)", (page_id, document, n, n, sheet, discipline))
+            refs.append({"pageId": page_id, "documentId": document, "pageNumber": n, "combinedPageNumber": n,
+                         "sheetNumber": sheet, "discipline": discipline, "level": "5", "kind": "plan"})
+        pair = {"index": 0, "kind": "same_level", "a": refs[0], "b": refs[1], "reason": "test pair",
+                "tiles": tiles_per_pair, "transform": {"scale": 1, "tx": 0, "ty": 0}}
+        conn.execute(
+            'INSERT INTO rfi_full_scans (id, "projectId", "createdById", status, provider, model, "useBatch", pairs, '
+            '"sourceRevisions", limits, notes) VALUES (%s, %s, %s, \'queued\', \'claude\', \'stub-model\', %s, %s, %s, %s, \'[]\')',
+            (scan, project, user, use_batch, json.dumps([pair]), json.dumps({document: 2}),
+             json.dumps(limits) if limits else None),
+        )
+        rect_a, rect_b = pdf[0].rect, pdf[1].rect
+        for t in range(tiles_per_pair):
+            x = 300 + 300 * t
+            windows = {"a": {"documentId": document, "pageNumber": 1, "rect": [x, 300, x + 600, 900]},
+                       "b": {"documentId": document, "pageNumber": 2, "rect": [x, 300, x + 600, 900]}}
+            assert fitz.Rect(windows["a"]["rect"]) in rect_a and fitz.Rect(windows["b"]["rect"]) in rect_b
+            conn.execute('INSERT INTO rfi_full_scan_tiles (id, "scanId", "pairIndex", "tileIndex", windows, status, "updatedAt") '
+                         "VALUES (gen_random_uuid()::text, %s, 0, %s, %s::jsonb, 'pending', now())", (scan, t, json.dumps(windows)))
+    return {"project": project, "scan": scan, "user": user, "document": document}
+
+
+class Stub:
+    """The model. The first look reports one issue on every tile listed in
+    `issue_on`; the close look keeps it with a question grounded in the
+    close-up's own words — or, with `invent`, a question naming a number the
+    drawings do not carry."""
+
+    def __init__(self, issue_on=(0,), invent=False, on_call=None):
+        self.issue_on, self.invent, self.on_call = set(issue_on), invent, on_call
+        self.discovery = self.verify = 0
+        self.batches: list[int] = []
+
+    def _usage(self, kw):
+        import usage
+
+        usage.record(kw.get("project_id"), "rfi", "stub-model", 4000, 300)
+
+    def complete(self, system, user, **kw):
+        import llm
+
+        self._usage(kw)
+        assert len(kw["images"]) == 2 and all(i[:4] == b"\x89PNG" for i in kw["images"])
+        if self.on_call:
+            self.on_call(self)
+        if "confirm or reject" in system:
+            self.verify += 1
+            sheet_a = user.split("<sheet_a>")[1].split(",")[0]
+            question = (f"Sheet {sheet_a} shows a column here that the other sheet does not. Which is correct?"
+                        if not self.invent else "Is the slab 987654 thick?")
+            return llm.Reply(text=json.dumps({"decision": "keep", "reason": "drawn on one only",
+                                              "subject": f"Column on {sheet_a}", "question": question,
+                                              "confidence": "high", "priority": "normal"}), stop_reason="end_turn")
+        self.discovery += 1
+        return llm.Reply(text=json.dumps({"issues": self._issues(kw["image_labels"])}), stop_reason="end_turn")
+
+    def _issues(self, labels):
+        tile = int(labels[0].rsplit("window ", 1)[1]) - 1
+        if tile not in self.issue_on:
+            return []
+        return [_issue(element=f"column at window {tile + 1}", boxA=[0.4, 0.4, 0.6, 0.6], boxB=[0.4, 0.4, 0.6, 0.6])]
+
+    def batch(self, prompts, **kw):
+        import usage
+
+        self.batches.append(len(prompts))
+        assert usage._context.get()["stage"] == "discovery_batch"
+        out = {}
+        for i, cid in enumerate(sorted(prompts)):
+            self._usage(kw)
+            if i == 0:
+                continue  # an entry the batch did not return
+            out[cid] = json.dumps({"issues": self._issues(kw["image_labels"][cid])})
+        return out
+
+
+def _install(monkeypatch, stub):
+    import llm
+
+    monkeypatch.setattr(llm, "complete", stub.complete)
+    monkeypatch.setattr(llm, "complete_batch", stub.batch)
+
+
+def _scan(db, scan_id):
+    return fullscan.load_scan(scan_id)
+
+
+def _candidates(db, scan_id):
+    with db.connect() as conn:
+        return conn.execute('SELECT subject, question, evidence, origin::text, "questionSource" FROM rfi_candidates '
+                            'WHERE "fullScanId" = %s', (scan_id,)).fetchall()
+
+
+def _tiles(db, scan_id):
+    with db.connect() as conn:
+        return dict(conn.execute('SELECT status, count(*) FROM rfi_full_scan_tiles WHERE "scanId" = %s GROUP BY status',
+                                 (scan_id,)).fetchall())
+
+
+@needs_db
+def test_a_run_looks_at_every_tile_and_saves_a_confirmed_finding(database, monkeypatch):
+    seed = _seed(database)
+    stub = Stub(issue_on=(1,))
+    _install(monkeypatch, stub)
+    result = fullscan.handle(seed["scan"], "run")
+    scan = _scan(database, seed["scan"])
+    assert scan["status"] == "ready" and scan["findings"] == 1 and result["saved"] == 1
+    assert stub.discovery == 3 and stub.verify == 1
+    assert _tiles(database, seed["scan"]) == {"done": 3}
+    (subject, question, evidence, origin, source), = _candidates(database, seed["scan"])
+    assert origin == "full_scan" and source == "model" and "S2.105" in question
+    assert [e["sheetNumber"] for e in evidence] == ["S2.105", "A3.01"]
+    # The stored box is in the page's UNROTATED space and lands inside the
+    # tile's display window once rotated back.
+    pdf = fitz.open(CLIENT_PDF)
+    for e in evidence:
+        page = pdf[e["pageNumber"] - 1]
+        b = e["bbox"]
+        shown = fitz.Rect(b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"]) * page.rotation_matrix
+        assert shown in fitz.Rect(600, 300, 1200, 900)
+        assert e["imageKey"] in database.stored_images
+    with database.connect() as conn:
+        stages = dict(conn.execute('SELECT stage, count(*) FROM usage_events WHERE "reviewRunId" = %s GROUP BY stage',
+                                   (seed["scan"],)).fetchall())
+    assert stages == {"discovery": 3, "verification": 1}
+
+
+@needs_db
+def test_an_ungrounded_question_is_never_saved(database, monkeypatch):
+    seed = _seed(database)
+    _install(monkeypatch, Stub(issue_on=(0,), invent=True))
+    fullscan.handle(seed["scan"], "run")
+    assert _candidates(database, seed["scan"]) == []
+    scan = _scan(database, seed["scan"])
+    assert scan["status"] == "ready" and any("987654" in n for n in scan["notes"])
+
+
+@needs_db
+def test_the_ceiling_stops_the_run_and_a_resume_finishes_it_without_asking_twice(database, monkeypatch):
+    seed = _seed(database, tiles_per_pair=6, limits={"maxTotalTokens": 16000})
+    stub = Stub(issue_on=(0, 5))
+    _install(monkeypatch, stub)
+    monkeypatch.setattr(fr, "CALL_CONCURRENCY", 1)
+    fullscan.handle(seed["scan"], "run")
+    scan = _scan(database, seed["scan"])
+    assert scan["status"] == "partial" and any("Stopped early" in n for n in scan["notes"])
+    first = stub.discovery
+    assert 0 < first < 6
+    spent = sum(fullscan.spent_tokens(seed["scan"]))
+    assert spent <= 16000  # never past the ceiling, counting calls in flight
+
+    with database.connect() as conn:
+        conn.execute("UPDATE rfi_full_scans SET status = 'queued', limits = %s WHERE id = %s",
+                     (json.dumps({"maxTotalTokens": 1_000_000}), seed["scan"]))
+    fullscan.handle(seed["scan"], "run")
+    scan = _scan(database, seed["scan"])
+    assert scan["status"] == "ready" and stub.discovery == 6  # each tile asked exactly once across both
+    assert scan["findings"] == 2
+
+
+@needs_db
+def test_batch_mode_sends_one_wave_and_retries_a_missing_entry_directly(database, monkeypatch):
+    seed = _seed(database, tiles_per_pair=4, use_batch=True)
+    stub = Stub(issue_on=(0,))
+    _install(monkeypatch, stub)
+    fullscan.handle(seed["scan"], "run")
+    assert stub.batches == [4]
+    assert stub.discovery == 1  # the one entry the batch did not return
+    assert _scan(database, seed["scan"])["status"] == "ready"
+    assert _tiles(database, seed["scan"]) == {"done": 4}
+
+
+@needs_db
+def test_changed_drawings_make_the_scan_stale_before_any_call(database, monkeypatch):
+    seed = _seed(database)
+    stub = Stub()
+    _install(monkeypatch, stub)
+    with database.connect() as conn:
+        conn.execute('UPDATE rfi_full_scans SET "sourceRevisions" = %s WHERE id = %s',
+                     (json.dumps({seed["document"]: 3}), seed["scan"]))
+    fullscan.handle(seed["scan"], "run")
+    assert _scan(database, seed["scan"])["status"] == "stale"
+    assert stub.discovery == 0
+
+
+@needs_db
+def test_a_cancel_stops_the_run(database, monkeypatch):
+    seed = _seed(database, tiles_per_pair=5)
+
+    def cancel(stub):
+        if stub.discovery == 1:
+            with database.connect() as conn:
+                conn.execute("UPDATE rfi_full_scans SET status = 'cancelled' WHERE id = %s", (seed["scan"],))
+
+    stub = Stub(on_call=cancel)
+    _install(monkeypatch, stub)
+    monkeypatch.setattr(fr, "CALL_CONCURRENCY", 1)
+    fullscan.handle(seed["scan"], "run")
+    assert _scan(database, seed["scan"])["status"] == "cancelled"
+    assert stub.discovery < 5
+
+
+@needs_db
+def test_a_starter_removed_from_the_project_stops_the_run(database, monkeypatch):
+    seed = _seed(database)
+    stub = Stub()
+    _install(monkeypatch, stub)
+    with database.connect() as conn:
+        conn.execute('UPDATE projects SET "ownerId" = NULL WHERE id = %s', (seed["project"],))
+        conn.execute("DELETE FROM users WHERE id = %s", (seed["user"],))
+    fullscan.handle(seed["scan"], "run")
+    scan = _scan(database, seed["scan"])
+    assert scan["status"] == "cancelled" and "no longer has access" in scan["error"]
+    assert stub.discovery == 0
+
+
+@needs_db
+def test_a_finding_already_on_file_is_reported_not_overwritten(database, monkeypatch):
+    seed = _seed(database)
+    _install(monkeypatch, Stub(issue_on=(0,)))
+    fullscan.handle(seed["scan"], "run")
+    with database.connect() as conn:
+        conn.execute("UPDATE rfi_candidates SET status = 'dismissed' WHERE \"fullScanId\" = %s", (seed["scan"],))
+        conn.execute("UPDATE rfi_full_scans SET status = 'queued' WHERE id = %s", (seed["scan"],))
+        conn.execute("UPDATE rfi_full_scan_tiles SET status = 'pending', issues = NULL WHERE \"scanId\" = %s", (seed["scan"],))
+    fullscan.handle(seed["scan"], "run")
+    scan = _scan(database, seed["scan"])
+    assert any("Found again" in n and "dismissed" in n for n in scan["notes"])
+    with database.connect() as conn:
+        assert conn.execute("SELECT status::text FROM rfi_candidates WHERE \"fullScanId\" = %s", (seed["scan"],)).fetchone()[0] == "dismissed"
+
+
+@needs_db
+def test_calls_still_in_flight_count_against_the_ceiling(database, monkeypatch):
+    """Four calls running at once, none yet billed: a check that looked only
+    at the ledger would send all four and land past the ceiling."""
+    import time
+
+    seed = _seed(database, tiles_per_pair=6, limits={"maxTotalTokens": 16000})
+    import llm
+    import usage
+
+    stub = Stub()
+    monkeypatch.setattr(stub, "_usage", lambda kw: None)
+
+    def billed(system, user, **kw):
+        time.sleep(0.3)  # the call is running; its tokens are not in the ledger yet
+        reply = stub.complete(system, user, **kw)
+        usage.record(kw.get("project_id"), "rfi", "stub-model", 4000, 300)
+        return reply
+
+    monkeypatch.setattr(llm, "complete", billed)
+    monkeypatch.setattr(fr, "CALL_CONCURRENCY", 4)
+    fullscan.handle(seed["scan"], "run")
+    assert sum(fullscan.spent_tokens(seed["scan"])) <= 16000
+    assert _scan(database, seed["scan"])["status"] == "partial"

@@ -94,8 +94,9 @@ export function toCandidateDto(row: CandidateRow): RfiCandidateDto {
     status: row.status as RfiCandidateStatus,
     rfiId: row.rfiId,
     createdAt: row.createdAt.toISOString(),
-    origin: row.origin === "targeted_review" ? "targeted_review" : "deterministic_scan",
+    origin: row.origin === "targeted_review" || row.origin === "full_scan" ? row.origin : "deterministic_scan",
     reviewRunId: row.reviewRunId ?? null,
+    fullScanId: row.fullScanId ?? null,
     reasoning: row.reasoning ?? null,
     // Written by the worker as text; only a known value reaches the UI.
     priority: RFI_PRIORITIES.includes(row.priority as RfiPriority) ? (row.priority as RfiPriority) : null,

@@ -3,6 +3,7 @@ import {
   QUEUES,
   type ProcessDocumentJob,
   type RegionPreviewJob,
+  type RfiFullScanJob,
   type RfiPackageJob,
   type RfiReviewJob,
   type RfiScanJob,
@@ -99,6 +100,18 @@ export const rfiPackageQueue = new Queue<RfiPackageJob>(QUEUES.rfiPackage, {
   defaultJobOptions: {
     attempts: 2,
     backoff: { type: "exponential", delay: 5000 },
+    removeOnComplete: { count: 200 },
+    removeOnFail: false,
+  },
+});
+
+/** One full AI scan job: `plan` (model-free: catalogue, pairs, tiles) or
+ * `run` (the model calls). Never retried automatically — a run spends money,
+ * and every tile it finished is saved, so the person RESUMES it instead. */
+export const rfiFullScanQueue = new Queue<RfiFullScanJob>(QUEUES.rfiFullScan, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 1,
     removeOnComplete: { count: 200 },
     removeOnFail: false,
   },

@@ -1060,6 +1060,8 @@ def _batch_claude(
     project_id,
     cache_system,
     thinking_setting: str | None = None,
+    images: dict[str, list[bytes]] | None = None,
+    image_labels: dict[str, list[str]] | None = None,
 ) -> dict[str, str]:
     """Run the batch with the SAME thinking fields a single call would send.
 
@@ -1078,6 +1080,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens + extra, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=thinking, output_config=output_config,
+        images=images, image_labels=image_labels,
     )
     if results or not errored or thinking is None:
         return results
@@ -1097,6 +1100,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=None, output_config=fallback,
+        images=images, image_labels=image_labels,
     )
     if results and thinking_setting is None:
         _no_thinking_param.add(model)
@@ -1114,18 +1118,23 @@ def _run_claude_batch(
     cache_system,
     thinking: dict | None,
     output_config: dict | None,
+    images: dict[str, list[bytes]] | None = None,
+    image_labels: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_errored)."""
     client = anthropic_client()
     if client is None:
         return {}, False
 
-    def params(prompt: str) -> dict:
+    def params(custom_id: str, prompt: str) -> dict:
+        content = _user_content_claude(
+            prompt, (images or {}).get(custom_id), (image_labels or {}).get(custom_id)
+        )
         body = {
             "model": model,
             "max_tokens": max_tokens,
             "system": _system_blocks(system, cache_system),
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
         }
         if thinking is not None:
             body["thinking"] = thinking
@@ -1135,7 +1144,7 @@ def _run_claude_batch(
 
     batch = client.messages.batches.create(
         requests=[
-            {"custom_id": custom_id, "params": params(prompt)}
+            {"custom_id": custom_id, "params": params(custom_id, prompt)}
             for custom_id, prompt in prompts.items()
         ]
     )
@@ -1187,6 +1196,15 @@ def gemini_state(job) -> str:
     return (getattr(state, "name", None) or str(state or "")).upper()
 
 
+def _batch_parts_gemini(prompt: str, images, labels, model: str) -> list[dict]:
+    """A batch entry's parts: the single call's builder, with the trailing
+    prompt string made a text part (an inline request takes parts only)."""
+    if not images:
+        return [{"text": prompt}]
+    parts = _user_content_gemini(prompt, images, model=model, image_labels=labels)
+    return [p if isinstance(p, dict) else {"text": p} for p in parts]
+
+
 def _batch_gemini(
     prompts: dict[str, str],
     *,
@@ -1197,6 +1215,8 @@ def _batch_gemini(
     project_id,
     json_only,
     thinking_setting: str | None = None,
+    images: dict[str, list[bytes]] | None = None,
+    image_labels: dict[str, list[str]] | None = None,
 ) -> dict[str, str]:
     """Run the batch, and re-run it once without the thinking budget if that is
     what the whole batch was rejected for.
@@ -1223,6 +1243,7 @@ def _batch_gemini(
     results, rejected = _run_gemini_batch(
         prompts, system=system, model=model, max_tokens=max_tokens,
         kind=kind, project_id=project_id, json_only=json_only, thinking=first,
+        images=images, image_labels=image_labels,
     )
     if results or not rejected or (thinking_setting is None and model in _no_thinking_config):
         return results
@@ -1241,6 +1262,7 @@ def _batch_gemini(
         prompts, system=system, model=model, max_tokens=max_tokens,
         kind=kind, project_id=project_id, json_only=json_only,
         thinking=retry if retry is not None else False,
+        images=images, image_labels=image_labels,
     )
     if results:
         _latch_thinking(model, retry, thinking_setting)
@@ -1265,6 +1287,8 @@ def _run_gemini_batch(
     project_id,
     json_only,
     thinking: bool | dict,
+    images: dict[str, list[bytes]] | None = None,
+    image_labels: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_was_rejected)."""
     client = gemini_client()
@@ -1289,7 +1313,9 @@ def _run_gemini_batch(
         # `metadata` is this API's equivalent of Anthropic's custom_id.
         src=[
             {
-                "contents": [{"role": "user", "parts": [{"text": prompts[custom_id]}]}],
+                "contents": [{"role": "user", "parts": _batch_parts_gemini(
+                    prompts[custom_id], (images or {}).get(custom_id), (image_labels or {}).get(custom_id), model
+                )}],
                 "config": request_config,
                 "metadata": {"custom_id": custom_id},
             }
@@ -1371,8 +1397,14 @@ def complete_batch(
     json_only: bool = False,
     cache_system: bool = True,
     thinking: str | None = None,
+    images: dict[str, list[bytes]] | None = None,
+    image_labels: dict[str, list[str]] | None = None,
 ) -> dict[str, str]:
     """Run many prompts as one batch. {custom_id: prompt} -> {custom_id: text}.
+
+    `images` / `image_labels` are per entry ({custom_id: [png, ...]}), built
+    exactly as a single call builds them; an entry with none sends the plain
+    string it always did.
 
     `thinking` is a stage setting exactly as for `complete`: the batch sends
     the same fields, with the same output headroom, as one call would.
@@ -1400,6 +1432,8 @@ def complete_batch(
             project_id=project_id,
             json_only=json_only,
             thinking_setting=thinking,
+            images=images,
+            image_labels=image_labels,
         )
     return _batch_claude(
         prompts,
@@ -1410,6 +1444,8 @@ def complete_batch(
         project_id=project_id,
         cache_system=cache_system,
         thinking_setting=thinking,
+        images=images,
+        image_labels=image_labels,
     )
 
 

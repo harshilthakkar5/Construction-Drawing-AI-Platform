@@ -425,6 +425,7 @@ export const QUEUES = {
   rfiScan: "rfi-scan",
   rfiReview: "rfi-review",
   rfiPackage: "rfi-package",
+  rfiFullScan: "rfi-full-scan",
 } as const;
 
 export interface ProcessDocumentJob {
@@ -509,6 +510,17 @@ export interface RfiPackageJob {
   packageId: string;
 }
 
+/** One step of a full AI scan. `plan` reads every page (the catalogue), builds
+ * the sheet pairs and their matching tiles and prices them; `run` sends the
+ * approved tiles to the model. Everything else lives on the rfi_full_scans
+ * row, so a retry or a resume reads the same approved plan. */
+export interface RfiFullScanJob {
+  scanId: string;
+  mode: RfiFullScanMode;
+}
+
+export type RfiFullScanMode = "plan" | "run";
+
 /**
  * The wire shape of each job, as data — because the Python worker parses these
  * payloads and TypeScript interfaces do not survive to runtime.
@@ -560,6 +572,7 @@ export const JOB_FIELDS = {
   rfiScan: jobFields<RfiScanJob>()(["projectId", "scanId"]),
   rfiReview: jobFields<RfiReviewJob>()(["runId"]),
   rfiPackage: jobFields<RfiPackageJob>()(["packageId"]),
+  rfiFullScan: jobFields<RfiFullScanJob>()(["scanId", "mode"]),
 } as const;
 
 /** Field types the generator needs to emit a correct Python cast. */
@@ -884,10 +897,13 @@ export interface RfiCandidateDto {
   status: RfiCandidateStatus;
   rfiId: string | null;
   createdAt: string;
-  /** Who found it: the deterministic project scan, or a targeted review. */
+  /** Who found it: the deterministic project scan, a targeted review, or a
+   * full AI scan. */
   origin: RfiCandidateOrigin;
   /** The targeted review run that found it; null for a scan finding. */
   reviewRunId: string | null;
+  /** The full AI scan that found it; null otherwise. */
+  fullScanId: string | null;
   /** One sentence: why a targeted review flagged this. Null for scan findings,
    * whose checks explain themselves in the evidence. */
   reasoning: string | null;
@@ -896,7 +912,7 @@ export interface RfiCandidateDto {
   priority: RfiPriority | null;
 }
 
-export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review";
+export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review" | "full_scan";
 
 export interface RfiScanDto {
   id: string;
@@ -1504,6 +1520,115 @@ export interface RfiPackageDto {
   createdAt: string;
   finishedAt: string | null;
 }
+
+// --- Full AI scan (every page, in sheet pairs) ---------------------------------
+
+/** What a page is, read off its drawing titles by the worker (sheet_facts.py).
+ * Only plans take part in the AI pass; every other kind is covered by the
+ * text checks, which already read every page. */
+export const SHEET_KINDS = [
+  "plan",
+  "enlarged_plan",
+  "section",
+  "elevation",
+  "detail",
+  "schedule",
+  "notes",
+  "cover",
+  "other",
+] as const;
+export type SheetKind = (typeof SHEET_KINDS)[number];
+
+export type RfiFullScanStatus =
+  | "planning"
+  | "planned"
+  | "queued"
+  | "running"
+  | "ready"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "stale";
+
+/** Why two sheets were paired: the same level drawn by two disciplines at one
+ * scale, or an enlarged plan laid over the plan it enlarges. */
+export type RfiFullScanPairKind = "same_level" | "enlarged";
+
+export interface RfiFullScanSheetRef {
+  pageId: string;
+  documentId: string;
+  pageNumber: number;
+  combinedPageNumber: number | null;
+  sheetNumber: string | null;
+  discipline: string | null;
+  level: string | null;
+  kind: SheetKind | null;
+}
+
+export interface RfiFullScanPairDto {
+  index: number;
+  kind: RfiFullScanPairKind;
+  a: RfiFullScanSheetRef;
+  b: RfiFullScanSheetRef;
+  /** In words, for the plan screen. */
+  reason: string;
+  tiles: number;
+}
+
+export interface RfiFullScanCatalogueDto {
+  pages: number;
+  byKind: Record<string, number>;
+  withLevel: number;
+  withScale: number;
+  withGrid: number;
+  /** Pages kept out: superseded, excluded from RFI analysis, not processed. */
+  excluded: number;
+}
+
+/** Tokens are the worker's count; the dollar range is the API's price for
+ * them on the chosen model (null when the model has no known price). */
+export interface RfiFullScanEstimateDto {
+  calls: number;
+  images: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Close-up verification calls, as a range: they depend on what the first
+   * look finds. */
+  verifyCalls: { low: number; high: number };
+  costUsd: { low: number; high: number } | null;
+}
+
+export interface RfiFullScanDto {
+  id: string;
+  status: RfiFullScanStatus;
+  stage: string | null;
+  progress: number;
+  provider: string | null;
+  model: string | null;
+  /** Half price, slower: the provider's batch API for the first look. */
+  useBatch: boolean;
+  catalogue: RfiFullScanCatalogueDto | null;
+  pairs: RfiFullScanPairDto[];
+  /** Pages and pairs left out of the AI pass, grouped by reason. */
+  skipped: { reason: string; count: number; examples: string[] }[];
+  estimate: RfiFullScanEstimateDto | null;
+  /** The approved ceiling; the run stops `partial` when it is reached. */
+  limits: { maxTotalTokens: number; budgetUsd: number | null } | null;
+  tiles: { total: number; done: number; failed: number };
+  spent: { inputTokens: number; outputTokens: number; costUsd: number | null };
+  findings: number;
+  notes: string[];
+  error: string | null;
+  createdAt: string;
+  plannedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+/** RFI_FULL_SCAN on the API: `off` hides the feature, `beta` runs it with the
+ * screen saying its accuracy is not yet measured, `on` once
+ * benchmarks/rfi_eval.py has passed on real RFIs. */
+export type RfiFullScanAvailability = "off" | "beta" | "on";
 
 /** Two runs' cost side by side, and whether they are comparable at all. */
 export interface RfiReviewComparisonDto {

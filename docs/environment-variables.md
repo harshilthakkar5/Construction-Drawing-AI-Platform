@@ -189,6 +189,14 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RFI_REVIEW_CROP_EDGE` | `1400` | Worker | Long edge (px) of each close-up a review sends. |
 | `RFI_REVIEW_CONCURRENCY` | `2` | Worker | Targeted reviews at once. |
 | `RFI_PACKAGE_CONCURRENCY` | `2` | Worker | Marked-up RFI packages (cover form + clouded sheets) rendered at once. |
+| `RFI_FULL_SCAN` | `beta` | API | Full AI scan: `off` hides it, `beta` shows it marked "accuracy not yet measured", `on` once measured on real RFIs. |
+| `FULL_SCAN_TILE_DPI` / `FULL_SCAN_TILE_EDGE` | `150` / `1568` | Worker | One area of a full scan: rendered at this DPI, at most this many px on its long edge (sets the area's size in points). |
+| `FULL_SCAN_MAX_PAIRS` / `FULL_SCAN_MAX_TILES` | `300` / `3000` | Worker | Upper bounds on one full-scan plan; anything cut is listed in the plan. |
+| `FULL_SCAN_CALL_CONCURRENCY` | `4` | Worker | Model calls in flight at once during a direct (non-batch) full scan. |
+| `FULL_SCAN_BATCH_WAVE` | `40` | Worker | Areas per batch submission; each wave is sized to the budget before it is sent. |
+| `FULL_SCAN_THINKING` / `FULL_SCAN_VERIFY_THINKING` | `off` / `low` | Worker | Reasoning for the first look and for the close-up check (`RFI_THINKING` vocabulary). |
+| `FULL_SCAN_HEARTBEAT_SECONDS` | `15` | Worker | How often a running full scan proves it is alive; silent for 10 minutes reads as failed and can be resumed. |
+| `RFI_FULL_SCAN_CONCURRENCY` | `1` | Worker | Full scans at once. |
 | `WORKER_LOCK_DURATION_MS` | `600000` (10 min) | Worker | Job lock, renewed while running. A dead worker's job waits this long before another picks it up. |
 | `DB_POOL_SIZE` | computed (`16` with defaults) | Worker | Postgres connections per worker process. |
 

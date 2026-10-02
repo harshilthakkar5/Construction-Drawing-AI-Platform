@@ -20,6 +20,8 @@ const REQUIRED_MODELS = [
   "rfiCandidate",
   "rfiReviewRun",
   "rfiPackage",
+  "rfiFullScan",
+  "rfiFullScanTile",
 ] as const;
 
 export function missingPrismaModels(): string[] {
