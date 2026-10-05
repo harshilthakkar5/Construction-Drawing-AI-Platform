@@ -27,6 +27,7 @@ import time
 import fitz
 
 import db
+import diagnostics
 import fullscan as fs
 import fullscan_plan as plan_rules
 import llm
@@ -51,6 +52,9 @@ PRIORITIES = ("low", "normal", "high", "critical")
 KINDS = ("conflict", "missing")
 
 CALL_CONCURRENCY = int(os.environ.get("FULL_SCAN_CALL_CONCURRENCY", "4"))
+# Bumped whenever a prompt below changes meaning; the diagnostic export also
+# records each prompt's sha256, so two runs can be compared exactly.
+PROMPT_VERSION = "fullscan-2026-10-05"
 BATCH_WAVE = int(os.environ.get("FULL_SCAN_BATCH_WAVE", "40"))
 DISCOVERY_TOKENS = 1500
 VERIFY_TOKENS = 1500
@@ -287,7 +291,7 @@ class Sheets:
         zoom = plan_rules.TILE_EDGE / max(r.width, r.height)
         return page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=r, alpha=False).tobytes("png")
 
-    def words(self, window: dict, rect: list[float] | None = None) -> str:
+    def words(self, window: dict, rect: list[float] | None = None, full: bool = False) -> str:
         """The words printed inside a display-space window, in reading order —
         get_text reports UNROTATED coordinates, so each is mapped first."""
         key = (window["documentId"], window["pageNumber"])
@@ -300,7 +304,7 @@ class Sheets:
         r = fitz.Rect(rect or window["rect"])
         inside = [(wr, t) for wr, t in self._words[key] if r.contains(fitz.Point((wr.x0 + wr.x1) / 2, (wr.y0 + wr.y1) / 2))]
         inside.sort(key=lambda wt: (round(wt[0].y0 / 6), wt[0].x0))
-        return " ".join(t for _, t in inside)[:MAX_WORDS_CHARS]
+        return " ".join(t for _, t in inside)[: None if full else MAX_WORDS_CHARS]
 
     def unrotated(self, window: dict, rect: list[float]) -> dict:
         """A display rect as the stored evidence box (UNROTATED, like every
@@ -341,9 +345,14 @@ def run(scan_id: str) -> dict:
         return {"skipped": scan["status"]}
     fs._set(scan_id, status="running", stage="first look", error=None,
             startedAt=scan["startedAt"] or fs._now(), completedAt=None)
+    rec = None
+    try:
+        rec = _diag_start(scan)
+    except Exception as exc:  # a diagnostic export never stops a scan
+        log.warning("full scan %s: diagnostics could not start: %s", scan_id[:8], exc)
     try:
         with fs.heartbeat(scan_id):
-            return _run(scan)
+            return _run(scan, rec)
     except fs.Cancelled:
         fs._set(scan_id, status="cancelled", completedAt=fs._now())
         return {"cancelled": True}
@@ -357,6 +366,11 @@ def run(scan_id: str) -> dict:
     except Exception as exc:
         fs._set(scan_id, status="failed", error=str(exc)[:500], completedAt=fs._now())
         raise
+    finally:
+        if rec is not None:
+            status = fs.status_of(scan_id)
+            rec.finish(status or "unknown", {"tileCounts": _tile_counts(scan_id)})
+            diagnostics.stop()
 
 
 class Run:
@@ -402,11 +416,23 @@ class Run:
             if not still_allowed(self.scan):
                 raise fs.AccessRevoked()
 
-    def ask(self, stage: str, system: str, user: str, images: list[bytes], labels: list[str], max_tokens: int, thinking: str):
+    def ask(self, stage: str, system: str, user: str, images: list[bytes], labels: list[str], max_tokens: int,
+            thinking: str, trace: dict | None = None):
         """One call, tagged to this scan in the ledger, with one retry for a
-        failed call. Returns the Reply or None."""
+        failed call. Returns the Reply or None.
+
+        `trace` (diagnostics only) says what the call is about — tile, issue,
+        what each image is — and collects the ids of the calls made, so a
+        finding can be linked to the calls it came from."""
         for attempt in (1, 2):
-            with usage_ledger.tagged(self.id, stage, attempt):
+            with usage_ledger.tagged(self.id, stage, attempt), diagnostics.call(
+                stage, attempt=attempt, maxTokens=max_tokens, thinkingSetting=thinking,
+                provider=self.provider, model=self.model, promptVersion=PROMPT_VERSION,
+                **{k: v for k, v in (trace or {}).items() if k not in ("images", "calls")},
+            ) as dc:
+                if dc is not None and trace is not None:
+                    dc.describe_images(trace.get("images") or [])
+                    trace.setdefault("calls", []).append(dc.id)
                 reply = llm.complete(
                     system, user, provider=self.provider,
                     claude_model=self.model if self.provider == "claude" else REVIEW_MODEL,
@@ -444,7 +470,7 @@ def _stale(run: Run) -> str | None:
     return None
 
 
-def _run(scan: dict) -> dict:
+def _run(scan: dict, rec=None) -> dict:
     run = Run(scan)
     stale = _stale(run)
     if stale:
@@ -466,6 +492,12 @@ def _run(scan: dict) -> dict:
             close_look(run, sheets)
         except BudgetStop as exc:
             run.stopped = str(exc)
+            diagnostics.event("stopped", reason=str(exc))
+        if rec is not None:
+            try:
+                _diag_output(rec, run, open_page)
+            except Exception as exc:
+                log.warning("full scan %s: diagnostic output failed: %s", run.id[:8], exc)
     return finish(run)
 
 
@@ -540,7 +572,12 @@ def _prepare(run: Run, sheets: Sheets, tile: dict):
     if img_a is None or img_b is None:
         return None
     user, labels = tile_prompt(pair, tile, sheets.words(w["a"]), sheets.words(w["b"]))
-    return user, [img_a, img_b], labels
+    trace = None
+    if diagnostics.current() is not None:
+        trace = {"tileId": tile["id"], "pairIndex": tile["pair"], "tileIndex": tile["tile"],
+                 "images": [image_source(pair, "a", w["a"], None, labels[0]), image_source(pair, "b", w["b"], None, labels[1])],
+                 "words": words_record(sheets, w, None)}
+    return user, [img_a, img_b], labels, trace
 
 
 def _progress(run: Run, total: int) -> None:
@@ -554,15 +591,18 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) 
     system = discovery_system()
     in_flight: dict = {}
 
-    def call(user, images, labels):
-        reply = run.ask("discovery", system, user, images, labels, DISCOVERY_TOKENS, discovery_thinking())
+    def call(user, images, labels, trace=None):
+        reply = run.ask("discovery", system, user, images, labels, DISCOVERY_TOKENS, discovery_thinking(), trace)
         if reply is None:
+            _diag_parsed(trace, None, "the model call failed twice")
             return None, "the model call failed twice"
         issues = parse_issues(reply.text)
         if issues is None:
+            _diag_parsed(trace, None, "the reply was not the JSON asked for — asked once more")
             reply = run.ask("discovery", system, user + "\n\nRespond with ONLY the JSON object described.",
-                            images, labels, DISCOVERY_TOKENS * 2, discovery_thinking())
+                            images, labels, DISCOVERY_TOKENS * 2, discovery_thinking(), trace)
             issues = parse_issues(reply.text if reply else None)
+        _diag_parsed(trace, issues, None if issues is not None else "the reply was not the JSON asked for")
         return issues, None if issues is not None else "the reply was not the JSON asked for"
 
     def drain(block: bool) -> None:
@@ -609,18 +649,27 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -
             raise BudgetStop("the token ceiling was reached during the first look")
         wave = tiles[position: position + min(BATCH_WAVE, fits)]
         position += len(wave)
-        prompts, images, labels, by_id = {}, {}, {}, {}
+        prompts, images, labels, by_id, traces = {}, {}, {}, {}, {}
         for tile in wave:
             prepared = _prepare(run, sheets, tile)
             if prepared is None:
                 _save_tile(tile["id"], None, "a sheet of this tile could not be opened")
                 continue
             cid = f"t{tile['pair']}-{tile['tile']}"
-            prompts[cid], images[cid], labels[cid] = prepared
+            prompts[cid], images[cid], labels[cid], traces[cid] = prepared
             by_id[cid] = tile
         if not prompts:
             continue
-        with usage_ledger.tagged(run.id, "discovery_batch", 1):
+        with usage_ledger.tagged(run.id, "discovery_batch", 1), diagnostics.call(
+            "discovery_batch", entries=list(prompts), maxTokens=DISCOVERY_TOKENS, thinkingSetting=discovery_thinking(),
+            provider=run.provider, model=run.model, promptVersion=PROMPT_VERSION,
+        ) as dc:
+            if dc is not None:
+                for cid, trace in traces.items():
+                    if trace:
+                        dc.describe_images(trace["images"], entry=cid)
+                        trace.setdefault("calls", []).append(f"{dc.id}/{cid}")
+                        dc.note(entry=cid, tileId=trace["tileId"], words=trace["words"])
             try:
                 answers = llm.complete_batch(
                     prompts, system=system, provider=run.provider,
@@ -635,9 +684,12 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -
         for cid, tile in by_id.items():
             issues = parse_issues(answers.get(cid))
             if issues is None:
+                _diag_parsed(traces.get(cid), None, "the batch returned no usable answer for this tile — asked directly")
                 # One direct call for what the batch did not return usably.
-                reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2, discovery_thinking())
+                reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2,
+                                discovery_thinking(), traces.get(cid))
                 issues = parse_issues(reply.text if reply else None)
+            _diag_parsed(traces.get(cid), issues, None if issues is not None else "no usable answer")
             _save_tile(tile["id"], issues, None if issues is not None else "no usable answer from the batch or a retry")
         _progress(run, total)
 
@@ -687,13 +739,15 @@ def close_look(run: Run, sheets: Sheets) -> None:
     in_flight: dict = {}
     done_count = [0]
 
-    def call(user, images, labels):
-        reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, verify_thinking())
+    def call(user, images, labels, trace=None):
+        reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, verify_thinking(), trace)
         verdict = parse_verdict(reply.text if reply else None)
         if verdict is None and reply is not None:
+            _diag_parsed(trace, None, "the verdict was not the JSON asked for — asked once more", what="verdict")
             reply = run.ask("verification", system, user + "\n\nRespond with ONLY the JSON object described.",
-                            images, labels, VERIFY_TOKENS * 2, verify_thinking())
+                            images, labels, VERIFY_TOKENS * 2, verify_thinking(), trace)
             verdict = parse_verdict(reply.text if reply else None)
+        _diag_parsed(trace, verdict, None if verdict is not None else "no usable verdict", what="verdict")
         return verdict
 
     def drain(block: bool) -> None:
@@ -731,6 +785,9 @@ def close_look(run: Run, sheets: Sheets) -> None:
                 )
                 if early:
                     _record_verdict(item["tileId"], item["n"], {"decision": "reject", "reason": early, "measured": True})
+                    diagnostics.event("rejected_before_close_look", tileId=item["tileId"], issueIndex=item["n"],
+                                      issue=item["issue"], reason=early, firstLookCalls=_first_calls(item["tileId"]),
+                                      rule="boxes_apart" if "boxes on the two images" in early else "column_position_agrees")
                     continue
                 both = shared_box(item["issue"])
                 ra, rb = close_rect(wa, both), close_rect(wb, both)
@@ -748,8 +805,13 @@ def close_look(run: Run, sheets: Sheets) -> None:
                 )
                 labels = [f"Image A — close-up of {pair['a'].get('sheetNumber') or 'sheet A'}",
                           f"Image B — the same area of {pair['b'].get('sheetNumber') or 'sheet B'}"]
-                ctx = {"pair": pair, "ra": ra, "rb": rb, "words": (words_a, words_b), "images": (img_a, img_b)}
-                in_flight[executor.submit(fs.run_in_context(call), user, [img_a, img_b], labels)] = (item, ctx)
+                trace = None
+                if diagnostics.current() is not None:
+                    trace = {"tileId": item["tileId"], "issueIndex": item["n"], "issue": issue,
+                             "images": [image_source(pair, "a", wa, ra, labels[0]), image_source(pair, "b", wb, rb, labels[1])],
+                             "words": words_record(sheets, {"a": wa, "b": wb}, (ra, rb))}
+                ctx = {"pair": pair, "ra": ra, "rb": rb, "words": (words_a, words_b), "images": (img_a, img_b), "trace": trace}
+                in_flight[executor.submit(fs.run_in_context(call), user, [img_a, img_b], labels, trace)] = (item, ctx)
         finally:
             drain(block=False)
 
@@ -990,9 +1052,15 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
     material = material_for(pair, ctx["words"])
     why_not = rule_out(pair, verdict, material, (run.facts.get(pair["a"].get("pageId")), run.facts.get(pair["b"].get("pageId"))))
     record = dict(verdict or {"decision": "reject"})
+    links = {"firstLookCalls": _first_calls(item["tileId"]), "closeLookCalls": (ctx.get("trace") or {}).get("calls", [])}
     if why_not:
         record.update(decision="reject", reason=why_not)
         _record_verdict(item["tileId"], item["n"], record)
+        diagnostics.event(
+            "rejected_after_close_look", tileId=item["tileId"], issueIndex=item["n"], issue=item["issue"],
+            verdict=verdict, reason=why_not,
+            rule="model" if verdict is not None and verdict["decision"] != "keep" else "rule_out", **links,
+        )
         return
     issue = item["issue"]
     fp = fs.fingerprint(issue["checkId"], [pair["a"].get("sheetNumber") or pair["a"]["pageId"],
@@ -1040,6 +1108,197 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
             record["foundAgain"] = _where_found(conn, run.project_id, fp)
     record["fingerprint"] = fp
     _record_verdict(item["tileId"], item["n"], record)
+    diagnostics.event(
+        "finding_found_again" if "foundAgain" in record else "finding_saved",
+        fingerprint=fp, tileId=item["tileId"], issueIndex=item["n"], issue=issue, verdict=verdict,
+        foundAgain=record.get("foundAgain"),
+        evidence=[{k: e[k] for k in ("documentId", "pageNumber", "combinedPageNumber", "sheetNumber", "bbox", "quote")}
+                  for e in evidence],
+        note="Evidence boxes are the model's own boxes mapped from image fractions to the page (unrotated space); "
+             "they become the clouds of the marked-up package.",
+        **links,
+    )
+    _remember_links(fp, links)
+
+
+# --- Diagnostics (no-ops unless RFI_DIAGNOSTICS=on) ------------------------------------------
+
+
+def image_source(pair: dict, side: str, window: dict, rect: list[float] | None, label: str) -> dict:
+    """What one image sent to the model IS: its page, the crop, how it was
+    rendered. Sheets.render scales the crop's long edge to TILE_EDGE px and
+    encodes a lossless PNG; nothing else is done to it."""
+    ref = pair[side]
+    r = rect or window["rect"]
+    zoom = plan_rules.TILE_EDGE / max(r[2] - r[0], r[3] - r[1])
+    return {
+        "label": label,
+        "side": side.upper(),
+        "documentId": ref.get("documentId"),
+        "pageId": ref.get("pageId"),
+        "pageNumber": ref.get("pageNumber"),
+        "pageNumberBase": 1,
+        "combinedPageNumber": ref.get("combinedPageNumber"),
+        "sheetNumber": ref.get("sheetNumber"),
+        "discipline": ref.get("discipline"),
+        "level": ref.get("level"),
+        "crop": [round(v, 2) for v in r],
+        "cropCoordinates": "display space: PDF points of the sheet as seen (after /Rotate), origin top-left",
+        "tileWindow": [round(v, 2) for v in window["rect"]],
+        "render": {"zoom": round(zoom, 4), "dpi": round(72 * zoom, 1), "longEdgePx": plan_rules.TILE_EDGE,
+                   "format": "PNG (lossless), no further compression or resizing by this system",
+                   "annotationsStripped": True},
+        "providerImageDetail": "Gemini: media_resolution per llm.GEMINI_MEDIA_RESOLUTION when the model takes it "
+                               "(see request.json); Claude: no detail setting (the API resizes images over its limit)",
+    }
+
+
+def words_record(sheets: Sheets, windows: dict, rects) -> dict:
+    """The PDF words supplied beside each image, and whether they were cut."""
+    out = {}
+    for i, side in enumerate(("a", "b")):
+        full = sheets.words(windows[side], rects[i] if rects else None, full=True)
+        out[side.upper()] = {"chars": len(full), "sentChars": min(len(full), MAX_WORDS_CHARS),
+                             "truncated": len(full) > MAX_WORDS_CHARS,
+                             "removedText": full[MAX_WORDS_CHARS:] if len(full) > MAX_WORDS_CHARS else ""}
+    return out
+
+
+def _diag_parsed(trace: dict | None, parsed, error: str | None, what: str = "issues") -> None:
+    if trace is None:
+        return
+    diagnostics.event(
+        f"{what}_parsed" if error is None else f"{what}_parse_failed",
+        tileId=trace.get("tileId"), issueIndex=trace.get("issueIndex"), calls=list(trace.get("calls", [])),
+        parsed=parsed, error=error,
+    )
+    rec = diagnostics.current()
+    if rec is not None and what == "issues":
+        rec.__dict__.setdefault("tile_calls", {})[trace.get("tileId")] = list(trace.get("calls", []))
+
+
+def _first_calls(tile_id: str) -> list[str] | str:
+    rec = diagnostics.current()
+    if rec is None:
+        return []
+    calls = rec.__dict__.get("tile_calls", {}).get(tile_id)
+    return calls if calls else "looked at in an earlier execution of this scan (not in this export)"
+
+
+def _remember_links(fp: str, links: dict) -> None:
+    rec = diagnostics.current()
+    if rec is not None:
+        rec.__dict__.setdefault("finding_links", {})[fp] = links
+
+
+def _diag_start(scan: dict):
+    """Open the diagnostic recorder for this scan, with the request, the
+    documents, the pages and the plan written up front."""
+    if not diagnostics.enabled():
+        return None
+    import hashlib
+
+    pairs = scan.get("pairs") or []
+    page_ids = sorted({p[side].get("pageId") for p in pairs for side in ("a", "b") if p[side].get("pageId")})
+    doc_ids = sorted({p[side]["documentId"] for p in pairs for side in ("a", "b")})
+    with db.connect() as conn:
+        docs = conn.execute(
+            'SELECT id, filename, revision, pages, "createdAt", "previousVersionId", "includeInRfiAnalysis" '
+            'FROM documents WHERE id = ANY(%s::text[])', (doc_ids,),
+        ).fetchall()
+        pages = conn.execute(
+            'SELECT p.id, p."documentId", d.filename, d.revision, p."pageNumber", p."combinedPageNumber", '
+            'p."sheetNumber", p.rotation, p."pdfWidth", p."pdfHeight", p.discipline, p.level, p.scales '
+            'FROM pages p JOIN documents d ON d.id = p."documentId" WHERE p.id = ANY(%s::text[]) '
+            'ORDER BY p."combinedPageNumber"', (page_ids,),
+        ).fetchall()
+    info = {
+        "kind": "full AI scan",
+        "scanId": scan["id"],
+        "projectId": scan["projectId"],
+        "request": "Full AI scan: compare every planned pair of sheets that should agree. There is no free-text "
+                   "request; the person chose the provider, model, batch mode and budget below and started the plan.",
+        "startedBy": scan.get("createdById"),
+        "settings": {"provider": scan.get("provider"), "model": scan.get("model"), "useBatch": scan.get("useBatch"),
+                     "limits": scan.get("limits"), "estimate": scan.get("estimate")},
+        "documents": [
+            {"documentId": d[0], "filename": d[1], "uploadVersion": d[2], "pages": d[3], "uploadedAt": d[4],
+             "previousVersionId": d[5], "includeInRfiAnalysis": d[6],
+             "suppliedToModel": "never as a file: only rendered crops of pages (see images/)"}
+            for d in docs
+        ],
+    }
+    rec = diagnostics.start("full-scan", scan["id"], scan["projectId"], info)
+    if rec is None:
+        return None
+    rec.write_json("evidence/pages.json", {
+        "indexing": "pageNumber is ONE-based within its file; combinedPageNumber is ONE-based across the project",
+        "sheetRevision": "unknown — this system does not read the revision from the title block",
+        "pages": [
+            {"pageId": p[0], "documentId": p[1], "filename": p[2], "documentUploadVersion": p[3], "pageNumber": p[4],
+             "combinedPageNumber": p[5], "sheetNumber": p[6], "rotation": p[7], "pdfWidthPt": p[8],
+             "pdfHeightPt": p[9], "discipline": p[10], "level": p[11], "printedScalesPtPerFt": p[12],
+             "sheetRevision": "unknown"}
+            for p in pages
+        ],
+    })
+    rec.write_json("run/plan.json", {"pairs": pairs, "skipped": scan.get("skipped"), "catalogue": scan.get("catalogue")})
+    rec.write_json("run/settings.json", {
+        "promptVersion": PROMPT_VERSION,
+        "prompts": {
+            "discovery": {"sha256": hashlib.sha256(discovery_system().encode()).hexdigest(), "text": discovery_system()},
+            "verification": {"sha256": hashlib.sha256(verify_system().encode()).hexdigest(), "text": verify_system()},
+        },
+        "outputSchema": {
+            "discovery": "JSON described in the system prompt: {issues:[{checkId, kind, element, whatA, whatB, boxA, boxB, "
+                         "confidence}]} — not enforced by the API; Gemini is asked for application/json",
+            "verification": "JSON described in the system prompt: {decision, reason, subject, question, confidence, priority}",
+        },
+        "maxOutputTokens": {"discovery": DISCOVERY_TOKENS, "verification": VERIFY_TOKENS,
+                            "retryAfterBadJson": "twice the stage's limit"},
+        "thinking": {"discovery": discovery_thinking(), "verification": verify_thinking()},
+        "temperature": "Gemini: 0 (sent). Claude: not sent, so the API default applies.",
+        "tile": {"edgePx": plan_rules.TILE_EDGE, "dpi": plan_rules.TILE_DPI, "closeMinPt": CLOSE_MIN_PT, "closePad": CLOSE_PAD,
+                 "maxWordsChars": MAX_WORDS_CHARS},
+        "callConcurrency": CALL_CONCURRENCY,
+        "batchWave": BATCH_WAVE,
+    })
+    return rec
+
+
+def _diag_output(rec, run: "Run", open_page) -> None:
+    """The findings this run saved, linked to their calls, and the marked-up
+    package rendered from them exactly as the app would."""
+    import rfi_package
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT id, fingerprint, "checkType", confidence::text, subject, question, evidence, reasoning, '
+            'priority, status::text FROM rfi_candidates WHERE "fullScanId" = %s AND origin = %s ORDER BY "createdAt"',
+            (run.id, "full_scan"),
+        ).fetchall()
+        links = rec.__dict__.get("finding_links", {})
+        findings = [
+            {"candidateId": r[0], "fingerprint": r[1], "checkType": r[2], "confidence": r[3], "subject": r[4],
+             "question": r[5], "evidence": r[6], "reasoning": r[7], "priority": r[8], "status": r[9],
+             "linkedCalls": links.get(r[1], "saved by an earlier execution of this scan (not in this export)")}
+            for r in rows
+        ]
+        rec.write_json("output/findings.json", {"findings": findings})
+        if not rows:
+            return
+        try:
+            items = rfi_package.load_items(conn, run.project_id, [{"type": "candidate", "id": r[0]} for r in rows])
+
+            def open_doc(document_id):
+                page = open_page(document_id, 1)
+                return page.parent if page is not None else None
+
+            out, notes = rfi_package.render(items, open_doc)
+            rec.write_bytes("output/rfi-package.pdf", out.tobytes(garbage=3, deflate=True))
+            rec.write_json("output/rfi-package-notes.json", {"notes": notes})
+        except Exception as exc:
+            rec.write_json("output/rfi-package-notes.json", {"error": f"the package could not be rendered: {exc}"})
 
 
 # --- Finish -------------------------------------------------------------------------------

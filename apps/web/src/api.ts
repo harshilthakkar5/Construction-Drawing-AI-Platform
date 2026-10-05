@@ -539,6 +539,11 @@ export const api = {
   getRfiFullScan: (projectId: string, scanId: string) =>
     request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans/${scanId}`),
 
+  /** A short-lived download link for one run's diagnostic export (404 when
+   * the worker did not record one — RFI_DIAGNOSTICS was off). */
+  getRfiDiagnostics: (projectId: string, kind: "full-scan" | "review", runId: string) =>
+    request<{ downloadUrl: string }>(`/projects/${projectId}/rfis/diagnostics/${kind}/${runId}`),
+
   /** Catalogue every page, pair the sheets that should agree, count tokens.
    * No model call. */
   planRfiFullScan: (projectId: string) =>

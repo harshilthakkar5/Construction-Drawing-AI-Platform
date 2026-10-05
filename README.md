@@ -912,7 +912,7 @@ classifier, chunker, summarizer, embedding reuse (`workers/tests/`).
 ### RFI status
 
 The one place that says what the RFI features are and are not. Design: `docs/rfi-targeted-review.md`,
-`docs/rfi-full-scan.md`.
+`docs/rfi-full-scan.md`, `docs/rfi-diagnostics.md`.
 
 | Feature | State | How it is checked |
 |---|---|---|
@@ -931,6 +931,7 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | Historical RFIs kept out of review input (filename at upload, form text at ingest, Docs-tab override) | built | API + worker tests |
 | Report: draft (every candidate, marked not issued) and accepted (with RFI numbers), PDF and JSON | built | report tests |
 | **Marked-up RFI package**: cover form + the drawing sheets with red clouds, callouts and leaders as editable PDF annotations — the shape of the team's own RFIs; per RFI, per finding, or per review | built | worker tests at 0/90/180/270 on drawn sheets and the client's S2.105/A3.01; route tests |
+| Diagnostic export (`RFI_DIAGNOSTICS=on`): per full scan / review, every model call's exact request and reply, every image sent byte for byte, evidence and page mapping, post-processing decisions, final findings + marked-up PDF; keys, signed URLs and private reasoning removed; zip download in the RFIs tab | built, off by default | worker tests with stub models (full scan and review end to end; scrubbing; a broken recorder never breaks a call) |
 | Viewer highlight on rotated sheets (boxes mapped through the page's /Rotate) | built | `displayBox` checked against PyMuPDF on both sides; pages ingested earlier need a region re-scrape or reprocess |
 | Client test of the first drafts: **4 of 4 rejected as false positives** (two levels compared; two scales compared; a screw type and a stud rail checked against the wrong schedule) | fixed: same-level rule for the column overlay, common-scale rule for grids, schedule must be a heading named for the mark family | each one a regression test, and a `rejected` case in `benchmarks/rfi_eval_cases.json` that fails any run raising it again |
 | Full project-check audit on 11 real client sheets: 8 findings with 1 real → 2 | fixed: missing sheets need the sheet index to be RFIs (else "upload it" note); one grid naming dispute = one RFI; "verify in field" / "by contractor" are not RFIs; wording prompt follows RFI practice (show, conflict, one question) | regression tests; `fp-not-uploaded-references` benchmark case |
