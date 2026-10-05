@@ -207,6 +207,15 @@ one sheet). "Full scan" means every PAIR the planner could line up, not every pa
 
 These are stub-model tests (`test_fullscan_run.py`); no real replay has measured them.
 
+### When the provider refuses the account
+
+A scan that stops on the provider's side — Gemini's `402 RESOURCE_EXHAUSTED … prepayment credits are
+depleted`, Anthropic's "credit balance is too low", a quota (429) or a rejected key (401/403) — is
+not a scan problem and not this scan's own dollar budget. `provider_failure_message` says which it
+is and what to do, in place of the raw SDK error. Every area already checked is saved: fix the
+account and press Resume. A scan keeps the provider it was planned with, so switching to another
+provider means planning a new scan.
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with
