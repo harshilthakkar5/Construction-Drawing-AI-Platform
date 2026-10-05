@@ -336,12 +336,13 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
     <div className="flex flex-col gap-2 text-xs">
       <p>
         <strong>
-          {scan.findings} finding{scan.findings === 1 ? "" : "s"}
+          {scan.findings} new finding{scan.findings === 1 ? "" : "s"}
         </strong>{" "}
         from {scan.tiles.done} of {scan.tiles.total} areas · spent{" "}
         {scan.spent.costUsd !== null ? money(scan.spent.costUsd) : `${tokens(scan.spent.inputTokens + scan.spent.outputTokens)} tokens`}
         {scan.findings > 0 ? " — they are in “Needs your review” below." : "."}
       </p>
+      {scan.summary && <Outcome summary={scan.summary} />}
       {stopped && (
         <div className="flex flex-col gap-2">
           <Notice tone="error">
@@ -364,6 +365,63 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
         <MarkedUpPdfButton projectId={projectId} fullScanId={scan.id} label="Marked-up PDF of the findings" />
       )}
       <RfiDiagnosticsButton projectId={projectId} kind="full-scan" runId={scan.id} />
+    </div>
+  );
+}
+
+const AREA_LABELS: [string, string][] = [
+  ["agree", "agree"],
+  ["issues", "had a possible problem"],
+  ["unclear", "the AI could not judge"],
+  ["misaligned", "were not lined up"],
+  ["invalid_location", "raised a problem it could not place"],
+  ["unstated", "got no verdict"],
+  ["failed", "failed"],
+  ["pending", "not reached"],
+];
+
+/** What the run concluded beyond the count: a finding already on file is not
+ * "no problem", and an area the AI could not judge is a gap, not agreement. */
+function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> }) {
+  const areas = AREA_LABELS.filter(([key]) => (summary.areas[key] ?? 0) > 0).map(
+    ([key, label]) => `${summary.areas[key]} ${label}`,
+  );
+  const gaps = (summary.areas.unclear ?? 0) + (summary.areas.misaligned ?? 0) + (summary.areas.unstated ?? 0);
+  return (
+    <div className="text-muted-foreground flex flex-col gap-1">
+      {summary.foundAgain.length > 0 && (
+        <div>
+          <span className="text-foreground font-medium">
+            {summary.foundAgain.length} already on file
+          </span>{" "}
+          — kept on the close look, not added again and not restored:
+          <ul className="list-disc pl-5">
+            {summary.foundAgain.map((f) => (
+              <li key={f.fingerprint ?? f.subject}>
+                “{f.subject}” is {f.where}.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p>
+        {summary.possibleProblems} possible problem{summary.possibleProblems === 1 ? "" : "s"} on the first look:{" "}
+        {summary.newFindings} saved, {summary.foundAgain.length} already on file, {summary.rejected} rejected
+        {summary.unclear > 0 ? `, ${summary.unclear} could not be decided close up` : ""}
+        {summary.notChecked > 0 ? `, ${summary.notChecked} not yet checked` : ""}
+        {summary.unplaceable > 0 ? `, ${summary.unplaceable} dropped (location unreadable)` : ""}.
+      </p>
+      {areas.length > 0 && <p>Areas: {areas.join(" · ")}.</p>}
+      {gaps > 0 && (
+        <p>
+          {gaps} area{gaps === 1 ? " was" : "s were"} not judged — a gap in this scan, not agreement.
+        </p>
+      )}
+      {summary.pagesRead !== null && (
+        <p>
+          Compared {summary.pagesCompared} of {summary.pagesRead} pages; the plan lists every page left out and why.
+        </p>
+      )}
     </div>
   );
 }

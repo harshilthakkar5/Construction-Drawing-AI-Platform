@@ -149,7 +149,7 @@ model User {
   rfiDecisions              RfiCandidate[]
   rfiReviewRuns             RfiReviewRun[]
 
-  rfiPackages RfiPackage[]
+  rfiPackages  RfiPackage[]
   rfiFullScans RfiFullScan[]
 
   @@map("users")
@@ -262,7 +262,7 @@ model Project {
   rfiCandidates RfiCandidate[]
   rfiReviewRuns RfiReviewRun[]
 
-  rfiPackages RfiPackage[]
+  rfiPackages  RfiPackage[]
   rfiFullScans RfiFullScan[]
 
   @@map("projects")
@@ -868,6 +868,11 @@ model RfiFullScan {
   usage           Json?
   notes           Json?
   findings        Int       @default(0)
+  /// What the run concluded, counted: new findings, findings already on file
+  /// (with where they live), rejections, areas judged unclear or misaligned,
+  /// problems dropped for an unusable location, pages compared of pages read.
+  /// "0 findings" alone cannot tell "nothing wrong" from "nothing new".
+  summary         Json?
   error           String?
   idempotencyKey  String?
   heartbeatAt     DateTime?
@@ -890,18 +895,26 @@ model RfiFullScan {
 /// model together. Its own row so a run that stops (a dead worker, a budget,
 /// a cancel) resumes at the first tile not yet done instead of paying again.
 model RfiFullScanTile {
-  id        String   @id @default(uuid())
-  scanId    String
-  pairIndex Int
-  tileIndex Int
+  id          String   @id @default(uuid())
+  scanId      String
+  pairIndex   Int
+  tileIndex   Int
   /// {a: {documentId, pageNumber, rect}, b: {...}} — DISPLAY-space rects.
-  windows   Json
+  windows     Json
   /// pending | done | failed
-  status    String   @default("pending")
+  status      String   @default("pending")
   /// The first look's possible problems for this tile, as parsed.
-  issues    Json?
-  error     String?
-  updatedAt DateTime @updatedAt
+  issues      Json?
+  /// The first look's verdict on the area: agree | issues | unclear |
+  /// misaligned | unstated (a reply without one) | invalid_location (every
+  /// problem it raised had a box that could not be placed).
+  outcome     String?
+  /// Why the model said unclear/misaligned, in its words.
+  outcomeNote String?
+  /// Possible problems dropped while parsing, with the reason and the raw item.
+  dropped     Json?
+  error       String?
+  updatedAt   DateTime @updatedAt
 
   scan RfiFullScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
 

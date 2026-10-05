@@ -2627,6 +2627,18 @@ close-ups use the UNION of the two boxes (`shared_box`), and `column_position_ag
 against each sheet's grid, lines matched by position) and rejects it when both are within 3". The
 third compared a 4'-0" pier with a 24 x 24 column; only the prompt guards that (`fp-full-scan-ai-2`).
 
+The third run was read from its diagnostic export, and "0 findings" was the application's doing.
+A box in MIXED units (`[0.785, 575, 0.835, 606]`) was divided by 1000 whole and the close look
+checked the wrong place — `read_box` refuses mixed units and the first look is asked once to restate
+(`repair_boxes`); an unplaceable problem lands in the tile's `dropped`, never lost. "0 findings" hid
+a kept finding matching a dismissed one — `rfi_full_scans.summary` (`scan_summary`) counts new,
+already on file, rejected, undecided, unplaceable, areas by verdict and pages compared, and the tab
+shows it. "Not sure → no issue" and "never second-guess the alignment" made gaps read as agreement —
+the first look now answers `agree|issues|unclear|misaligned` (tile `outcome`; none stated is
+`unstated`, never agree) and the close look may say `unclear`. `boxes_apart` skips dimension claims
+(their strings sit on offset dimension lines), and `grid_spacing_agrees` needs EVERY pair named
+(`named_pairs`, dash segments too) measured and agreeing — an agreeing span settled its segments.
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.
@@ -2643,9 +2655,9 @@ sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, 
 documents(id, projectId, filename, spacesKey, pages, revision, status)
 rfi_packages(id, projectId, createdById, items JSON, status, key, pages, notes, error)  // marked-up PDFs
 rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBatch, catalogue, pairs,
-     skipped, estimate (tokens), limits {maxTotalTokens, budgetUsd}, sourceRevisions, notes, findings,
+     skipped, estimate (tokens), limits {maxTotalTokens, budgetUsd}, sourceRevisions, notes, findings, summary,
      idempotencyKey, heartbeatAt, ...)   // + rfi_full_scan_tiles(scanId, pairIndex, tileIndex,
-     windows, status, issues[+verdict]); pages.sheetKind/level/scales/gridSummary/factsVersion
+     windows, status, issues[+verdict], outcome, outcomeNote, dropped); pages.sheetKind/level/scales/gridSummary/factsVersion
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,

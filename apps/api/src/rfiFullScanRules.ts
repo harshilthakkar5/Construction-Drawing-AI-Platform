@@ -1,6 +1,7 @@
 import type {
   RfiFullScanAvailability,
   RfiFullScanCatalogueDto,
+  RfiFullScanSummaryDto,
   RfiFullScanDto,
   RfiFullScanEstimateDto,
   RfiFullScanPairDto,
@@ -125,6 +126,7 @@ export interface ScanRow {
   limits: unknown;
   notes: unknown;
   findings: number;
+  summary?: unknown;
   error: string | null;
   heartbeatAt: Date | null;
   createdAt: Date;
@@ -215,6 +217,7 @@ export function toFullScanDto(
     tiles,
     spent,
     findings: scan.findings,
+    summary: scan.summary && typeof scan.summary === "object" ? (scan.summary as RfiFullScanSummaryDto) : null,
     notes: (Array.isArray(scan.notes) ? scan.notes : []).filter((n): n is string => typeof n === "string"),
     error: shown.error,
     createdAt: scan.createdAt.toISOString(),

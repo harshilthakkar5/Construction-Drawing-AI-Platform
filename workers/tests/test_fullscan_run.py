@@ -338,6 +338,14 @@ def test_a_run_looks_at_every_tile_and_saves_a_confirmed_finding(database, monke
     assert scan["status"] == "ready" and scan["findings"] == 1 and result["saved"] == 1
     assert stub.discovery == 3 and stub.verify == 1
     assert _tiles(database, seed["scan"]) == {"done": 3}
+    with database.connect() as conn:
+        summary, = conn.execute("SELECT summary FROM rfi_full_scans WHERE id = %s", (seed["scan"],)).fetchone()
+        outcomes = sorted(r[0] for r in conn.execute(
+            'SELECT outcome FROM rfi_full_scan_tiles WHERE "scanId" = %s', (seed["scan"],)).fetchall())
+    # The stub states no area verdict: the two quiet tiles are "unstated", never "agree".
+    assert outcomes == ["issues", "unstated", "unstated"]
+    assert summary["newFindings"] == 1 and summary["foundAgain"] == [] and summary["possibleProblems"] == 1
+    assert summary["areas"] == {"issues": 1, "unstated": 2} and summary["pagesCompared"] == 2
     (subject, question, evidence, origin, source), = _candidates(database, seed["scan"])
     assert origin == "full_scan" and source == "model" and "S2.105" in question
     assert [e["sheetNumber"] for e in evidence] == ["S2.105", "A3.01"]
@@ -688,3 +696,160 @@ def test_nothing_measurable_decides_nothing():
                    boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1346, 630))
     assert fr.column_position_agrees(_Pages(_sheet_with_column(0), empty), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, FACTS_B)) is None
     assert fr.column_position_agrees(_Pages(_sheet_with_column(0), empty), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, None)) is None
+
+
+# --- the third real scan, read from its diagnostic export (6 Oct 2026) ------------------
+#
+# Nothing in it was an API failure; every defect below was the application's.
+
+
+def test_a_box_in_mixed_units_is_refused_not_guessed():
+    """The C-25 candidate's box, verbatim: x as fractions, y as thousandths.
+    Dividing all four by 1000 moved the close-up to the image's left edge,
+    where it found C-13 and rejected C-25 for a mark it was never shown."""
+    box, why = fr.read_box([0.785, 575, 0.835, 606])
+    assert box is None and "mixes fractions" in why
+    assert fr._box([0.785, 575, 0.835, 606]) is None
+
+
+@pytest.mark.parametrize("value, expected", [
+    ([0.1, 0.2, 0.3, 0.4], [0.1, 0.2, 0.3, 0.4]),
+    ([100, 200, 300, 400], [0.1, 0.2, 0.3, 0.4]),
+    ([0, 575, 1, 606], [0.0, 0.575, 0.001, 0.606]),  # 0 and 1 are whole thousandths
+])
+def test_one_unit_boxes_still_read(value, expected):
+    assert fr.read_box(value) == (pytest.approx(expected), None)
+
+
+def test_an_unplaceable_problem_is_recorded_not_lost():
+    look = fr.parse_first_look(json.dumps({"status": "issues", "issues": [_issue(boxB=[0.785, 575, 0.835, 606])]}))
+    assert look["issues"] == []
+    assert look["outcome"] == "invalid_location"
+    assert look["dropped"][0]["reason"] == "invalid_location" and "boxB" in look["dropped"][0]["detail"]
+    assert look["dropped"][0]["item"]["boxB"] == [0.785, 575, 0.835, 606]
+
+
+@pytest.mark.parametrize("reply, outcome", [
+    ({"status": "agree", "issues": []}, "agree"),
+    ({"status": "unclear", "note": "the column is cut off", "issues": []}, "unclear"),
+    ({"status": "misaligned", "issues": []}, "misaligned"),
+    ({"issues": []}, "unstated"),  # never assumed to agree
+    ({"status": "agree", "issues": [_issue()]}, "issues"),  # a listed issue wins over the word
+])
+def test_the_area_outcome_keeps_unsure_apart_from_agree(reply, outcome):
+    look = fr.parse_first_look(json.dumps(reply))
+    assert look["outcome"] == outcome
+    assert fr.parse_issues(json.dumps(reply)) == look["issues"]
+
+
+def test_the_note_on_an_unclear_area_is_kept():
+    assert fr.parse_first_look('{"status": "unclear", "note": "too small", "issues": []}')["note"] == "too small"
+
+
+class _StubRun:
+    per_discovery = 1000
+
+    def __init__(self, replies, room=10**9):
+        self.replies, self.asked, self._room = list(replies), [], room
+
+    def room(self, in_flight=0):
+        return self._room
+
+    def ask(self, stage, system, user, images, labels, max_tokens, thinking, trace=None):
+        self.asked.append(user)
+        text = self.replies.pop(0)
+        return type("Reply", (), {"text": text})()
+
+
+def test_an_unplaceable_box_gets_one_request_to_restate_it():
+    bad = fr.parse_first_look(json.dumps({"status": "issues", "issues": [_issue(boxA=[0.785, 575, 0.835, 606])]}))
+    run = _StubRun([json.dumps({"status": "issues", "issues": [_issue(boxA=[0.785, 0.575, 0.835, 0.606])]})])
+    fixed = fr.repair_boxes(run, "sys", "user", [], [], bad, None)
+    assert len(run.asked) == 1 and "fractions 0-1" in run.asked[0] and "0.785" in run.asked[0]
+    assert fixed["outcome"] == "issues" and fixed["issues"][0]["boxA"] == [0.785, 0.575, 0.835, 0.606]
+    assert fixed["dropped"][0]["repairAsked"] is True  # the first answer stays on the record
+
+
+def test_the_box_request_is_asked_once_and_only_with_room():
+    bad = fr.parse_first_look(json.dumps({"issues": [_issue(boxA=[0.785, 575, 0.835, 606])]}))
+    still_bad = _StubRun([json.dumps({"issues": [_issue(boxA=[0.785, 575, 0.835, 606])]})])
+    again = fr.repair_boxes(still_bad, "s", "u", [], [], bad, None)
+    assert len(still_bad.asked) == 1 and again["outcome"] == "invalid_location"
+    broke = _StubRun([], room=10)
+    assert fr.repair_boxes(broke, "s", "u", [], [], bad, None) is bad and broke.asked == []
+    fine = fr.parse_first_look(json.dumps({"issues": [_issue()]}))
+    assert fr.repair_boxes(_StubRun([]), "s", "u", [], [], fine, None) is fine
+
+
+def test_two_dimension_strings_feet_apart_can_still_be_one_dimension():
+    """Two candidates were rejected as "9-10 ft apart": a dimension string sits
+    on its dimension line, and two disciplines draw that line at different
+    distances outside the plan."""
+    issue = _issue(checkId="G01", element="dimension between grids 3 and 4", whatA="30'-0\"", whatB="29'-6\"",
+                   boxA=_frac(WIN_A, 1200, 400), boxB=_frac(WIN_B, 1346, 430 + 90))
+    assert fr.is_dimension_claim(issue)
+    assert fr.boxes_apart(issue, {"a": WIN_A, "b": WIN_B}, 9.0) is None
+
+
+def test_an_agreeing_span_does_not_settle_its_segments():
+    """Rejected because grids 2 and 3.7 agree — but the finding was about the
+    segments 2–2.3 and 3.5–3.7. Here one segment's line is not on sheet B."""
+    q = ("A3.34 shows 10'-1\" for 2–2.3 and 6'-1\" for 3.5–3.7 between grid lines 2 and 3.7; "
+         "A3.13 shows 10'-0\" and 5'-10\".")
+    no_23 = {"grid": {"y": {k: v for k, v in A3_13["grid"]["y"].items() if k != "2.3"}}, "scales": [9.0]}
+    assert ("2", "2.3") in fr.named_pairs(q) and ("3.5", "3.7") in fr.named_pairs(q)
+    assert fr.grid_spacing_agrees(q, A3_34, no_23) is None
+    differs = {"grid": {"y": {**A3_13["grid"]["y"], "3.5": 769.9}}, "scales": [9.0]}
+    assert fr.grid_spacing_agrees(q, A3_34, differs) is None
+    why = fr.grid_spacing_agrees(q, A3_34, A3_13)  # every pair measured and agreeing
+    assert why and why.count("apart on both sheets") == 3 and "2 and 2.3" in why and "3.5 and 3.7" in why
+
+
+def test_a_column_mark_is_not_a_grid_segment():
+    assert fr.named_pairs("C-13 at E/4 is 22x22 on A3.05") == []
+
+
+def test_the_close_look_can_say_unclear():
+    verdict = fr.parse_verdict('{"decision": "unclear", "reason": "the column is cut off"}')
+    assert verdict["decision"] == "unclear"
+    pair = {"a": {"level": "1"}, "b": {"level": "1"}}
+    assert fr.rule_out(pair, verdict, "") == "the column is cut off"
+
+
+def test_the_prompts_no_longer_turn_unsure_into_no_issue():
+    first, close = fr.discovery_system(), fr.verify_system()
+    assert "never second-guess" not in first
+    assert "or you are not sure, return no issue" not in first
+    assert "few inches" not in first and "3 inches" in first
+    for word in ('"unclear"', '"misaligned"', '"agree"'):
+        assert word in first
+    assert '"unclear"' in close and "or you cannot tell" not in close
+    assert "never pixels or thousandths" in first
+
+
+def test_the_summary_tells_nothing_new_from_nothing_wrong():
+    """The real run: 20 possible problems, 5 rejected before the close look,
+    13 on it, one kept and rejected by a rule, one kept and already dismissed.
+    "0 findings" alone said none of that."""
+    dismissed = "dismissed earlier — restore it under “Dismissed” in Needs your review to accept it"
+    tiles = [
+        ("done", "issues", [{"verdict": {"decision": "reject", "reason": "x"}}] * 18
+         + [{"verdict": {"decision": "keep", "subject": "C-10.S", "foundAgain": dismissed, "fingerprint": "fp1"}},
+            {"verdict": {"decision": "unclear", "reason": "cut off"}}], []),
+        ("done", "agree", [], []),
+        ("done", "unclear", [], []),
+        ("done", "misaligned", [], []),
+        ("done", None, [], []),
+        ("done", "invalid_location", [], [{"reason": "invalid_location"}]),
+        ("done", "issues", [_issue()], [{"reason": "invalid_location", "repairAsked": True}]),
+        ("failed", None, [], []),
+        ("pending", None, [], []),
+    ]
+    s = fr.scan_summary(tiles, 0, 48, 423)
+    assert s["newFindings"] == 0
+    assert s["foundAgain"] == [{"subject": "C-10.S", "where": dismissed, "fingerprint": "fp1"}]
+    assert (s["possibleProblems"], s["rejected"], s["unclear"], s["notChecked"]) == (21, 18, 1, 1)
+    assert s["unplaceable"] == 1  # the repaired one is not counted as lost
+    assert s["areas"] == {"issues": 2, "agree": 1, "unclear": 1, "misaligned": 1, "unstated": 1,
+                          "invalid_location": 1, "failed": 1, "pending": 1}
+    assert (s["areasTotal"], s["pagesCompared"], s["pagesRead"]) == (9, 48, 423)
