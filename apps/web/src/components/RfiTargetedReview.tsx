@@ -18,6 +18,7 @@ import {
 } from "@cdip/shared";
 import { api, type RfiReviewPlanRequest } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
+import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -778,6 +779,7 @@ function Downloads({ projectId, run }: { projectId: string; run: RfiReviewRunDto
       {link("draft", "pdf", "Draft report (PDF)")}
       {link("accepted", "pdf", "Accepted RFIs (PDF)")}
       {link("draft", "json", "JSON")}
+      <RfiDiagnosticsButton projectId={projectId} kind="review" runId={run.id} />
     </div>
   );
 }

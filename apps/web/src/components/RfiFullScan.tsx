@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RfiFullScanDto, RfiReviewProvider } from "@cdip/shared";
 import { api, type RfiFullScanList } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
+import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -362,6 +363,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
       {scan.findings > 0 && (
         <MarkedUpPdfButton projectId={projectId} fullScanId={scan.id} label="Marked-up PDF of the findings" />
       )}
+      <RfiDiagnosticsButton projectId={projectId} kind="full-scan" runId={scan.id} />
     </div>
   );
 }

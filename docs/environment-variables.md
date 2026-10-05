@@ -197,6 +197,9 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `FULL_SCAN_THINKING` / `FULL_SCAN_VERIFY_THINKING` | `off` / `low` | Worker | Reasoning for the first look and for the close-up check (`RFI_THINKING` vocabulary). |
 | `FULL_SCAN_HEARTBEAT_SECONDS` | `15` | Worker | How often a running full scan proves it is alive; silent for 10 minutes reads as failed and can be resumed. |
 | `RFI_FULL_SCAN_CONCURRENCY` | `1` | Worker | Full scans at once. |
+| `RFI_DIAGNOSTICS` | `off` | Worker | `on` writes one diagnostic folder per full scan / targeted review: every model call's exact request and reply, every image sent, evidence, page mapping, post-processing decisions, final findings and the marked-up PDF. Keys, signed URLs and private reasoning are removed. Downloadable as a zip from the RFIs tab. See docs/rfi-diagnostics.md. |
+| `RFI_DIAGNOSTICS_DIR` | `workers/diagnostics` | Worker | Where the diagnostic folders are written. Inside a container this is the container's disk — use the zip download. |
+| `RFI_DIAGNOSTICS_UPLOAD` | `true` | Worker | `false` keeps the local folder only and does not upload the zip to object storage. |
 | `WORKER_LOCK_DURATION_MS` | `600000` (10 min) | Worker | Job lock, renewed while running. A dead worker's job waits this long before another picks it up. |
 | `DB_POOL_SIZE` | computed (`16` with defaults) | Worker | Postgres connections per worker process. |
 

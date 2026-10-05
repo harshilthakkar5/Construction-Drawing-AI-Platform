@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 import fitz
 
 import db
+import diagnostics
 import grid
 import llm
 import logutil
@@ -94,6 +95,10 @@ CROP_EDGE = int(os.environ.get("RFI_REVIEW_CROP_EDGE", "1400"))
 # the grid lines and neighbouring marks that give it meaning are in frame.
 CROP_PAD_PT = 60.0
 CROP_MIN_PT = 260.0
+
+# Bumped whenever a prompt below changes meaning; the diagnostic export also
+# records each prompt's sha256.
+PROMPT_VERSION = "review-2026-10-05"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
@@ -1101,7 +1106,14 @@ def _ask(
                 time.sleep(delay)
                 if _status(run["id"]) == "cancelled":
                     raise Cancelled()
-            with usage_ledger.tagged(run["id"], stage, attempt + 1):
+            with usage_ledger.tagged(run["id"], stage, attempt + 1), diagnostics.call(
+                stage, attempt=attempt + 1, afterFailure=bool(delay), maxTokens=budget,
+                thinkingSetting=thinking_setting(run), provider=usage.provider, model=usage.model,
+                promptVersion=PROMPT_VERSION, formattingReminder=prompt != user,
+            ) as dc:
+                if dc is not None:
+                    dc.describe_images([_image_source(ev) for ev in images])
+                    _stage_calls(stage, dc.id)
                 reply = llm.complete(
                     system,
                     prompt,
@@ -1128,6 +1140,11 @@ def _ask(
             )
         stage_usage.add(reply)
         parsed = parse(reply.text)
+        diagnostics.event(
+            f"{stage}_parsed" if parsed is not None else f"{stage}_parse_failed", attempt=attempt + 1,
+            stopReason=reply.stop_reason, parsed=parsed,
+            detail=None if parsed is not None else "the reply was not the JSON asked for, or was cut off",
+        )
         if parsed is not None:
             return parsed
         if attempt == 0:
@@ -1782,6 +1799,179 @@ def _aid(ev_id: str, page: dict, text: str) -> Evidence:
     )
 
 
+# --- Diagnostics (no-ops unless RFI_DIAGNOSTICS=on) -----------------------------------
+
+
+def _diag_calls() -> dict | None:
+    rec = diagnostics.current()
+    return None if rec is None else rec.__dict__.setdefault("stage_calls", {})
+
+
+def _stage_calls(stage: str, call_id: str) -> None:
+    calls = _diag_calls()
+    if calls is not None:
+        calls.setdefault(stage, []).append(call_id)
+
+
+def _image_source(ev: Evidence) -> dict:
+    """What one image sent to the model IS. Page images are rendered with
+    vlm.render at OVERVIEW_EDGE px on the long edge, close-ups with
+    vlm.render_crop at CROP_EDGE px; both lossless PNG."""
+    out = {
+        "evidenceId": ev.id,
+        "label": ev.label(),
+        "kind": ev.kind,
+        "documentId": ev.document_id,
+        "pageNumber": ev.page_number,
+        "pageNumberBase": 1,
+        "combinedPageNumber": ev.combined_page_number,
+        "sheetNumber": ev.sheet_number,
+        "side": ev.side,
+        "caption": ev.caption,
+        "box": ev.bbox,
+        "boxCoordinates": "UNROTATED page space, PDF points (rendering maps it through the page rotation)",
+        "storedForReportAs": ev.image_key,
+        "annotationsStripped": True,
+    }
+    if ev.kind == "page":
+        out["render"] = {"what": "the whole sheet", "longEdgePx": OVERVIEW_EDGE, "format": "PNG (lossless)"}
+    elif ev.kind == "crop":
+        out["render"] = {"what": "a close-up of the box", "longEdgePx": CROP_EDGE, "format": "PNG (lossless)",
+                         "padPt": CROP_PAD_PT, "minSidePt": CROP_MIN_PT}
+    return out
+
+
+def _diag_start(run: dict):
+    if not diagnostics.enabled():
+        return None
+    import hashlib
+
+    scope = run.get("scope") or {}
+    doc_ids = sorted({p["documentId"] for p in scope.get("pages", [])})
+    with db.connect() as conn:
+        docs = conn.execute(
+            'SELECT id, filename, revision, pages, "createdAt", "includeInRfiAnalysis" FROM documents '
+            'WHERE id = ANY(%s::text[])', (doc_ids,),
+        ).fetchall()
+        rows = conn.execute(
+            'SELECT p.id, p."documentId", d.filename, d.revision, p."pageNumber", p."combinedPageNumber", '
+            'p."sheetNumber", p.rotation, p."pdfWidth", p."pdfHeight", p.discipline FROM pages p '
+            'JOIN documents d ON d.id = p."documentId" WHERE p.id = ANY(%s::text[]) ORDER BY p."combinedPageNumber"',
+            ([p["pageId"] for p in scope.get("pages", [])],),
+        ).fetchall()
+    info = {
+        "kind": "targeted RFI review",
+        "runId": run["id"],
+        "projectId": run["projectId"],
+        "request": {"target": run.get("target"), "checkIds": run.get("checkIds"), "depth": run.get("depth"),
+                    "checkPlan": run.get("checkPlan")},
+        "startedBy": run.get("createdById"),
+        "settings": {"provider": run.get("provider"), "model": run.get("model"),
+                     "thinkingRequested": run.get("thinkingRequested"), "limits": run.get("limits")},
+        "documents": [
+            {"documentId": d[0], "filename": d[1], "uploadVersion": d[2], "pages": d[3], "uploadedAt": d[4],
+             "includeInRfiAnalysis": d[5],
+             "suppliedToModel": "never as a file: extracted text chunks and rendered page images only"}
+            for d in docs
+        ],
+    }
+    rec = diagnostics.start("review", run["id"], run["projectId"], info)
+    if rec is None:
+        return None
+    rec.write_json("evidence/pages.json", {
+        "indexing": "pageNumber is ONE-based within its file; combinedPageNumber is ONE-based across the project",
+        "sheetRevision": "unknown — this system does not read the revision from the title block",
+        "pages": [
+            {"pageId": r[0], "documentId": r[1], "filename": r[2], "documentUploadVersion": r[3], "pageNumber": r[4],
+             "combinedPageNumber": r[5], "sheetNumber": r[6], "rotation": r[7], "pdfWidthPt": r[8],
+             "pdfHeightPt": r[9], "discipline": r[10], "sheetRevision": "unknown",
+             "planReason": next((p.get("reason") or p.get("role") for p in scope.get("pages", []) if p["pageId"] == r[0]), None)}
+            for r in rows
+        ],
+    })
+    rec.write_json("evidence/retrieval.json", {
+        "note": "The API planned this review: it searched the project (the chat's own hybrid retrieval: dense + "
+                "full text + exact identifiers, fused) restricted to this project's documents that are included "
+                "in RFI analysis. 'score' is the fused rank score each chunk was kept with.",
+        "queries": (run.get("coverage") or {}).get("searchLog"),
+        "omittedPages": (run.get("coverage") or {}).get("omittedPages") or scope.get("omitted"),
+        "chunks": [
+            {**c, "origin": "model-generated description of a page" if c.get("kind") == "description"
+             else "geometry measured from the PDF" if c.get("kind") == "gridmarks" else "text extracted from the PDF"}
+            for c in scope.get("chunks", [])
+        ],
+    })
+    prompts = {name: fn(list(CHECKS)) for name, fn in (("discovery", discovery_system), ("reasoning", reasoning_system))}
+    prompts["verification"] = verification_system()
+    rec.write_json("run/settings.json", {
+        "promptVersion": PROMPT_VERSION,
+        "prompts": {k: {"sha256": hashlib.sha256(v.encode()).hexdigest(), "textForAllChecks": v} for k, v in prompts.items()},
+        "promptNote": "Discovery and reasoning prompts list only the run's selected checks; the exact text sent is in each call's request.md.",
+        "outputSchema": "JSON described in each stage's system prompt; not enforced by the API (Gemini is asked for application/json)",
+        "maxOutputTokens": TOKENS,
+        "temperature": "Gemini: 0 (sent). Claude: not sent, so the API default applies.",
+        "images": {"overviewEdgePx": OVERVIEW_EDGE, "cropEdgePx": CROP_EDGE, "cropPadPt": CROP_PAD_PT, "cropMinPt": CROP_MIN_PT},
+    })
+    return rec
+
+
+def _diag_evidence(evidence: dict, batch_of: dict, unread: list, max_input: int, max_batches: int) -> None:
+    rec = diagnostics.current()
+    if rec is None:
+        return
+    rec.write_json("evidence/evidence.json", {
+        "note": "Every evidence item the server issued, in id order. 'batch' is the discovery call that read it; "
+                "null means it was NOT sent (it did not fit). Text items carry the exact text supplied.",
+        "limits": {"maxInputTokens": max_input, "maxBatches": max_batches},
+        "items": [
+            {**ev.manifest(batch_of.get(ev.id)), "text": ev.text if not ev.visual else None,
+             "origin": {"text": "text extracted from the PDF", "gridmarks": "geometry measured from the PDF",
+                        "description": "a vision model's earlier description of the page (model-generated)",
+                        "aid": "a measurement or index made by the server", "page": "rendered image",
+                        "crop": "rendered image"}.get(ev.kind, ev.kind)}
+            for ev in evidence.values()
+        ],
+        "notSent": [ev.id for ev in unread],
+    })
+
+
+def _diag_output(rec, run: dict) -> None:
+    import rfi_package
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT id, fingerprint, "checkType", confidence::text, subject, question, "questionSource", evidence, '
+            'reasoning, priority, status::text FROM rfi_candidates WHERE "reviewRunId" = %s ORDER BY "createdAt"',
+            (run["id"],),
+        ).fetchall()
+        rec.write_json("output/findings.json", {"findings": [
+            {"candidateId": r[0], "fingerprint": r[1], "checkType": r[2], "confidence": r[3], "subject": r[4],
+             "question": r[5], "questionSource": r[6], "evidence": r[7], "reasoning": r[8], "priority": r[9],
+             "status": r[10]} for r in rows
+        ], "callsByStage": rec.__dict__.get("stage_calls", {})})
+        result = conn.execute(
+            'SELECT status::text, "checkResults", coverage, notes FROM rfi_review_runs WHERE id = %s', (run["id"],)
+        ).fetchone()
+        if result:
+            rec.write_json("output/run-result.json", {"status": result[0], "checkResults": result[1],
+                                                      "coverage": result[2], "notes": result[3]})
+        if not rows:
+            return
+        items = rfi_package.load_items(conn, run["projectId"], [{"type": "candidate", "id": r[0]} for r in rows])
+    doc_ids = sorted({m.document_id for i in items for m in i.marks if m.document_id})
+    try:
+        with _documents(run["projectId"], doc_ids) as open_page:
+            def open_doc(document_id):
+                page = open_page(document_id, 1)
+                return page.parent if page is not None else None
+
+            out, notes = rfi_package.render(items, open_doc)
+            rec.write_bytes("output/rfi-package.pdf", out.tobytes(garbage=3, deflate=True))
+            rec.write_json("output/rfi-package-notes.json", {"notes": notes})
+    except Exception as exc:
+        rec.write_json("output/rfi-package-notes.json", {"error": f"the package could not be rendered: {exc}"})
+
+
 # --- The job -------------------------------------------------------------------------
 
 
@@ -1794,6 +1984,11 @@ def run(run_id: str) -> dict:
         return {"skipped": loaded["status"]}
     _set(run_id, status="running", startedAt=_now(), error=None, stage="discovery", progress=5)
     stage = "discovery"
+    rec = None
+    try:
+        rec = _diag_start(loaded)
+    except Exception as exc:  # a diagnostic export never stops a review
+        log.warning("rfi review %s: diagnostics could not start: %s", run_id[:8], exc)
     try:
         with _heartbeat(run_id):
             return _run(loaded)
@@ -1815,6 +2010,14 @@ def run(run_id: str) -> dict:
     except Exception as exc:
         _set(run_id, status="failed", error=str(exc)[:500], completedAt=_now())
         raise
+    finally:
+        if rec is not None:
+            try:
+                _diag_output(rec, loaded)
+            except Exception as exc:
+                log.warning("rfi review %s: diagnostic output failed: %s", run_id[:8], exc)
+            rec.finish(_status(run_id) or "unknown")
+            diagnostics.stop()
 
 
 def _failed_results(run: dict, stage: str) -> dict:
@@ -1902,6 +2105,7 @@ def _run(run: dict) -> dict:
     batches, unread = discovery_batches(texts + visuals + aids, overlay.pairs + index_aids, max_input, max_batches)
     batch_of = {ev.id: i + 1 for i, b in enumerate(batches) for ev in b}
     _set(run_id, evidenceManifest=json.dumps([ev.manifest(batch_of.get(ev.id)) for ev in evidence.values()]))
+    _diag_evidence(evidence, batch_of, unread, max_input, max_batches)
     if unread:
         pages = sorted({ev.where for ev in unread})
         omissions.append(
@@ -2001,6 +2205,8 @@ def _run(run: dict) -> dict:
             early = occurrence_check(candidate, None, measured, evidence)
             if early.rejected:
                 rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {early.reason}")
+                diagnostics.event("rejected_before_verification", candidate=candidate, reason=early.reason,
+                                  rule="occurrence_check (measured column positions)")
                 continue
             to_verify.append(candidate)
 
@@ -2023,17 +2229,24 @@ def _run(run: dict) -> dict:
                 decision = decisions.get(i)
                 if decision is None:
                     rejected.append(f"{label}: no verdict")
+                    diagnostics.event("rejected_after_verification", candidate=candidate, reason="no verdict", rule="model")
                     continue
                 if decision["decision"] != "keep":
                     rejected.append(f"{label}: {decision['reason'] or 'rejected'}")
+                    diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                      reason=decision["reason"] or "rejected", rule="model")
                     continue
                 why_not = guard(candidate, decision, evidence, observations)
                 if why_not:
                     rejected.append(f"{label}: {why_not}")
+                    diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                      reason=why_not, rule="guard")
                     continue
                 verdict = occurrence_check(candidate, decision, measured, evidence)
                 if verdict.rejected:
                     rejected.append(f"{label}: {verdict.reason}")
+                    diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                      reason=verdict.reason, rule="occurrence_check (measured column positions)")
                     continue
                 if verdict.unresolved_only:
                     covered.update((p.page["documentId"], p.page["pageNumber"], o.ident) for p, o in verdict.unknown)
@@ -2116,6 +2329,13 @@ def _run(run: dict) -> dict:
             if candidate["kind"] == "missing":
                 reasoning = f"{reasoning} Sheets read in this review ({len(searched)}): {', '.join(searched)}.".strip()
             wrote = _save_candidate(conn, run, fp, candidate, decision, items, reasoning, question_source=source) > 0
+            diagnostics.event(
+                "finding_saved" if wrote else "finding_found_again", fingerprint=fp, candidate=candidate,
+                decision=decision, questionSource=source, evidence=items, reasoning=reasoning,
+                narrowedByMeasurement=verdict.applies,
+                linkedCalls={k: list(v) for k, v in (_diag_calls() or {}).items()},
+                note="Evidence boxes are in the page's UNROTATED space; they become the clouds of the marked-up package.",
+            )
             saved += wrote
             tally(candidate["checkId"], fp, wrote, decision["subject"])
 

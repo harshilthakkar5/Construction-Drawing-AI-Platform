@@ -31,6 +31,12 @@ table. Review ACCURACY is not measured (all review tests use stub models); whole
 (RFI-B) is not built. The FULL AI SCAN (docs/rfi-full-scan.md, `RFI_FULL_SCAN=off|beta|on`,
 default beta) is built: it shows the AI every pair of sheets that should agree, area by area —
 see "Full AI scan" below. Its accuracy is not measured either.
+`RFI_DIAGNOSTICS=on` (worker, off by default; docs/rfi-diagnostics.md, `workers/src/diagnostics.py`)
+exports one folder per full scan or targeted review — the exact request each call handed the SDK
+(hooked in `llm.py`, batch entries included), every image byte for byte, evidence, page mapping,
+`postprocess.jsonl` decisions and the final findings + package — zipped to
+`objectKeys.rfiDiagnostics` and downloaded via `GET /rfis/diagnostics/:kind/:runId`. It scrubs keys,
+signed URLs and thinking text, and every recorder failure is swallowed: an export must never break a run.
 
 Phase 5 additions: FR-19 bbox highlighting (pages store pdfWidth/pdfHeight; chat sources carry
 bbox+dims; summary items resolve via GET /projects/:id/chunks/:chunkId/location; overlay in

@@ -37,3 +37,7 @@ dump.rdb
 # Kept out of git: they are a record of one machine's corpus at one moment, and
 # they carry the model's prose verbatim.
 benchmarks/runs/
+
+# RFI diagnostic exports (RFI_DIAGNOSTICS=on): every prompt, image and reply of a
+# run, including the client's drawing content. Never commit them.
+workers/diagnostics/

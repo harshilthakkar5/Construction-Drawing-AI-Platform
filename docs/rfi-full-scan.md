@@ -201,3 +201,7 @@ DATABASE_URL=… python benchmarks/rfi_eval.py --fullscan <scan id> --case rfi-0
 Settings: `RFI_FULL_SCAN`, `FULL_SCAN_*`, `RFI_FULL_SCAN_CONCURRENCY` in
 `docs/environment-variables.md`. Provider and model default to the targeted
 review's (`RFI_PROVIDER`, `RFI_REVIEW_MODEL`) and are chosen per scan.
+
+To see exactly what the model was given and returned on a scan (prompts, every
+image, every reply and every rule decision), turn on `RFI_DIAGNOSTICS=on`:
+see `docs/rfi-diagnostics.md`.

@@ -41,6 +41,9 @@ def review_evidence_key(project_id: str, run_id: str, evidence_id: str) -> str:
 def rfi_package_key(project_id: str, package_id: str) -> str:
     return f"projects/{project_id}/rfi-packages/{package_id}.pdf"
 
+def rfi_diagnostics_key(project_id: str, kind: str, run_id: str) -> str:
+    return f"projects/{project_id}/rfi-diagnostics/{kind}-{run_id}.zip"
+
 
 # --- Job payload fields ---
 

@@ -39,6 +39,7 @@ import re
 import time
 from dataclasses import dataclass
 
+import diagnostics
 import logutil
 
 log = logutil.get("llm")
@@ -410,10 +411,20 @@ _STREAM_ABOVE_TOKENS = 16_000
 
 
 def _send_claude(client, request: dict):
-    if request["max_tokens"] > _STREAM_ABOVE_TOKENS:
-        with client.messages.stream(**request) as stream:
-            return stream.get_final_message()
-    return client.messages.create(**request)
+    # The diagnostic hooks see the request exactly as it is handed to the SDK
+    # (no-ops unless a run is being recorded, see diagnostics.py).
+    diagnostics.sent("anthropic", request)
+    try:
+        if request["max_tokens"] > _STREAM_ABOVE_TOKENS:
+            with client.messages.stream(**request) as stream:
+                response = stream.get_final_message()
+        else:
+            response = client.messages.create(**request)
+    except Exception as exc:
+        diagnostics.failed(exc)
+        raise
+    diagnostics.received("anthropic", response)
+    return response
 
 
 def _complete_claude(
@@ -962,7 +973,7 @@ def _complete_gemini(
         max_tokens += _gemini_headroom(thinking_setting)
 
     def send(thinking: bool | dict, *, media_model: str):
-        return client.models.generate_content(
+        request = dict(
             model=model,
             contents=_user_content_gemini(
                 user, images, model=media_model, image_labels=image_labels
@@ -975,6 +986,14 @@ def _complete_gemini(
                 thinking=thinking,
             ),
         )
+        diagnostics.sent("gemini", request)
+        try:
+            response = client.models.generate_content(**request)
+        except Exception as exc:
+            diagnostics.failed(exc)
+            raise
+        diagnostics.received("gemini", response)
+        return response
 
     def call(thinking: bool | dict):
         # The media-resolution retry is nested INSIDE one rung of the thinking
@@ -1162,12 +1181,13 @@ def _run_claude_batch(
             body["output_config"] = output_config
         return body
 
-    batch = client.messages.batches.create(
-        requests=[
-            {"custom_id": custom_id, "params": params(custom_id, prompt)}
-            for custom_id, prompt in prompts.items()
-        ]
-    )
+    requests = [
+        {"custom_id": custom_id, "params": params(custom_id, prompt)}
+        for custom_id, prompt in prompts.items()
+    ]
+    for r in requests:
+        diagnostics.sent("anthropic", r["params"], entry=r["custom_id"])
+    batch = client.messages.batches.create(requests=requests)
     log.info(
         "anthropic batch %s submitted (%d requests, thinking=%s)",
         batch.id, len(prompts), describe_thinking(thinking, output_config),
@@ -1184,6 +1204,10 @@ def _run_claude_batch(
     entries = errored = 0
     for entry in client.messages.batches.results(batch.id):
         entries += 1
+        if entry.result.type == "succeeded":
+            diagnostics.received("anthropic", entry.result.message, entry=entry.custom_id)
+        else:
+            diagnostics.failed(f"batch entry {entry.result.type}: {getattr(entry.result, 'error', '')}", entry=entry.custom_id)
         if entry.result.type != "succeeded":
             if entry.result.type == "errored":
                 errored += 1
@@ -1327,22 +1351,21 @@ def _run_gemini_batch(
     )
 
     order = list(prompts)
-    job = client.batches.create(
-        model=model,
-        # The Gemini Developer API takes the requests inline (no upload step) —
-        # `metadata` is this API's equivalent of Anthropic's custom_id.
-        src=[
-            {
-                "contents": [{"role": "user", "parts": _batch_parts_gemini(
-                    prompts[custom_id], (images or {}).get(custom_id), (image_labels or {}).get(custom_id), model
-                )}],
-                "config": request_config,
-                "metadata": {"custom_id": custom_id},
-            }
-            for custom_id in order
-        ],
-        config={"display_name": f"cdip-{kind}"},
-    )
+    # The Gemini Developer API takes the requests inline (no upload step) —
+    # `metadata` is this API's equivalent of Anthropic's custom_id.
+    src = [
+        {
+            "contents": [{"role": "user", "parts": _batch_parts_gemini(
+                prompts[custom_id], (images or {}).get(custom_id), (image_labels or {}).get(custom_id), model
+            )}],
+            "config": request_config,
+            "metadata": {"custom_id": custom_id},
+        }
+        for custom_id in order
+    ]
+    for custom_id, entry_request in zip(order, src):
+        diagnostics.sent("gemini", {"model": model, **entry_request}, entry=custom_id)
+    job = client.batches.create(model=model, src=src, config={"display_name": f"cdip-{kind}"})
     log.info("gemini batch %s submitted (%d requests)", job.name, len(prompts))
     job = await_batch(
         f"gemini batch {job.name}",
@@ -1364,6 +1387,11 @@ def _run_gemini_batch(
     rejected = 0
     for index, entry in enumerate(responses):
         error = getattr(entry, "error", None)
+        echoed = (getattr(entry, "metadata", None) or {}).get("custom_id") or (order[index] if index < len(order) else None)
+        if error is not None:
+            diagnostics.failed(f"batch entry error: {error}", entry=echoed)
+        elif getattr(entry, "response", None) is not None:
+            diagnostics.received("gemini", entry.response, entry=echoed)
         if error is not None:
             # Only the first few, or a 400-page batch logs 400 identical lines.
             if rejected < 3:
@@ -1580,8 +1608,11 @@ def complete(
     except Exception as exc:
         _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)
         log.warning("%s %s call failed: %s", provider, kind, exc)
+        diagnostics.replied(None)
         return None
-    return None if reply.stop_reason == "unavailable" else reply
+    result = None if reply.stop_reason == "unavailable" else reply
+    diagnostics.replied(result)
+    return result
 
 
 def model_for(provider: str, claude_model: str, gemini_model: str) -> str:

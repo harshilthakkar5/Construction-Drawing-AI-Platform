@@ -104,6 +104,10 @@ export const OBJECT_KEY_TEMPLATES = {
   reviewEvidence: "projects/{projectId}/rfi-reviews/{runId}/evidence/{evidenceId}.png",
   /** A marked-up RFI package: cover form + the drawing sheets with clouds. */
   rfiPackage: "projects/{projectId}/rfi-packages/{packageId}.pdf",
+  /** A diagnostic export of one RFI run (RFI_DIAGNOSTICS=on): every model
+   * request and response, every image sent, the evidence and the final output,
+   * zipped. `kind` is full-scan | review. */
+  rfiDiagnostics: "projects/{projectId}/rfi-diagnostics/{kind}-{runId}.zip",
 } as const;
 
 function fillTemplate(
@@ -130,6 +134,8 @@ export const objectKeys = {
     fillTemplate(OBJECT_KEY_TEMPLATES.reviewEvidence, { projectId, runId, evidenceId }),
   rfiPackage: (projectId: string, packageId: string) =>
     fillTemplate(OBJECT_KEY_TEMPLATES.rfiPackage, { projectId, packageId }),
+  rfiDiagnostics: (projectId: string, kind: "full-scan" | "review", runId: string) =>
+    fillTemplate(OBJECT_KEY_TEMPLATES.rfiDiagnostics, { projectId, kind, runId }),
 } as const;
 
 // --- API DTOs ---
