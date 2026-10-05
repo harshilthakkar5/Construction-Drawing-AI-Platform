@@ -122,7 +122,17 @@ _NOT_A_PROBLEM = (
     "cap is still a round column; a hatched wall is still a wall, not an opening); a position difference of a "
     "few inches between an architectural and a structural drawing, which is drafting tolerance, not a "
     "coordination problem; a dimension string — never call it the distance between two grid lines unless both "
-    "of its ends visibly sit on those grid lines"
+    "of its ends visibly sit on those grid lines; a pier, pedestal, footing, pile cap or drop cap outline drawn "
+    "AROUND a column is a different element from the column — never compare its size with the column's size"
+)
+# How a kept finding names what it compares: what each sheet DRAWS at that
+# place, and "the same element" only when a mark on both sheets says so. A
+# 4'-0" square on a concrete exhibit and a 24 x 24 column were written up as
+# "the column/pier footprint" against "column C-13" — two things, one name.
+_SAME_ELEMENT = (
+    "Describe what each sheet draws at that place in its own terms. Call the two the same element only when "
+    "a mark or label printed on BOTH sheets names it; otherwise write \"at the same location\" and ask "
+    "whether they are the same element."
 )
 
 _CHECK_LIST = "\n".join(f"- {c['id']}: {c['label']}" for c in RFI_REVIEW_CHECKS)
@@ -167,7 +177,8 @@ def verify_system() -> str:
         "If you keep it, write the RFI for a reviewer who has never seen the drawings: subject (the item and "
         "where, at most 90 characters) and question (what sheet A shows, what sheet B shows, then ONE direct "
         "question a decision or a value can answer; cite the sheets by the numbers given). Use only identifiers "
-        "and numbers that appear in the words; never invent a dimension, mark or grid line.\n"
+        "and numbers that appear in the words; never invent a dimension, mark or grid line. "
+        + _SAME_ELEMENT + "\n"
         'Respond with ONLY JSON: {"decision": "keep" | "reject", "reason": "...", "subject": "...", '
         '"question": "...", "confidence": "high" | "medium" | "low", "priority": "low" | "normal" | "high" | "critical"}'
     )
@@ -712,7 +723,17 @@ def close_look(run: Run, sheets: Sheets) -> None:
                 if pair is None:
                     continue
                 wa, wb = item["windows"]["a"], item["windows"]["b"]
-                ra, rb = close_rect(wa, item["issue"]["boxA"]), close_rect(wb, item["issue"]["boxB"])
+                facts = (run.facts.get(pair["a"].get("pageId")), run.facts.get(pair["b"].get("pageId")))
+                # Code first: two boxes at two places, or a column that does
+                # not move when measured, is rejected before a call is paid for.
+                early = boxes_apart(item["issue"], item["windows"], _pt_per_ft(facts[1])) or column_position_agrees(
+                    sheets, item["issue"], {**item["windows"], "a": {**wa, "sheetNumber": pair["a"].get("sheetNumber")}}, facts
+                )
+                if early:
+                    _record_verdict(item["tileId"], item["n"], {"decision": "reject", "reason": early, "measured": True})
+                    continue
+                both = shared_box(item["issue"])
+                ra, rb = close_rect(wa, both), close_rect(wb, both)
                 img_a, img_b = sheets.render(wa, ra), sheets.render(wb, rb)
                 if img_a is None or img_b is None:
                     _record_verdict(item["tileId"], item["n"], {"decision": "reject", "reason": "the close-up could not be rendered"})
@@ -731,6 +752,151 @@ def close_look(run: Run, sheets: Sheets) -> None:
                 in_flight[executor.submit(fs.run_in_context(call), user, [img_a, img_b], labels)] = (item, ctx)
         finally:
             drain(block=False)
+
+
+# --- The two boxes must point at one place (pure; tested) ----------------------------
+
+# Two boxes whose centres are further apart than this, on the drawing, point at
+# two different things. Floor in drawn feet, raised for a large box.
+BOX_AGREE_FT = 3.0
+BOX_AGREE_SHARE = 0.35
+
+
+def _pt_per_ft(facts: dict | None) -> float:
+    scales = [s for s in (facts or {}).get("scales") or [] if s and s > 0]
+    return min(scales) if scales else 9.0  # 1/8" = 1'-0" when nothing is printed
+
+
+def boxes_apart(issue: dict, windows: dict, pt_per_ft_b: float) -> str | None:
+    """Why boxA and boxB cannot be one element, or None.
+
+    The two windows of a tile are the SAME area of two sheets (the plan built
+    window B from window A's own transform), so a place on the drawing is at
+    the SAME FRACTION of both images. A model that boxes a column on image A
+    and a different column on image B has compared two things, and every
+    later step — the close-ups, the clouds — inherits it. On the client's
+    first full scan this was two of three findings: a round column at B/1.4 on
+    A3.01 "against" the square C-10.S at C/2.3 on S2.102 (each sheet agrees
+    with the other at both crossings), and C-13 at E/4 on A3.05 against an
+    empty patch of S2.106 nine feet away from its C-13.
+    """
+    a, b = issue["boxA"], issue["boxB"]
+    x0, y0, x1, y1 = windows["b"]["rect"]
+    w, h = x1 - x0, y1 - y0
+    dx = ((a[0] + a[2]) - (b[0] + b[2])) / 2 * w
+    dy = ((a[1] + a[3]) - (b[1] + b[3])) / 2 * h
+    gap = (dx * dx + dy * dy) ** 0.5
+    size = max((a[2] - a[0]) * w, (a[3] - a[1]) * h, (b[2] - b[0]) * w, (b[3] - b[1]) * h)
+    allowed = max(BOX_AGREE_FT * pt_per_ft_b, BOX_AGREE_SHARE * size)
+    if gap <= allowed:
+        return None
+    return (
+        f"the boxes on the two images are {gap / pt_per_ft_b:.0f} ft apart on the drawing, so they point at two "
+        "different things; the two windows show the same area, so one element is at the same place on both"
+    )
+
+
+def shared_box(issue: dict) -> list[float]:
+    """The one area both close-ups show: the union of the two boxes, in the
+    windows' common fractions. A close-up per box let a disagreement between
+    the boxes become a "confirmed" disagreement between the drawings."""
+    a, b = issue["boxA"], issue["boxB"]
+    return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+
+
+# --- A column "moved": measure it on both sheets first -------------------------------
+
+_LOCATION_WORDS = re.compile(
+    r"\b(locat|position|offset|cent(?:er|re)|face|flush|shift|moved|east|west|north|south|align|off[- ]grid|grid line)",
+    re.I,
+)
+
+
+def is_column_location_claim(issue: dict) -> bool:
+    text = " ".join(issue.get(k, "") for k in ("element", "whatA", "whatB"))
+    return bool(re.search(r"\bcolumns?\b", text, re.I) and _LOCATION_WORDS.search(text))
+
+
+def _nearest(lines: dict, pos: float) -> tuple[str, float] | None:
+    return min(lines.items(), key=lambda kv: abs(kv[1] - pos)) if lines else None
+
+
+def column_offsets(body, grid_: dict, pt_per_ft: float) -> dict | None:
+    """{"x": (line, line position, offset in inches), "y": ...} from a body
+    to the nearest grid line on each axis of its own sheet, or None."""
+    out = {}
+    for axis, centre in (("x", (body.x0 + body.x1) / 2), ("y", (body.y0 + body.y1) / 2)):
+        near = _nearest(grid_.get(axis) or {}, centre)
+        if near is None or abs(centre - near[1]) > 4 * pt_per_ft:
+            return None
+        out[axis] = (near[0], near[1], (centre - near[1]) / pt_per_ft * 12)
+    return out
+
+
+def same_place(off_a: dict, off_b: dict, windows: dict) -> bool:
+    """Whether two measured columns stand at the same place relative to
+    CORRESPONDING grid lines. The lines are matched by POSITION through the
+    tile's own windows, never by name — two disciplines may name one line
+    differently, which is a different finding (G01)."""
+    import column_locate
+
+    wa, wb = windows["a"]["rect"], windows["b"]["rect"]
+    for i, axis in enumerate(("x", "y")):
+        line_a, line_b = off_a[axis][1], off_b[axis][1]
+        frac = (line_a - wa[i]) / (wa[i + 2] - wa[i])
+        mapped = wb[i] + frac * (wb[i + 2] - wb[i])
+        if abs(mapped - line_b) > column_locate.REGISTRATION_PT * 3:
+            return False
+        if abs(off_a[axis][2] - off_b[axis][2]) > column_locate.CENTRE_IN:
+            return False
+    return True
+
+
+def _describe(off: dict) -> str:
+    parts = []
+    for axis in ("x", "y"):
+        line, _, inch = off[axis]
+        parts.append(f"on grid line {line}" if abs(inch) <= 3 else f"{abs(inch):.0f} in off grid line {line}")
+    return " and ".join(parts)
+
+
+def column_position_agrees(sheets, issue: dict, windows: dict, facts: tuple[dict | None, dict | None]) -> str | None:
+    """Why a "this column is in a different place" claim is wrong, measured
+    from both drawings, or None when it cannot be measured or they do differ.
+
+    The client's first full scan said A3.05 drew C-13 "with its west face on
+    the grid line" while S2.106 centred it. Measured, A3.05's 22x22 fill is
+    centred on E/4 within half an inch and S2.106's within an inch and a half:
+    the model misread a 22-inch square at a few dozen DPI. Only a claim about
+    a column's LOCATION is judged, and only when one body is found on each
+    sheet; anything else is left to the close look."""
+    import column_locate
+
+    if not is_column_location_claim(issue):
+        return None
+    offsets = []
+    for side, box in (("a", issue["boxA"]), ("b", issue["boxB"])):
+        window = windows[side]
+        page = sheets.page(window["documentId"], window["pageNumber"])
+        f = facts[0 if side == "a" else 1]
+        if page is None or not f or not (f.get("grid") or {}).get("x"):
+            return None
+        ptft = _pt_per_ft(f)
+        r = box_rect(window, box)
+        reach = max(2 * ptft, 0.5 * max(r[2] - r[0], r[3] - r[1]))
+        body, _ = column_locate.body_at(page, ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2), reach, ptft)
+        if body is None:
+            return None
+        off = column_offsets(body, f["grid"], ptft)
+        if off is None:
+            return None
+        offsets.append(off)
+    if not same_place(offsets[0], offsets[1], windows):
+        return None
+    return (
+        f"measured from both drawings, the column stands at the same place: {_describe(offsets[0])} on "
+        f"{windows['a'].get('sheetNumber') or 'sheet A'}, {_describe(offsets[1])} on the other sheet"
+    )
 
 
 def material_for(pair: dict, words: tuple[str, str]) -> str:
