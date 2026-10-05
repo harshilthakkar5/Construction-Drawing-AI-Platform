@@ -560,3 +560,131 @@ def test_rule_out_applies_the_measured_rule():
 def test_both_prompts_name_the_mistakes_the_first_real_scan_made():
     for prompt in (fr.discovery_system(), fr.verify_system()):
         assert fr._NOT_A_PROBLEM in prompt
+
+
+# --- the second real scan: two boxes, two places; a column measured on both sheets ------
+#
+# Three findings from the client's second full scan (5 Oct 2026), each measured
+# against the drawings. The numbers in the first two tests are the measured
+# ones; the sheets themselves are SYNTHETIC — no client drawing is in this
+# repository.
+
+WIN_A = {"documentId": "a", "pageNumber": 1, "rect": [900.0, 300.0, 1500.0, 900.0], "sheetNumber": "A9.01"}
+WIN_B = {"documentId": "b", "pageNumber": 1, "rect": [1046.0, 330.0, 1646.0, 930.0]}
+
+
+def _frac(window: dict, cx: float, cy: float, half: float = 30.0) -> list[float]:
+    x0, y0, x1, y1 = window["rect"]
+    w, h = x1 - x0, y1 - y0
+    return [(cx - half - x0) / w, (cy - half - y0) / h, (cx + half - x0) / w, (cy + half - y0) / h]
+
+
+def test_two_boxes_ten_feet_apart_are_two_things():
+    """The C-13 finding: the A box on the column at E/4, the B box on an empty
+    patch 60pt across and 64pt up (about 10 ft at 1/8")."""
+    issue = _issue(boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1346 + 60, 630 - 64))
+    why = fr.boxes_apart(issue, {"a": WIN_A, "b": WIN_B}, 9.0)
+    assert why and "10 ft apart" in why
+
+
+def test_two_boxes_at_two_grid_crossings_are_two_things():
+    """The round-vs-square finding: B/1.4 on one sheet, C/2.3 on the other —
+    one bay (270pt, 30 ft) over and one bay up. On the client's sheets the two
+    clouds measured 38 ft apart; here the boxes sit exactly on the crossings."""
+    issue = _issue(boxA=_frac(WIN_A, 1000, 800), boxB=_frac(WIN_B, 1146 + 270, 830 - 270))
+    assert "42 ft apart" in fr.boxes_apart(issue, {"a": WIN_A, "b": WIN_B}, 9.0)
+
+
+def test_boxes_at_one_place_pass_and_a_large_box_gets_room():
+    same = _issue(boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1346 + 12, 630 - 9))
+    assert fr.boxes_apart(same, {"a": WIN_A, "b": WIN_B}, 9.0) is None
+    big = _issue(boxA=_frac(WIN_A, 1200, 600, half=150), boxB=_frac(WIN_B, 1346 + 60, 630, half=150))
+    assert fr.boxes_apart(big, {"a": WIN_A, "b": WIN_B}, 9.0) is None
+
+
+def test_both_close_ups_show_one_area():
+    issue = _issue(boxA=[0.1, 0.2, 0.3, 0.4], boxB=[0.15, 0.1, 0.35, 0.3])
+    assert fr.shared_box(issue) == [0.1, 0.1, 0.35, 0.4]
+
+
+@pytest.mark.parametrize("element,what_a,what_b,expected", [
+    ("column C-13", "column with its west face on the grid line", "column centered on the grid line", True),
+    ("column", "column shifted east", "column at the crossing", True),
+    ("column near Room B5", "circular column", "square column", False),  # a shape claim, not a location
+    ("wall", "wall offset from grid", "wall on the grid line", False),
+])
+def test_only_a_column_location_claim_is_measured(element, what_a, what_b, expected):
+    assert fr.is_column_location_claim(_issue(element=element, whatA=what_a, whatB=what_b)) is expected
+
+
+def _sheet_with_column(rotation: int, dx_in: float = 0.0, size_in: float = 22.0, ring: bool = False) -> fitz.Document:
+    """One grey filled column at display (1200 + dx, 600) — a SYNTHETIC
+    sheet — drawn through the derotation matrix so it lands there at any
+    /Rotate, between two wall lines like an architectural plan draws it."""
+    doc = fitz.open()
+    page = doc.new_page(width=2592, height=1728)
+    page.set_rotation(rotation)
+    m = page.derotation_matrix
+    half = size_in / 12 * 9.0 / 2
+    cx, cy = 1200 + dx_in / 12 * 9.0, 600.0
+    if ring:  # a pier outline round the column, as S1.101 draws one
+        page.draw_rect(fitz.Rect(fitz.Rect(cx - 18, cy - 18, cx + 18, cy + 18) * m).normalize(), color=(0, 0, 0), width=1)
+    page.draw_rect(fitz.Rect(fitz.Rect(cx - half, cy - half, cx + half, cy + half) * m).normalize(),
+                   color=(0, 0, 0), fill=(0.7, 0.7, 0.7), width=1)
+    for y in (cy - half - 2, cy + half + 2):
+        page.draw_line(fitz.Point(1100, y) * m, fitz.Point(1300, y) * m, color=(0, 0, 0), width=2)
+    return doc
+
+
+class _Pages:
+    def __init__(self, a, b):
+        self.docs = {"a": a, "b": b}
+
+    def page(self, document_id, page_number):
+        return self.docs[document_id][page_number - 1]
+
+
+FACTS_A = {"grid": {"x": {"D": 900.0, "E": 1200.0}, "y": {"4": 600.0, "3.7": 680.0}}, "scales": [9.0]}
+FACTS_B = {"grid": {"x": {"D": 1046.0, "E": 1346.0}, "y": {"4": 630.0, "3.7": 710.0}}, "scales": [9.0]}
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_a_column_both_sheets_centre_on_one_crossing_is_rejected(rotation):
+    """The C-13 claim, measured: both sheets centre a 22x22 column on E/4."""
+    a = _sheet_with_column(rotation)
+    b = _sheet_with_column(0)
+    # Move B's drawing to where its grid puts E/4.
+    b2 = fitz.open()
+    pb = b2.new_page(width=2592, height=1728)
+    pb.show_pdf_page(fitz.Rect(146, 30, 2592 + 146, 1728 + 30), b, 0)
+    issue = _issue(element="column C-13", whatA="column with its west face flush on the grid line",
+                   whatB="column centered on the grid line", boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1346, 630))
+    why = fr.column_position_agrees(_Pages(a, b2), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, FACTS_B))
+    assert why and "same place" in why and "on grid line E and on grid line 4" in why
+
+
+def test_a_column_that_really_moved_is_left_for_the_model():
+    a = _sheet_with_column(0)
+    b = fitz.open()
+    pb = b.new_page(width=2592, height=1728)
+    pb.show_pdf_page(fitz.Rect(146, 30, 2592 + 146, 1728 + 30), _sheet_with_column(0, dx_in=11), 0)
+    issue = _issue(element="column C-13", whatA="column centered on the grid line", whatB="column face on the grid line",
+                   boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1354, 630))
+    assert fr.column_position_agrees(_Pages(a, b), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, FACTS_B)) is None
+
+
+def test_the_column_inside_a_pier_outline_is_what_is_measured():
+    import column_locate
+
+    page = _sheet_with_column(0, ring=True)[0]
+    body, why = column_locate.body_at(page, (1200, 600), 18, 9.0)
+    assert why is None and round(body.width / 9 * 12) == 22
+
+
+def test_nothing_measurable_decides_nothing():
+    empty = fitz.open()
+    empty.new_page(width=2592, height=1728)
+    issue = _issue(element="column", whatA="column offset east", whatB="column on the grid line",
+                   boxA=_frac(WIN_A, 1200, 600), boxB=_frac(WIN_B, 1346, 630))
+    assert fr.column_position_agrees(_Pages(_sheet_with_column(0), empty), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, FACTS_B)) is None
+    assert fr.column_position_agrees(_Pages(_sheet_with_column(0), empty), issue, {"a": WIN_A, "b": WIN_B}, (FACTS_A, None)) is None

@@ -2611,6 +2611,16 @@ the same name win inside tolerance. The schedule check read grid line F.7 as mar
 identifier index strips the dot): a dotted label is never a mark, and a schedule title never runs
 across a line break. All are `rejected` benchmark entries.
 
+The second real run (5 Oct) returned three findings that a second AI's review called mostly right;
+measured, none held. Two were the model boxing DIFFERENT things on images A and B (B/1.4 against
+C/2.3; C-13 against an empty patch 10 ft away) and the close look then rendering a close-up round
+each box, i.e. two places shown as one. Now `boxes_apart` rejects boxes more than 3 ft apart on the
+drawing before any call (the windows are one area, so one element is at one FRACTION of both), the
+close-ups use the UNION of the two boxes (`shared_box`), and `column_position_agrees` measures a
+"column moved" claim on both sheets (`column_locate.body_at`: vector fill, then raster; offsets
+against each sheet's grid, lines matched by position) and rejects it when both are within 3". The
+third compared a 4'-0" pier with a 24 x 24 column; only the prompt guards that (`fp-full-scan-ai-2`).
+
 ## Claude prompting pattern for grounded answers
 
 - Send only relevant markdown chunks, never full PDFs.

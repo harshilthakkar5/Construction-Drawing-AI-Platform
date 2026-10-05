@@ -533,3 +533,57 @@ def describe(sheet: str, occurrences: list[Occurrence], note: str | None) -> str
     for o in occurrences:
         lines.append(f"- {o.summary()}")
     return "\n".join(lines)
+
+
+# --- one body at a place (the full scan's measured check) ------------------------------
+
+
+def vector_bodies(page: fitz.Page, window: fitz.Rect, pt_per_ft: float) -> list[fitz.Rect]:
+    """Column-sized FILLED, non-white, roughly square-or-rectangular vector
+    shapes inside a display window. Architectural sheets draw columns this way
+    (a grey filled box between wall lines), where the raster reader fails: the
+    wall outlines touching the fill join it into one long shape."""
+    lo, hi = MIN_BODY_IN / 12 * pt_per_ft, MAX_BODY_FT * pt_per_ft
+    out: list[fitz.Rect] = []
+    for d in page.get_drawings():
+        fill = d.get("fill")
+        if not fill or min(fill) > 0.95:
+            continue
+        r = fitz.Rect(d["rect"] * page.rotation_matrix).normalize()
+        if not window.contains(r) or min(r.width, r.height) < lo or max(r.width, r.height) > hi:
+            continue
+        if any(abs(r.x0 - o.x0) < 0.5 and abs(r.y0 - o.y0) < 0.5 and abs(r.x1 - o.x1) < 0.5 for o in out):
+            continue
+        out.append(r)
+    return out
+
+
+def body_at(page: fitz.Page, point: tuple[float, float], reach: float, pt_per_ft: float) -> tuple[fitz.Rect | None, str | None]:
+    """The one column body nearest a display point, within `reach` points, or
+    (None, why). Vector fills first, the raster reader second. Two candidates
+    about as near as each other are an ambiguity, never a pick."""
+    x, y = point
+    window = fitz.Rect(x - reach - MAX_BODY_FT * pt_per_ft, y - reach - MAX_BODY_FT * pt_per_ft,
+                       x + reach + MAX_BODY_FT * pt_per_ft, y + reach + MAX_BODY_FT * pt_per_ft) & page.rect
+    if window.is_empty:
+        return None, "the place is off the sheet"
+    spot = fitz.Rect(x, y, x, y)
+    found = [b for b in vector_bodies(page, window, pt_per_ft) if rect_distance(spot, b) <= reach]
+    if not found:
+        zoom = zoom_for(pt_per_ft)
+        found = [b for b in find_bodies(_render(page, window, zoom), (window.x0, window.y0), zoom, pt_per_ft)
+                 if rect_distance(spot, b) <= reach]
+    if not found:
+        return None, "no column body was found there"
+    # Concentric shapes (a column inside its pier outline) are one place.
+    # Nearest first; among shapes that all hold the point, the SMALLEST — the
+    # column, not the pier or cap drawn round it.
+    ranked = sorted(found, key=lambda b: (round(rect_distance(spot, b), 1), b.width * b.height))
+    best = ranked[0]
+    for other in ranked[1:]:
+        if other.intersects(best):
+            continue
+        if rect_distance(spot, other) <= max(rect_distance(spot, best) * AMBIGUOUS_RATIO, rect_distance(spot, best) + AMBIGUOUS_PT):
+            return None, "two column bodies are about equally near"
+        break
+    return best, None

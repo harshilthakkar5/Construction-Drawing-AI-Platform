@@ -406,6 +406,122 @@
           ]
         }
       ]
+    },
+    {
+      "id": "fp-full-scan-ai-2",
+      "source": "The second full AI scan of the client's set (RFI TEST 43), 5 Oct 2026: three marked-up packages, a second model's review called two of them correct, each measured here from the drawings' own geometry.",
+      "pdf": "the client's 423-page set (not in this repository)",
+      "target": {
+        "type": "full_scan"
+      },
+      "checks": [
+        "G01",
+        "G02",
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "FL01",
+        "FL02",
+        "FL03",
+        "FL04",
+        "C01",
+        "C02",
+        "C03",
+        "B01",
+        "B02",
+        "B03"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "C-13 'west face on the grid line' on A3.05 against centred on S2.106 (Unit A4A / Room 616)",
+          "why": "Measured: A3.05's 22x22 fill is centred on E/4 within half an inch, S2.106's C-13 within an inch and a half. The S2.106 cloud sat on an empty patch about 10 ft from C-13. Fixed: fullscan_run.boxes_apart and column_position_agrees.",
+          "checkTypes": [
+            "G01",
+            "G02",
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "FL01",
+            "FL02",
+            "FL03",
+            "FL04",
+            "C01",
+            "C02",
+            "C03",
+            "B01",
+            "B02",
+            "B03"
+          ],
+          "sheets": [
+            "A3.05",
+            "S2.106"
+          ],
+          "mentions": [
+            "C-13"
+          ]
+        },
+        {
+          "what": "Round column on A3.01 against square 22 x 22 C-10.S on S2.102 near Room B5",
+          "why": "Two different columns: the A3.01 cloud is the round column at B/1.4, the S2.102 cloud is C-10.S at C/2.3 (about 38 ft away). S2.102 draws C-1 (26\" DIA), round, at B/1.4, and A3.01 draws a square column at C/2.3: the sheets agree at both. Fixed: fullscan_run.boxes_apart.",
+          "checkTypes": [
+            "G01",
+            "G02",
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "FL01",
+            "FL02",
+            "FL03",
+            "FL04",
+            "C01",
+            "C02",
+            "C03",
+            "B01",
+            "B02",
+            "B03"
+          ],
+          "sheets": [
+            "A3.01",
+            "S2.102"
+          ],
+          "mentions": [
+            "C-10.S"
+          ]
+        },
+        {
+          "what": "4'-0\" x 4'-0\" on A3.21A against C-13 (24 x 24) on S1.101",
+          "why": "Same place (E/4) but two elements: A3.21A's 4'-0\" square has a smaller square inside it, and S1.101 draws a larger outline (pier P-36) round its 24 x 24 C-13. The pier was compared with the column. Prompt now says a pier/pedestal/cap outline round a column is a different element; not measured by code yet.",
+          "checkTypes": [
+            "G01",
+            "G02",
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "FL01",
+            "FL02",
+            "FL03",
+            "FL04",
+            "C01",
+            "C02",
+            "C03",
+            "B01",
+            "B02",
+            "B03"
+          ],
+          "sheets": [
+            "A3.21A",
+            "S1.101"
+          ],
+          "mentions": [
+            "C-13"
+          ]
+        }
+      ]
     }
   ]
 }

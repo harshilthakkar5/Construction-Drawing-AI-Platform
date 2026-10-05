@@ -140,6 +140,39 @@ About one AI finding in eight held up. What changed because of it:
 - **Benchmark:** the proven ones are `rejected` entries (`fp-full-scan-ai`,
   `fp-full-scan-project-checks`), so a run that raises them again fails.
 
+## The second real run — 5 Oct 2026
+
+Three packages came back, and a second AI model reviewing them called two "correct" and one "needs
+verification". Measured from the drawings, none holds up as written:
+
+| Finding | Verdict | Measured |
+|---|---|---|
+| C-13 "west face on the grid" on A3.05 vs centred on S2.106 | wrong | A3.05's 22x22 fill is centred on E/4 within ½"; S2.106's C-13 within 1½". The S2.106 cloud sat on an empty patch about 10 ft from C-13 |
+| Round column on A3.01 vs square C-10.S on S2.102 (Room B5) | wrong | two different columns: B/1.4 on A3.01, C/2.3 on S2.102 (38 ft apart). S2.102 draws C-1 (26" DIA) round at B/1.4, and A3.01 a square column at C/2.3 — the sheets agree at both |
+| 4'-0" x 4'-0" on A3.21A vs C-13 (24 x 24) on S1.101 | wrong question | same place (E/4), two elements: the 4'-0" square is the pier/pedestal (S1.101 draws an outline round its 24 x 24 column too). It compared a pier with a column |
+
+The first two share one cause: the model put its box on image A and its box on image B round
+DIFFERENT things, and the close look then rendered a close-up around EACH box — so it was shown two
+different places and "confirmed" that they differ. What changed:
+
+- **`boxes_apart`** (before any close-look call): the two windows of a tile are the same area, so one
+  element sits at the same FRACTION of both images. Box centres more than 3 ft apart on the drawing
+  (or 35% of the larger box) are two things, and the issue is rejected for free. Both findings above
+  are rejected by it (10 ft and 38 ft).
+- **One close-up area for both sheets** (`shared_box`): the union of the two boxes, so the model
+  always sees the same place twice.
+- **`column_position_agrees`** (before any call): a claim that a column is in a different place is
+  MEASURED on both sheets — the column body nearest each box (vector fill first, then the raster
+  reader, the smallest shape when one holds another), its centre against its own sheet's grid lines,
+  lines matched by POSITION through the tile, never by name. Within 3" on both axes → rejected. On
+  the client's C-13 it reports "on grid line E and on grid line 4" on both sheets.
+- **Prompts:** a pier, pedestal, footing, pile cap or drop cap outline round a column is a different
+  element; a kept finding calls two things "the same element" only when a mark on both sheets says
+  so, and otherwise says "at the same location" and asks.
+- **Benchmark:** `fp-full-scan-ai-2` holds all three as rejected entries.
+
+The pier-vs-column case is still caught only by the prompt; no code measures it yet.
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with
