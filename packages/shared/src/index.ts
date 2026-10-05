@@ -1656,12 +1656,38 @@ export interface RfiFullScanDto {
   tiles: { total: number; done: number; failed: number };
   spent: { inputTokens: number; outputTokens: number; costUsd: number | null };
   findings: number;
+  /** What a finished run concluded; null before it finishes (and on runs
+   * finished before this existed). */
+  summary: RfiFullScanSummaryDto | null;
   notes: string[];
   error: string | null;
   createdAt: string;
   plannedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+/** Written by the worker (`fullscan_run.scan_summary`). "0 findings" alone
+ * cannot tell "the drawings agree" from "nothing NEW" or "could not judge". */
+export interface RfiFullScanSummaryDto {
+  /** Saved by this run, waiting in "Needs your review". */
+  newFindings: number;
+  /** Kept on the close look but already on file — dismissed earlier, already
+   * an RFI, or waiting from another run. Never restored or re-proposed. */
+  foundAgain: { subject: string; where: string; fingerprint: string | null }[];
+  possibleProblems: number;
+  rejected: number;
+  /** The close look could not decide either way. */
+  unclear: number;
+  notChecked: number;
+  /** Raised on the first look but dropped: its location could not be read. */
+  unplaceable: number;
+  /** Areas by the first look's verdict: agree | issues | unclear | misaligned
+   * | invalid_location | unstated, plus failed | pending. */
+  areas: Record<string, number>;
+  areasTotal: number;
+  pagesCompared: number;
+  pagesRead: number | null;
 }
 
 /** RFI_FULL_SCAN on the API: `off` hides the feature, `beta` runs it with the

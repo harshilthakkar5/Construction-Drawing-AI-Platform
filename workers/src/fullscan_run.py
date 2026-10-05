@@ -54,7 +54,7 @@ KINDS = ("conflict", "missing")
 CALL_CONCURRENCY = int(os.environ.get("FULL_SCAN_CALL_CONCURRENCY", "4"))
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256, so two runs can be compared exactly.
-PROMPT_VERSION = "fullscan-2026-10-05"
+PROMPT_VERSION = "fullscan-2026-10-06"
 BATCH_WAVE = int(os.environ.get("FULL_SCAN_BATCH_WAVE", "40"))
 DISCOVERY_TOKENS = 1500
 VERIFY_TOKENS = 1500
@@ -124,8 +124,8 @@ _NOT_A_PROBLEM = (
     "column its text sits against; a wall-type tag such as W9-2 names a wall, never a column); the SAME element "
     "drawn with a different symbol, cap, drop panel or hatch on the two sheets (a round column inside a square "
     "cap is still a round column; a hatched wall is still a wall, not an opening); a position difference of a "
-    "few inches between an architectural and a structural drawing, which is drafting tolerance, not a "
-    "coordination problem; a dimension string — never call it the distance between two grid lines unless both "
+    "3 inches or less on the drawing (at its printed scale) between an architectural and a structural "
+    "drawing, the same tolerance the system measures columns with; a dimension string — never call it the distance between two grid lines unless both "
     "of its ends visibly sit on those grid lines; a pier, pedestal, footing, pile cap or drop cap outline drawn "
     "AROUND a column is a different element from the column — never compare its size with the column's size"
 )
@@ -146,7 +146,9 @@ def discovery_system() -> str:
     return (
         "You coordinate construction drawings. You are shown two images: image A is a window of one "
         "sheet and image B is the SAME AREA of another sheet that should agree with it. The system "
-        "lined them up by their geometry; trust that alignment and never second-guess it. The words "
+        "lined them up by their geometry. If the two images plainly do not show the same area (their grids, "
+        "outline or columns do not correspond anywhere), say so with status \"misaligned\" and report no "
+        "issue: a misalignment is the system's error, never a drawing problem. The words "
         "printed inside each window, taken from the PDF, are listed after the images.\n"
         + _UNTRUSTED
         + "Report ONLY elements that both drawings would show and that DISAGREE between A and B:\n"
@@ -158,13 +160,17 @@ def discovery_system() -> str:
         "colour; items one discipline does not draw (furniture, finishes, fixtures, rebar, door swings, room "
         "names on a structural sheet); annotations and tags; a difference a note in the words explains; "
         + _NOT_A_PROBLEM + "\n"
-        "If the two agree, or you are not sure, return no issue: a missed problem is found later, a false one "
-        "costs a reviewer an afternoon.\n"
+        "Say which is true of this area with status: \"agree\" (they agree), \"issues\" (you can see a "
+        "disagreement on BOTH images and list it), \"unclear\" (you cannot tell — too small, cut off, hidden or "
+        "ambiguous; give a short note saying why) or \"misaligned\". Unsure is \"unclear\", never an issue and "
+        "never \"agree\": a false issue costs a reviewer an afternoon, and an area called agreed that was not "
+        "checked is a gap nobody knows about.\n"
         "Each issue: checkId (the closest of these questions):\n" + _CHECK_LIST + "\n"
         "kind (conflict | missing), element (what it is, with its mark if printed), whatA and whatB (what each "
         "image shows there, in a few words), boxA and boxB ([x0, y0, x1, y1] as fractions 0-1 of each image, "
-        "around the element), confidence (high | medium | low). Name an identifier only if it is in the words.\n"
-        'Respond with ONLY JSON: {"issues": [ ... ]} — at most four, or {"issues": []}.'
+        "around the element — all four numbers fractions, never pixels or thousandths), confidence (high | medium | low). Name an identifier only if it is in the words.\n"
+        'Respond with ONLY JSON: {"status": "agree" | "issues" | "unclear" | "misaligned", "note": "...", '
+        '"issues": [ ... ]} — at most four issues; "issues" is [] unless status is "issues".'
     )
 
 
@@ -177,13 +183,15 @@ def verify_system() -> str:
         + "Keep it ONLY if both close-ups clearly show the disagreement. Reject it when: either close-up does not "
         "show the element whole; the difference is drafting style, hatching or annotation; it is an item one "
         "discipline does not draw; the two show different levels or views; a note in the words explains it; "
-        + _NOT_A_PROBLEM + "; or you cannot tell.\n"
+        + _NOT_A_PROBLEM + ".\n"
+        "If the close-ups do not let you decide either way (too small, cut off, hidden), answer decision "
+        "\"unclear\" with the reason: it is neither kept nor counted as checked.\n"
         "If you keep it, write the RFI for a reviewer who has never seen the drawings: subject (the item and "
         "where, at most 90 characters) and question (what sheet A shows, what sheet B shows, then ONE direct "
         "question a decision or a value can answer; cite the sheets by the numbers given). Use only identifiers "
         "and numbers that appear in the words; never invent a dimension, mark or grid line. "
         + _SAME_ELEMENT + "\n"
-        'Respond with ONLY JSON: {"decision": "keep" | "reject", "reason": "...", "subject": "...", '
+        'Respond with ONLY JSON: {"decision": "keep" | "reject" | "unclear", "reason": "...", "subject": "...", '
         '"question": "...", "confidence": "high" | "medium" | "low", "priority": "low" | "normal" | "high" | "critical"}'
     )
 
@@ -192,46 +200,87 @@ def verify_system() -> str:
 
 
 def _box(value) -> list[float] | None:
-    """[x0, y0, x1, y1] as fractions of the image. A model that answers in
-    thousandths (Gemini's habit) is scaled down; anything else is refused."""
+    """[x0, y0, x1, y1] as fractions of the image, or None. See read_box."""
+    return read_box(value)[0]
+
+
+def read_box(value) -> tuple[list[float] | None, str | None]:
+    """(box, None) for [x0, y0, x1, y1] as fractions of the image, or (None,
+    why). A model that answers wholly in thousandths (Gemini's habit) is
+    scaled down. MIXED units are refused, never guessed at: a real first look
+    returned [0.785, 575, 0.835, 606] — x as fractions, y as thousandths —
+    and dividing all four by 1000 put the close-up at the image's left edge,
+    where it found a different column and the finding was rejected for a
+    mark it had never been shown. In thousandths a value at or below 1 can
+    only be 0 or 1; anything between is a fraction sitting among
+    thousandths."""
     if not isinstance(value, (list, tuple)) or len(value) != 4:
-        return None
+        return None, "the box is not four numbers"
     try:
         nums = [float(v) for v in value]
     except (TypeError, ValueError):
-        return None
+        return None, "the box is not four numbers"
     if any(v < 0 for v in nums):
-        return None
+        return None, "the box has a negative number"
     if max(nums) > 1.0:
         if max(nums) > 1000.0:
-            return None
+            return None, "the box is neither fractions 0-1 nor thousandths"
+        if any(0.0 < v < 1.0 for v in nums):
+            return None, "the box mixes fractions and larger numbers, so its place cannot be known"
         nums = [v / 1000.0 for v in nums]
     x0, y0, x1, y1 = nums
     if x1 <= x0 or y1 <= y0:
-        return None
-    return nums
+        return None, "the box has no area (x1 <= x0 or y1 <= y0)"
+    return nums, None
 
 
 def _text(value, limit: int) -> str:
     return " ".join(str(value).split())[:limit] if isinstance(value, str) else ""
 
 
+# What the first look may say about an area besides listing issues. "unclear"
+# and "misaligned" are NOT agreement: a scan that could not judge an area has
+# not checked it, and the summary says how many it could not judge.
+OUTCOMES = ("agree", "issues", "unclear", "misaligned")
+
+
 def parse_issues(raw: str | None) -> list[dict] | None:
     """The first look's issues, or None for a reply that is not the JSON asked
-    for (retried once). An issue missing a valid box, check or description is
-    dropped — it could not be shown to anyone."""
+    for (retried once). See parse_first_look."""
+    look = parse_first_look(raw)
+    return None if look is None else look["issues"]
+
+
+def parse_first_look(raw: str | None) -> dict | None:
+    """{"issues", "outcome", "note", "dropped"} from a first-look reply, or
+    None for a reply that is not the JSON asked for (retried once).
+
+    An issue missing a valid box, check or description cannot be shown to
+    anyone and is DROPPED — but recorded with its reason and the raw item, so
+    "found nothing" and "found something it could not place" stay apart.
+    The outcome is the model's own word for the area (agree / unclear /
+    misaligned); any kept issue makes it "issues", a reply with only
+    unplaceable issues is "invalid_location", and one that says nothing is
+    "unstated" rather than assumed to agree."""
     data = parse_json_object(raw)
     if data is None or not isinstance(data.get("issues"), list):
         return None
-    out = []
+    out, dropped = [], []
     for item in data["issues"]:
         if not isinstance(item, dict):
             continue
-        box_a, box_b = _box(item.get("boxA")), _box(item.get("boxB"))
+        box_a, why_a = read_box(item.get("boxA"))
+        box_b, why_b = read_box(item.get("boxB"))
         element = _text(item.get("element"), 160)
         what_a, what_b = _text(item.get("whatA"), 300), _text(item.get("whatB"), 300)
         check = item.get("checkId") if item.get("checkId") in CHECKS else None
-        if not (box_a and box_b and element and what_a and what_b and check):
+        if not (box_a and box_b):
+            dropped.append({"reason": "invalid_location", "detail": f"boxA: {why_a}" if why_a else f"boxB: {why_b}",
+                            "element": element, "item": item})
+            continue
+        if not (element and what_a and what_b and check):
+            dropped.append({"reason": "incomplete", "detail": "missing element, whatA, whatB or a known checkId",
+                            "element": element, "item": item})
             continue
         out.append({
             "checkId": check,
@@ -245,12 +294,21 @@ def parse_issues(raw: str | None) -> list[dict] | None:
         })
         if len(out) >= MAX_ISSUES_PER_TILE:
             break
-    return out
+    said = data.get("status") if data.get("status") in OUTCOMES else None
+    if out:
+        outcome = "issues"
+    elif any(d["reason"] == "invalid_location" for d in dropped):
+        outcome = "invalid_location"
+    elif said in ("agree", "unclear", "misaligned"):
+        outcome = said
+    else:
+        outcome = "unstated"
+    return {"issues": out, "outcome": outcome, "note": _text(data.get("note"), 300), "dropped": dropped}
 
 
 def parse_verdict(raw: str | None) -> dict | None:
     data = parse_json_object(raw)
-    if data is None or data.get("decision") not in ("keep", "reject"):
+    if data is None or data.get("decision") not in ("keep", "reject", "unclear"):
         return None
     return {
         "decision": data["decision"],
@@ -522,11 +580,20 @@ def _tile_counts(scan_id: str) -> dict[str, int]:
     return {r[0]: int(r[1]) for r in rows}
 
 
-def _save_tile(tile_id: str, issues: list[dict] | None, error: str | None = None) -> None:
+def _save_tile(tile_id: str, look: dict | None, error: str | None = None) -> None:
     with db.connect() as conn:
         conn.execute(
-            'UPDATE rfi_full_scan_tiles SET status = %s, issues = %s::jsonb, error = %s, "updatedAt" = now() WHERE id = %s',
-            ("failed" if issues is None else "done", json.dumps(issues or []), error, tile_id),
+            'UPDATE rfi_full_scan_tiles SET status = %s, issues = %s::jsonb, outcome = %s, "outcomeNote" = %s, '
+            'dropped = %s::jsonb, error = %s, "updatedAt" = now() WHERE id = %s',
+            (
+                "failed" if look is None else "done",
+                json.dumps((look or {}).get("issues") or []),
+                (look or {}).get("outcome"),
+                (look or {}).get("note") or None,
+                json.dumps((look or {}).get("dropped") or []),
+                error,
+                tile_id,
+            ),
         )
 
 
@@ -585,6 +652,42 @@ def _progress(run: Run, total: int) -> None:
     fs._set(run.id, progress=5 + int(60 * done / max(total, 1)))
 
 
+def box_repair_prompt(look: dict) -> str | None:
+    """The one follow-up a first look gets when it raised a problem whose box
+    could not be placed, or None when every box was usable. Pure."""
+    bad = [d for d in look.get("dropped") or [] if d["reason"] == "invalid_location"]
+    if not bad:
+        return None
+    item = bad[0].get("item") or {}
+    shown = json.dumps({"boxA": item.get("boxA"), "boxB": item.get("boxB")})
+    return (
+        f"Your previous answer gave a box that cannot be placed ({shown}: {bad[0]['detail']}). Answer again for "
+        "these same two images, in the same JSON shape, with every box as four fractions 0-1 of its own image — "
+        "all four numbers in that one unit."
+    )
+
+
+def repair_boxes(run: Run, system: str, user: str, images, labels, look: dict, trace: dict | None) -> dict:
+    """Ask ONCE more when the first look raised a problem it could not place.
+    The box is not guessed at — a wrong guess sends the close look somewhere
+    else and rejects the finding for what it finds there. Skipped when the
+    ceiling has no room for one more call. The original drops stay on the
+    record, marked as repaired-or-not, so the export shows both answers."""
+    ask = box_repair_prompt(look)
+    if ask is None:
+        return look
+    if run.room() < run.per_discovery:
+        diagnostics.event("box_repair_skipped", tileId=(trace or {}).get("tileId"), reason="no room under the token ceiling")
+        return look
+    reply = run.ask("discovery", system, f"{user}\n\n{ask}", images, labels, DISCOVERY_TOKENS, discovery_thinking(), trace)
+    again = parse_first_look(reply.text if reply else None)
+    diagnostics.event("box_repair", tileId=(trace or {}).get("tileId"), asked=ask, parsed=again)
+    if again is None:
+        return look
+    earlier = [{**d, "repairAsked": True} for d in look["dropped"] if d["reason"] == "invalid_location"]
+    return {**again, "dropped": earlier + again["dropped"]}
+
+
 def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) -> None:
     import concurrent.futures as cf
 
@@ -596,14 +699,16 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) 
         if reply is None:
             _diag_parsed(trace, None, "the model call failed twice")
             return None, "the model call failed twice"
-        issues = parse_issues(reply.text)
-        if issues is None:
+        look = parse_first_look(reply.text)
+        if look is None:
             _diag_parsed(trace, None, "the reply was not the JSON asked for — asked once more")
             reply = run.ask("discovery", system, user + "\n\nRespond with ONLY the JSON object described.",
                             images, labels, DISCOVERY_TOKENS * 2, discovery_thinking(), trace)
-            issues = parse_issues(reply.text if reply else None)
-        _diag_parsed(trace, issues, None if issues is not None else "the reply was not the JSON asked for")
-        return issues, None if issues is not None else "the reply was not the JSON asked for"
+            look = parse_first_look(reply.text if reply else None)
+        if look is not None:
+            look = repair_boxes(run, system, user, images, labels, look, trace)
+        _diag_parsed(trace, look, None if look is not None else "the reply was not the JSON asked for")
+        return look, None if look is not None else "the reply was not the JSON asked for"
 
     def drain(block: bool) -> None:
         if not in_flight:
@@ -612,10 +717,10 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) 
         for future in done:
             tile = in_flight.pop(future)
             try:
-                issues, error = future.result()
+                look, error = future.result()
             except Exception as exc:  # one broken call is one failed tile
-                issues, error = None, str(exc)[:300]
-            _save_tile(tile["id"], issues, error)
+                look, error = None, str(exc)[:300]
+            _save_tile(tile["id"], look, error)
         _progress(run, total)
 
     with fs.pool(CALL_CONCURRENCY) as executor:
@@ -682,15 +787,17 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -
                 # The wave's tiles stay pending; a resume submits them again.
                 raise StageFailed(f"a batch of {len(prompts)} tiles did not finish in time ({exc}); resume the scan to retry them")
         for cid, tile in by_id.items():
-            issues = parse_issues(answers.get(cid))
-            if issues is None:
+            look = parse_first_look(answers.get(cid))
+            if look is None:
                 _diag_parsed(traces.get(cid), None, "the batch returned no usable answer for this tile — asked directly")
                 # One direct call for what the batch did not return usably.
                 reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2,
                                 discovery_thinking(), traces.get(cid))
-                issues = parse_issues(reply.text if reply else None)
-            _diag_parsed(traces.get(cid), issues, None if issues is not None else "no usable answer")
-            _save_tile(tile["id"], issues, None if issues is not None else "no usable answer from the batch or a retry")
+                look = parse_first_look(reply.text if reply else None)
+            if look is not None:
+                look = repair_boxes(run, system, prompts[cid], images[cid], labels[cid], look, traces.get(cid))
+            _diag_parsed(traces.get(cid), look, None if look is not None else "no usable answer")
+            _save_tile(tile["id"], look, None if look is not None else "no usable answer from the batch or a retry")
         _progress(run, total)
 
 
@@ -842,6 +949,8 @@ def boxes_apart(issue: dict, windows: dict, pt_per_ft_b: float) -> str | None:
     with the other at both crossings), and C-13 at E/4 on A3.05 against an
     empty patch of S2.106 nine feet away from its C-13.
     """
+    if is_dimension_claim(issue):
+        return None
     a, b = issue["boxA"], issue["boxB"]
     x0, y0, x1, y1 = windows["b"]["rect"]
     w, h = x1 - x0, y1 - y0
@@ -856,6 +965,16 @@ def boxes_apart(issue: dict, windows: dict, pt_per_ft_b: float) -> str | None:
         f"the boxes on the two images are {gap / pt_per_ft_b:.0f} ft apart on the drawing, so they point at two "
         "different things; the two windows show the same area, so one element is at the same place on both"
     )
+
+
+def is_dimension_claim(issue: dict) -> bool:
+    """Whether a possible problem is about a printed DIMENSION. Its two boxes
+    may honestly be feet apart: a dimension string sits on a dimension line,
+    and two disciplines put the same dimension at different distances outside
+    the plan. A real run rejected two such candidates as "9-10 ft apart", which
+    says nothing about whether the two dimensions agree. Pure."""
+    text = " ".join(issue.get(k, "") for k in ("element", "whatA", "whatB"))
+    return bool(re.search(r"\bdimension", text, re.I) or _DIMENSION.search(text))
 
 
 def shared_box(issue: dict) -> list[float]:
@@ -998,6 +1117,28 @@ def _spacings(facts: dict, first: str, second: str) -> list[float]:
     return []
 
 
+# A run of two grid labels joined by a dash ("2–2.3", "3.5-3.7"): how a
+# finding names one SEGMENT of a dimension chain without the word "grid".
+_SEGMENT = re.compile(r"(?<![\w.'\"/])([A-Z]{0,2}\d+(?:\.\d+)?|[A-Z]{1,2}(?:\.\d+)?)\s*[–-]\s*([A-Z]{0,2}\d+(?:\.\d+)?|[A-Z]{1,2}(?:\.\d+)?)(?![\w.'\"/])")
+
+
+def named_pairs(text: str) -> list[tuple[str, str]]:
+    """Every pair of grid lines a finding's wording names, in order, once
+    each: "between grids 2 and 3.7" and segments such as "2–2.3". Pure."""
+    out: list[tuple[str, str]] = []
+    for pattern in (_GRID_PAIR, _SEGMENT):
+        for m in pattern.finditer(text):
+            first, second = m.group(1).upper(), m.group(2).upper()
+            if not first or not second or first == second or (first, second) in out:
+                continue
+            # A segment joins two lines of ONE axis — both numbered or both
+            # lettered. "C-13" is a column mark, not grid C to grid 13.
+            if pattern is _SEGMENT and first[0].isdigit() != second[0].isdigit():
+                continue
+            out.append((first, second))
+    return out
+
+
 def grid_spacing_agrees(text: str, facts_a: dict | None, facts_b: dict | None) -> str | None:
     """Why a "the dimension between grid X and Y differs" finding is wrong, or
     None. Pure.
@@ -1009,22 +1150,25 @@ def grid_spacing_agrees(text: str, facts_a: dict | None, facts_b: dict | None) -
     2 1/2" past grid 3.5: a dimension to something else, read as grid to grid.
     When the drawn grid agrees, the two strings measure different things, and
     there is nothing to ask. A line or scale this cannot read decides nothing.
+
+    EVERY pair the wording names must be measured on both sheets and agree.
+    A later run rejected a finding about the segments 2–2.3 and 3.5–3.7
+    because the overall 2–3.7 agreed — which settles the span, not its parts.
     """
     if not facts_a or not facts_b or len(_DIMENSION.findall(text)) < 1:
         return None
-    for m in _GRID_PAIR.finditer(text):
-        first, second = m.group(1).upper(), m.group(2).upper()
-        if not first or not second or first == second:
-            continue
+    pairs = named_pairs(text)
+    if not pairs:
+        return None
+    agreed: list[tuple[str, str, float]] = []
+    for first, second in pairs:
         on_a, on_b = _spacings(facts_a, first, second), _spacings(facts_b, first, second)
-        for ft_a in on_a:
-            for ft_b in on_b:
-                if abs(ft_a - ft_b) <= SPACING_TOL_FT:
-                    return (
-                        f"grid lines {first} and {second} are drawn {_feet(ft_a)} apart on both sheets at their "
-                        "printed scales, so the dimensions quoted measure to something else, not between the grid lines"
-                    )
-    return None
+        match = next((ft_a for ft_a in on_a for ft_b in on_b if abs(ft_a - ft_b) <= SPACING_TOL_FT), None)
+        if match is None:
+            return None  # unmeasured or different: this rule cannot settle it
+        agreed.append((first, second, match))
+    said = "; ".join(f"grid lines {a} and {b} are drawn {_feet(ft)} apart on both sheets" for a, b, ft in agreed)
+    return f"{said} at their printed scales, so the dimensions quoted measure to something else, not between the grid lines"
 
 
 def rule_out(pair: dict, verdict: dict | None, material: str, facts: tuple[dict | None, dict | None] = (None, None)) -> str | None:
@@ -1054,12 +1198,16 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
     record = dict(verdict or {"decision": "reject"})
     links = {"firstLookCalls": _first_calls(item["tileId"]), "closeLookCalls": (ctx.get("trace") or {}).get("calls", [])}
     if why_not:
-        record.update(decision="reject", reason=why_not)
+        # "unclear" stays unclear: the close look could not decide, which is
+        # not the same as finding the drawings agree.
+        unclear = verdict is not None and verdict["decision"] == "unclear"
+        record.update(decision="unclear" if unclear else "reject", reason=why_not)
         _record_verdict(item["tileId"], item["n"], record)
         diagnostics.event(
             "rejected_after_close_look", tileId=item["tileId"], issueIndex=item["n"], issue=item["issue"],
             verdict=verdict, reason=why_not,
-            rule="model" if verdict is not None and verdict["decision"] != "keep" else "rule_out", **links,
+            rule="model" if verdict is not None and verdict["decision"] != "keep" else "rule_out",
+            decision=record["decision"], **links,
         )
         return
     issue = item["issue"]
@@ -1304,26 +1452,81 @@ def _diag_output(rec, run: "Run", open_page) -> None:
 # --- Finish -------------------------------------------------------------------------------
 
 
+def scan_summary(tiles: list[tuple], saved: int, pages_compared: int, pages_read: int | None) -> dict:
+    """What a run concluded, counted (RfiFullScanSummaryDto). Pure.
+
+    `tiles` is (status, outcome, issues, dropped) per tile. "0 findings" on its
+    own read as "the drawings agree" for a real run whose two kept problems
+    were one matched to a finding dismissed earlier and one rejected by a rule
+    — so a finding already on file, an area the model could not judge and a
+    problem it raised but could not place are each counted apart."""
+    areas: dict[str, int] = {}
+    issues: list[dict] = []
+    unplaceable = 0
+    for status, outcome, items, dropped in tiles:
+        key = (outcome or "unstated") if status == "done" else status
+        areas[key] = areas.get(key, 0) + 1
+        issues += list(items or [])
+        unplaceable += sum(1 for d in (dropped or []) if d.get("reason") == "invalid_location" and not d.get("repairAsked"))
+    verdicts = [i.get("verdict") or {} for i in issues]
+    found_again = [
+        {"subject": v.get("subject") or "", "where": v["foundAgain"], "fingerprint": v.get("fingerprint")}
+        for v in verdicts if "foundAgain" in v
+    ]
+    return {
+        "newFindings": int(saved),
+        "foundAgain": found_again,
+        "possibleProblems": len(issues),
+        "rejected": sum(1 for v in verdicts if v.get("decision") == "reject"),
+        "unclear": sum(1 for v in verdicts if v.get("decision") == "unclear"),
+        "notChecked": sum(1 for i in issues if "verdict" not in i),
+        "unplaceable": unplaceable,
+        "areas": areas,
+        "areasTotal": len(tiles),
+        "pagesCompared": pages_compared,
+        "pagesRead": pages_read,
+    }
+
+
 def finish(run: Run) -> dict:
     counts = _tile_counts(run.id)
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT issues FROM rfi_full_scan_tiles WHERE \"scanId\" = %s AND status = 'done'", (run.id,)
+            'SELECT status, outcome, issues, dropped FROM rfi_full_scan_tiles WHERE "scanId" = %s', (run.id,)
         ).fetchall()
         saved = conn.execute(
             'SELECT count(*) FROM rfi_candidates WHERE "fullScanId" = %s AND origin = %s', (run.id, "full_scan")
         ).fetchone()[0]
-    issues = [i for (items,) in rows for i in (items or [])]
+    issues = [i for (status, _, items, _) in rows if status == "done" for i in (items or [])]
     kept = [i for i in issues if (i.get("verdict") or {}).get("decision") == "keep" and "foundAgain" not in i["verdict"]]
     again = [i for i in issues if "foundAgain" in (i.get("verdict") or {})]
     rejected = [i for i in issues if (i.get("verdict") or {}).get("decision") == "reject"]
     waiting = [i for i in issues if "verdict" not in i]
+    pages_compared = len({p[side].get("pageId") for p in run.pairs.values() for side in ("a", "b")})
+    summary = scan_summary(rows, int(saved), pages_compared, (run.scan.get("catalogue") or {}).get("pages"))
     notes = [n for n in run.notes if not n.startswith("Full scan:")]
+    a = summary["areas"]
     notes.append(
         f"Full scan: {counts.get('done', 0)} tile pair(s) looked at, {counts.get('failed', 0)} failed, "
         f"{counts.get('pending', 0)} not reached; {len(issues)} possible problem(s) on the first look, "
-        f"{len(kept)} confirmed close up and saved, {len(rejected)} rejected, {len(waiting)} not yet checked."
+        f"{len(kept)} confirmed close up and saved, {len(again)} already on file, {len(rejected)} rejected, "
+        f"{summary['unclear']} could not be decided close up, {len(waiting)} not yet checked."
     )
+    if a.get("unclear") or a.get("misaligned") or a.get("unstated"):
+        notes.append(
+            f"Not judged: the AI could not tell on {a.get('unclear', 0)} area(s), said {a.get('misaligned', 0)} "
+            f"were not lined up, and gave no verdict on {a.get('unstated', 0)}. These are gaps, not agreement."
+        )
+    if summary["unplaceable"]:
+        notes.append(
+            f"{summary['unplaceable']} possible problem(s) were dropped because their location could not be read "
+            "(a box that was not fractions 0-1), after one request to restate it."
+        )
+    if summary["pagesRead"]:
+        notes.append(
+            f"Compared {pages_compared} of the {summary['pagesRead']} pages read; the plan lists every page left "
+            "out and why."
+        )
     reasons: dict[str, int] = {}
     for i in rejected:
         reason = (i["verdict"].get("reason") or "rejected")[:120]
@@ -1342,6 +1545,7 @@ def finish(run: Run) -> dict:
         stage="done",
         progress=100,
         findings=int(saved),
+        summary=json.dumps(summary),
         notes=json.dumps(notes),
         usage=json.dumps({"provider": run.provider, "model": run.model, "inputTokens": i_tokens, "outputTokens": o_tokens}),
         completedAt=fs._now(),

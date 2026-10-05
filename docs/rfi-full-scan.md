@@ -173,6 +173,30 @@ different places and "confirmed" that they differ. What changed:
 
 The pier-vs-column case is still caught only by the prompt; no code measures it yet.
 
+## The third real run — read from its diagnostic export, 6 Oct 2026
+
+The first run with `RFI_DIAGNOSTICS=on`. 498 first looks across 63 sheet pairs, 20
+possible problems, 5 rejected by code before the close look, 13 rejected on it, 2
+kept — one then rejected by a rule, one matching a finding dismissed earlier. The
+screen said "0 findings". Every model response ended normally; the empty result
+was the application's, in five places:
+
+| What the export showed | Fix |
+|---|---|
+| A box in MIXED units, `[0.785, 575, 0.835, 606]`, was divided by 1000 in all four numbers. The close-up landed at the image's left edge, found C-13, and rejected the C-25 candidate for a mark it was never shown. | `read_box` refuses mixed units instead of guessing. The first look is asked ONCE to restate the box (`repair_boxes`, only with room under the ceiling); a problem still unplaceable is kept in the tile's `dropped` list and counted, never silently lost. |
+| "0 findings" hid a kept finding that matched one dismissed earlier, and every other count. | `rfi_full_scans.summary` (`scan_summary`): new findings, findings already on file and where, rejected, undecided, unplaceable, areas by verdict, pages compared of pages read. The RFIs tab shows it under the count. A dismissed match is reported, never restored. |
+| The prompt said "if you are not sure, return no issue" and "trust that alignment and never second-guess it", so unsure and misaligned areas read as agreement. | The first look answers `status`: `agree` / `issues` / `unclear` / `misaligned` (stored per tile as `outcome`, a reply without one is `unstated`, never assumed to agree). The close look may answer `unclear`. Unsure still never becomes an RFI — it is counted as a gap. The "a few inches" tolerance is now the 3 in the code measures columns with. |
+| Two dimension candidates were rejected as "9–10 ft apart". A dimension string sits on its dimension line, which two disciplines draw at different distances outside the plan. | `boxes_apart` no longer judges a dimension claim (`is_dimension_claim`). |
+| A finding about the segments 2–2.3 and 3.5–3.7 was rejected because the overall 2–3.7 agreed. | `grid_spacing_agrees` rejects only when EVERY pair the wording names (`named_pairs`, including dash segments) is measured on both sheets and agrees. |
+
+Not fixed, and not a code defect: the one kept C-10.S finding looks like a misreading
+(the structural close-up prints a 7½" offset the verdict says is not there). A model's
+"keep" is not proof. And coverage: the plan compared 48 of 423 pages; the rest are
+listed in the plan with their reasons (no level read, no alignment, several views on
+one sheet). "Full scan" means every PAIR the planner could line up, not every page.
+
+These are stub-model tests (`test_fullscan_run.py`); no real replay has measured them.
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with
