@@ -186,8 +186,18 @@ was the application's, in five places:
 | A box in MIXED units, `[0.785, 575, 0.835, 606]`, was divided by 1000 in all four numbers. The close-up landed at the image's left edge, found C-13, and rejected the C-25 candidate for a mark it was never shown. | `read_box` refuses mixed units instead of guessing. The first look is asked ONCE to restate the box (`repair_boxes`, only with room under the ceiling); a problem still unplaceable is kept in the tile's `dropped` list and counted, never silently lost. |
 | "0 findings" hid a kept finding that matched one dismissed earlier, and every other count. | `rfi_full_scans.summary` (`scan_summary`): new findings, findings already on file and where, rejected, undecided, unplaceable, areas by verdict, pages compared of pages read. The RFIs tab shows it under the count. A dismissed match is reported, never restored. |
 | The prompt said "if you are not sure, return no issue" and "trust that alignment and never second-guess it", so unsure and misaligned areas read as agreement. | The first look answers `status`: `agree` / `issues` / `unclear` / `misaligned` (stored per tile as `outcome`, a reply without one is `unstated`, never assumed to agree). The close look may answer `unclear`. Unsure still never becomes an RFI — it is counted as a gap. The "a few inches" tolerance is now the 3 in the code measures columns with. |
+| Two C-1 candidates were rejected as "38 ft" and "40 ft apart". Their boxes were ONE box written two ways — `[409, 731, 434, 760]` on image A and `[731, 409, 762, 434]` on image B. The model was `gemini-3.6-flash`, whose trained box order is `[ymin, xmin, ymax, xmax]`; the prompt's positional `[x0, y0, x1, y1]` invited the mix. | The prompt now asks for named edges, `{"left", "top", "right", "bottom"}` (lists are still read). A pair that is its own transpose (`transposed_pair`) is dropped as `invalid_location` and asked again, since which half is right cannot be known. Replaying all 498 real first-look replies through the new parser catches exactly these three bad locations and reads the other 17 issues unchanged. |
 | Two dimension candidates were rejected as "9–10 ft apart". A dimension string sits on its dimension line, which two disciplines draw at different distances outside the plan. | `boxes_apart` no longer judges a dimension claim (`is_dimension_claim`). |
 | A finding about the segments 2–2.3 and 3.5–3.7 was rejected because the overall 2–3.7 agreed. | `grid_spacing_agrees` rejects only when EVERY pair the wording names (`named_pairs`, including dash segments) is measured on both sheets and agrees. |
+
+The grid-dimension finding (A3.34 against A3.13) is still rejected under the stricter rule, and on
+the measured grids that is right: each pair it names — 2–3.7, 3.7–3.5 and 2.3–2 — is drawn the same
+distance apart on both sheets, so the printed 6'-1" and 10'-1" measure to something else (the 6'-1"
+was measured ending 2 1/2" past grid 3.5 on the first run). Worth one human look: if A3.34's 10'-1"
+really does run grid to grid, its TEXT disagrees with its own drawing, which no rule here checks.
+C-26 ("round column, square cap") went to the close look four times, against S2.102, S2.302 and
+S2.402, and was rejected each time — the prompt already names that shape; the first look at
+`minimal` thinking ignored it. Correct, but four paid calls.
 
 Not fixed, and not a code defect: the one kept C-10.S finding looks like a misreading
 (the structural close-up prints a 7½" offset the verdict says is not there). A model's

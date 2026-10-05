@@ -54,7 +54,7 @@ KINDS = ("conflict", "missing")
 CALL_CONCURRENCY = int(os.environ.get("FULL_SCAN_CALL_CONCURRENCY", "4"))
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256, so two runs can be compared exactly.
-PROMPT_VERSION = "fullscan-2026-10-06"
+PROMPT_VERSION = "fullscan-2026-10-06.2"
 BATCH_WAVE = int(os.environ.get("FULL_SCAN_BATCH_WAVE", "40"))
 DISCOVERY_TOKENS = 1500
 VERIFY_TOKENS = 1500
@@ -167,8 +167,9 @@ def discovery_system() -> str:
         "checked is a gap nobody knows about.\n"
         "Each issue: checkId (the closest of these questions):\n" + _CHECK_LIST + "\n"
         "kind (conflict | missing), element (what it is, with its mark if printed), whatA and whatB (what each "
-        "image shows there, in a few words), boxA and boxB ([x0, y0, x1, y1] as fractions 0-1 of each image, "
-        "around the element — all four numbers fractions, never pixels or thousandths), confidence (high | medium | low). Name an identifier only if it is in the words.\n"
+        "image shows there, in a few words), boxA and boxB (each an object {\"left\": .., \"top\": .., "
+        "\"right\": .., \"bottom\": ..} — the box around the element as fractions 0-1 of its own image, left "
+        "and right measured across, top and bottom measured down; never pixels or thousandths), confidence (high | medium | low). Name an identifier only if it is in the words.\n"
         'Respond with ONLY JSON: {"status": "agree" | "issues" | "unclear" | "misaligned", "note": "...", '
         '"issues": [ ... ]} — at most four issues; "issues" is [] unless status is "issues".'
     )
@@ -214,6 +215,14 @@ def read_box(value) -> tuple[list[float] | None, str | None]:
     mark it had never been shown. In thousandths a value at or below 1 can
     only be 0 or 1; anything between is a fraction sitting among
     thousandths."""
+    if isinstance(value, dict):
+        # The asked-for shape: named edges, so the ORDER cannot be mixed up.
+        # Gemini's trained habit is [ymin, xmin, ymax, xmax]; a positional
+        # list invited it, and a real scan got one box of a pair each way.
+        keys = ("left", "top", "right", "bottom") if "left" in value else ("x0", "y0", "x1", "y1")
+        if not all(k in value for k in keys):
+            return None, "the box object does not name all four edges"
+        value = [value[k] for k in keys]
     if not isinstance(value, (list, tuple)) or len(value) != 4:
         return None, "the box is not four numbers"
     try:
@@ -236,6 +245,21 @@ def read_box(value) -> tuple[list[float] | None, str | None]:
 
 def _text(value, limit: int) -> str:
     return " ".join(str(value).split())[:limit] if isinstance(value, str) else ""
+
+
+def transposed_pair(a: list[float], b: list[float], tol: float = 0.03) -> bool:
+    """Whether two boxes are each other's TRANSPOSE: the same numbers with x
+    and y swapped, far enough from the diagonal for that to move them. Pure.
+
+    A real Gemini first look boxed C-1 as [0.409, 0.731, 0.434, 0.760] on
+    image A and [0.731, 0.409, 0.762, 0.434] on image B — one box, written
+    x-first once and y-first once. boxes_apart then rejected it as "38 ft
+    apart", a measurement of the model's notation rather than the drawings.
+    Which of the two is right cannot be known, so the pair is asked again."""
+    swapped = [b[1], b[0], b[3], b[2]]
+    if max(abs(x - y) for x, y in zip(a, swapped)) > tol:
+        return False
+    return max(abs(x - y) for x, y in zip(a, b)) > 4 * tol
 
 
 # What the first look may say about an area besides listing issues. "unclear"
@@ -271,6 +295,8 @@ def parse_first_look(raw: str | None) -> dict | None:
             continue
         box_a, why_a = read_box(item.get("boxA"))
         box_b, why_b = read_box(item.get("boxB"))
+        if box_a and box_b and transposed_pair(box_a, box_b):
+            box_a, why_a = None, "boxA and boxB are one box with x and y swapped, so one is written y-first"
         element = _text(item.get("element"), 160)
         what_a, what_b = _text(item.get("whatA"), 300), _text(item.get("whatB"), 300)
         check = item.get("checkId") if item.get("checkId") in CHECKS else None
@@ -662,8 +688,8 @@ def box_repair_prompt(look: dict) -> str | None:
     shown = json.dumps({"boxA": item.get("boxA"), "boxB": item.get("boxB")})
     return (
         f"Your previous answer gave a box that cannot be placed ({shown}: {bad[0]['detail']}). Answer again for "
-        "these same two images, in the same JSON shape, with every box as four fractions 0-1 of its own image — "
-        "all four numbers in that one unit."
+        "these same two images, in the same JSON shape, with every box written as "
+        '{"left": .., "top": .., "right": .., "bottom": ..} in fractions 0-1 of its own image.'
     )
 
 

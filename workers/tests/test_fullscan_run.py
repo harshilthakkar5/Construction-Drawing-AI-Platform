@@ -853,3 +853,42 @@ def test_the_summary_tells_nothing_new_from_nothing_wrong():
     assert s["areas"] == {"issues": 2, "agree": 1, "unclear": 1, "misaligned": 1, "unstated": 1,
                           "invalid_location": 1, "failed": 1, "pending": 1}
     assert (s["areasTotal"], s["pagesCompared"], s["pagesRead"]) == (9, 48, 423)
+
+
+# The same export, replayed: all 498 first-look replies were parsed again, and
+# exactly three issues had a location that could not be trusted — the mixed-unit
+# C-25 above and these two, each one box written x-first on one image and
+# y-first on the other (Gemini's trained box order is [ymin, xmin, ymax, xmax]).
+@pytest.mark.parametrize("box_a, box_b", [
+    ([409, 731, 434, 760], [731, 409, 762, 434]),  # C-1, A3.22 / S2.102: "38 ft apart"
+    ([458, 118, 488, 149], [117, 458, 150, 488]),  # C-1, A3.24 / S2.105: "40 ft apart"
+])
+def test_a_box_pair_written_two_ways_is_asked_again_not_measured(box_a, box_b):
+    look = fr.parse_first_look(json.dumps({"issues": [_issue(boxA=box_a, boxB=box_b)]}))
+    assert look["issues"] == [] and look["outcome"] == "invalid_location"
+    assert "x and y swapped" in look["dropped"][0]["detail"]
+    assert fr.box_repair_prompt(look) is not None
+
+
+def test_boxes_on_the_diagonal_are_not_called_swapped():
+    assert not fr.transposed_pair([0.40, 0.41, 0.45, 0.46], [0.41, 0.40, 0.46, 0.45])
+    assert not fr.transposed_pair([0.1, 0.2, 0.3, 0.4], [0.1, 0.2, 0.3, 0.4])
+
+
+@pytest.mark.parametrize("box", [
+    {"left": 0.1, "top": 0.2, "right": 0.3, "bottom": 0.4},
+    {"x0": 0.1, "y0": 0.2, "x1": 0.3, "y1": 0.4},
+    {"left": 100, "top": 200, "right": 300, "bottom": 400},
+])
+def test_named_edges_read_whatever_order_the_keys_come_in(box):
+    flipped = dict(reversed(list(box.items())))
+    assert fr.read_box(box) == fr.read_box(flipped) == (pytest.approx([0.1, 0.2, 0.3, 0.4]), None)
+
+
+def test_a_box_object_missing_an_edge_is_refused():
+    box, why = fr.read_box({"left": 0.1, "top": 0.2, "right": 0.3})
+    assert box is None and "four edges" in why
+
+
+def test_the_prompt_asks_for_named_edges():
+    assert '"left"' in fr.discovery_system() and '"bottom"' in fr.discovery_system()

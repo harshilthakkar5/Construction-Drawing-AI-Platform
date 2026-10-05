@@ -2638,6 +2638,11 @@ the first look now answers `agree|issues|unclear|misaligned` (tile `outcome`; no
 `unstated`, never agree) and the close look may say `unclear`. `boxes_apart` skips dimension claims
 (their strings sit on offset dimension lines), and `grid_spacing_agrees` needs EVERY pair named
 (`named_pairs`, dash segments too) measured and agreeing — an agreeing span settled its segments.
+The run was `gemini-3.6-flash`, whose trained box order is `[ymin, xmin, ymax, xmax]`: two C-1
+candidates had one box written x-first on image A and y-first on B and were rejected as "38/40 ft
+apart". Boxes are now asked for as named edges `{left, top, right, bottom}`, and a pair that is its
+own transpose (`transposed_pair`) is dropped and asked again. Replaying the export's 498 replies
+catches exactly the three bad locations and reads the other 17 issues unchanged.
 
 ## Claude prompting pattern for grounded answers
 
