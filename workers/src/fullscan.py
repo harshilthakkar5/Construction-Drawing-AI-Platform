@@ -180,11 +180,7 @@ def _plan(scan_id: str, project_id: str) -> dict:
         skipped.setdefault(f"tile beyond the first {plan_rules.MAX_TILES} (FULL_SCAN_MAX_TILES)", []).append(f"{cut} tile(s)")
     notes = []
     if not kept:
-        notes.append(
-            "No two sheets could be paired and lined up, so there is nothing for the AI to compare. "
-            "The full scan compares plans of the same level from two disciplines, or an enlarged plan with its "
-            "overall plan; the reasons each plan was left out are listed."
-        )
+        notes.append(plan_rules.no_pairs_note(skipped))
 
     with db.connect() as conn:
         conn.execute("DELETE FROM rfi_full_scan_tiles WHERE \"scanId\" = %s", (scan_id,))

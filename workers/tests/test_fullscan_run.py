@@ -892,3 +892,29 @@ def test_a_box_object_missing_an_edge_is_refused():
 
 def test_the_prompt_asks_for_named_edges():
     assert '"left"' in fr.discovery_system() and '"bottom"' in fr.discovery_system()
+
+
+def test_an_empty_provider_account_is_said_plainly():
+    """Verbatim from a real scan that stopped on Gemini's prepaid credit."""
+    raw = ("402 RESOURCE_EXHAUSTED. {'error': {'code': 402, 'message': 'Your prepayment credits are depleted. "
+           "Please go to AI Studio at https://ai.studio/projects to manage your project and billing.', "
+           "'status': 'RESOURCE_EXHAUSTED'}}")
+    msg = fr.provider_failure_message(Exception(raw))
+    assert msg.startswith("the AI provider refused the request because the account has no credit left")
+    assert "press Resume" in msg and "already checked is saved" in msg
+    claude = fr.provider_failure_message(Exception("Your credit balance is too low to access the Anthropic API."))
+    assert "no credit left" in claude
+
+
+@pytest.mark.parametrize("raw, says", [
+    ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric generate_content_requests", "rate limit or quota"),
+    ("429 RESOURCE_EXHAUSTED. You exceeded your current quota, please check your plan and billing details.",
+     "rate limit or quota"),  # mentions billing, and is still a quota
+    ("401 Unauthorized: invalid x-api-key", "rejected the API key"),
+])
+def test_other_account_errors_say_what_to_do(raw, says):
+    assert says in fr.provider_failure_message(Exception(raw))
+
+
+def test_an_ordinary_error_is_left_as_it_is():
+    assert fr.provider_failure_message(ValueError("page 12 could not be opened")) == "page 12 could not be opened"

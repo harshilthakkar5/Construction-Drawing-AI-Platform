@@ -139,6 +139,34 @@ def _why_left_out(f: PageFacts) -> str | None:
     return None
 
 
+def _why_unpaired(f: PageFacts, same_level: list[PageFacts]) -> str:
+    """Why a plan WITH a level and a scale still found no partner — said as
+    the thing to fix. One line ("no other sheet of its level") used to cover
+    three causes with three different fixes."""
+    if not f.discipline:
+        return "plan whose sheet number gave no discipline (mark the title-block region so sheet numbers are read)"
+    others = [g for g in same_level if g is not f and g.discipline and g.discipline != f.discipline]
+    if not others:
+        return "plan with no plan of another discipline on the same level"
+    return "plan with no printed scale in common with the other discipline's plan of its level"
+
+
+def no_pairs_note(skipped: dict[str, list[str]], top: int = 3) -> str:
+    """What the plan says when NOTHING could be paired: the rule, then the
+    biggest reasons with their counts, in the red box itself. Pure. The reasons
+    used to sit behind a collapsed "Left out (44)", so the box read as a dead
+    end on every set that named its floors in words the reader did not know."""
+    ranked = sorted(skipped.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:top]
+    lines = [
+        "No two sheets could be paired and lined up, so there is nothing for the AI to compare. "
+        "The full scan compares plans of the same level from two disciplines, or an enlarged plan with its "
+        "overall plan."
+    ]
+    if ranked:
+        lines.append("Most were left out because: " + "; ".join(f"{why} ({len(labels)})" for why, labels in ranked) + ".")
+    return " ".join(lines)
+
+
 def candidate_pairs(facts: list[PageFacts]) -> tuple[list[Pair], dict[str, list[str]]]:
     """(pairs to line up, {reason: [sheet labels]} for every plan left out).
 
@@ -192,9 +220,9 @@ def candidate_pairs(facts: list[PageFacts]) -> tuple[list[Pair], dict[str, list[
                 ))
                 paired |= {a.page_id, b.page_id}
 
-    lonely = [f.label for f in plans if f.page_id not in paired]
-    if lonely:
-        skipped.setdefault("plan with no other sheet of its level to compare with", []).extend(lonely)
+    for f in plans:
+        if f.page_id not in paired:
+            skipped.setdefault(_why_unpaired(f, by_level[f.level]), []).append(f.label)
     if len(pairs) > MAX_PAIRS:
         skipped.setdefault(f"pair beyond the first {MAX_PAIRS} (FULL_SCAN_MAX_PAIRS)", []).extend(
             f"{p.a.label} / {p.b.label}" for p in pairs[MAX_PAIRS:]

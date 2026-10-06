@@ -61,6 +61,23 @@ def test_classify_kind(titles, has_grid, kind):
         # A pointer is not a title.
         (["REFER TO LEVEL 5 PLAN FOR SLAB EDGE", "LEVEL 4 BUILDING PLAN"], "LEVEL 4"),
         (["FOUNDATION PLAN"], None),
+        # Floors named in words — a client set with 33 plans read only 11 levels
+        # and paired nothing, because only "LEVEL n" was understood.
+        (["FIRST FLOOR PLAN"], "LEVEL 1"),
+        (["SECOND FLOOR FRAMING PLAN"], "LEVEL 2"),
+        (["2ND FLOOR PLAN"], "LEVEL 2"),
+        (["FLOOR 3 PLAN"], "LEVEL 3"),
+        (["SECOND FLOOR PLAN", "LEVEL 2 FRAMING PLAN"], "LEVEL 2"),  # two spellings, one floor
+        (["THIRD FLOOR PLAN", "FOURTH FLOOR PLAN"], None),            # two floors on one sheet
+        # A named floor pairs only with the same name: GROUND is level 1 in the
+        # US and level 0 in the UK, so it is never turned into a number.
+        (["GROUND FLOOR PLAN"], "GROUND FLOOR"),
+        (["ROOF FRAMING PLAN"], "ROOF"),
+        (["BASEMENT 2 PLAN"], "BASEMENT 2"),
+        (["MEZZANINE PLAN"], "MEZZANINE"),
+        (["LOWER LEVEL PLAN"], "LOWER LEVEL"),
+        (["ENLARGED FLOOR PLAN"], None),
+        (["ROOF DRAIN DETAILS"], None),  # not a plan title
         (["LEVEL 14"], "LEVEL 14"),  # bare, and nothing titled
     ],
 )

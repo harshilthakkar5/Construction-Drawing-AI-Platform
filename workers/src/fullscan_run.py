@@ -197,6 +197,38 @@ def verify_system() -> str:
     )
 
 
+# --- A provider that refuses the account ------------------------------------------------
+
+_OUT_OF_CREDIT = re.compile(r"\b402\b|prepayment credits|credits are depleted|credit balance is too low", re.I)
+_QUOTA = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|rate.?limit|quota", re.I)
+_BAD_KEY = re.compile(r"\b401\b|\b403\b|API key|PERMISSION_DENIED|authentication", re.I)
+
+
+def provider_failure_message(exc: BaseException) -> str:
+    """What a person should do about a provider error that stopped the scan,
+    or the raw error when it is not one of those. Pure.
+
+    A real scan stopped on Gemini's `402 RESOURCE_EXHAUSTED ... prepayment
+    credits are depleted` and the tab showed the SDK's dict verbatim. That is
+    the provider ACCOUNT, not the scan's own budget, and nothing about the
+    drawings — and every area already looked at is saved, which the raw text
+    did not say. Credit is checked before quota because Gemini reports an
+    empty prepaid account as RESOURCE_EXHAUSTED too."""
+    raw = " ".join(str(exc).split())
+    saved = "Every area already checked is saved; fix this, then press Resume."
+    if _OUT_OF_CREDIT.search(raw):
+        return (f"the AI provider refused the request because the account has no credit left. Add credit or "
+                f"billing for that provider's API key, or plan a new scan with another provider. {saved} "
+                f"(provider said: {raw[:200]})")
+    if _QUOTA.search(raw):
+        return (f"the AI provider's rate limit or quota was reached. Wait for it to reset or raise the limit. "
+                f"{saved} (provider said: {raw[:200]})")
+    if _BAD_KEY.search(raw):
+        return (f"the AI provider rejected the API key. Check the key in the worker's environment and restart "
+                f"the worker. {saved} (provider said: {raw[:200]})")
+    return raw
+
+
 # --- Parsing --------------------------------------------------------------------------
 
 
@@ -448,7 +480,7 @@ def run(scan_id: str) -> dict:
         fs._set(scan_id, status="failed", error=str(exc)[:500], completedAt=fs._now())
         return {"failed": str(exc)}
     except Exception as exc:
-        fs._set(scan_id, status="failed", error=str(exc)[:500], completedAt=fs._now())
+        fs._set(scan_id, status="failed", error=provider_failure_message(exc)[:500], completedAt=fs._now())
         raise
     finally:
         if rec is not None:
