@@ -186,3 +186,17 @@ def test_pages_kept_out_say_why_and_what_to_do():
     rfi = fp.kept_out_note({"superseded": 4, "excludedFromRfi": 12, "notProcessed": 0}, read=80)
     assert rfi.startswith("Kept out of this scan:") and "Docs tab" in rfi and "old revisions" in rfi
     assert fp.kept_out_note({"superseded": 0, "excludedFromRfi": 0, "notProcessed": 0}, read=50) is None
+
+
+def test_an_excluded_document_is_named_with_who_switched_it_off():
+    """A 103-page drawing set was off for RFI analysis though neither its name
+    nor its first pages look like an RFI; the count alone could not say why."""
+    note = fp.kept_out_note(
+        {"superseded": 0, "excludedFromRfi": 103, "notProcessed": 0}, read=0,
+        excluded_documents=[("SET.pdf", "Excluded from RFI review by a person")],
+    )
+    assert '"SET.pdf" (Excluded from RFI review by a person)' in note
+    assert "RFI review input" in note and "plan again" in note
+    many = fp.kept_out_note({"superseded": 0, "excludedFromRfi": 9, "notProcessed": 0}, read=0,
+                            excluded_documents=[(f"{i}.pdf", None) for i in range(5)])
+    assert "and 2 more" in many and "no reason recorded" in many

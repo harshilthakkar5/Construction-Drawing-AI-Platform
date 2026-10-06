@@ -179,10 +179,13 @@ def _plan(scan_id: str, project_id: str) -> dict:
         cut = len(tiles) - plan_rules.MAX_TILES
         skipped.setdefault(f"tile beyond the first {plan_rules.MAX_TILES} (FULL_SCAN_MAX_TILES)", []).append(f"{cut} tile(s)")
     notes = []
-    kept_out = plan_rules.kept_out_note(excluded, len(facts))
+    off = sheet_facts.excluded_documents(project_id) if excluded.get("excludedFromRfi") else []
+    kept_out = plan_rules.kept_out_note(excluded, len(facts), off)
     if kept_out:
         notes.append(kept_out)
-    if not kept:
+    # With no page read, "nothing could be paired" restates the note above and
+    # reads as a second, separate problem.
+    if not kept and (facts or not kept_out):
         notes.append(plan_rules.no_pairs_note(skipped))
 
     with db.connect() as conn:

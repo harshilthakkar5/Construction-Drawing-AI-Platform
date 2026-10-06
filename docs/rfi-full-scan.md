@@ -228,7 +228,10 @@ which one to fix. The plan was most likely made right after upload, before inges
 finished. `sheet_facts.summary` now returns `excludedBy`, and
 `fullscan_plan.kept_out_note` says for each reason what to do: wait for the Docs tab to
 show "completed" and plan again, switch the document back on, or nothing (old revisions
-are meant to be left out).
+are meant to be left out). For a document switched off for RFI analysis it names the
+file and its stored reason ("by a person", "filename", "form text"), since a drawing set
+can be off without looking like an RFI. With no page read, the "nothing could be paired"
+box is not shown: it only restated the first one.
 
 With the pages read, the set still paired nothing. There were two reading bugs:
 
