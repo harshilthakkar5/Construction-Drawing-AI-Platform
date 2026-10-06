@@ -2649,6 +2649,17 @@ named floors (ground, basement n, mezzanine, roof) read as their name and pair o
 name, since GROUND is level 1 in the US and 0 in the UK (`FACTS_VERSION` 3). The no-pairs note names
 the top reasons with counts, and an unpaired plan says whether it lacked a discipline, a partner
 discipline on its level, or a common scale.
+The same set's first plan said "Read 0 pages … 103 kept out": `live_pages` drops old revisions,
+documents switched off for RFI analysis AND documents still processing, and the note did not say
+which. `summary().excludedBy` + `fullscan_plan.kept_out_note` now say which and what to do. Two
+reading bugs hid the rest. `title_lines` took a big detail number or logo letter as the title
+size, so no title counted; text under `REFERENCE_MIN_CHARS` no longer sets it. The bubbles were
+rings of ~24 short straight segments, not curves; `grid.ring_around` reads them (equal pieces,
+one radius, ≥10 of 12 sectors, empty inside; used only when a page has no curve bubbles)
+(`FACTS_VERSION` 4, `GRID_CACHE_VERSION` 6). That gives 15 pairs, and none lines up: the E and G
+plans draw no grid (the frame's 1–12/A–K are zone markers) and P1.04 shows 3 lines, under
+`MIN_MATCHED`. Line-up WITHOUT a grid is not built. Ink matching and room-number anchors both gave
+wrong positions on this set, and a wrong alignment is a confident false finding.
 
 ## Claude prompting pattern for grounded answers
 

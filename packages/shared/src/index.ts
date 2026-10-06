@@ -1622,6 +1622,10 @@ export interface RfiFullScanCatalogueDto {
   withGrid: number;
   /** Pages kept out: superseded, excluded from RFI analysis, not processed. */
   excluded: number;
+  /** The same pages by reason (absent on plans made before it existed). A
+   * scan that read 0 pages has to say WHICH: "still processing" means wait,
+   * "excluded from RFI analysis" means switch it back on in the Docs tab. */
+  excludedBy?: { superseded: number; excludedFromRfi: number; notProcessed: number };
 }
 
 /** Tokens are the worker's count; the dollar range is the API's price for

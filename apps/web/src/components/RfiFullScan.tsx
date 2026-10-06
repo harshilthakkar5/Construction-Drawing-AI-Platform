@@ -56,6 +56,19 @@ function newKey(): string {
 
 const money = (usd: number) => (usd < 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(usd < 100 ? 2 : 0)}`);
 const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+/** Why pages were kept out, by reason, in the words of the fix. */
+function keptOut(c: NonNullable<RfiFullScanDto["catalogue"]>): string {
+  const by = c.excludedBy;
+  if (!by) return "old revisions, RFIs, unprocessed";
+  return [
+    by.notProcessed ? `${by.notProcessed} still processing` : "",
+    by.excludedFromRfi ? `${by.excludedFromRfi} excluded from RFI analysis in the Docs tab` : "",
+    by.superseded ? `${by.superseded} old revisions` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 const sheetName = (s: RfiFullScanDto["pairs"][number]["a"]) => s.sheetNumber ?? `page ${s.combinedPageNumber ?? s.pageNumber}`;
 
 export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFinished: () => void }) {
@@ -203,7 +216,7 @@ function Planned({
             .join(", ")}
           . {scan.catalogue.withLevel} with a level, {scan.catalogue.withScale} with a printed scale,{" "}
           {scan.catalogue.withGrid} with a grid
-          {scan.catalogue.excluded ? `; ${scan.catalogue.excluded} kept out (old revisions, RFIs, unprocessed)` : ""}.
+          {scan.catalogue.excluded ? `; ${scan.catalogue.excluded} kept out (${keptOut(scan.catalogue)})` : ""}.
         </p>
       )}
 

@@ -219,6 +219,52 @@ one sheet). "Full scan" means every PAIR the planner could line up, not every pa
 
 These are stub-model tests (`test_fullscan_run.py`); no real replay has measured them.
 
+### A 103-page set that read nothing, then paired nothing (JETRIGHT, 6 Oct 2026)
+
+The first plan said "Read 0 pages … 103 kept out". `live_pages` keeps out three kinds
+of page — an old revision, a document switched off for RFI analysis, and a document
+still processing — and the note lumped them together, so the person could not tell
+which one to fix. The plan was most likely made right after upload, before ingest had
+finished. `sheet_facts.summary` now returns `excludedBy`, and
+`fullscan_plan.kept_out_note` says for each reason what to do: wait for the Docs tab to
+show "completed" and plan again, switch the document back on, or nothing (old revisions
+are meant to be left out).
+
+With the pages read, the set still paired nothing. There were two reading bugs:
+
+- **Titles.** `title_lines` takes the second-largest text size on the sheet as the
+  title size. On these sheets that size was a big detail number or a logo letter, so
+  the real drawing titles ("LEVEL 1 FLOOR PLAN") were too small to count, and no level
+  was read. Text shorter than `REFERENCE_MIN_CHARS` (4) no longer sets the reference
+  size.
+- **Grid bubbles.** These sheets draw each bubble as a ring of about 24 short straight
+  segments (about 3.5 pt each, radius about 13 pt) over a white mask, not as a curve,
+  so `styled_systems` found no grid. `grid.ring_around` accepts a ring only when the
+  pieces are equal in length, sit on one radius around the label, cover at least 10 of
+  12 thirty-degree sectors and leave the inside empty. Electrical fixture clutter
+  failed every earlier, looser version of this test. Rings are used only on a page
+  with no curve bubbles. `FACTS_VERSION` is now 4 and `GRID_CACHE_VERSION` 6, so every
+  page is re-read.
+
+After these fixes the set gives 15 candidate pairs instead of 0, and none of them lines
+up. That is a limit of this set, not a bug:
+
+- The electrical (E) and life-safety (G) plans draw no grid at all. The 1–12 and A–K
+  around their frame are zone markers.
+- The roof plumbing plan P1.04 shows only 3 grid lines on one axis, and `rfi_grid.align`
+  needs 4 (`MIN_MATCHED`).
+
+Lining up two plans WITHOUT a grid was tried and NOT built. Matching drawn ink put
+"OFFICE 104" in different places on the two sheets. Room numbers as anchors agreed in
+only 1–2 of 9 votes. A wrong alignment produces a confident false finding, so these
+pairs stay "could not be lined up" until a method is measured to be right.
+
+Other pages left out of this set, with the reason shown in the plan: 28 plans with no
+level in their title (mostly civil), 3 sheets with several views, M1.02 "GROUND FLOOR"
+(the mechanical and plumbing sheets say GROUND and the architectural and electrical
+sheets say LEVEL 1; these are deliberately not treated as the same floor), and A5.31,
+which shares no printed scale with any other sheet.
+
 ### When the provider refuses the account
 
 A scan that stops on the provider's side — Gemini's `402 RESOURCE_EXHAUSTED … prepayment credits are

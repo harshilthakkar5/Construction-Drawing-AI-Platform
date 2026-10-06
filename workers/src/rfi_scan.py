@@ -74,7 +74,7 @@ GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # scales (an enlarged detail and an overall plan) are never compared.
 # 5: a bubble on a kinked leader is placed on the line its leader runs to,
 # not where it is printed (grid.leader_target).
-GRID_CACHE_VERSION = 5
+GRID_CACHE_VERSION = 6  # 6: grid bubbles drawn as rings of short segments
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from

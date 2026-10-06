@@ -29,6 +29,7 @@ the circle does it reliably.
 
 from __future__ import annotations
 
+import math
 import re
 
 import fitz
@@ -363,6 +364,106 @@ def _on_line(shown: fitz.Rect, x: float, y: float, segments) -> tuple[float, flo
     return (x if lx is None else lx), (y if ly is None else ly)
 
 
+# A bubble drawn as a RING OF SHORT STRAIGHT PIECES rather than a curve. A
+# client set (a hangar, 103 sheets) draws every grid bubble as 24 separate
+# 3.5pt line segments about 13pt from the label, over a white square mask —
+# no "c" item anywhere — so styled_systems found a grid on 6 of 103 sheets and
+# the full scan could line up nothing. A ring is recognised only around ONE
+# grid label, at one radius within RING_RADIUS_TOL, covering at least
+# RING_MIN_BINS of 12 angular sectors: a hatch or a dimension tick does not
+# surround a lone letter evenly.
+RING_SEGMENT_MAX_PT = 8.0
+RING_MIN_SEGMENTS = 12
+RING_MIN_BINS = 10
+RING_RADIUS_TOL = 2.5
+
+
+def _short_segments(page: fitz.Page) -> list[tuple[float, float, str, float]]:
+    """(mid x, mid y, colour, length) of every short straight piece on the
+    page, in unrotated space — what a ring bubble is made of."""
+    out = []
+    for drawing in page.get_cdrawings():
+        colour = _colour_name(drawing.get("color") or drawing.get("fill"))
+        for item in drawing["items"]:
+            if item[0] != "l":
+                continue
+            (ax, ay), (bx, by) = item[1], item[2]
+            length = math.hypot(bx - ax, by - ay)
+            if 0.3 < length < RING_SEGMENT_MAX_PT:
+                out.append(((ax + bx) / 2, (ay + by) / 2, colour, length))
+    return out
+
+
+def ring_around(cx: float, cy: float, mids: list[tuple]) -> tuple[float, float, float, str] | None:
+    """(centre x, centre y, radius, colour) of a ring of short pieces around
+    a label at (cx, cy), or None. Pure: `mids` are (x, y, colour, length).
+
+    A ring is a drawn bubble only when it is CLEAN: one radius (every piece
+    within RING_RADIUS_TOL of it, measured from the ring's own centre), pieces
+    of one length, the label at its centre, and nothing drawn inside it. The
+    first version asked only for pieces at one distance all the way round, and
+    on an electrical plan the light fixtures, switches and wiring around room
+    tags passed at radii of 1 to 20pt."""
+    near = sorted(
+        (math.hypot(m[0] - cx, m[1] - cy), m) for m in mids
+        if STYLED_MIN_PT / 2 <= math.hypot(m[0] - cx, m[1] - cy) <= STYLED_MAX_PT / 2
+    )
+    best = None
+    for i in range(len(near)):
+        group = [m for d, m in near[i:] if d - near[i][0] <= 2 * RING_RADIUS_TOL]
+        if len(group) < RING_MIN_SEGMENTS:
+            continue
+        ox = sum(m[0] for m in group) / len(group)
+        oy = sum(m[1] for m in group) / len(group)
+        dists = [math.hypot(m[0] - ox, m[1] - oy) for m in group]
+        radius = sum(dists) / len(dists)
+        if not STYLED_MIN_PT / 2 <= radius <= STYLED_MAX_PT / 2:
+            continue
+        if max(abs(d - radius) for d in dists) > RING_RADIUS_TOL:
+            continue
+        if math.hypot(ox - cx, oy - cy) > max(3.0, 0.4 * radius):
+            continue
+        lengths = [m[3] for m in group]
+        if max(lengths) > 1.6 * min(lengths):
+            continue
+        bins = {int(((math.degrees(math.atan2(m[1] - oy, m[0] - ox)) + 360) % 360) // 30) for m in group}
+        if len(bins) < RING_MIN_BINS:
+            continue
+        if sum(1 for m in mids if math.hypot(m[0] - ox, m[1] - oy) < 0.6 * radius) > 2:
+            continue  # a bubble is empty inside but for its label, which is text
+        if best is None or len(group) > best[0]:
+            colours = [m[2] for m in group]
+            best = (len(group), ox, oy, radius, max(set(colours), key=colours.count))
+    return None if best is None else best[1:]
+
+
+def _ring_bubbles(page: fitz.Page, words) -> list[tuple[str, fitz.Rect, str]]:
+    """(label, unrotated rect, colour) for each grid label inside a segment ring."""
+    labels = [w for w in words if STYLED_LABEL.fullmatch(w[4])]
+    if not labels:
+        return []
+    cell = STYLED_MAX_PT
+    buckets: dict[tuple[int, int], list] = {}
+    for mid in _short_segments(page):
+        buckets.setdefault((int(mid[0] // cell), int(mid[1] // cell)), []).append(mid)
+    if not buckets:
+        return []
+    out = []
+    for w in labels:
+        cx, cy = (w[0] + w[2]) / 2, (w[1] + w[3]) / 2
+        gx, gy = int(cx // cell), int(cy // cell)
+        mids = [m for dx in (-1, 0, 1) for dy in (-1, 0, 1) for m in buckets.get((gx + dx, gy + dy), ())]
+        ring = ring_around(cx, cy, mids)
+        if ring is None:
+            continue
+        ox, oy, r, colour = ring
+        rect = fitz.Rect(ox - r, oy - r, ox + r, oy + r)
+        inside = [v for v in words if rect.x0 <= (v[0] + v[2]) / 2 <= rect.x1 and rect.y0 <= (v[1] + v[3]) / 2 <= rect.y1]
+        if len(inside) == 1:
+            out.append((w[4], rect, colour))
+    return out
+
+
 def styled_systems(page: fitz.Page) -> list[dict]:
     """Every grid on the page, one per bubble STYLE, in display coordinates.
 
@@ -397,6 +498,11 @@ def styled_systems(page: fitz.Page) -> list[dict]:
         colour = _colour_name(drawing.get("color") or drawing.get("fill"))
         shown = rect * to_display
         by_colour.setdefault(colour, []).append((inside[0], *centre(shown), shown, rect.width))
+    if not any(by_colour.values()):
+        # Only when no curve bubble exists: a set draws its bubbles one way.
+        for label, rect, colour in _ring_bubbles(page, words):
+            shown = rect * to_display
+            by_colour.setdefault(colour, []).append((label, *centre(shown), shown, rect.width))
 
     # A crowded grid end pushes its bubbles sideways on a kinked LEADER, so the
     # bubble no longer sits on its line. Read at the bubble, S2.106's G.9 and H

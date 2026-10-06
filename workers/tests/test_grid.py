@@ -243,3 +243,64 @@ class TestOneLineTwoNames:
 
     def test_a_grid_with_no_shared_line_is_untouched(self):
         assert grid.one_name_per_crossing(self.PAIRS, [], self.CENTRES) == self.PAIRS
+
+
+# --- bubbles drawn as rings of short straight pieces -------------------------------------
+
+import math as _math  # noqa: E402
+
+import fitz as _fitz  # noqa: E402
+
+
+def _ring(page, cx, cy, r=13.5, pieces=24, length=3.5):
+    """A bubble the way a client's hangar set draws it: separate short
+    straight segments around the label, no curve anywhere."""
+    for i in range(pieces):
+        a = 2 * _math.pi * i / pieces
+        mx, my = cx + r * _math.cos(a), cy + r * _math.sin(a)
+        dx, dy = -_math.sin(a) * length / 2, _math.cos(a) * length / 2
+        page.draw_line((mx - dx, my - dy), (mx + dx, my + dy), color=(0.67, 0.67, 0.67), width=0.36)
+
+
+def _label(page, text, cx, cy, size=9):
+    w = _fitz.get_text_length(text, fontsize=size)
+    page.insert_text((cx - w / 2, cy + size * 0.35), text, fontsize=size)
+
+
+def test_segment_ring_bubbles_are_read_as_a_grid():
+    doc = _fitz.open()
+    page = doc.new_page(width=1600, height=1000)
+    xs = {"A": 300, "B": 600, "C": 900, "D": 1200}
+    ys = {"1": 250, "2": 500, "3": 750}
+    for label, x in xs.items():
+        for y in (80, 920):  # bubbled at both ends
+            _ring(page, x, y)
+            _label(page, label, x, y)
+        page.draw_line((x, 95), (x, 905), color=(0.67, 0.67, 0.67), width=0.36)
+    for label, y in ys.items():
+        for x in (80, 1520):
+            _ring(page, x, y)
+            _label(page, label, x, y)
+        page.draw_line((95, y), (1505, y), color=(0.67, 0.67, 0.67), width=0.36)
+    columns, rows = grid.page_grid(page)
+    assert {k: round(v) for k, v in columns.items()} == xs
+    assert {k: round(v) for k, v in rows.items()} == {k: v for k, v in ys.items()}
+
+
+def test_clutter_around_a_letter_is_not_a_ring():
+    """Fixture symbols and wiring around a room tag on an electrical plan:
+    pieces at one distance from the letter but of mixed lengths, with more
+    drawn inside the circle. The first version of the ring reader passed
+    these at radii of 1 to 20pt."""
+    cx, cy = 500.0, 500.0
+    mids = []
+    for i in range(24):
+        a = 2 * _math.pi * i / 24
+        mids.append((cx + 13 * _math.cos(a), cy + 13 * _math.sin(a), "grey", 3.5 if i % 2 else 7.5))
+    assert grid.ring_around(cx, cy, mids) is None  # pieces of two lengths
+    clean = [(x, y, c, 3.5) for x, y, c, _ in mids]
+    assert grid.ring_around(cx, cy, clean) is not None
+    busy = clean + [(cx + 2, cy + 3, "grey", 3.5), (cx - 3, cy, "grey", 3.5), (cx, cy - 4, "grey", 3.5)]
+    assert grid.ring_around(cx, cy, busy) is None  # something drawn inside
+    off_centre = [(x + 9, y, c, l) for x, y, c, l in clean]
+    assert grid.ring_around(cx, cy, off_centre) is None  # the letter is not in the middle
