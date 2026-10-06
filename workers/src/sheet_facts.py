@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("worker.sheet_facts")
 
-FACTS_VERSION = 3  # 2: grid positions follow kinked leaders; 3: floors named as words (FIRST FLOOR, ROOF)
+FACTS_VERSION = 4  # 2: kinked leaders; 3: floors named as words; 4: short labels never set the title size, bubbles drawn as segment rings
 
 # Mirrors SHEET_KINDS in @cdip/shared; test_sheet_facts reads the TypeScript.
 SHEET_KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", "notes", "cover", "other")
@@ -38,6 +38,7 @@ PLAN_KINDS = ("plan", "enlarged_plan")
 # the reference (the largest is often a logo or the sheet number alone).
 TITLE_SIZE_SHARE = 0.55
 TITLE_MAX_CHARS = 70
+REFERENCE_MIN_CHARS = 4
 # A label bubbled at two places this far apart along its own axis is two
 # views on one sheet, not one grid (the same rule as rfi_grid.REPEAT_PT).
 REPEAT_PT = 60.0
@@ -163,7 +164,15 @@ def title_lines(sized_lines: list[tuple[float, str]], extra: list[str] = ()) -> 
     """The lines big enough to be titles: TITLE_SIZE_SHARE of the second
     largest size on the page. `extra` is the title-block region the user
     marked, which carries the sheet title on most sets."""
-    sizes = sorted({round(size, 1) for size, text in sized_lines if text.strip()}, reverse=True)
+    # The reference ignores text of under REFERENCE_MIN_CHARS: a detail
+    # number in its bubble ("01", 51.6pt on a client's A1.01) or a logo
+    # ("GMC") is huge and says nothing about how big a title is printed, and it
+    # set the bar above "FLOOR PLAN - LEVEL 1 OVERALL" at 25.5pt — so every
+    # architectural plan of that set read as "other" and nothing paired.
+    sizes = sorted(
+        {round(size, 1) for size, text in sized_lines if len(text.replace(" ", "")) >= REFERENCE_MIN_CHARS},
+        reverse=True,
+    ) or sorted({round(size, 1) for size, text in sized_lines if text.strip()}, reverse=True)
     if not sizes:
         return list(extra)
     reference = sizes[1] if len(sizes) > 1 else sizes[0]
@@ -394,4 +403,5 @@ def summary(facts: list[PageFacts], excluded: dict[str, int]) -> dict:
         "withScale": sum(1 for f in facts if f.scales),
         "withGrid": sum(1 for f in facts if f.has_grid()),
         "excluded": sum(excluded.values()),
+        "excludedBy": dict(excluded),
     }

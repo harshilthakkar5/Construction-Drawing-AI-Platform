@@ -93,6 +93,19 @@ def test_title_lines_are_the_big_text_relative_to_the_sheet():
     assert "S2.105 FORMING PLAN" in titles  # the user's title-block region counts too
 
 
+def test_a_detail_number_or_logo_never_sets_the_title_size():
+    """A client's A1.01, sizes as measured: the sheet number at 64.5, the
+    detail number "01" in its bubble at 51.6, and the drawing title at 25.5.
+    With "01" as the reference, 55% of it (28.4) left the title out, and every
+    architectural plan of the set read as "other"."""
+    lines = [(64.5, "A1.01"), (51.6, "01"), (25.5, "FLOOR PLAN - LEVEL 1 OVERALL"),
+             (19.5, "HANGAR 15"), (9.0, "GENERAL NOTE TEXT")]
+    titles = sf.title_lines(lines)
+    assert "FLOOR PLAN - LEVEL 1 OVERALL" in titles
+    assert sf.classify_kind(titles, has_grid=False) == "plan"
+    assert sf.title_level(titles) == "LEVEL 1"
+
+
 def test_a_label_bubbled_twice_far_apart_is_several_views():
     one = {"A": [(100.0, 50.0), (101.0, 1600.0)]}  # both ends of one line
     two = {"A": [(100.0, 50.0), (900.0, 50.0)]}  # two details side by side

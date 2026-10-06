@@ -175,3 +175,14 @@ def test_the_estimate_counts_two_images_per_tile_and_a_range_of_close_looks():
     assert est["calls"] == 20 and est["images"] == 40
     assert est["verifyCalls"]["low"] <= est["verifyCalls"]["high"]
     assert est["inputTokens"] == 20 * (2 * fp.IMAGE_TOKENS + fp.SYSTEM_TOKENS + fp.WORDS_TOKENS)
+
+
+def test_pages_kept_out_say_why_and_what_to_do():
+    """A new project planned its scan while its document was still processing:
+    "Read 0 pages … 103 kept out (old revisions, RFIs, unprocessed)"."""
+    note = fp.kept_out_note({"superseded": 0, "excludedFromRfi": 0, "notProcessed": 103}, read=0)
+    assert note.startswith("No page could be read: 103 page(s) belong to a document still processing")
+    assert "plan again" in note
+    rfi = fp.kept_out_note({"superseded": 4, "excludedFromRfi": 12, "notProcessed": 0}, read=80)
+    assert rfi.startswith("Kept out of this scan:") and "Docs tab" in rfi and "old revisions" in rfi
+    assert fp.kept_out_note({"superseded": 0, "excludedFromRfi": 0, "notProcessed": 0}, read=50) is None

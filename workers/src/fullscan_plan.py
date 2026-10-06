@@ -151,6 +151,27 @@ def _why_unpaired(f: PageFacts, same_level: list[PageFacts]) -> str:
     return "plan with no printed scale in common with the other discipline's plan of its level"
 
 
+def kept_out_note(excluded: dict[str, int], read: int) -> str | None:
+    """What to do when pages were kept out of the scan, by reason, or None.
+    Pure. A new project planned its scan while its one document was still
+    processing, and the screen said "Read 0 pages … 103 kept out (old
+    revisions, RFIs, unprocessed)" — three causes with three different fixes,
+    and nothing to say which."""
+    parts = []
+    if excluded.get("notProcessed"):
+        parts.append(f"{excluded['notProcessed']} page(s) belong to a document still processing — wait until the "
+                     "Docs tab shows it completed, then close this plan and plan again")
+    if excluded.get("excludedFromRfi"):
+        parts.append(f"{excluded['excludedFromRfi']} page(s) belong to a document excluded from RFI analysis — "
+                     "if it is a drawing set rather than an issued RFI, switch it back on in the Docs tab")
+    if excluded.get("superseded"):
+        parts.append(f"{excluded['superseded']} page(s) are old revisions replaced by a newer upload (correct to leave out)")
+    if not parts:
+        return None
+    lead = "No page could be read: " if read == 0 else "Kept out of this scan: "
+    return lead + "; ".join(parts) + "."
+
+
 def no_pairs_note(skipped: dict[str, list[str]], top: int = 3) -> str:
     """What the plan says when NOTHING could be paired: the rule, then the
     biggest reasons with their counts, in the red box itself. Pure. The reasons
