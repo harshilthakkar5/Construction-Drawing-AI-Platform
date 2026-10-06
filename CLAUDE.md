@@ -2656,10 +2656,15 @@ reading bugs hid the rest. `title_lines` took a big detail number or logo letter
 size, so no title counted; text under `REFERENCE_MIN_CHARS` no longer sets it. The bubbles were
 rings of ~24 short straight segments, not curves; `grid.ring_around` reads them (equal pieces,
 one radius, ≥10 of 12 sectors, empty inside; used only when a page has no curve bubbles)
-(`FACTS_VERSION` 4, `GRID_CACHE_VERSION` 6). That gives 15 pairs, and none lines up: the E and G
-plans draw no grid (the frame's 1–12/A–K are zone markers) and P1.04 shows 3 lines, under
-`MIN_MATCHED`. Line-up WITHOUT a grid is not built. Ink matching and room-number anchors both gave
-wrong positions on this set, and a wrong alignment is a confident false finding.
+(`FACTS_VERSION` 4, `GRID_CACHE_VERSION` 6). That gave 15 pairs, and none lined up: the E and G plans draw no grid (the frame's 1–12/A–K
+are zone markers). `wall_match.py` now lines such a pair up by the walls both sheets draw — an
+engineer's plan copies the architect's floor plan exactly, so equal-length horizontal/vertical
+lines vote for one shift, accepted at ≥60 lines within 0.6pt, ≥15% of the smaller sheet, 4× the
+best OTHER shift (the shared title block is 29 lines at zero shift). Measured: 12 of 13 real pairs
+lined up (670–965 lines, next best 31–148), 7 of 7 wrong pairs refused; the plan went from 0 pairs
+to 18. Ink matching and room-label anchors were tried first and gave WRONG shifts — room labels
+move between disciplines, walls do not. The several-views rule now needs a real grid: stray
+bubbles left E4.01 out.
 
 ## Claude prompting pattern for grounded answers
 

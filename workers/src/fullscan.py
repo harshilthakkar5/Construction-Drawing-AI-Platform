@@ -234,13 +234,17 @@ def _plan(scan_id: str, project_id: str) -> dict:
 
 def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]):
     """Each candidate pair with its tiles, or into `skipped` with the reason.
-    Same-level pairs line up from the cached grid positions; an enlarged pair
-    needs both sheets' geometry (the columns they draw), read from the PDFs."""
+    Same-level pairs line up from the cached grid positions; one that cannot
+    (no grid, as on most electrical and life-safety plans) is lined up by the
+    walls both sheets draw instead (wall_match), read from the PDFs. An
+    enlarged pair needs both sheets' geometry (the columns they draw)."""
     import plan_match
+    import wall_match
     from rfi_review import _documents
 
     kept = []
     enlarged = [p for p in pairs if p.kind == "enlarged"]
+    by_walls = []
     for pair in pairs:
         if pair.kind != "same_level":
             continue
@@ -249,27 +253,50 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
             pair.windows = windows
             kept.append(pair)
         else:
-            skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
-    if enlarged:
-        docs = sorted({p.a.document_id for p in enlarged} | {p.b.document_id for p in enlarged})
-        geometry: dict[tuple[str, int], object] = {}
-        with _documents(project_id, docs) as open_page:
-            for i, pair in enumerate(enlarged):
-                _check_cancel(scan_id)
-                for f in (pair.a, pair.b):
-                    key = (f.document_id, f.page_number)
-                    if key not in geometry:
-                        page = open_page(f.document_id, f.page_number)
-                        geometry[key] = plan_match.SheetGeometry.read(page) if page is not None else None
-                ga, gb = geometry[(pair.a.document_id, pair.a.page_number)], geometry[(pair.b.document_id, pair.b.page_number)]
-                alignments = plan_match.align_sheets(ga, gb) if ga is not None and gb is not None else []
-                windows, why = plan_rules.enlarged_windows(pair, alignments, detail_boxes(ga, alignments))
-                if windows:
-                    pair.windows = windows
-                    kept.append(pair)
-                else:
-                    skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
-                _set(scan_id, progress=62 + int(35 * (i + 1) / len(enlarged)))
+            by_walls.append((pair, why))
+    if not enlarged and not by_walls:
+        return kept
+    docs = sorted({f.document_id for p in enlarged for f in (p.a, p.b)} | {f.document_id for p, _ in by_walls for f in (p.a, p.b)})
+    geometry: dict[tuple[str, int], object] = {}
+    walls: dict[tuple[str, int], object] = {}
+    work = len(by_walls) + len(enlarged)
+    with _documents(project_id, docs) as open_page:
+        for i, (pair, grid_why) in enumerate(by_walls):
+            _check_cancel(scan_id)
+            for f in (pair.a, pair.b):
+                key = (f.document_id, f.page_number)
+                if key not in walls:
+                    page = open_page(f.document_id, f.page_number)
+                    walls[key] = wall_match.read_walls(page) if page is not None else None
+            wa, wb = walls[(pair.a.document_id, pair.a.page_number)], walls[(pair.b.document_id, pair.b.page_number)]
+            shift = wall_match.align(wa, wb) if wa is not None and wb is not None else None
+            windows, why = plan_rules.wall_windows(pair, shift)
+            if windows:
+                pair.windows = windows
+                kept.append(pair)
+                log.info("full scan %s: %s / %s lined up by walls (%d match, next best %d)",
+                         scan_id[:8], pair.a.label, pair.b.label, shift.matched, shift.runner_up)
+            else:
+                skipped.setdefault(f"pair not compared: {grid_why}, and the walls do not line up either", []).append(
+                    f"{pair.a.label} / {pair.b.label}"
+                )
+            _set(scan_id, progress=62 + int(35 * (i + 1) / work))
+        for i, pair in enumerate(enlarged):
+            _check_cancel(scan_id)
+            for f in (pair.a, pair.b):
+                key = (f.document_id, f.page_number)
+                if key not in geometry:
+                    page = open_page(f.document_id, f.page_number)
+                    geometry[key] = plan_match.SheetGeometry.read(page) if page is not None else None
+            ga, gb = geometry[(pair.a.document_id, pair.a.page_number)], geometry[(pair.b.document_id, pair.b.page_number)]
+            alignments = plan_match.align_sheets(ga, gb) if ga is not None and gb is not None else []
+            windows, why = plan_rules.enlarged_windows(pair, alignments, detail_boxes(ga, alignments))
+            if windows:
+                pair.windows = windows
+                kept.append(pair)
+            else:
+                skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
+            _set(scan_id, progress=62 + int(35 * (len(by_walls) + i + 1) / work))
     return kept
 
 
