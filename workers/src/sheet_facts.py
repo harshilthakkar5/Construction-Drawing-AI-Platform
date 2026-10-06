@@ -324,6 +324,23 @@ def live_pages(project_id: str) -> tuple[list[dict], dict[str, int]]:
     return live, excluded
 
 
+def excluded_documents(project_id: str) -> list[tuple[str, str | None]]:
+    """(filename, stored reason) for each live document kept out of RFI
+    analysis, so the plan can say WHICH document and who switched it off."""
+    import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT filename, "rfiExclusionReason" FROM documents
+             WHERE "projectId" = %s AND "supersededAt" IS NULL AND NOT "includeInRfiAnalysis"
+             ORDER BY "createdAt", id
+            """,
+            (project_id,),
+        ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
 def _facts(row: dict) -> PageFacts:
     def parsed(value):
         return json.loads(value) if isinstance(value, str) else value

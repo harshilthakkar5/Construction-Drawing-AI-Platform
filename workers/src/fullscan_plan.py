@@ -151,19 +151,29 @@ def _why_unpaired(f: PageFacts, same_level: list[PageFacts]) -> str:
     return "plan with no printed scale in common with the other discipline's plan of its level"
 
 
-def kept_out_note(excluded: dict[str, int], read: int) -> str | None:
+def kept_out_note(excluded: dict[str, int], read: int,
+                  excluded_documents: list[tuple[str, str | None]] = ()) -> str | None:
     """What to do when pages were kept out of the scan, by reason, or None.
     Pure. A new project planned its scan while its one document was still
     processing, and the screen said "Read 0 pages … 103 kept out (old
     revisions, RFIs, unprocessed)" — three causes with three different fixes,
-    and nothing to say which."""
+    and nothing to say which.
+
+    `excluded_documents` is (filename, stored reason) for each document kept
+    out of RFI analysis. The count alone sent the next person hunting: a drawing
+    set whose name and first pages do not look like an RFI was off, and only its
+    stored reason ("by a person", "filename", "form text") says who switched it."""
     parts = []
     if excluded.get("notProcessed"):
         parts.append(f"{excluded['notProcessed']} page(s) belong to a document still processing — wait until the "
                      "Docs tab shows it completed, then close this plan and plan again")
     if excluded.get("excludedFromRfi"):
-        parts.append(f"{excluded['excludedFromRfi']} page(s) belong to a document excluded from RFI analysis — "
-                     "if it is a drawing set rather than an issued RFI, switch it back on in the Docs tab")
+        named = "; ".join(f'"{name}" ({reason or "no reason recorded"})' for name, reason in excluded_documents[:3])
+        more = f" and {len(excluded_documents) - 3} more" if len(excluded_documents) > 3 else ""
+        which = f" — {named}{more}" if named else ""
+        parts.append(f"{excluded['excludedFromRfi']} page(s) belong to a document excluded from RFI analysis{which}. "
+                     "If it is a drawing set rather than an issued RFI, tick \"RFI review input\" for it in the Docs "
+                     "tab, then close this plan and plan again")
     if excluded.get("superseded"):
         parts.append(f"{excluded['superseded']} page(s) are old revisions replaced by a newer upload (correct to leave out)")
     if not parts:
