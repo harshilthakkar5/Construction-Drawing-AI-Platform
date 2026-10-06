@@ -700,6 +700,10 @@ def _heartbeat(portion_id: str):
         yield
     finally:
         stop.set()
+        # A beat already past its wait would otherwise land after the run
+        # ended (the heartbeat test caught it under a loaded suite). Bounded:
+        # a database that hangs must not hold up the run's own result.
+        thread.join(timeout=5)
 
 
 def _preflight(project_id: str) -> dict | None:

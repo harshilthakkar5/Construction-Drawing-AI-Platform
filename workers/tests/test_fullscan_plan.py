@@ -200,3 +200,39 @@ def test_an_excluded_document_is_named_with_who_switched_it_off():
     many = fp.kept_out_note({"superseded": 0, "excludedFromRfi": 9, "notProcessed": 0}, read=0,
                             excluded_documents=[(f"{i}.pdf", None) for i in range(5)])
     assert "and 2 more" in many and "no reason recorded" in many
+
+
+def test_a_pair_with_no_grid_is_tiled_where_its_walls_line_up():
+    """JETRIGHT's electrical plans draw no grid; the walls they copy from the
+    architect's plan line them up instead."""
+    import wall_match
+
+    a = facts("p1", "A1.01", "architectural", x={}, y={})
+    b = facts("p2", "E2.01", "electrical", x={}, y={})
+    pair = fp.Pair("same_level", a, b, "Level 2")
+    shift = wall_match.WallShift(tx=-32.0, ty=-147.0, matched=726, share=0.52, runner_up=31, extent=[400.0, 300.0, 1600.0, 1200.0])
+    windows, why = fp.wall_windows(pair, shift)
+    assert why is None and windows
+    assert pair.transform.tx == -32.0 and pair.transform.ty == -147.0
+    assert "lined up by the walls both draw" in pair.reason
+    for wa, wb in windows:
+        assert wb[0] == pytest.approx(wa[0] - 32.0) and wb[1] == pytest.approx(wa[1] - 147.0)
+        assert wa[0] >= 400.0 - fp.WALL_PAD_PT and wa[2] <= 1600.0 + fp.WALL_PAD_PT
+
+
+def test_no_wall_shift_keeps_the_pair_out_with_a_reason():
+    pair = fp.Pair("same_level", facts("p1", "A3.01", "architectural"), facts("p2", "P1.04", "plumbing"), "Roof")
+    windows, why = fp.wall_windows(pair, None)
+    assert windows == [] and "walls" in why and pair.transform is None
+
+
+def test_stray_bubbles_on_a_gridless_sheet_are_not_several_views():
+    """E4.01 read one bubble on one axis and two on the other ("repeats") and
+    was left out as a multi-view sheet; only a real grid can say that."""
+    a = facts("p1", "A1.01", "architectural", level="LEVEL 1")
+    stray = facts("p2", "E4.01", "electrical", level="LEVEL 1", x={"1": 100.0}, y={"A": 50.0, "B": 900.0}, repeats=True)
+    pairs, skipped = fp.candidate_pairs([a, stray])
+    assert [(p.a.sheet_number, p.b.sheet_number) for p in pairs] == [("A1.01", "E4.01")]
+    real = facts("p3", "E4.01", "electrical", level="LEVEL 1", repeats=True)
+    pairs, skipped = fp.candidate_pairs([a, real])
+    assert pairs == [] and "sheet with several views (a grid label in two places)" in skipped

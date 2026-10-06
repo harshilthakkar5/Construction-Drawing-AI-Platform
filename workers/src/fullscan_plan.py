@@ -134,7 +134,9 @@ def _why_left_out(f: PageFacts) -> str | None:
         return "plan whose drawing title names no single level"
     if not f.scales:
         return "plan with no printed drawing scale"
-    if f.grid.get("repeats"):
+    # Only a real grid can say "two views": E4.01 read one stray bubble on one
+    # axis and two on the other, and was left out of a pair its walls line up.
+    if f.grid.get("repeats") and len(f.grid.get("x") or {}) >= 2 and len(f.grid.get("y") or {}) >= 2:
         return "sheet with several views (a grid label in two places)"
     return None
 
@@ -369,6 +371,33 @@ def same_level_windows(pair: Pair) -> tuple[list[tuple[list[float], list[float]]
         return [], "the two sheets draw different areas of the level"
     pair.transform = transform
     return windows_for(shared, transform, pair.b.grid.get("size") or [0, 0], tile_pt()), None
+
+
+WALL_PAD_PT = 36.0
+
+
+def wall_windows(pair: Pair, shift) -> tuple[list[tuple[list[float], list[float]]], str | None]:
+    """Tiles of a same-level pair lined up by the walls both draw
+    (wall_match.WallShift), for sheets with no grid to line up by. The area is
+    the box of the walls that matched, padded — what the two sheets share."""
+    if shift is None:
+        return [], "no grid to line up by, and the walls the two sheets draw do not line up either"
+    a_size = pair.a.grid.get("size") or [0, 0]
+    b_size = pair.b.grid.get("size") or [0, 0]
+    if not a_size[0] or not b_size[0]:
+        return [], "sheet size unknown"
+    e = shift.extent
+    area = _intersect([e[0] - WALL_PAD_PT, e[1] - WALL_PAD_PT, e[2] + WALL_PAD_PT, e[3] + WALL_PAD_PT],
+                      [0.0, 0.0, a_size[0], a_size[1]])
+    if area is None:
+        return [], "the walls that line up fall off the sheet"
+    transform = Transform(1.0, shift.tx, shift.ty)
+    windows = windows_for(area, transform, b_size, tile_pt())
+    if not windows:
+        return [], "the walls that line up fall off the sheet"
+    pair.transform = transform
+    pair.reason = f"{pair.reason}; lined up by the walls both draw ({shift.matched} wall lines match), not by a grid"
+    return windows, None
 
 
 def enlarged_windows(

@@ -249,18 +249,44 @@ With the pages read, the set still paired nothing. There were two reading bugs:
   with no curve bubbles. `FACTS_VERSION` is now 4 and `GRID_CACHE_VERSION` 6, so every
   page is re-read.
 
-After these fixes the set gives 15 candidate pairs instead of 0, and none of them lines
-up. That is a limit of this set, not a bug:
+After these fixes the set gave 15 candidate pairs, and none lined up: the electrical
+(E) and life-safety (G) plans draw no grid at all (the 1–12 and A–K around their
+frame are zone markers), and the roof plumbing plan P1.04 shows only 3 grid lines on
+one axis where `rfi_grid.align` needs 4.
 
-- The electrical (E) and life-safety (G) plans draw no grid at all. The 1–12 and A–K
-  around their frame are zone markers.
-- The roof plumbing plan P1.04 shows only 3 grid lines on one axis, and `rfi_grid.align`
-  needs 4 (`MIN_MATCHED`).
+**Lining up by walls (`workers/src/wall_match.py`).** Two earlier attempts failed on
+this set and were not shipped: raster ink matching put "OFFICE 104" in different places
+on the two sheets, and room labels as anchors agreed in only 1–2 of 9 votes (the
+electrical drafter moves the labels). What does hold is that an engineer's plan is
+drawn over the architect's floor plan as an exact copy. So every long horizontal and
+vertical line of both sheets is read, and each pair of EQUAL-LENGTH lines votes for the
+shift between them. A copied background gives one sharp peak. It is accepted only when:
 
-Lining up two plans WITHOUT a grid was tried and NOT built. Matching drawn ink put
-"OFFICE 104" in different places on the two sheets. Room numbers as anchors agreed in
-only 1–2 of 9 votes. A wrong alignment produces a confident false finding, so these
-pairs stay "could not be lined up" until a method is measured to be right.
+- at least 60 lines land within 0.6 pt (`MIN_MATCHED`, `MATCH_TOL`);
+- they are at least 15% of the smaller sheet's lines (`MIN_SHARE`);
+- the best shift beats the best OTHER shift by 4× (`MIN_RATIO`). A regular wall
+  module lines up with itself shifted one bay, as a grid does.
+
+The shared border and title block vote for a zero shift on any two sheets; on this
+set they are 29 lines, half the minimum. It runs only for a same-level pair the grid
+could not line up, translation only, as the grid does.
+
+Measured on this set (checked by overlaying the two sheets; walls drawn on both come
+out black):
+
+| | pairs | result |
+|---|---|---|
+| Should line up (same floor, two disciplines) | 13 | 12 lined up, 670–965 lines matching, next-best shift 31–148 |
+| Should NOT line up (different floors, a site plan, a schedule sheet, roof against level 1) | 7 | 7 refused |
+
+The one miss is the roof pair A3.01 / P1.04. The plan now has 18 pairs and 114 areas,
+where it had 0. A stub-model run over all of them completes; evidence boxes land on
+the second sheet exactly at the measured shift. This is NOT a measurement of finding
+accuracy, only of the line-up.
+
+The same set also left E4.01 and E4.02 out as "sheet with several views": one stray
+bubble on one axis and two on the other were read as a repeated grid label. That rule
+now needs a real grid (2 or more lines on each axis).
 
 Other pages left out of this set, with the reason shown in the plan: 28 plans with no
 level in their title (mostly civil), 3 sheets with several views, M1.02 "GROUND FLOOR"
