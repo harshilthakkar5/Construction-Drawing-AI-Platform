@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("worker.sheet_facts")
 
-FACTS_VERSION = 2  # 2: grid positions follow kinked leaders (grid.leader_target)
+FACTS_VERSION = 3  # 2: grid positions follow kinked leaders; 3: floors named as words (FIRST FLOOR, ROOF)
 
 # Mirrors SHEET_KINDS in @cdip/shared; test_sheet_facts reads the TypeScript.
 SHEET_KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", "notes", "cover", "other")
@@ -66,16 +66,60 @@ def _norm_level(token: str) -> str:
     return re.sub(r"^0+(?=[0-9])", "", token)
 
 
+_ORDINALS = {
+    "FIRST": 1, "SECOND": 2, "THIRD": 3, "FOURTH": 4, "FIFTH": 5, "SIXTH": 6, "SEVENTH": 7,
+    "EIGHTH": 8, "NINTH": 9, "TENTH": 10, "ELEVENTH": 11, "TWELFTH": 12,
+}
+# "SECOND FLOOR", "2ND FLOOR", "FLOOR 2". A numbered floor IS a numbered
+# level: first floor is level 1 whether the set follows the US or the UK
+# convention, which differ only on what GROUND means.
+_ORDINAL_FLOOR = re.compile(r"\b(" + "|".join(_ORDINALS) + r")\s+(?:FLOOR|STOREY|STORY)\b")
+_NTH_FLOOR = re.compile(r"\b([0-9]{1,3})(?:ST|ND|RD|TH)\s+(?:FLOOR|STOREY|STORY)\b")
+_FLOOR_N = re.compile(r"\bFLOOR\s+([0-9]{1,3})\b")
+# Names with no number. Each pairs only with ITSELF: "GROUND FLOOR" is level 1
+# in the US and level 0 in the UK, so mapping it onto a number could pair two
+# different floors — the false RFI this whole reader exists to prevent.
+_NAMED_LEVELS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(?:GROUND|GRADE)\s+(?:FLOOR|LEVEL)\b"), "GROUND FLOOR"),
+    (re.compile(r"\b(?:LOWER|UPPER)\s+(?:GROUND\s+)?LEVEL\b"), None),  # filled from the match
+    (re.compile(r"\bBASEMENT(?:\s+(?:LEVEL\s+)?([0-9]{1,2}))?\b"), "BASEMENT"),
+    (re.compile(r"\bMEZZANINE\b"), "MEZZANINE"),
+    (re.compile(r"\bPENTHOUSE\b"), "PENTHOUSE"),
+    (re.compile(r"\bROOF\b"), "ROOF"),
+]
+
+
 def level_in(text: str | None) -> str | None:
     """"LEVEL 5", "LEVEL 7-13" (a range of floors drawn once), or None.
-    "LEVEL 01" is "LEVEL 1", as in rfi_columns.level_of."""
-    m = _LEVEL.search((text or "").upper())
-    if not m:
-        return None
-    first = _norm_level(m.group(1))
-    if m.group(2) and first.isdigit() and int(m.group(2)) > int(first):
-        return f"LEVEL {first}-{_norm_level(m.group(2))}"
-    return f"LEVEL {first}"
+    "LEVEL 01" is "LEVEL 1", as in rfi_columns.level_of.
+
+    The first full scan of another client set paired NOTHING: 33 plans, 11 with
+    a level read, because only "LEVEL n" was understood and that set says
+    "FIRST FLOOR PLAN", "ROOF PLAN". So a numbered floor in any of its usual
+    spellings reads as "LEVEL n", and a floor with a NAME (ground, basement,
+    roof…) reads as that name and pairs only with the same name."""
+    upper = " ".join((text or "").upper().split())
+    m = _LEVEL.search(upper)
+    if m:
+        first = _norm_level(m.group(1))
+        if m.group(2) and first.isdigit() and int(m.group(2)) > int(first):
+            return f"LEVEL {first}-{_norm_level(m.group(2))}"
+        return f"LEVEL {first}"
+    for pattern in (_ORDINAL_FLOOR, _NTH_FLOOR, _FLOOR_N):
+        m = pattern.search(upper)
+        if m:
+            token = m.group(1)
+            return f"LEVEL {_ORDINALS.get(token) or _norm_level(token)}"
+    for pattern, name in _NAMED_LEVELS:
+        m = pattern.search(upper)
+        if not m:
+            continue
+        if name is None:
+            return " ".join(m.group(0).split())
+        if name == "BASEMENT" and m.group(1):
+            return f"BASEMENT {_norm_level(m.group(1))}"
+        return name
+    return None
 
 
 def title_level(titles: list[str]) -> str | None:

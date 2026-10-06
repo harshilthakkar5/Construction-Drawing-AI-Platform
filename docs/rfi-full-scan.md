@@ -50,9 +50,21 @@ Each comes from a draft the client rejected:
   the window bounded by the detail's own ink so it never runs into the title
   block.
 
-Everything left out is listed on the plan screen with its reason. "Plan with no
-other sheet of its level to compare with" is the common one: the full scan
-needs both disciplines' plans of a level in the project.
+Everything left out is listed on the plan screen with its reason, and when
+nothing pairs the red note itself names the three biggest reasons with counts
+(`no_pairs_note`). An unpaired plan with a level says which of three things
+stopped it, because each has a different fix: no discipline read from its sheet
+number (mark the title-block region), no plan of another discipline on its
+level (upload it), or no printed scale in common.
+
+**Levels are read in the words drawing sets use** (`sheet_facts.level_in`,
+`FACTS_VERSION` 3). Only "LEVEL n" was understood at first, and a 103-page client
+set read a level on 11 pages and paired NOTHING. "FIRST FLOOR", "2ND FLOOR" and
+"FLOOR 2" now read as "LEVEL n" — first floor is level 1 under both the US and
+UK conventions. A floor with a NAME (ground, basement n, mezzanine, roof, lower
+or upper level) reads as that name and pairs only with the same name: ground is
+level 1 in the US and level 0 in the UK, and a wrong guess pairs two different
+floors, which is exactly the false RFI the level rule exists to stop.
 
 ### What the model may and may not do (phases 3–4)
 

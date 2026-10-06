@@ -2643,6 +2643,12 @@ candidates had one box written x-first on image A and y-first on B and were reje
 apart". Boxes are now asked for as named edges `{left, top, right, bottom}`, and a pair that is its
 own transpose (`transposed_pair`) is dropped and asked again. Replaying the export's 498 replies
 catches exactly the three bad locations and reads the other 17 issues unchanged.
+A 103-page client set then paired NOTHING (33 plans, 11 levels read): `sheet_facts.level_in` only knew
+"LEVEL n". Numbered floors in words ("FIRST FLOOR", "2ND FLOOR", "FLOOR 2") now read as "LEVEL n";
+named floors (ground, basement n, mezzanine, roof) read as their name and pair only with the same
+name, since GROUND is level 1 in the US and 0 in the UK (`FACTS_VERSION` 3). The no-pairs note names
+the top reasons with counts, and an unpaired plan says whether it lacked a discipline, a partner
+discipline on its level, or a common scale.
 
 ## Claude prompting pattern for grounded answers
 

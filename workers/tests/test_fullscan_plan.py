@@ -37,7 +37,30 @@ def test_two_levels_are_never_paired():
     """The client's first rejected draft: A3.03 Level 4 against A3.05 Level 6."""
     pairs, skipped = fp.candidate_pairs([facts("p1", "A3.03", "architectural", "LEVEL 4"), facts("p2", "S2.105", "structural", "LEVEL 6")])
     assert pairs == []
-    assert sorted(skipped["plan with no other sheet of its level to compare with"]) == ["A3.03", "S2.105"]
+    assert sorted(skipped["plan with no plan of another discipline on the same level"]) == ["A3.03", "S2.105"]
+
+
+def test_an_unpaired_plan_is_told_what_to_fix():
+    """One reason used to cover three causes with three different fixes."""
+    _, skipped = fp.candidate_pairs([
+        facts("p1", "A1.01", None),                                   # no discipline read
+        facts("p2", "A2.01", "architectural", "LEVEL 3"),             # alone on its level
+        facts("p3", "A2.02", "architectural", "LEVEL 3"),             # same discipline only
+        facts("p4", "A4.01", "architectural", "ROOF", scales=(9.0,)),
+        facts("p5", "S4.01", "structural", "ROOF", scales=(36.0,)),   # no scale in common
+    ])
+    assert any("gave no discipline" in why and labels == ["A1.01"] for why, labels in skipped.items())
+    assert sorted(skipped["plan with no plan of another discipline on the same level"]) == ["A2.01", "A2.02"]
+    assert sorted(next(v for k, v in skipped.items() if "no printed scale in common" in k)) == ["A4.01", "S4.01"]
+
+
+def test_the_no_pairs_note_names_the_biggest_reasons():
+    note = fp.no_pairs_note({"plan whose drawing title names no single level": ["a"] * 22,
+                             "plan with no printed drawing scale": ["b"] * 9,
+                             "sheet with several views (a grid label in two places)": ["c"]})
+    assert "Most were left out because: plan whose drawing title names no single level (22); " \
+           "plan with no printed drawing scale (9);" in note
+    assert fp.no_pairs_note({}).startswith("No two sheets could be paired")
 
 
 def test_a_plan_with_no_level_or_two_levels_is_left_out_and_listed():
