@@ -119,6 +119,10 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | Variable | Default | Used by | What it does |
 |---|---|---|---|
 | `OCR_ENABLED` | `true` | Worker | OCR pages that have no text layer. |
+| `OCR_SHAPE_TEXT` | `true` | Worker | Also OCR words drawn as shapes (CAD SHX) and pasted schedule pictures (`page_ocr.py`). |
+| `OCR_SHAPE_TEXT_MAX_WORDS` | `400` | Worker | A page with at most this many text-layer words… |
+| `OCR_SHAPE_TEXT_MIN_DRAWINGS` | `2000` | Worker | …over at least this many drawing paths is read for text drawn as shapes. |
+| `OCR_MAX_PAGES_PER_SCAN` | `60` | Worker | New pages the RFI scan OCRs per run (~40-70s each); the rest wait for the next scan. |
 | `PAGE_RENDER_ZOOM` | `2` | Worker | Page image resolution (2 = 144 DPI). Bigger = sharper viewer, more memory and storage. |
 | `THUMB_WIDTH` | `200` | Worker | Thumbnail width in pixels. |
 | `TABLE_EXTRACTION_ENABLED` | `true` | Worker | Lift schedules out as whole tables. |

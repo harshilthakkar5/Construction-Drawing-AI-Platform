@@ -321,57 +321,108 @@ def replace_page_chunks(document_id: str, page_number: int, chunks: list) -> Non
         page_id = page_row[0]
         # chunk_identifiers rows go with the chunk (ON DELETE CASCADE).
         conn.execute('DELETE FROM chunks WHERE "pageId" = %s', (page_id,))
-        for chunk in chunks:
-            chunk_id = str(uuid.uuid4())
-            kind = getattr(chunk, "kind", "text")
-            conn.execute(
-                """
-                INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash", kind,
-                                    "sourceModel", "sourceSettings")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    chunk_id,
-                    page_id,
-                    chunk.text,
-                    json.dumps(chunk.bbox),
-                    chunk.token_count,
-                    text_hash(chunk.text),
-                    kind,
-                    getattr(chunk, "source_model", None),
-                    # NULL rather than "{}" when there is nothing to record: a
-                    # text chunk has no source, and an empty object would read
-                    # downstream as "a vision pass with no settings", which is
-                    # a different claim.
-                    json.dumps(settings) if (settings := getattr(chunk, "source_settings", None)) else None,
-                ),
-            )
-            if kind not in ("text", "gridmarks"):
-                # A description does NOT enter the identifier index. That arm
-                # is exact-match and weighted 3x — the heaviest signal in
-                # retrieval — and it is fed from the documents' own words. Let
-                # model-written text in and a member size the model misread
-                # outranks the chunk that carries the real one, which is the
-                # one failure mode worse than having no description at all.
-                # Descriptions are still reachable by dense search and FTS.
-                # A gridmarks chunk DOES enter it: every mark in one is copied
-                # verbatim off the sheet's own text, so "where is C-6" should
-                # find the chunk that says where it is printed.
-                continue
-            # Exact identifiers (S102A, A-301, W18x97) for the retrieval arm
-            # that looks them up as identifiers rather than as words. The
-            # pattern lives in the cdip_identifiers() SQL function — ONE
-            # definition, shared with the API's query side, because a regex
-            # duplicated across two languages would drift and a drift here
-            # means a question's identifiers stop matching the documents'.
-            conn.execute(
-                """
-                INSERT INTO chunk_identifiers ("chunkId", identifier)
-                SELECT %s, unnest(cdip_identifiers(%s))
-                ON CONFLICT DO NOTHING
-                """,
-                (chunk_id, chunk.text),
-            )
+        _insert_chunks(conn, page_id, chunks)
+
+
+def replace_page_ocr(document_id: str, page_number: int, ocr: dict, version: int,
+                     source_model: str, chunks: list) -> None:
+    """Store page_ocr's reading of a page that is already processed: its OCR
+    chunks are replaced and nothing else is touched — the text-layer chunks
+    keep their ids, which page summaries and citations hang off."""
+    with connect() as conn:
+        page_row = conn.execute(
+            'SELECT id FROM pages WHERE "documentId" = %s AND "pageNumber" = %s',
+            (document_id, page_number),
+        ).fetchone()
+        if page_row is None:
+            return
+        page_id = page_row[0]
+        conn.execute('DELETE FROM chunks WHERE "pageId" = %s AND "sourceModel" = %s', (page_id, source_model))
+        _insert_chunks(conn, page_id, chunks)
+        conn.execute(
+            'UPDATE pages SET ocr = %s::jsonb, "ocrVersion" = %s WHERE id = %s',
+            (json.dumps(ocr), version, page_id),
+        )
+
+
+def set_page_ocr(document_id: str, page_number: int, ocr: dict, version: int) -> None:
+    with connect() as conn:
+        conn.execute(
+            'UPDATE pages SET ocr = %s::jsonb, "ocrVersion" = %s WHERE "documentId" = %s AND "pageNumber" = %s',
+            (json.dumps(ocr), version, document_id, page_number),
+        )
+
+
+def pages_needing_ocr(project_id: str, version: int) -> list[tuple[str, str, int]]:
+    """(documentId, spacesKey, pageNumber) of every live, processed page not
+    yet examined by the current OCR reader, in combined-page order."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.id, d."spacesKey", p."pageNumber"
+              FROM pages p JOIN documents d ON d.id = p."documentId"
+             WHERE d."projectId" = %s AND d."supersededAt" IS NULL
+               AND d.status::text = 'completed'
+               AND (p."ocrVersion" IS NULL OR p."ocrVersion" < %s)
+             ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
+            """,
+            (project_id, version),
+        ).fetchall()
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
+def _insert_chunks(conn, page_id: str, chunks: list) -> None:
+    for chunk in chunks:
+        chunk_id = str(uuid.uuid4())
+        kind = getattr(chunk, "kind", "text")
+        conn.execute(
+            """
+            INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", "textHash", kind,
+                                "sourceModel", "sourceSettings")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                chunk_id,
+                page_id,
+                chunk.text,
+                json.dumps(chunk.bbox),
+                chunk.token_count,
+                text_hash(chunk.text),
+                kind,
+                getattr(chunk, "source_model", None),
+                # NULL rather than "{}" when there is nothing to record: a
+                # text chunk has no source, and an empty object would read
+                # downstream as "a vision pass with no settings", which is
+                # a different claim.
+                json.dumps(settings) if (settings := getattr(chunk, "source_settings", None)) else None,
+            ),
+        )
+        if kind not in ("text", "gridmarks"):
+            # A description does NOT enter the identifier index. That arm
+            # is exact-match and weighted 3x — the heaviest signal in
+            # retrieval — and it is fed from the documents' own words. Let
+            # model-written text in and a member size the model misread
+            # outranks the chunk that carries the real one, which is the
+            # one failure mode worse than having no description at all.
+            # Descriptions are still reachable by dense search and FTS.
+            # A gridmarks chunk DOES enter it: every mark in one is copied
+            # verbatim off the sheet's own text, so "where is C-6" should
+            # find the chunk that says where it is printed.
+            continue
+        # Exact identifiers (S102A, A-301, W18x97) for the retrieval arm
+        # that looks them up as identifiers rather than as words. The
+        # pattern lives in the cdip_identifiers() SQL function — ONE
+        # definition, shared with the API's query side, because a regex
+        # duplicated across two languages would drift and a drift here
+        # means a question's identifiers stop matching the documents'.
+        conn.execute(
+            """
+            INSERT INTO chunk_identifiers ("chunkId", identifier)
+            SELECT %s, unnest(cdip_identifiers(%s))
+            ON CONFLICT DO NOTHING
+            """,
+            (chunk_id, chunk.text),
+        )
 
 
 def set_page_disciplines(project_id: str, mapping: list[tuple[int, str]]) -> None:

@@ -68,6 +68,13 @@ THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
 
 # FR-7: OCR pages with no text layer. Disable to run without PaddleOCR installed.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() != "false"
+# page_ocr.py: also read pages whose words are DRAWN (CAD SHX fonts exported
+# as strokes) — few text-layer words over a lot of linework — and pages with a
+# large pasted picture. A page OCRs in ~40s of CPU, so this is bounded per scan.
+OCR_SHAPE_TEXT = os.environ.get("OCR_SHAPE_TEXT", "true").lower() != "false"
+OCR_SHAPE_TEXT_MAX_WORDS = int(os.environ.get("OCR_SHAPE_TEXT_MAX_WORDS", "400"))
+OCR_SHAPE_TEXT_MIN_DRAWINGS = int(os.environ.get("OCR_SHAPE_TEXT_MIN_DRAWINGS", "2000"))
+OCR_MAX_PAGES_PER_SCAN = int(os.environ.get("OCR_MAX_PAGES_PER_SCAN", "60"))
 
 # FR-8: lift schedules out of the page as whole tables instead of letting the
 # block extractor shred them. Detection is a heuristic (workers/src/tables.py);

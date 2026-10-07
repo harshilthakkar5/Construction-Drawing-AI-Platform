@@ -27,6 +27,13 @@ normal way, a false one is a question someone has to answer:
   tag_value_conflict   one equipment tag printed with two different ratings
                        on two sheets: RTU-3 at 80 MBH on the gas riser and the
                        mezzanine piping plan, 100 MBH on the roof piping plan.
+  illegible_schedule   a schedule pasted onto a sheet as a picture too coarse
+                       to read (page_ocr.py measured it): its values cannot
+                       be checked by anyone, so the question is a legible copy.
+
+Text read by OCR (words drawn as shapes, page_ocr.py) is checked like the text
+layer, but a finding that rests on it is capped at MEDIUM and says so: OCR
+misreads, and a misread mark is a false finding.
 
 Everything here is pure — pages and chunks in, findings out — so every rule
 and every guard is tested without a database or a PDF. Only `kind="text"`
@@ -46,7 +53,8 @@ from classify import PREFIX_TO_DISCIPLINE
 # Keys written into rfi_candidates.checkType. Mirrored as RFI_CHECK_LABELS in
 # @cdip/shared, and test_rfi_checks reads that file to fail on a drift — a
 # check the UI has no label for renders as its raw key.
-CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict")
+CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict",
+               "illegible_schedule")
 # Written only by the targeted review (rfi_columns.py): they need two named
 # sheets laid over each other. Labelled in the same RFI_CHECK_LABELS.
 REVIEW_CHECK_TYPES = ("column_mismatch",)
@@ -80,6 +88,9 @@ class Page:
     # pages.discipline, from the sheet number. The grid check compares grids
     # ACROSS disciplines; None (no sheet number read) compares with anything.
     discipline: str | None = None
+    # page_ocr.py's pictures on this page that are too coarse to read:
+    # ({"b": [x0, y0, x1, y1] unrotated, "dpi": ..., "lines": ..., "readable": ...}, ...)
+    illegible_pictures: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,9 @@ class Chunk:
     # Normalized identifiers from chunk_identifiers — the ONE definition of
     # what an identifier is (cdip_identifiers() in SQL). Not re-derived here.
     identifiers: tuple[str, ...] = ()
+    # True when the text was READ by OCR off words drawn as shapes rather than
+    # lifted from the text layer (chunks.sourceModel "ocr:…").
+    ocr: bool = False
 
 
 @dataclass
@@ -178,8 +192,15 @@ def _quote(text: str, start: int, end: int, limit: int = 220) -> str:
     return ("…" if lo > 0 else "") + " ".join(window.split()) + "…"
 
 
-def _evidence(page: Page, chunk: Chunk, quote: str, role: str = "finding") -> dict:
-    return {
+def _evidence(page: Page, chunk: Chunk, quote: str, role: str = "finding",
+              term: str | None = None, near: str | None = None) -> dict:
+    """One piece of evidence. `term` is the exact words printed on the sheet
+    (F6.0, RTU-3, TBD) and `near` a second word that must be close to it
+    (the 100 of "RTU-3 100 MBH"): `rfi_pinpoint` finds them on the page and
+    shrinks the box from the whole chunk — which on JETRIGHT spanned most of
+    the sheet, so every package said "NOT pinpointed" — to the words
+    themselves. Both are internal (`_`) and removed before anything is saved."""
+    item = {
         "documentId": page.document_id,
         "pageNumber": page.page_number,
         "combinedPageNumber": page.combined_page_number,
@@ -189,6 +210,13 @@ def _evidence(page: Page, chunk: Chunk, quote: str, role: str = "finding") -> di
         "quote": quote,
         "role": role,
     }
+    if chunk.ocr:
+        item["source"] = "ocr"
+    if term:
+        item["_term"] = term
+    if near:
+        item["_near"] = near
+    return item
 
 
 def _where(evidence: list[dict]) -> str:
@@ -370,7 +398,7 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
             quote = _quote(chunk.text, start, end)
             items = hits.setdefault(ref, [])
             if len(items) < MAX_EVIDENCE:
-                items.append(_evidence(page, chunk, quote))
+                items.append(_evidence(page, chunk, quote, term=token))
             raw_form.setdefault(ref, token)
 
     index = sheet_index(pages, chunks)
@@ -724,7 +752,8 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     # ("TYPE S-8 … SCREWS"); no quote means nothing to check.
                     continue
                 if len(evidence) < MAX_EVIDENCE:
-                    evidence.append(_evidence(page, chunk, _quote(chunk.text, hit.start(), hit.end())))
+                    evidence.append(_evidence(page, chunk, _quote(chunk.text, hit.start(), hit.end()),
+                                              term=chunk.text[hit.start():hit.end()]))
             if not evidence:
                 continue
             printed = shown(mark, [c.text.upper() for _, c in places])
@@ -735,6 +764,7 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     schedule_chunk[family],
                     f"{title}: lists {', '.join(listed[:12])}{'…' if len(listed) > 12 else ''}",
                     role="context",
+                    term=title,
                 )
             )
             # Called out in two places is a mark someone drew on purpose; once
@@ -833,29 +863,52 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
             key = normalize(quote)
             if not key:
                 continue
+            # A line that is ONLY the marker is a table cell ("TBD" under
+            # ACHIEVED BY on G2.01, eight rows of it). Alone it says nothing,
+            # and every bare "TBD" in the project would group as one finding,
+            # so it is named — and grouped — by the table it sits in.
+            table = _table_title(chunk.text) if key == normalize(chunk.text[start:end]) else None
+            if table:
+                key = f"{key}|{normalize(table)}"
             entry = grouped.setdefault(
-                key, {"quote": quote, "confidence": confidence, "meaning": meaning, "evidence": []}
+                key, {"quote": quote, "table": table, "cells": 0, "confidence": confidence,
+                      "meaning": meaning, "evidence": []}
             )
+            if table:
+                entry["cells"] += 1
             if _RANK[confidence] < _RANK[entry["confidence"]]:
                 entry["confidence"], entry["meaning"] = confidence, meaning
             already = {(e["documentId"], e["pageNumber"]) for e in entry["evidence"]}
             if (page.document_id, page.page_number) not in already and len(entry["evidence"]) < MAX_EVIDENCE:
-                entry["evidence"].append(_evidence(page, chunk, quote))
+                entry["evidence"].append(_evidence(page, chunk, quote, term=chunk.text[start:end]))
 
     findings: list[Finding] = []
     for key, entry in sorted(grouped.items(), key=lambda kv: (_RANK[kv[1]["confidence"]], kv[0])):
         quote, where = entry["quote"], _where(entry["evidence"])
         short = quote if len(quote) <= 60 else quote[:57] + "…"
         ask = "Please provide the missing information, or confirm when it will be issued."
+        facts = {"note": quote, "meaning": entry["meaning"], "shownOn": where}
+        if entry["table"]:
+            table, cells = entry["table"], entry["cells"]
+            many = f" ({cells} entries)" if cells > 1 else ""
+            subject = f"Open item on {where}: \"{quote}\" in {table[:60]}{many}"
+            question = (
+                f"The table \"{table}\" on {where} has {cells if cells > 1 else 'an'} "
+                f"entr{'ies' if cells > 1 else 'y'} reading only \"{quote}\". {ask}"
+            )
+            facts.update({"table": table, "entries": cells})
+        else:
+            subject = f"Open item on {where}: \"{short}\""
+            question = f"The drawings note \"{quote}\" on {where}. {ask}"
         findings.append(
             Finding(
                 check_type="open_item_note",
                 fingerprint=fingerprint("open_item_note", key),
                 confidence=entry["confidence"],
-                subject=f"Open item on {where}: \"{short}\"",
-                question=f"The drawings note \"{quote}\" on {where}. {ask}",
+                subject=subject,
+                question=question,
                 evidence=entry["evidence"],
-                facts={"note": quote, "meaning": entry["meaning"], "shownOn": where},
+                facts=facts,
             )
         )
     notes: list[str] = []
@@ -866,6 +919,26 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
             "the designer, so none was proposed as an RFI."
         )
     return _cap("open_item_note", findings, notes), notes
+
+
+TABLE_TITLE_LINES = 6  # a table's title is printed above its rows
+
+
+def _table_title(text: str) -> str | None:
+    """The heading a chunk opens with: the first of its first few lines that
+    reads as words (eight letters or more), with CAD letter-spacing
+    ("F I R E   R E S I S T A N C E") closed up. None when there is none —
+    the finding then keeps the bare marker rather than inventing a name."""
+    for line in text.split("\n")[:TABLE_TITLE_LINES]:
+        line = line.strip()
+        glyphs = line.split()
+        if len(glyphs) >= 6 and sum(len(g) == 1 for g in glyphs) >= 0.8 * len(glyphs):
+            # One glyph per "word": the real words are split by the wider gaps.
+            line = " ".join(w.replace(" ", "") for w in re.split(r" {2,}", line))
+        line = " ".join(line.split())
+        if sum(c.isalpha() for c in line) >= 8 and not any(p.search(line.upper()) for p, *_ in _OPEN_ITEM_PATTERNS):
+            return line
+    return None
 
 
 def _sentence(text: str, start: int, end: int) -> str:
@@ -984,7 +1057,8 @@ def tag_value_conflicts(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
             for page, chunk, printed, start, end in places:
                 if sum(1 for e in evidence if e.get("_value") == v) >= 2 or len(evidence) >= MAX_EVIDENCE:
                     continue
-                item = _evidence(page, chunk, _quote(chunk.text, start, end))
+                item = _evidence(page, chunk, _quote(chunk.text, start, end),
+                                 term=chunk.text[start:start + len(tag)], near=printed.split()[0])
                 item["_value"] = v
                 evidence.append(item)
         for item in evidence:
@@ -1049,4 +1123,78 @@ def run_all(
         found, said = rfi_grid.grid_mismatches(pages, grids)
         findings.extend(found)
         notes.extend(said)
+    findings.extend(illegible_schedules(pages))
+    for finding in findings:
+        mark_ocr(finding)
     return findings, notes
+
+
+# --- OCR-read findings ------------------------------------------------------------
+
+
+def mark_ocr(finding: Finding) -> None:
+    """A finding whose problem was READ by OCR (words drawn as shapes) is at
+    most MEDIUM and says so in its question: an OCR misread is a false
+    finding, and the reader must know to look at the sheet before asking."""
+    read = sorted({e.get("sheetNumber") or f"page {e.get('pageNumber')}"
+                   for e in finding.evidence
+                   if e.get("source") == "ocr" and e.get("role", "finding") == "finding"})
+    if not read:
+        return
+    if finding.confidence == "high":
+        finding.confidence = "medium"
+    finding.facts["readByOcr"] = read
+    finding.question += (
+        f" (The text on {', '.join(read)} is drawn as shapes and was read by OCR — check it against the sheet.)"
+    )
+
+
+# --- Check 5: schedules pasted as pictures too coarse to read ------------------
+
+
+def illegible_schedules(pages: list[Page]) -> list[Finding]:
+    """One finding per sheet carrying pictures page_ocr.py measured as too
+    coarse to read: placed under ILLEGIBLE_DPI, visibly full of text, and
+    most of that text unreadable. Nothing is guessed off them — E0.05's panel
+    schedules are where JETRIGHT's CF-2 horsepower lives, and a value read off
+    a 67 DPI picture would be a confident wrong RFI. The question a reviewer
+    asks is for a legible copy."""
+    out = []
+    for page in pages:
+        pics = [p for p in page.illegible_pictures if p.get("b")]
+        if not pics:
+            continue
+        sheet = page.sheet_number or f"page {page.combined_page_number or page.page_number}"
+        dpi = round(min(p.get("dpi", 0) for p in pics))
+        n = len(pics)
+        evidence = [
+            {
+                "documentId": page.document_id,
+                "pageNumber": page.page_number,
+                "combinedPageNumber": page.combined_page_number,
+                "sheetNumber": page.sheet_number,
+                "bbox": {"x": p["b"][0], "y": p["b"][1], "width": p["b"][2] - p["b"][0], "height": p["b"][3] - p["b"][1]},
+                "quote": f"picture placed at about {round(p.get('dpi', 0))} DPI; "
+                         f"{p.get('readable', 0)} of {p.get('lines', 0)} text lines readable",
+                "role": "finding",
+            }
+            for p in pics[:MAX_EVIDENCE]
+        ]
+        what = "a schedule" if n == 1 else f"{n} schedules"
+        out.append(
+            Finding(
+                check_type="illegible_schedule",
+                fingerprint=fingerprint("illegible_schedule", page.document_id, str(page.page_number)),
+                confidence="medium",
+                subject=f"{sheet}: {what} pasted as {'a picture' if n == 1 else 'pictures'} too coarse to read",
+                question=(
+                    f"{sheet} shows {what} pasted as {'a picture' if n == 1 else 'pictures'} at about {dpi} DPI, "
+                    "and most of the text cannot be read reliably, so the values cannot be checked against the "
+                    f"other drawings. Please issue the {'schedule' if n == 1 else 'schedules'} on {sheet} as "
+                    "legible text or at a readable resolution."
+                ),
+                evidence=evidence,
+                facts={"sheet": sheet, "pictures": n, "dpi": dpi},
+            )
+        )
+    return out

@@ -71,6 +71,18 @@ function keptOut(c: NonNullable<RfiFullScanDto["catalogue"]>): string {
 
 const sheetName = (s: RfiFullScanDto["pairs"][number]["a"]) => s.sheetNumber ?? `page ${s.combinedPageNumber ?? s.pageNumber}`;
 
+/** A new comparison plan is offered once nothing is in flight or waiting to
+ * start. "Find RFIs in drawings" uses this to prepare one with the checks. */
+export function canPlanFullScan(scan: RfiFullScanDto | null | undefined): boolean {
+  return !scan || ["cancelled", "stale", "ready", "partial"].includes(scan.status) || (scan.status === "failed" && !scan.startedAt);
+}
+
+/**
+ * Step 2 of "Find RFIs in drawings". The code checks (step 1) and this
+ * comparison used to be two separate modes, and people asked why there were
+ * two buttons for one job; they are one scan now. The button above prepares
+ * this plan for free, and the AI is used only when the person starts it.
+ */
 export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFinished: () => void }) {
   const queryClient = useQueryClient();
   const list = useQuery({
@@ -97,14 +109,13 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
   if (list.isLoading) return <Spinner />;
   if (list.error) return <Notice tone="error">{(list.error as Error).message}</Notice>;
   const availability = list.data!.availability;
-  // A new plan is offered once nothing is in flight or waiting to start.
-  const canPlan =
-    !scan || ["cancelled", "stale", "ready", "partial"].includes(scan.status) || (scan.status === "failed" && !scan.startedAt);
+  const canPlan = canPlanFullScan(scan);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-semibold">Full AI scan</h4>
+        <h4 className="text-sm font-semibold">2 · AI sheet comparison</h4>
+        <Badge variant="secondary">Optional · priced</Badge>
         {availability === "beta" && (
           <Badge variant="outline" title="Not yet measured against real RFIs. Review every finding before accepting it.">
             Beta — accuracy not measured yet
@@ -128,13 +139,14 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
               Pairs every sheet that should agree — the same level drawn by two disciplines, and each
               enlarged plan with its overall plan — and shows them to the AI area by area. Each possible
               problem is checked again close up, and only what passes the code's rules is listed for you.
-              Planning is free; you see the cost and set a budget before anything is sent to the AI.
+              “Find RFIs in drawings” prepares this for free; you see the cost and set a budget before
+              anything is sent to the AI.
             </p>
           )}
           {scan?.status === "stale" && <Notice tone="error">{scan.error ?? "The drawings changed since this scan was planned."}</Notice>}
-          <Button size="sm" variant={scan ? "outline" : "default"} className="self-start" disabled={plan.isPending} onClick={() => plan.mutate()}>
+          <Button size="sm" variant="outline" className="self-start" disabled={plan.isPending} onClick={() => plan.mutate()}>
             {plan.isPending ? <Spinner /> : <ScanSearchIcon />}
-            {scan ? "Plan a new full scan" : "Plan a full AI scan"}
+            {scan ? "Prepare a new comparison" : "Prepare the comparison only"}
           </Button>
           {plan.error && <Notice tone="error">{(plan.error as Error).message}</Notice>}
         </div>
@@ -324,7 +336,7 @@ function Planned({
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={start.isPending || !(Number(budget) > 0) || available.length === 0} onClick={() => start.mutate()}>
               {start.isPending ? <Spinner /> : <PlayIcon />}
-              Start full scan
+              Start AI comparison
             </Button>
             <Button size="sm" variant="ghost" onClick={onCancel}>
               Discard plan

@@ -27,7 +27,11 @@ def _get_engine():
         # First construction downloads ~15 MB of models to ~/.paddleocr, over a
         # CDN that is slow and drop-prone from some regions. Pre-warm it (see
         # workers/Dockerfile) so this does not happen mid-job in production.
-        _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        # det_limit_side_len: PaddleOCR shrinks anything larger to 960px by
+        # default, which on a page_ocr tile throws away the resolution the
+        # tile was rendered at. Small crops are not enlarged ("max").
+        _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False,
+                            det_limit_side_len=1600, det_limit_type="max")
     except (ImportError, ModuleNotFoundError) as exc:
         # Permanent: the package genuinely isn't installed. Latch it, so every
         # page doesn't retry an import that cannot start working.
@@ -72,3 +76,27 @@ def ocr_png_bytes(png: bytes) -> str:
             if len(item) >= 2 and item[1]:
                 lines.append(str(item[1][0]))
     return "\n".join(lines)
+
+
+def available() -> bool:
+    """Whether OCR can run at all (loads the engine on first call)."""
+    return _get_engine() is not None
+
+
+def image_lines(pix) -> list[tuple[list, str, float]]:
+    """Every line PaddleOCR finds in a fitz Pixmap (RGB, no alpha), as
+    (four corner points in pixels, text, confidence)."""
+    engine = _get_engine()
+    if engine is None:
+        return []
+    import numpy as np
+
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    if pix.n == 3:
+        img = img[:, :, ::-1]  # RGB -> BGR, what PaddleOCR's cv2 pipeline expects
+    out = []
+    for block in engine.ocr(np.ascontiguousarray(img), cls=True) or []:
+        for item in block or []:
+            if len(item) >= 2 and item[1]:
+                out.append((item[0], str(item[1][0]), float(item[1][1])))
+    return out

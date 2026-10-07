@@ -18,6 +18,7 @@ import pytest  # noqa: E402
 import rfi_checks  # noqa: E402
 from rfi_checks import (  # noqa: E402
     Chunk,
+    Finding,
     Page,
     dangling_references,
     fingerprint,
@@ -569,6 +570,9 @@ def test_run_all_runs_every_check():
         GridSystem(pages[0].id, "blue 27pt", {}, rows),
         GridSystem(pages[0].id, "grey 18pt", {}, {"2": 100.0, "3": 330.0, "4": 470.0, "5": 800.0}),
     ]
+    import dataclasses
+
+    pages[0] = dataclasses.replace(pages[0], illegible_pictures=(COARSE,))
     findings, _ = run_all(pages, chunks, grids)
     assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES)
 
@@ -658,3 +662,95 @@ def test_a_reference_must_be_numbered_like_the_sets_sheets_of_its_prefix():
     chunks = [index(sheets=("T1", "E2.01", "E2.02", "A4.01", "A4.02")),
               chunk("c", "p4", "SEE MECHANICAL DRAWING E2 FOR DUCT")]
     assert dangling_references(pages, chunks)[0] == []
+
+
+# --- a bare open-item cell is named by its table --------------------------------
+
+
+FIRE_TABLE = (
+    "IBC CH 7\n"
+    "F I R E    R E S I S T A N C E  -  W A L L S    &    P A R T I T I O N S\n"
+    "RATING\nACHIEVED BY\nSHAFT ENCLOSURES\n1 HR\nTBD\nN/A\nFIRE WALLS\n2 HR\nTBD\nN/A\n"
+)
+
+
+def test_a_bare_tbd_cell_is_named_by_its_table_and_counted():
+    # G2.01: the "ACHIEVED BY" column of a fire-resistance table reads TBD on
+    # every row. "Open item on G2.01: "TBD"" told a reader nothing.
+    findings, _ = rfi_checks.open_item_notes([page("p1", "G2.01")], [chunk("c1", "p1", FIRE_TABLE)])
+    assert len(findings) == 1
+    f = findings[0]
+    assert "FIRE RESISTANCE - WALLS & PARTITIONS" in f.subject and "(2 entries)" in f.subject
+    assert f.facts["entries"] == 2 and f.facts["table"] == "FIRE RESISTANCE - WALLS & PARTITIONS"
+    assert "2 entries reading only \"TBD\"" in f.question
+
+
+def test_bare_tbd_cells_in_two_tables_are_two_findings():
+    other = "DOOR HARDWARE SCHEDULE\nSET\nTBD\n"
+    findings, _ = rfi_checks.open_item_notes(
+        [page("p1", "G2.01"), page("p2", "A6.01")],
+        [chunk("c1", "p1", FIRE_TABLE), chunk("c2", "p2", other)],
+    )
+    assert sorted(f.facts.get("table") for f in findings) == ["DOOR HARDWARE SCHEDULE", "FIRE RESISTANCE - WALLS & PARTITIONS"]
+
+
+def test_a_note_with_words_keeps_its_own_wording():
+    findings, _ = rfi_checks.open_item_notes([page("p1", "A8.01")], [chunk("c1", "p1", "NOTES\nGROUT COLOR: TBD\n")])
+    assert findings[0].subject == 'Open item on A8.01: "GROUT COLOR: TBD"'
+    assert "table" not in findings[0].facts
+
+
+def test_a_bare_cell_with_no_heading_stays_bare():
+    findings, _ = rfi_checks.open_item_notes([page("p1", "A8.01")], [chunk("c1", "p1", "1 HR\nTBD\nN/A\n")])
+    assert findings[0].subject == 'Open item on A8.01: "TBD"'
+
+
+def test_evidence_names_the_printed_words_for_pinpointing():
+    findings, _ = rfi_checks.open_item_notes([page("p1", "A8.01")], [chunk("c1", "p1", "GROUT COLOR: TBD\n")])
+    assert findings[0].evidence[0]["_term"] == "TBD"
+
+
+
+# --- OCR-read text and illegible pictures ----------------------------------------
+
+COARSE = {"b": [246.0, 256.0, 1050.0, 750.0], "dpi": 66.6, "lines": 175, "readable": 42, "illegible": True}
+
+
+def test_a_schedule_picture_too_coarse_to_read_asks_for_a_legible_copy():
+    # E0.05: seven panel schedules pasted at ~67 DPI. Nothing is guessed off
+    # them; the question is the one a reviewer asks.
+    e005 = Page("p9", "doc-1", 94, 94, "E0.05", illegible_pictures=(COARSE, dict(COARSE, b=[275, 1351, 1040, 1861])))
+    [f] = rfi_checks.illegible_schedules([e005, page("p1", "S-101")])
+    assert f.check_type == "illegible_schedule" and f.confidence == "medium"
+    assert f.subject == "E0.05: 2 schedules pasted as pictures too coarse to read"
+    assert "about 67 DPI" in f.question and "legible" in f.question
+    assert len(f.evidence) == 2 and f.evidence[0]["bbox"] == {"x": 246.0, "y": 256.0, "width": 804.0, "height": 494.0}
+    assert "42 of 175" in f.evidence[0]["quote"]
+    # One sheet, one finding, stable across scans.
+    assert f.fingerprint == rfi_checks.illegible_schedules([e005])[0].fingerprint
+
+
+def test_a_finding_read_by_ocr_is_capped_and_says_so():
+    ocr_chunk = Chunk("c1", "p1", "NOTES\nGROUT COLOR: TBD\n", {"x": 0, "y": 0, "width": 9, "height": 9}, (), ocr=True)
+    [f] = rfi_checks.open_item_notes([page("p1", "M0.02")], [ocr_chunk])[0]
+    assert f.evidence[0]["source"] == "ocr"
+    rfi_checks.mark_ocr(f)
+    assert f.confidence == "medium"
+    assert f.facts["readByOcr"] == ["M0.02"]
+    assert "read by OCR" in f.question
+
+
+def test_text_layer_findings_are_not_touched_by_the_ocr_rule():
+    [f] = rfi_checks.open_item_notes([page("p1", "A8.01")], [chunk("c1", "p1", "GROUT COLOR: TBD\n")])[0]
+    rfi_checks.mark_ocr(f)
+    assert f.confidence == "high" and "readByOcr" not in f.facts and "source" not in f.evidence[0]
+
+
+def test_ocr_context_alone_does_not_cap_a_finding():
+    # Only where the PROBLEM was read counts: a schedule read by OCR that a
+    # text-layer mark is checked against is context.
+    f = Finding("unscheduled_mark", "fp", "high", "s", "q",
+                [{"sheetNumber": "S-101", "role": "finding"},
+                 {"sheetNumber": "S-501", "role": "context", "source": "ocr"}])
+    rfi_checks.mark_ocr(f)
+    assert f.confidence == "high"

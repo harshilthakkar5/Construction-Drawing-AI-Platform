@@ -1,8 +1,12 @@
 # Full AI scan
 
-The third way the RFIs tab finds problems, beside **Project checks** (code only,
-text only) and the **Targeted review** (one sheet, one element, or a few sheets
-a person names). The full scan answers a different question: *"show the AI every
+Step 2 of **Find RFIs in drawings**. Step 1 is the code checks (code only, text
+and geometry, words drawn as shapes read by OCR); they were two separate modes
+until the client asked why one job had two buttons. One click now runs the
+checks AND prepares this comparison's plan, which is free; the AI is used only
+when the person starts it with a budget. Both fill one review list. The
+**Targeted review** (one sheet, one element, or a few sheets a person names)
+stays its own mode. The full scan answers a different question: *"show the AI every
 part of the drawings that should agree, and tell me where they do not"* — on a
 set of hundreds of pages.
 

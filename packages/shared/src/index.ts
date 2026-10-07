@@ -861,6 +861,7 @@ export const RFI_CHECK_LABELS = {
   open_item_note: "Note left open on the drawing (TBD / verify)",
   grid_mismatch: "Grid line named differently between drawings",
   tag_value_conflict: "Same equipment tag, different rating on two drawings",
+  illegible_schedule: "Schedule pasted as a picture too coarse to read",
   // Targeted review only (workers/src/rfi_columns.py): it needs two named
   // sheets laid over each other, which a whole-project scan does not have.
   column_mismatch: "Column drawn differently on two drawings",
@@ -894,6 +895,10 @@ export interface RfiEvidenceDto {
    * Absent on everything else, and absent never means verified. */
   verification?: "verified" | "not_verified";
   occurrence?: RfiColumnOccurrenceDto;
+  /** "ocr": the quote was READ off words drawn as shapes on the sheet
+   * (workers/src/page_ocr.py), not lifted from the text layer. Absent means
+   * the text layer. */
+  source?: "ocr";
 }
 
 /** One printed occurrence of a column mark and where its body stands
