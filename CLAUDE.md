@@ -2297,6 +2297,48 @@ resumes the thread instead of showing a blank panel.
 
 ## Generated RFIs — checks decide, the model only words
 
+**One scan, two steps** (`components/RfiReview.tsx`, mode "Scan all drawings"). Project checks
+and the full AI scan were two modes with two buttons for one job, and the client asked why. The
+"Find RFIs in drawings" button now starts step 1 — the code checks below — AND plans step 2, the
+AI sheet comparison ("Full AI scan" below; its plan is free, `canPlanFullScan`), so its price is on
+screen by the time the checks finish; nothing is sent to an AI until the person presses Start.
+Both write `rfi_candidates`, one review list, each card badged by origin (Code check / AI
+comparison / Targeted review) and "Read by OCR" when its evidence was. The server contracts did
+not change; the merge is the UI orchestrating the two existing jobs. Targeted review stays its
+own mode — it answers a different question.
+
+Step 1 now also READS what the text layer does not hold (`workers/src/page_ocr.py`, task of
+`rfi_scan.ocr_pending` for documents processed before it existed, and of ingest after). CAD text
+exported as strokes (SHX) has no text layer: JETRIGHT's M0.02 has 164 words over 10,905 drawings
+and its fan and rooftop-unit schedules are strokes; ten pages have no text layer at all. The old
+FR-7 path OCR'd only a page with NO text, as ONE image, which PaddleOCR shrinks to 960px — a 36x24
+sheet at 27 DPI. `page_ocr.plan` picks pages (no text; ≤ `OCR_SHAPE_TEXT_MAX_WORDS` words over ≥
+`OCR_SHAPE_TEXT_MIN_DRAWINGS` drawings — checked FIRST, because M0.02 has pictures too and read for
+its pictures alone missed its schedules; or a picture ≥ 2in), `read` renders 1600px tiles at 200
+DPI with 25% overlap and keeps a line only from the tile whose CORE holds its centre (lines up to
+the overlap long are whole there), maps boxes to UNROTATED space, drops lines the text layer has,
+below `MIN_CONFIDENCE` 0.85, and inside an illegible picture. Lines are stored as `kind="text"`
+chunks with `sourceModel = "ocr:paddleocr"` (so retrieval and the checks read them) and the full
+reading in `pages.ocr` / `pages.ocrVersion` (examined once; a worker WITHOUT an engine leaves the
+page unmarked for one with it, and says so in the scan notes rather than "found nothing"). A
+finding whose problem was read by OCR is capped at MEDIUM and its question says so
+(`rfi_checks.mark_ocr`); OCR context does not cap it. ~40-70s of CPU a page, so the scan reads at
+most `OCR_MAX_PAGES_PER_SCAN` new pages each run. A PICTURE is measured too (`Picture.dpi`, long
+side to long side, since images are placed rotated): placed under 72 DPI, ≥10 text lines found,
+under half of them readable = ILLEGIBLE, and becomes the `illegible_schedule` finding asking for a
+legible copy. Nothing is guessed off it: E0.05's seven panel schedules (67 DPI, letters missing
+strokes) are where a reviewer read CF-2 at 2-1/2 HP, and a value read off that picture would be a
+confident wrong RFI. Tested with a stand-in engine (boxes at 0/90/180/270, the core rule); PaddleOCR
+itself was exercised locally only through rapidocr (same PP-OCR models, ONNX), because the model
+CDN is blocked in the sandbox — production builds the real models into the worker image.
+
+Evidence boxes are PINPOINTED (`workers/src/rfi_pinpoint.py`): a check records the printed words
+(`_term`, and `_near` for a tag's rating), the scan finds them inside the chunk box and shrinks the
+box to them (JETRIGHT RTU-3: 2681x608pt → 36x26), leaving it alone when they are not found; the `_`
+keys are always stripped before saving. A cell reading only "TBD" is named and grouped by its
+table's heading ("TBD in FIRE RESISTANCE - WALLS & PARTITIONS (14 entries)") rather than one bare
+"TBD" for the whole project, and a draft package's Discipline comes from the sheets it is on.
+
 "Find RFIs in drawings" (`POST /projects/:id/rfis/generated/scan` → the `rfi-scan` job →
 `workers/src/rfi_scan.py`) proposes RFIs the user did not type. The split of work is the whole
 design: `workers/src/rfi_checks.py` DECIDES what is missing from the project's own data, and a
@@ -2304,7 +2346,7 @@ model only WORDS each finding as a question. A model asked "what is missing from
 writes a fluent, confident list with nothing to tell the real items from the invented ones, and
 an RFI that is not real costs an engineer an afternoon.
 
-Five checks, each built for precision before recall — a missed gap is found the normal way, a
+Six checks, each built for precision before recall — a missed gap is found the normal way, a
 false one is a question someone has to answer:
 
   * `dangling_reference` — "SEE 5/S-501", "REFER TO SHEET A-301", with no S-501 in the set. Only
@@ -2358,6 +2400,9 @@ false one is a question someone has to answer:
     sizes and dimensions are not ratings. High when two sheets agree against a third. Blind spot:
     a schedule pasted in as a PICTURE has no text — JETRIGHT's M0.02 and E0.05 are images, so
     CF-2's 2 HP against 2-1/2 HP is invisible to it.
+  * `illegible_schedule` — a schedule pasted as a picture too coarse to read (page_ocr measured:
+    under 72 DPI, full of text, mostly unreadable). One finding per sheet asking for a legible copy;
+    no value is ever read off it. E0.05 is that case, which is why CF-2 is still not compared.
   * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
     (medium). Grouped by the NOTE, so a TBD in the general notes of forty sheets is one finding
     with up to five evidence locations. VERIFY IN FIELD is NOT an open item: field verification is
@@ -2608,7 +2653,7 @@ summary, scan or review.
 
 ## Full AI scan — code pairs and lines up, the model only compares
 
-The RFIs tab's third mode (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:
+Step 2 of "Find RFIs in drawings" (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:
 plan|run}`, tables `rfi_full_scans` + `rfi_full_scan_tiles`, candidates `origin = full_scan`).
 PLAN spends no model call: `sheet_facts.catalogue` reads every live page once (kind, level,
 printed scales, grid; cached on `pages` by `factsVersion`), `fullscan_plan.candidate_pairs` pairs
@@ -2816,7 +2861,8 @@ scrollbar. The work column is a container (`@container/work`), so the tab labels
 COLUMN's width, which the divider changes independently of the window's.
 
 The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). The
-tab opens on "Find RFIs in drawings" (`components/RfiReview.tsx`, see Generated RFIs below): the
+tab opens on "Scan all drawings" — one button, code checks then the optional priced AI comparison
+(`components/RfiReview.tsx`, see Generated RFIs below) — beside "Targeted review": the
 review list, then the log, then "Add manually" as the secondary path. Clicking any pin or piece
 of evidence drives the same `requestJump` the chat citations use. The panel keeps its OWN copy of the status
 transition table so it can render only buttons that will work — a duplicate, so

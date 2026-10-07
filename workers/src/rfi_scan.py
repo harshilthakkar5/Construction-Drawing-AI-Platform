@@ -371,7 +371,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
         page_rows = conn.execute(
             """
             SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber",
-                   p."sheetNumber", p."sheetRegionText", p.discipline::text
+                   p."sheetNumber", p."sheetRegionText", p.discipline::text,
+                   p.ocr -> 'pictures'
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
@@ -382,7 +383,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
             """
             SELECT c.id, c."pageId", c.text, c.bbox,
                    COALESCE(array_agg(ci.identifier) FILTER (WHERE ci.identifier IS NOT NULL),
-                            '{}')
+                            '{}'),
+                   COALESCE(c."sourceModel" LIKE 'ocr:%%', false)
               FROM chunks c
               JOIN pages p ON p.id = c."pageId"
               JOIN documents d ON d.id = p."documentId"
@@ -392,9 +394,13 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
             """,
             (project_id,),
         ).fetchall()
-    pages = [Page(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in page_rows]
+    pages = [
+        Page(r[0], r[1], r[2], r[3], r[4], r[5], r[6],
+             illegible_pictures=tuple(p for p in (r[7] or []) if isinstance(p, dict) and p.get("illegible")))
+        for r in page_rows
+    ]
     chunks = [
-        Chunk(r[0], r[1], r[2] or "", r[3] if isinstance(r[3], dict) else None, tuple(r[4] or ()))
+        Chunk(r[0], r[1], r[2] or "", r[3] if isinstance(r[3], dict) else None, tuple(r[4] or ()), ocr=bool(r[5]))
         for r in chunk_rows
     ]
     return pages, chunks
@@ -612,11 +618,129 @@ def _now(conn):
     return conn.execute("SELECT now()").fetchone()[0]
 
 
+def ocr_pending(project_id: str) -> list[str]:
+    """Read, with OCR, every page of the project the current OCR reader has
+    not examined — words drawn as shapes, pasted schedule pictures — and
+    store the lines as text chunks before the checks load. Documents
+    processed before page_ocr existed get their shape text read here, once:
+    each page is marked examined, so a re-scan costs nothing. Bounded by
+    OCR_MAX_PAGES_PER_SCAN, because one page is ~40s of CPU; the rest are
+    read by the next scan. Returns the scan notes."""
+    import ocr
+    import page_ocr
+
+    if not config.OCR_ENABLED:
+        return []
+    todo = db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION)
+    if not todo:
+        return []
+    engine = ocr.available()
+    read: list[str] = []
+    deferred = 0
+    unread = 0
+    illegible: list[str] = []
+    from rfi_review import _documents
+
+    sheets = _sheet_names(project_id)
+    with _documents(project_id, sorted({d for d, _, _ in todo})) as open_page:
+        for document_id, _key, page_number in todo:
+            try:
+                page = open_page(document_id, page_number)
+                if page is None:
+                    continue
+                reason = page_ocr.plan(page)
+                if reason is None:
+                    db.set_page_ocr(document_id, page_number, page_ocr.PageOcr(reason=None).as_json(),
+                                    page_ocr.OCR_VERSION)
+                    continue
+                if not engine:
+                    unread += 1
+                    continue
+                if len(read) >= config.OCR_MAX_PAGES_PER_SCAN:
+                    deferred += 1
+                    continue
+                started = time.monotonic()
+                result = page_ocr.read_page(page)
+                log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs", document_id[:8],
+                         page_number, reason, len(result.lines), sum(p.illegible for p in result.pictures),
+                         time.monotonic() - started)
+                db.replace_page_ocr(document_id, page_number, result.as_json(), page_ocr.OCR_VERSION,
+                                    page_ocr.SOURCE_MODEL, page_ocr.to_chunks(result, page))
+                name = sheets.get((document_id, page_number)) or f"page {page_number}"
+                read.append(name)
+                if any(p.illegible for p in result.pictures):
+                    illegible.append(name)
+            except Exception as exc:  # one unreadable page must not stop the scan
+                log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
+    notes = []
+    if read:
+        _index_new_chunks(project_id, sorted({d for d, _, _ in todo}))
+        notes.append(
+            f"OCR read {len(read)} page(s) whose words are drawn as shapes or pasted as pictures "
+            f"({_list(read)}). Findings resting on OCR text say so: check them against the sheet."
+        )
+    if illegible:
+        notes.append(f"Pictures too coarse to read reliably on {_list(illegible)}: nothing was guessed off them.")
+    if deferred:
+        notes.append(
+            f"OCR: {deferred} more page(s) need reading; the next scan reads up to "
+            f"{config.OCR_MAX_PAGES_PER_SCAN} more (OCR_MAX_PAGES_PER_SCAN)."
+        )
+    if unread:
+        notes.append(
+            f"OCR is not available on this worker, so {unread} page(s) whose words are drawn as shapes or "
+            "pasted as pictures were NOT read — the checks cannot see their text. Install PaddleOCR and its "
+            "models (workers/Dockerfile) and scan again."
+        )
+    return notes
+
+
+def _sheet_names(project_id: str) -> dict[tuple[str, int], str]:
+    with db.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."documentId", p."pageNumber", p."sheetNumber"
+              FROM pages p JOIN documents d ON d.id = p."documentId"
+             WHERE d."projectId" = %s AND p."sheetNumber" IS NOT NULL
+            """,
+            (project_id,),
+        ).fetchall()
+    return {(r[0], r[1]): r[2] for r in rows}
+
+
+def _list(names: list[str], limit: int = 8) -> str:
+    shown = ", ".join(names[:limit])
+    return shown + (f" and {len(names) - limit} more" if len(names) > limit else "")
+
+
+def _index_new_chunks(project_id: str, document_ids: list[str]) -> None:
+    """Portion links and vectors for the OCR chunks just written, so chat
+    finds them too. A failure here leaves them unembedded (a reindex fills
+    them in) and never fails the scan."""
+    try:
+        with db.project_lock(project_id):
+            db.assign_chunk_portions(project_id)
+        if not config.EMBEDDINGS_ENABLED:
+            return
+        import embeddings
+
+        for document_id in document_ids:
+            pending = db.chunks_to_embed(document_id)
+            if pending:
+                ids = embeddings.embed_document_chunks(pending)
+                if ids:
+                    db.set_embedding_ids(ids)
+    except Exception as exc:
+        log.warning("ocr: indexing the new chunks failed (%s); a reindex will pick them up", exc)
+
+
 def _run(project_id: str, scan_id: str) -> dict:
+    ocr_notes = ocr_pending(project_id)
     pages, chunks = load(project_id)
     log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
     grids, grid_note = load_grids(project_id, pages)
     findings, notes = rfi_checks.run_all(pages, chunks, grids)
+    notes = ocr_notes + notes
     pinpoint_evidence(project_id, findings)
     if grid_note:
         # Replaces run_all's generic "did not run" with the actual reason.

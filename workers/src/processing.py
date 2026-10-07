@@ -33,7 +33,7 @@ import db
 import embeddings
 import gridmarks
 import logutil
-import ocr
+import page_ocr
 import storage
 import tables
 import vlm
@@ -80,11 +80,13 @@ def _process_page(
     zoom = fitz.Matrix(config.PAGE_RENDER_ZOOM, config.PAGE_RENDER_ZOOM)
     png = page.get_pixmap(matrix=zoom).tobytes("png")
 
-    used_ocr = False
-    if not text:  # FR-7: OCR only when the page has no text layer
-        log.debug("page %d has no text layer — running OCR", page_number)
-        text = chunker.strip_nul(ocr.ocr_png_bytes(png))
-        used_ocr = True
+    # FR-7, widened: a page with no text layer, words drawn as shapes, or a
+    # pasted schedule picture is read in tiles (page_ocr.py). The old path
+    # sent the whole sheet as one image, which the detector shrinks to 960px.
+    reading = page_ocr.read_page(page) if config.OCR_ENABLED else page_ocr.PageOcr(reason=None)
+    used_ocr = bool(reading.reason) and reading.ran
+    if not text and reading.lines:
+        text = chunker.strip_nul("\n".join(line.text for line in reading.lines))
 
     storage.put_bytes(
         storage.page_image_key(project_id, document_id, page_number), png, "image/png"
@@ -120,17 +122,9 @@ def _process_page(
         page_height=page.rect.height,
         tables=tables.find_page_tables(page, document_id),
     )
-    if not page_chunks and text:
-        # OCR-only page: no positioned blocks, so one chunk spans the whole
-        # page rect (coarse but truthful highlight).
-        rect = page.rect
-        page_chunks = [
-            chunker.Chunk(
-                text=text,
-                bbox={"x": 0, "y": 0, "width": rect.width, "height": rect.height},
-                token_count=chunker.estimate_tokens(text),
-            )
-        ]
+    # OCR lines carry their own boxes, so they chunk like the text layer;
+    # marked with their source so a finding resting on one can say so.
+    page_chunks = page_chunks + page_ocr.to_chunks(reading, page)
     page_chunks = page_chunks + _grid_marks(page, page_number)
     description = _describe_page(page, project_id, page_number, spend)
     if description:
@@ -152,6 +146,10 @@ def _process_page(
         )
 
     db.replace_page_chunks(document_id, page_number, page_chunks)
+    if reading.ran or reading.reason is None:
+        # Examined: the scan need not read this page again. A page that needed
+        # OCR on a worker without an engine is left unmarked for one that has it.
+        db.set_page_ocr(document_id, page_number, reading.as_json(), page_ocr.OCR_VERSION)
     log.debug("page %d done: %d chars, %d chunks", page_number, len(text), len(page_chunks))
     return used_ocr
 

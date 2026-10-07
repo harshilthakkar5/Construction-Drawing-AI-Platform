@@ -47,6 +47,7 @@ def processing(monkeypatch):
     monkeypatch.setattr(module.storage, "page_text_key", lambda *a: "text")
     monkeypatch.setattr(module.db, "upsert_page", lambda *a, **k: None)
     monkeypatch.setattr(module.db, "replace_page_chunks", lambda *a, **k: None)
+    monkeypatch.setattr(module.db, "set_page_ocr", lambda *a, **k: None)
     return module
 
 
@@ -614,3 +615,43 @@ class TestGridMarksNeverFailAPage:
         marks = next(c for c in written if c.kind == "gridmarks")
         assert "At 1/A: C-6 (14 x 30)." in marks.text
         doc.close()
+
+
+class TestPageOcrAtIngest:
+    """page_ocr at ingest: what is stored, and when a page is marked read."""
+
+    def _blank_drawing(self):
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=600, height=400)
+        page.draw_rect(fitz.Rect(100, 100, 160, 112), color=(0, 0, 0), fill=(0, 0, 0))
+        return doc
+
+    def _stub_engine(self, monkeypatch, available=True):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import ocr
+        import test_page_ocr
+
+        monkeypatch.setattr(ocr, "available", lambda: available)
+        monkeypatch.setattr(ocr, "image_lines", test_page_ocr._boxes_engine)
+
+    def test_a_page_with_no_text_layer_is_read_and_marked_examined(self, processing, monkeypatch):
+        import page_ocr
+
+        self._stub_engine(monkeypatch)
+        monkeypatch.setattr(processing.config, "VLM_ENABLED", False)
+        written, marked = [], []
+        monkeypatch.setattr(processing.db, "replace_page_chunks", lambda doc, n, chunks: written.extend(chunks))
+        monkeypatch.setattr(processing.db, "set_page_ocr", lambda *a: marked.append(a))
+        assert processing._process_page("proj", "doc", self._blank_drawing(), 0, 0) is True
+        assert [c.source_model for c in written] == [page_ocr.SOURCE_MODEL]
+        assert marked[0][2]["reason"] == "no text layer" and marked[0][3] == page_ocr.OCR_VERSION
+
+    def test_without_an_engine_the_page_is_left_for_one_that_has_it(self, processing, monkeypatch):
+        self._stub_engine(monkeypatch, available=False)
+        monkeypatch.setattr(processing.config, "VLM_ENABLED", False)
+        marked = []
+        monkeypatch.setattr(processing.db, "set_page_ocr", lambda *a: marked.append(a))
+        assert processing._process_page("proj", "doc", self._blank_drawing(), 0, 0) is False
+        assert marked == []

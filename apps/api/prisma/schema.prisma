@@ -392,6 +392,15 @@ model Page {
   gridSummary  Json?
   factsVersion Int?
 
+  /// workers/src/page_ocr.py's reading of the text the text layer does not
+  /// hold (words drawn as shapes, pasted pictures): its lines with boxes,
+  /// and each large picture with the DPI it was placed at and whether it is
+  /// legible. The lines are also stored as text chunks (sourceModel
+  /// "ocr:paddleocr"). NULL / ocrVersion below page_ocr.OCR_VERSION: not
+  /// examined yet under the current reader.
+  ocr        Json?
+  ocrVersion Int?
+
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   chunks   Chunk[]
 

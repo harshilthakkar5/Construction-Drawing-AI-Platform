@@ -27,7 +27,7 @@ import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { RfiFullScan } from "@/components/RfiFullScan";
+import { RfiFullScan, canPlanFullScan } from "@/components/RfiFullScan";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -35,12 +35,16 @@ import { useAppStore } from "@/store";
 /**
  * "Find RFIs in drawings", and the review list it fills.
  *
- * The scan runs in the worker: deterministic checks decide what is missing
- * (a sheet referenced and not issued, a mark with no schedule row, a note left
- * TBD) and the AI only words each finding as a question. What comes back here
- * is a FINDING — no number, not issued. Accept makes it a numbered, open RFI
- * pinned where it was found; Dismiss remembers it so the next scan does not
- * propose it again.
+ * ONE scan in two steps. Project checks and the full AI scan used to be two
+ * modes with two buttons for one job, and people asked why. Now the button
+ * runs step 1 — code checks over every sheet (a sheet referenced and not
+ * issued, a mark with no schedule row, a note left TBD, one tag with two
+ * ratings, a grid named two ways, words read by OCR) where the AI only words
+ * each finding — and prepares step 2, the AI sheet comparison, whose plan is
+ * free and whose run spends only when the person starts it. Both fill the
+ * same list. What comes back here is a FINDING — no number, not issued.
+ * Accept makes it a numbered, open RFI pinned where it was found; Dismiss
+ * remembers it so the next scan does not propose it again.
  *
  * Every finding shows the drawing's own words and a link to the spot, because
  * the reviewer's job is to check it — and "Accept all high-confidence" exists
@@ -66,6 +70,19 @@ const CONFIDENCE: Record<
     variant: "secondary",
     hint: "Often genuine, often boilerplate or a sheet simply not uploaded — worth a look.",
   },
+};
+
+/** Which part of the scan found it — one list, so every finding says. */
+const ORIGIN: Record<string, { label: string; hint: string }> = {
+  deterministic_scan: {
+    label: "Code check",
+    hint: "Found by step 1, the code checks: from the drawings' own text and geometry, no AI judgement.",
+  },
+  full_scan: {
+    label: "AI comparison",
+    hint: "Found by step 2, the AI sheet comparison, and checked close up on both sheets. Beta: accuracy not yet measured.",
+  },
+  targeted_review: { label: "Targeted review", hint: "Found by a targeted review of named sheets." },
 };
 
 const checkLabel = (checkType: string) =>
@@ -110,8 +127,9 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [showDismissed, setShowDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
-  const [mode, setMode] = useState<"targeted" | "project" | "full">("targeted");
-  // Turned off on this server (RFI_FULL_SCAN=off) the list 404s: no option.
+  const [mode, setMode] = useState<"scan" | "targeted">("scan");
+  // Turned off on this server (RFI_FULL_SCAN=off) the list 404s: step 2 is
+  // not offered and the scan is the code checks alone.
   const fullScan = useQuery({ queryKey: ["rfi-full-scans", projectId], queryFn: () => api.listRfiFullScans(projectId), retry: false });
   const fullScanOffered = !fullScan.isError;
 
@@ -157,7 +175,22 @@ export function RfiReview({ projectId }: { projectId: string }) {
   }, [scan.data?.status]);
 
   const start = useMutation({
-    mutationFn: (fresh: boolean) => api.startRfiScan(projectId, { fresh }),
+    mutationFn: async (fresh: boolean) => {
+      const started = await api.startRfiScan(projectId, { fresh });
+      // Step 2's plan comes with it: free (no AI call), and it means the
+      // comparison's cost is on screen by the time the checks finish. A plan
+      // already waiting or running is left alone; a failure here never
+      // undoes the checks, which have already started.
+      if (fullScanOffered && canPlanFullScan(fullScan.data?.scans[0])) {
+        try {
+          await api.planRfiFullScan(projectId);
+        } catch {
+          // Shown by step 2 itself, which offers "Prepare the comparison only".
+        }
+        void queryClient.invalidateQueries({ queryKey: ["rfi-full-scans", projectId] });
+      }
+      return started;
+    },
     onSuccess: (started) => {
       queryClient.setQueryData(["rfi-scan", projectId], started);
       setConfirmFresh(false);
@@ -194,31 +227,22 @@ export function RfiReview({ projectId }: { projectId: string }) {
         size="sm"
         className="mb-2 w-full"
         value={mode}
-        onValueChange={(value) => value && setMode(value as "targeted" | "project" | "full")}
+        onValueChange={(value) => value && setMode(value as "scan" | "targeted")}
         aria-label="How to find RFIs"
       >
-        <ToggleGroupItem value="targeted" className="flex-1 text-xs">
+        <ToggleGroupItem value="scan" className="flex-1 text-xs" title="Every sheet: code checks, then an optional AI comparison">
+          Scan all drawings
+        </ToggleGroupItem>
+        <ToggleGroupItem value="targeted" className="flex-1 text-xs" title="One sheet, one element, or sheets that should agree">
           Targeted review
         </ToggleGroupItem>
-        <ToggleGroupItem value="project" className="flex-1 text-xs">
-          Project checks
-        </ToggleGroupItem>
-        {fullScanOffered && (
-          <ToggleGroupItem value="full" className="flex-1 text-xs">
-            Full AI scan
-          </ToggleGroupItem>
-        )}
       </ToggleGroup>
       {mode === "targeted" ? (
         <div className="bg-muted/40 rounded-lg border p-3">
           <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
         </div>
-      ) : mode === "full" && fullScanOffered ? (
-        <div className="bg-muted/40 rounded-lg border p-3">
-          <RfiFullScan projectId={projectId} onFinished={refreshAll} />
-        </div>
       ) : (
-      <div className="bg-muted/40 rounded-lg border p-3">
+      <div className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -226,7 +250,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
             disabled={scanning || start.isPending}
             title={scan.data ? "Look for gaps added since the last scan" : undefined}
           >
-            {scanning ? <Spinner /> : <ScanSearchIcon />}
+            {scanning || start.isPending ? <Spinner /> : <ScanSearchIcon />}
             {scanning
               ? scan.data?.fresh
                 ? "Rescanning from scratch…"
@@ -247,46 +271,69 @@ export function RfiReview({ projectId }: { projectId: string }) {
               Rescan from scratch
             </Button>
           )}
-          {scan.data?.status === "completed" && (
-            <span className="text-muted-foreground text-xs">{scanSummary(scan.data)}</span>
-          )}
         </div>
         {!scan.data && !scan.isLoading && (
-          <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
-            Checks every sheet for references to sheets that are not in the set, marks with no
-            row in their schedule, and notes left open (TBD, verify in field). Each finding is
-            written up as an RFI question for you to accept or dismiss.
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            One scan, two steps. <strong className="text-foreground">1 · Code checks</strong> read every
+            sheet — including words drawn as shapes, by OCR — for references to sheets not in the set, marks
+            with no row in their schedule, notes left open (TBD), one equipment tag with two ratings, and a
+            grid named two ways.{" "}
+            {fullScanOffered && (
+              <>
+                <strong className="text-foreground">2 · AI sheet comparison</strong> is prepared at the same
+                time and is optional: you see its price and choose a budget before anything is spent.{" "}
+              </>
+            )}
+            Every finding is written up as an RFI question for you to accept or dismiss.
           </p>
         )}
-        {scan.data?.status === "completed" && scan.data.usage && (
-          <ScanUsage
-            usage={scan.data.usage}
-            totals={usageTotals.data}
-            open={showUsage}
-            onToggle={() => setShowUsage((v) => !v)}
-          />
-        )}
-        {scan.data?.status === "failed" && (
-          <Notice tone="error">The last scan failed: {scan.data.error ?? "unknown error"}</Notice>
-        )}
-        {scan.data && scan.data.notes.length > 0 && (
-          <div className="mt-2">
-            <button
-              type="button"
-              className="text-muted-foreground flex items-center gap-1 text-xs hover:underline"
-              onClick={() => setShowNotes((v) => !v)}
-            >
-              <TriangleAlertIcon className="size-3" />
-              {scan.data.notes.length} note{scan.data.notes.length === 1 ? "" : "s"} about this scan
-              <ChevronDownIcon className={cn("size-3 transition-transform", showNotes && "rotate-180")} />
-            </button>
-            {showNotes && (
-              <ul className="text-muted-foreground mt-1 list-disc pl-5 text-xs leading-relaxed">
-                {scan.data.notes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
+
+        {scan.data && (
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-sm font-semibold">1 · Code checks</h4>
+              <Badge variant="secondary">Every scan</Badge>
+              {scan.data.status === "completed" && (
+                <span className="text-muted-foreground text-xs">{scanSummary(scan.data)}</span>
+              )}
+            </div>
+            {scan.data.status === "completed" && scan.data.usage && (
+              <ScanUsage
+                usage={scan.data.usage}
+                totals={usageTotals.data}
+                open={showUsage}
+                onToggle={() => setShowUsage((v) => !v)}
+              />
             )}
+            {scan.data.status === "failed" && (
+              <Notice tone="error">The last scan failed: {scan.data.error ?? "unknown error"}</Notice>
+            )}
+            {scan.data.notes.length > 0 && (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  className="text-muted-foreground flex items-center gap-1 text-xs hover:underline"
+                  onClick={() => setShowNotes((v) => !v)}
+                >
+                  <TriangleAlertIcon className="size-3" />
+                  {scan.data.notes.length} note{scan.data.notes.length === 1 ? "" : "s"} about this scan
+                  <ChevronDownIcon className={cn("size-3 transition-transform", showNotes && "rotate-180")} />
+                </button>
+                {showNotes && (
+                  <ul className="text-muted-foreground mt-1 list-disc pl-5 text-xs leading-relaxed">
+                    {scan.data.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {fullScanOffered && (scan.data || fullScan.data?.scans[0]) && (
+          <div className="border-t pt-3">
+            <RfiFullScan projectId={projectId} onFinished={refreshAll} />
           </div>
         )}
       </div>
@@ -526,14 +573,12 @@ function CandidateCard({
           {confidence.label}
         </Badge>
         <span className="text-muted-foreground text-xs">{checkLabel(candidate.checkType)}</span>
-        {candidate.origin === "targeted_review" && (
-          <Badge variant="outline" title="Found by a targeted review of named sheets">
-            Targeted review
-          </Badge>
-        )}
-        {candidate.origin === "full_scan" && (
-          <Badge variant="outline" title="Found by the full AI scan, checked close up on both sheets. Beta: accuracy not yet measured.">
-            Full AI scan
+        <Badge variant="outline" title={ORIGIN[candidate.origin]?.hint}>
+          {ORIGIN[candidate.origin]?.label ?? candidate.origin}
+        </Badge>
+        {candidate.evidence.some((e) => e.source === "ocr") && (
+          <Badge variant="outline" title="The words behind this finding are drawn as shapes on the sheet and were read by OCR. Check them on the drawing before accepting.">
+            Read by OCR
           </Badge>
         )}
         {candidate.priority && candidate.priority !== "normal" && (
