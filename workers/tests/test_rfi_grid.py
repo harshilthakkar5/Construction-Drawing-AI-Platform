@@ -503,3 +503,20 @@ def test_s2105_grid_lines_sit_where_their_leaders_land():
     assert system["along_x"]["H"] == pytest.approx(2129.52, abs=0.5)
     # Lines bubbled straight on are untouched.
     assert system["along_x"]["G"] == pytest.approx(1939.56, abs=0.5)
+
+
+def test_an_offset_just_across_a_bin_edge_still_lines_up():
+    """JETRIGHT A1.01 against S2.01, positions as read: every lettered line is
+    renamed one step (A1.01's U is S2.01's T) at -27.3pt. That offset sits just
+    past the edge of the bin that won the vote, and one median over all three
+    bins landed at -22.8, matched two lines and reported nothing (Astra's
+    JR-004 on that set)."""
+    a = {"U": 214.06, "T": 286.06, "S": 290.57, "R": 470.57, "Q": 650.57, "P": 830.57, "N": 1010.57,
+         "M": 1190.57, "L": 1370.57, "K": 1550.57, "J": 1730.57, "H": 1910.57, "G": 2090.57,
+         "E": 2270.31, "F": 2270.57, "D": 2293.11, "C": 2346.89, "B": 2535.32, "A": 2694.32}
+    b = {"T": 186.66, "S": 258.66, "R": 263.22, "Q": 443.22, "P": 623.22, "N": 803.22, "M": 983.22,
+         "L": 1163.22, "K": 1343.22, "J": 1523.22, "H": 1703.22, "G": 1883.22, "F": 2063.22,
+         "E": 2243.22, "D": 2247.66, "C": 2319.42, "B": 2507.94, "A": 2666.94}
+    found = rfi_grid.align(a, b)
+    assert found is not None and found.offset == pytest.approx(-27.35, abs=0.2)
+    assert ("U", "T") in found.pairs and ("G", "F") in found.pairs and ("A", "A") in found.pairs

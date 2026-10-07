@@ -32,6 +32,7 @@ DISPLAY space (what a person sees), and mapped back.
 from __future__ import annotations
 
 import json
+import re
 import os
 import tempfile
 import textwrap
@@ -100,9 +101,10 @@ class Item:
     draft: bool
     marks: list[Mark] = field(default_factory=list)
     reasoning: str | None = None
-    # The sheet revision the RFI is about. Nothing reads it off the title
-    # block yet, so it is None and the form says so in words — a blank field
-    # reads as "no revision", which is a claim.
+    # What the finding's sheets were issued as, read off their title blocks at
+    # render time (`sheet_issues`). None when nothing could be read, and the
+    # form then says so in words — a blank field reads as "no revision",
+    # which is a claim.
     revision: str | None = None
 
     @property
@@ -472,8 +474,11 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
     _box_text(page, fitz.Rect(382, 117, 590, 150), item.subject, size=9)
     _text(page, 376, 162, "Plan/Sheet:", bold=True, right=True)
     _text(page, 382, 162, ", ".join(item.sheets)[:44])
-    _text(page, 376, 180, "Revision:", bold=True, right=True)
-    _text(page, 382, 180, (item.revision or "Unknown - not read from the title block")[:44], size=9 if not item.revision else 10)
+    _text(page, 376, 180, "Issue:", bold=True, right=True)
+    if item.revision:
+        _box_text(page, fitz.Rect(382, 171, 590, 202), item.revision, size=8)
+    else:
+        _text(page, 382, 180, "Unknown - not read from the title block", size=9)
 
     heading = "BIM RFI Description:" if not item.draft else "Proposed RFI Description:"
     _text(page, 26, 220, heading, size=12, bold=True)
@@ -532,6 +537,107 @@ def snippet(page: fitz.Page, cloud_display: fitz.Rect, callout: fitz.Rect | None
 # --- composing a package -------------------------------------------------------------
 
 
+# What the title block says the sheet was issued AS, and when. A reviewer's
+# critique of a JETRIGHT package: it printed "Revision: Unknown" over sheets
+# whose title blocks plainly read "03/31/26 90% MNAA-AIR REVIEW SUBMITTAL" —
+# and the issue status is evidence (an architectural set updated for pricing
+# against a structural set still marked NOT FOR CONSTRUCTION explains a
+# disagreement before anyone asks about it).
+_ISSUE_LINE = re.compile(
+    r"(?<!NOT )(?<!NOT  )\b(?:\d{1,3}%[A-Z0-9 &/.-]*(?:SUBMITTAL|SUBMISSION|SUB|SET|REVIEW|DOCUMENTS|DRAWINGS)"
+    r"|ISSUED? FOR [A-Z][A-Z /&-]{2,40}|(?:BID|PERMIT|CONSTRUCTION|PRICING|TENDER) (?:SET|DOCUMENTS)"
+    r"|(?:[A-Z]+ ){0,2}FOR (?:PERMIT|PRICING|BID|CONSTRUCTION|REVIEW)(?: / [A-Z]+)?"
+    r"|ADDENDUM\s*#?\s*\d+|REVISION\s*#?\s*\d+)\b"
+)
+_ISSUE_DATE = re.compile(r"(?<![\d/])(\d{1,2}/\d{1,2}/\d{2,4})(?![\d/])(?!\s*\d{1,2}:\d{2})")
+_NOT_FOR_CONSTRUCTION = re.compile(r"\bNOT\s+FOR\s+CONSTRUCTION\b")
+TITLE_BLOCK_SHARE = 0.25  # the right-hand quarter (or bottom quarter) of the sheet
+
+
+def title_block_issue(page) -> str | None:
+    """"03/31/26 90% MNAA-AIR REVIEW SUBMITTAL" (plus "NOT FOR CONSTRUCTION"
+    when the sheet says so), read from the title block, or None.
+
+    Only lines in the title-block band — the right or bottom quarter of the
+    sheet as displayed — count, so a general note saying "ISSUED FOR
+    CONSTRUCTION DRAWINGS SHALL..." in the body is not read as the issue. A
+    date followed by a clock time is the plot stamp, not the issue date. When
+    the block lists several issues, the one with the latest date wins."""
+    rect = page.rect
+    lines = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line["spans"]).strip()
+            if not text:
+                continue
+            box = fitz.Rect(line["bbox"]) * page.rotation_matrix
+            if box.x0 < rect.width * (1 - TITLE_BLOCK_SHARE) and box.y0 < rect.height * (1 - TITLE_BLOCK_SHARE):
+                continue
+            lines.append((box, " ".join(text.upper().split())))
+    # "NOT FOR CONSTRUCTION" is a status, never an issue: the issue pattern
+    # would read "FOR CONSTRUCTION" out of it, the opposite of what it says.
+    issues = [
+        (box, m.group(0).strip())
+        for box, text in lines
+        for m in [_ISSUE_LINE.search(_NOT_FOR_CONSTRUCTION.sub(" ", text))]
+        if m and m.group(0).strip()
+    ]
+    # The stamp is often set over two lines ("NOT FOR" / "CONSTRUCTION").
+    band = " ".join(text for _, text in sorted(lines, key=lambda l: (round(l[0].y0), l[0].x0)))
+    stamped = _NOT_FOR_CONSTRUCTION.search(band) is not None
+    if not issues:
+        return "NOT FOR CONSTRUCTION" if stamped else None
+    dated = []
+    for box, issue in issues:
+        near = [
+            (abs(b.y0 - box.y0) + abs(b.x0 - box.x0) / 10, d.group(1))
+            for b, text in lines
+            for d in [_ISSUE_DATE.search(text)]
+            if d and abs((b.y0 + b.y1) / 2 - (box.y0 + box.y1) / 2) <= max(6.0, box.height)
+        ]
+        date = min(near)[1] if near else None
+        dated.append((_date_key(date), date, issue))
+    _, date, issue = max(dated)
+    out = f"{date} {issue}" if date else issue
+    if stamped and "NOT FOR CONSTRUCTION" not in out:
+        out += " (NOT FOR CONSTRUCTION)"
+    return out
+
+
+def sheet_issues(item: Item, open_doc) -> str | None:
+    """The issue the finding's sheets were printed under: one line when they
+    agree, each sheet's own when they do not — that difference is itself
+    evidence, and the reader should see it without opening the title blocks."""
+    issues: dict[str, str | None] = {}
+    for m in item.marks:
+        if m.role != "finding" or not m.document_id:
+            continue
+        label = m.sheet_number or f"page {m.combined_page_number or m.page_number}"
+        if label in issues:
+            continue
+        doc = open_doc(m.document_id)
+        issue = None
+        if doc is not None and 1 <= m.page_number <= doc.page_count:
+            try:
+                issue = title_block_issue(doc[m.page_number - 1])
+            except Exception as exc:  # an unreadable title block is an unknown issue
+                log.warning("rfi package: title block of %s unreadable: %s", label, exc)
+        issues[label] = issue
+    known = {k: v for k, v in issues.items() if v}
+    if not known:
+        return None
+    if len(set(known.values())) == 1 and len(known) == len(issues):
+        return next(iter(known.values()))
+    return "; ".join(f"{k}: {v}" for k, v in known.items())
+
+
+def _date_key(date: str | None) -> tuple[int, int, int]:
+    if not date:
+        return (0, 0, 0)
+    m, d, y = (int(x) for x in date.split("/"))
+    return (y + 2000 if y < 100 else y, m, d)
+
+
 def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
     """The whole package. `open_doc(document_id)` returns a fitz.Document of
     the ORIGINAL PDF, or None when it cannot be had."""
@@ -578,6 +684,8 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
                     snippets.append((snippet(sheets[-1], c, callout), label))
         if len(order) > MAX_SHEETS_PER_ITEM:
             missing.append(f"{len(order) - MAX_SHEETS_PER_ITEM} more sheet(s) are cited; only the first {MAX_SHEETS_PER_ITEM} are included.")
+        if item.revision is None:
+            item.revision = sheet_issues(item, open_doc)
         cover_page(out, item, snippets, missing)
         if sheets.page_count:  # inserting an empty document is an error
             out.insert_pdf(sheets, annots=True)

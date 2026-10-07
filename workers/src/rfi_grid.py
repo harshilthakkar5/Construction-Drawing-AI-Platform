@@ -195,16 +195,27 @@ def align(a: dict[str, float], b: dict[str, float], fixed_offset: float | None =
         if any(abs(k - t) <= 2 for t in tried):
             continue
         tried.append(k)
-        # Refine inside the bin: the mean of the differences that voted for it.
-        diffs = [
-            pos_b - pos_a
-            for pos_a, _ in pa
-            for pos_b, _ in pb
-            if abs((pos_b - pos_a) / MATCH_TOL_PT - k) <= 1
-        ]
-        offset = sorted(diffs)[len(diffs) // 2]
-        pairs = _match(pa, pb, offset)
-        candidates.append((len(pairs), offset, pairs))
+        # Refine: the median of each of the three bins that scored k, and keep
+        # whichever matches most. One median over all three was pulled off the
+        # true offset: JETRIGHT's A1.01 against S2.01 is -27.3pt, just across
+        # the edge into bin -9 while bin -8 won the vote, so the median landed
+        # at -22.8, matched 2 lines instead of 17, and the whole lettered axis
+        # renamed one step (A1.01's U is S2.01's T) went unreported.
+        best_here: tuple[int, float, list[tuple[str, str]]] | None = None
+        for bin_ in (k - 1, k, k + 1):
+            diffs = sorted(
+                pos_b - pos_a
+                for pos_a, _ in pa
+                for pos_b, _ in pb
+                if round((pos_b - pos_a) / MATCH_TOL_PT) == bin_
+            )
+            if not diffs:
+                continue
+            offset = diffs[len(diffs) // 2]
+            pairs = _match(pa, pb, offset)
+            if best_here is None or len(pairs) > best_here[0]:
+                best_here = (len(pairs), offset, pairs)
+        candidates.append(best_here)
         if len(tried) >= 6:
             break
     candidates.sort(key=lambda c: -c[0])

@@ -860,6 +860,7 @@ export const RFI_CHECK_LABELS = {
   unscheduled_mark: "Mark with no row in its schedule",
   open_item_note: "Note left open on the drawing (TBD / verify)",
   grid_mismatch: "Grid line named differently between drawings",
+  tag_value_conflict: "Same equipment tag, different rating on two drawings",
   // Targeted review only (workers/src/rfi_columns.py): it needs two named
   // sheets laid over each other, which a whole-project scan does not have.
   column_mismatch: "Column drawn differently on two drawings",

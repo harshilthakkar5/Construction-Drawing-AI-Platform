@@ -294,6 +294,47 @@ level in their title (mostly civil), 3 sheets with several views, M1.02 "GROUND 
 sheets say LEVEL 1; these are deliberately not treated as the same floor), and A5.31,
 which shares no printed scale with any other sheet.
 
+### A second reviewer's comparison (JETRIGHT, 7 Oct 2026)
+
+A scan of the JETRIGHT set (Gemini 3.6 Flash, 114 areas) returned **0 findings**: every
+area came back "agree", and the diagnostic export shows it was right to: the sheets line
+up and their walls agree. A separate package from the same set held one AI RFI, "mezzanine
+floor edge uniform on E2.02, stepped on P1.03". A second reviewer (ChatGPT Astra) compared
+that package with its own coordination review of the set and rejected it:
+
+- both highlighted lines were pale BACKGROUND linework, the architect's plan that each
+  consultant copied, compared as if it were design;
+- neither sheet labels a floor edge, so the RFI named an element nobody drew as one;
+- it read "different elevations" off lines moving across a PLAN;
+- the governing sheet (the architectural mezzanine plan) was never checked.
+
+What changed in the full scan:
+
+| Rule | Where |
+|---|---|
+| A pair needs a governing sheet (architectural, structural or interiors) or two sheets of one discipline. E, P and G plans are each compared with the architectural or structural plan of their level, never with each other. A level with no governing plan says so in "Left out". | `fullscan_plan.governs` |
+| Both looks are told that pale or halftone background linework proves nothing, that a plan shows no heights, and to name an element only when a label says what it is. | prompts, `PROMPT_VERSION` fullscan-2026-10-07.1 |
+| A kept claim of a height, elevation or level change is rejected unless a close-up prints EL., T.O., SLOPE, STEP, SECTION or similar. | `fullscan_run.level_claim_unsupported` |
+| The package cover reads the issue line and date off each finding sheet's title block ("03/31/26 95% MNAA-AIR REVIEW SUBMITTAL (NOT FOR CONSTRUCTION)"), not "Revision: Unknown". | `rfi_package.title_block_issue` |
+
+Astra's own six RFIs were mostly not pictures at all. They were ENTITY matches: one tag
+with two values, a tag with no schedule row, one grid with two names. Code does that
+better than a vision model, so three of them are now **Project checks** (run "Find RFIs
+in drawings", not the full scan):
+
+| Astra | Now | How |
+|---|---|---|
+| JR-001 F6.0 footing tag with no schedule row | found | `unscheduled_mark`: a schedule heading with its rows in separate text blocks, dotted marks when the schedule writes them that way |
+| JR-002 RTU-3 80 MBH (P0.02, P1.03) vs 100 MBH (P1.04) | found | new `tag_value_conflict` |
+| JR-004 A1.01's lettered grid renamed one step against S2.01 (U = T …) | found | `grid_mismatch`, after a bin-edge bug in `rfi_grid.align` was fixed |
+| JR-006 CF-2 2 HP vs 2-1/2 HP | not found | both schedules (M0.02, E0.05) are pasted in as pictures, with no text to read |
+| JR-003 oil/water separator dimensions, JR-005 shower recess depth | not found | need reading two product details, or noticing a missing dimension |
+
+Run over every text block of the 103 pages, the Project checks return exactly those three, plus the gate
+transceiver "PART NUMBER TBD" and the grout colour TBD (Astra's V-02 and V-04). It no longer
+raises "T.B.C.O." (a traffic-bearing cover rating) as an open item, or insulation R-values
+as railing marks. The other client's eleven sheets give the same output as before.
+
 ### When the provider refuses the account
 
 A scan that stops on the provider's side — Gemini's `402 RESOURCE_EXHAUSTED … prepayment credits are

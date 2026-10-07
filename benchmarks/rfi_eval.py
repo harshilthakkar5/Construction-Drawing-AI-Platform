@@ -65,6 +65,9 @@ def matches(expected: dict, candidate: dict) -> list[str]:
     for a, b in expected.get("pairs", []):
         if not _pair(a, b, text):
             missing.append(f"does not say {a} = {b}")
+    for m in expected.get("mentions", []):
+        if _norm(m) not in _norm(text):
+            missing.append(f"does not mention {m}")
     return missing
 
 

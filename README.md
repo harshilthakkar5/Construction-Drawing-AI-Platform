@@ -917,7 +917,7 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | Feature | State | How it is checked |
 |---|---|---|
 | RFI log (numbers, statuses, pins, Excel export) | built | API tests; number allocator in one transaction |
-| Project checks (`rfi-scan`: dangling reference, unscheduled mark, open-item note, grid mismatch) | built | worker tests against real SQL; RFI 002 found on the client's S2.105/A3.01 |
+| Project checks (`rfi-scan`: dangling reference, unscheduled mark, open-item note, grid mismatch, tag value conflict) | built | worker tests against real SQL; RFI 002 found on the client's S2.105/A3.01; on JETRIGHT, 3 of a reviewer's 6 RFIs (F6.0, RTU-3, grid U = T) |
 | Targeted review — targets: one sheet, one element (mark, level, area), 2–4 sheets compared | built | planner tests against a real database |
 | The 16 original questions, verbatim, one catalogue for routing, prompts and UI; version stored per run | built | golden fixture read by both test suites |
 | Question modes: Choose for me / All 16 / I will choose; an outcome for all 16 in every run | built | unit + worker tests |

@@ -4,7 +4,8 @@
     "A case passes when one candidate of the run matches every field of an expected finding. `pairs` are grid names or values that must appear as 'a = b' in either order;",
     "`sheets` must each be named in the finding's evidence. Candidates matching no expected finding are listed, never scored as wrong: the sheets may carry real problems nobody wrote an RFI for.",
     "`rejected` lists findings a person reviewed and judged WRONG, with why: a run that raises one again is a false positive and fails (the one exception to 'never scored as wrong'). Match on checkTypes, sheets in the evidence, and `mentions` in the wording. Target type 'scan' means the project-wide checks: score with --scan <rfi scan id>.",
-    "Run: python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002] with DATABASE_URL set."
+    "Run: python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002] with DATABASE_URL set.",
+    "`mentions` on an expected finding: each must appear in its wording (separators ignored, so F6.0 matches F60)."
   ],
   "cases": [
     {
@@ -519,6 +520,164 @@
           ],
           "mentions": [
             "C-13"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "jetright-project-checks",
+      "source": "A reviewer's (ChatGPT Astra) expanded coordination review of the 103-page JETRIGHT Hangar 15 set, 6 Oct 2026: JR-001 F6.0 footing tag with no schedule entry, JR-002 RTU-3 at 80 MBH on P0.02/P1.03 and 100 MBH on P1.04, JR-004 the lettered grid renamed one step between A1.01 and S2.01. JR-003 (oil/water separator), JR-005 (shower recess) and JR-006 (CF-2 2 HP vs 2-1/2 HP, both schedules are pasted-in PICTURES) are not reachable by the project checks.",
+      "pdf": "20260331-JETRIGHT 90pct AIR REVIEW SET_UPDATED FOR PRICING.pdf (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "unscheduled_mark",
+        "tag_value_conflict",
+        "grid_mismatch",
+        "open_item_note"
+      ],
+      "expected": [
+        {
+          "what": "JR-001: F6.0 on S2.01 has no entry in the S1.02 footing schedule",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S2.01",
+            "S1.02"
+          ],
+          "mentions": [
+            "F6.0"
+          ]
+        },
+        {
+          "what": "JR-002: RTU-3 gas input 80 MBH against 100 MBH",
+          "checkTypes": [
+            "tag_value_conflict"
+          ],
+          "sheets": [
+            "P1.04"
+          ],
+          "mentions": [
+            "RTU-3",
+            "80",
+            "100"
+          ]
+        },
+        {
+          "what": "JR-004: A1.01's lettered grid lines are S2.01's renamed one step (U = T, T = S ...)",
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "A1.01",
+            "S2.01"
+          ],
+          "pairs": [
+            [
+              "U",
+              "T"
+            ]
+          ]
+        }
+      ],
+      "rejected": [
+        {
+          "what": "Open item 'TRAFFIC BEARING (T.B.C.O.)' on C-301",
+          "why": "T.B.C.O. is a traffic-bearing cover rating, not 'to be confirmed'. Fixed: TBD/TBC never match inside a longer dotted abbreviation.",
+          "checkTypes": [
+            "open_item_note"
+          ],
+          "sheets": [
+            "C-301"
+          ],
+          "mentions": [
+            "T.B.C.O"
+          ]
+        },
+        {
+          "what": "R-13 'missing from the railing schedule' on A6.02/A6.03",
+          "why": "R-13 MIN. is an insulation rating. Fixed: a mark followed by MIN/BATT/INSULATION is a rating.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [],
+          "mentions": [
+            "R-13",
+            "railing"
+          ]
+        },
+        {
+          "what": "R7..R18 on the roof plan A3.01 'missing from the railing schedule' (R1..R6)",
+          "why": "The roof plan uses R-numbers for something else. Fixed: a sheet showing more unlisted marks of a family than listed ones is not checked against that schedule.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "A3.01"
+          ],
+          "mentions": [
+            "railing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fp-jetright-mezzanine-floor-edge",
+      "source": "A full AI scan package on JETRIGHT, reviewed by a second AI against the drawings: 'E2.02 shows a relatively uniform and straight mezzanine floor edge, while P1.03 shows a stepped and staggered floor edge.'",
+      "pdf": "20260331-JETRIGHT 90pct AIR REVIEW SET_UPDATED FOR PRICING.pdf (not in this repository)",
+      "target": {
+        "type": "full_scan"
+      },
+      "checks": [
+        "G01",
+        "G02",
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "FL01",
+        "FL02",
+        "FL03",
+        "FL04",
+        "C01",
+        "C02",
+        "C03",
+        "B01",
+        "B02",
+        "B03"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "Mezzanine 'floor edge' uniform on E2.02, stepped 'at different elevations' on P1.03",
+          "why": "Both highlighted lines are pale background linework each consultant copied from the architect; neither sheet labels a floor edge, a plan shows no elevations, and the governing sheet (A1.02) was never checked. Fixed: two consultants' plans are not paired (fullscan_plan.governs); the prompts say background linework is not design; a height claim needs a printed elevation (level_claim_unsupported).",
+          "checkTypes": [
+            "G01",
+            "G02",
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "FL01",
+            "FL02",
+            "FL03",
+            "FL04",
+            "C01",
+            "C02",
+            "C03",
+            "B01",
+            "B02",
+            "B03"
+          ],
+          "sheets": [
+            "E2.02",
+            "P1.03"
+          ],
+          "mentions": [
+            "edge"
           ]
         }
       ]

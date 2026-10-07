@@ -918,3 +918,20 @@ def test_other_account_errors_say_what_to_do(raw, says):
 
 def test_an_ordinary_error_is_left_as_it_is():
     assert fr.provider_failure_message(ValueError("page 12 could not be opened")) == "page 12 could not be opened"
+
+
+def test_a_height_claimed_from_a_plan_needs_printed_evidence():
+    """A reviewer rejected a JETRIGHT package that read "multiple horizontal
+    segments at different elevations" off pale lines on a mezzanine plan."""
+    claim = "P1.03 shows the edge as multiple horizontal segments at different elevations."
+    words = '1/2"ø G TO RTU-4 80MBH OFFICE 202 CORRIDOR 203'
+    assert "height or elevation" in fr.level_claim_unsupported(claim, "1/2 G TO RTU-4 80MBH OFFICE 202")
+    assert fr.level_claim_unsupported(claim, 'SLAB STEP 1\'-0" T.O.S. EL. 100\'-0"') is None
+    assert fr.level_claim_unsupported("Column C-3 is missing on E2.02.", words) is None
+    # "Level 1" is a floor's name, not a claim about height.
+    assert fr.level_claim_unsupported("Column C-3 on Level 1 is missing.", words) is None
+
+
+def test_both_looks_are_told_background_linework_is_not_design():
+    for prompt in (fr.discovery_system(), fr.verify_system()):
+        assert "BACKGROUND linework" in prompt and "moves in plan, not up" in prompt

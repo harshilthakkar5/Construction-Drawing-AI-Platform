@@ -37,7 +37,8 @@ run/settings.json      prompt texts + their sha256, prompt-template version, out
                        token limits, reasoning setting, temperature, tile/crop settings
 run/plan.json          (full scan) the planned sheet pairs and tiles, and every page left out + why
 evidence/pages.json    every page used: file, page (ONE-based), combined page, sheet number,
-                       rotation, size; sheet revision is "unknown" (not extracted)
+                       rotation, size; sheet revision is "unknown" here (the package
+                       cover reads each finding sheet's issue line off its title block)
 evidence/retrieval.json (review) retrieval queries, filters, limits, scores, chunk text and
                        whether it is extracted text or a model-written description;
                        pages the cap left out

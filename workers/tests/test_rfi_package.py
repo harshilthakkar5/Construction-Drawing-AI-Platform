@@ -152,7 +152,7 @@ def test_the_cover_carries_the_forms_fields_and_a_picture_of_the_cloud():
     text = cover.get_text()
     for field in ("PROJECT - UT LAW STUDENT HOUSING", "RFI: 002", "Date Issued:", "01/01/2026", "Author:", "AA",
                   "Discipline:", "STRUCTURAL", "Description:", "CONFIRM THE COLUMN LOCATION", "Plan/Sheet:",
-                  "S2.105", "Revision:", "Q.1) Please confirm the location of column C-6"):
+                  "S2.105", "Issue:", "Q.1) Please confirm the location of column C-6"):
         assert field in text, field
     assert len(cover.get_images()) == 1
 
@@ -293,3 +293,51 @@ def test_a_package_of_nothing_fails_and_says_why(monkeypatch):
     finally:
         with db.connect() as conn:
             conn.execute("DELETE FROM projects WHERE id = %s", (project,))
+
+
+# --- the issue the sheets were printed under ------------------------------------------
+
+
+def _titled(lines, body=()):
+    """A 36x24 sheet with `lines` [(x, y, text)] in it, title block on the right."""
+    doc = fitz.open()
+    page = doc.new_page(width=2592, height=1728)
+    for x, y, text in list(lines) + list(body):
+        page.insert_text((x, y), text, fontsize=8)
+    return doc
+
+
+def test_the_title_block_issue_is_read_and_the_plot_stamp_is_not():
+    """A reviewer's critique: "Revision: Unknown" over sheets whose title
+    blocks read 03/31/26 90% MNAA-AIR REVIEW SUBMITTAL."""
+    doc = _titled(
+        [(2400, 1500, "3/30/2026 7:36:39 AM"), (2240, 1600, "03/31/26"), (2300, 1600, "90% MNAA-AIR REVIEW SUBMITTAL")],
+        body=[(300, 300, "ISSUED FOR CONSTRUCTION DRAWINGS SHALL BE STAMPED")],
+    )
+    assert rp.title_block_issue(doc[0]) == "03/31/26 90% MNAA-AIR REVIEW SUBMITTAL"
+
+
+def test_a_not_for_construction_stamp_is_a_status_never_an_issue():
+    doc = _titled([(2240, 1600, "03/31/26"), (2300, 1600, "95% MNAA-AIR REVIEW SUB"),
+                   (2400, 1400, "NOT FOR"), (2400, 1410, "CONSTRUCTION")])
+    assert rp.title_block_issue(doc[0]) == "03/31/26 95% MNAA-AIR REVIEW SUB (NOT FOR CONSTRUCTION)"
+    alone = _titled([(2400, 1400, "NOT FOR CONSTRUCTION")])
+    assert rp.title_block_issue(alone[0]) == "NOT FOR CONSTRUCTION"
+    assert rp.title_block_issue(_titled([])[0]) is None
+
+
+def test_the_latest_issue_in_a_revision_list_wins():
+    doc = _titled([(2240, 1580, "01/15/26"), (2300, 1580, "ISSUED FOR PERMIT"),
+                   (2240, 1600, "03/31/26"), (2300, 1600, "UPDATE FOR PRICING")])
+    assert rp.title_block_issue(doc[0]) == "03/31/26 UPDATE FOR PRICING"
+
+
+def test_the_cover_shows_each_sheets_issue_when_they_differ():
+    a = _titled([(2240, 1600, "03/31/26"), (2300, 1600, "UPDATE FOR PRICING")])
+    s = _titled([(2240, 1600, "03/31/26"), (2300, 1600, "95% MNAA-AIR REVIEW SUB")])
+    docs = {"a": a, "s": s}
+    item = _item([rp.Mark("a", 1, 1, "A1.01", {"x": 100, "y": 100, "width": 50, "height": 50}),
+                  rp.Mark("s", 1, 1, "S2.01", {"x": 100, "y": 100, "width": 50, "height": 50})])
+    assert rp.sheet_issues(item, docs.get) == "A1.01: 03/31/26 UPDATE FOR PRICING; S2.01: 03/31/26 95% MNAA-AIR REVIEW SUB"
+    item = _item([rp.Mark("a", 1, 1, "A1.01", {"x": 100, "y": 100, "width": 50, "height": 50})])
+    assert rp.sheet_issues(item, docs.get) == "03/31/26 UPDATE FOR PRICING"
