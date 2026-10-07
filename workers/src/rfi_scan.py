@@ -577,6 +577,37 @@ def run(project_id: str, scan_id: str) -> dict:
         raise
 
 
+def pinpoint_evidence(project_id: str, findings) -> None:
+    """Shrink each finding's evidence from its chunk to the words it is about
+    (`rfi_pinpoint`). Opens each cited document once. A document that cannot
+    be read keeps its chunk boxes; the internal keys are removed either way,
+    since they must never be saved."""
+    import rfi_pinpoint
+
+    items = [e for f in findings for e in f.evidence]
+    docs = sorted({e["documentId"] for e in items if e.get("_term") and e.get("documentId")})
+    try:
+        if docs:
+            from rfi_review import _documents
+
+            pages: dict[tuple[str, int], object] = {}
+            with _documents(project_id, docs) as open_page:
+                def page_of(document_id: str, page_number: int):
+                    key = (document_id, page_number)
+                    if key not in pages:
+                        pages[key] = open_page(document_id, page_number)
+                    return pages[key]
+
+                tightened = rfi_pinpoint.pinpoint(items, page_of)
+            log.info("rfi scan: pinpointed %d of %d evidence box(es)", tightened, len(items))
+    except Exception as exc:  # a broad box is honest; a failed scan is not
+        log.warning("rfi scan: could not pinpoint evidence: %s", exc)
+    finally:
+        for item in items:
+            for key in [k for k in item if k.startswith("_")]:
+                item.pop(key)
+
+
 def _now(conn):
     return conn.execute("SELECT now()").fetchone()[0]
 
@@ -586,6 +617,7 @@ def _run(project_id: str, scan_id: str) -> dict:
     log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
     grids, grid_note = load_grids(project_id, pages)
     findings, notes = rfi_checks.run_all(pages, chunks, grids)
+    pinpoint_evidence(project_id, findings)
     if grid_note:
         # Replaces run_all's generic "did not run" with the actual reason.
         notes = [n for n in notes if not n.startswith("Grid check did not run: the drawings'")]

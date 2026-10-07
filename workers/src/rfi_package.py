@@ -755,11 +755,42 @@ def load_items(conn, project_id: str, refs: list[dict]) -> list[Item]:
             if not row:
                 continue
             accepted = row[5] == "accepted" and row[6] is not None
+            marks = _marks_from_evidence(row[3])
             items.append(Item(
-                "candidate", ref["id"], row[6] if accepted else None, row[0], row[1], row[7], row[4],
-                "RFI review", None, project, draft=not accepted, marks=_marks_from_evidence(row[3]), reasoning=row[2],
+                "candidate", ref["id"], row[6] if accepted else None, row[0], row[1],
+                row[7] or evidence_discipline(conn, project_id, marks), row[4],
+                "RFI review", None, project, draft=not accepted, marks=marks, reasoning=row[2],
             ))
     return items
+
+
+def cover_discipline(disciplines: list[str | None]) -> str | None:
+    """What the cover's Discipline field says for a finding not yet filed:
+    the discipline of the sheets it is ON, in the order they are cited.
+    A draft has no RFI row to carry one, and the field stood empty on every
+    project-check package. Two disciplines are both named ("architectural /
+    structural" for a grid naming dispute); none read leaves it empty."""
+    seen: list[str] = []
+    for d in disciplines:
+        if d and d != "other" and d not in seen:
+            seen.append(d)
+    return " / ".join(seen[:3]) or None
+
+
+def evidence_discipline(conn, project_id: str, marks: list[Mark]) -> str | None:
+    finding = [m for m in marks if m.role == "finding" and m.document_id] or [m for m in marks if m.document_id]
+    if not finding:
+        return None
+    rows = conn.execute(
+        """
+        SELECT p."documentId", p."pageNumber", p.discipline::text
+          FROM pages p JOIN documents d ON d.id = p."documentId"
+         WHERE d."projectId" = %s AND p."documentId" = ANY(%s::text[])
+        """,
+        (project_id, sorted({m.document_id for m in finding})),
+    ).fetchall()
+    by_page = {(r[0], r[1]): r[2] for r in rows}
+    return cover_discipline([by_page.get((m.document_id, m.page_number)) for m in finding])
 
 
 def _initials(name: str | None) -> str | None:

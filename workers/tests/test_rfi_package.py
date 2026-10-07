@@ -341,3 +341,10 @@ def test_the_cover_shows_each_sheets_issue_when_they_differ():
     assert rp.sheet_issues(item, docs.get) == "A1.01: 03/31/26 UPDATE FOR PRICING; S2.01: 03/31/26 95% MNAA-AIR REVIEW SUB"
     item = _item([rp.Mark("a", 1, 1, "A1.01", {"x": 100, "y": 100, "width": 50, "height": 50})])
     assert rp.sheet_issues(item, docs.get) == "03/31/26 UPDATE FOR PRICING"
+
+
+def test_cover_discipline_names_the_sheets_a_draft_is_on():
+    from rfi_package import cover_discipline
+    assert cover_discipline(["plumbing", "plumbing", "mechanical"]) == "plumbing / mechanical"
+    assert cover_discipline([None, "other"]) is None
+    assert cover_discipline(["general"]) == "general"
