@@ -173,7 +173,8 @@ def _plan(scan_id: str, project_id: str) -> dict:
     _set(scan_id, stage="pairs", progress=62, catalogue=json.dumps(catalogue))
 
     pairs, skipped = plan_rules.candidate_pairs(facts)
-    kept = _line_up(scan_id, project_id, pairs, skipped)
+    open_errors: dict[str, str] = {}
+    kept = _line_up(scan_id, project_id, pairs, skipped, open_errors)
     tiles = [t for p in kept for t in p.tiles()]
     if len(tiles) > plan_rules.MAX_TILES:
         cut = len(tiles) - plan_rules.MAX_TILES
@@ -183,6 +184,10 @@ def _plan(scan_id: str, project_id: str) -> dict:
     kept_out = plan_rules.kept_out_note(excluded, len(facts), off)
     if kept_out:
         notes.append(kept_out)
+    unopened = unopened_note(open_errors, _filenames(project_id, list(open_errors)))
+    if unopened:
+        log.error("full scan %s: %s", scan_id[:8], unopened)
+        notes.append(unopened)
     # With no page read, "nothing could be paired" restates the note above and
     # reads as a second, separate problem.
     if not kept and (facts or not kept_out):
@@ -232,7 +237,37 @@ def _plan(scan_id: str, project_id: str) -> dict:
     return {"pairs": len(kept), "tiles": written, "pages": len(facts)}
 
 
-def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]):
+UNOPENED = "pair not compared: the drawing file could not be downloaded or opened (see the note above)"
+
+
+def unopened_note(errors: dict[str, str], names: dict[str, str]) -> str | None:
+    """The plan's note when a PDF could not be read: which file, the error,
+    and that this is a storage problem rather than a finding about the
+    drawings. Without it every such pair read 'the walls do not line up'."""
+    if not errors:
+        return None
+    parts = [f"{names.get(d, d[:8])} ({e})" for d, e in sorted(errors.items())]
+    return (
+        "The worker could not download or open " + ", ".join(parts[:3])
+        + (f" and {len(parts) - 3} more" if len(parts) > 3 else "")
+        + ", so the pairs on it were not compared. This is a storage or file problem, not a finding about "
+        "the drawings: check the worker can reach the object store (STORAGE_BACKEND and its keys in the "
+        "worker's .env) and plan again."
+    )
+
+
+def _filenames(project_id: str, document_ids: list[str]) -> dict[str, str]:
+    if not document_ids:
+        return {}
+    with db.connect() as conn:
+        return dict(conn.execute(
+            'SELECT id, filename FROM documents WHERE "projectId" = %s AND id = ANY(%s::text[])',
+            (project_id, document_ids),
+        ).fetchall())
+
+
+def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]],
+             open_errors: dict[str, str] | None = None):
     """Each candidate pair with its tiles, or into `skipped` with the reason.
     Same-level pairs line up from the cached grid positions; one that cannot
     (no grid, as on most electrical and life-safety plans) is lined up by the
@@ -242,6 +277,7 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
     import wall_match
     from rfi_review import _documents
 
+    open_errors = {} if open_errors is None else open_errors
     kept = []
     enlarged = [p for p in pairs if p.kind == "enlarged"]
     by_walls = []
@@ -269,7 +305,12 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
                     page = open_page(f.document_id, f.page_number)
                     walls[key] = wall_match.read_walls(page) if page is not None else None
             wa, wb = walls[(pair.a.document_id, pair.a.page_number)], walls[(pair.b.document_id, pair.b.page_number)]
-            shift = wall_match.align(wa, wb) if wa is not None and wb is not None else None
+            if wa is None or wb is None:
+                # Not a disagreement: the drawing was never read.
+                skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
+                _set(scan_id, progress=62 + int(35 * (i + 1) / work))
+                continue
+            shift = wall_match.align(wa, wb)
             windows, why = plan_rules.wall_windows(pair, shift)
             if windows:
                 pair.windows = windows
@@ -289,7 +330,11 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
                     page = open_page(f.document_id, f.page_number)
                     geometry[key] = plan_match.SheetGeometry.read(page) if page is not None else None
             ga, gb = geometry[(pair.a.document_id, pair.a.page_number)], geometry[(pair.b.document_id, pair.b.page_number)]
-            alignments = plan_match.align_sheets(ga, gb) if ga is not None and gb is not None else []
+            if ga is None or gb is None:
+                skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
+                _set(scan_id, progress=62 + int(35 * (len(by_walls) + i + 1) / work))
+                continue
+            alignments = plan_match.align_sheets(ga, gb)
             windows, why = plan_rules.enlarged_windows(pair, alignments, detail_boxes(ga, alignments))
             if windows:
                 pair.windows = windows
@@ -297,6 +342,7 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
             else:
                 skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
             _set(scan_id, progress=62 + int(35 * (len(by_walls) + i + 1) / work))
+        open_errors.update(getattr(open_page, "errors", {}))
     return kept
 
 

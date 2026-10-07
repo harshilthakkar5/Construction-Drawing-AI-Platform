@@ -366,9 +366,16 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
     raw_form: dict[str, str] = {}
     off_pattern: set[str] = set()
 
+    ocr_only = 0
     for chunk in chunks:
         page = by_page.get(chunk.page_id)
         if page is None:
+            continue
+        if chunk.ocr:
+            # OCR may never NAME a missing sheet: one misread glyph mints a
+            # sheet number nobody issued ("FP0.O1", "1/16 in" read "l/i6" -> I6
+            # on JETRIGHT). Counted, so the note can say it was left out.
+            ocr_only += len(sheet_references(chunk.text))
             continue
         for token, start, end in sheet_references(chunk.text):
             ref = normalize(token)
@@ -462,6 +469,12 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
             f"{unread} page(s) have no sheet number read. A reference to one of "
             "them would look missing, so sheet-reference findings are marked "
             "medium rather than high confidence."
+        )
+    if ocr_only:
+        notes.append(
+            f"Reference check: {ocr_only} sheet reference(s) were read only by OCR (words drawn as shapes) and "
+            "were not checked — a misread character invents a sheet number, so OCR text never raises a "
+            "missing-sheet RFI."
         )
     return _cap("dangling_reference", findings, notes), notes
 
@@ -681,7 +694,12 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
             if family not in schedule_pages:
                 continue
             if chunk.page_id in schedule_pages[family]:
+                # OCR-read schedule rows count: they can only SUPPRESS a finding.
                 scheduled.setdefault(family, set()).update(marks)
+            elif chunk.ocr:
+                # ...but a mark READ by OCR on a plan is never the finding: a
+                # misread is a mark nobody drew.
+                continue
             else:
                 for mark in marks:
                     on_plans.setdefault(family, {}).setdefault(mark, []).append((page, chunk))
@@ -1132,13 +1150,19 @@ def run_all(
 # --- OCR-read findings ------------------------------------------------------------
 
 
+# Checks whose CONTEXT decides the finding: "no row for PC4" rests on the
+# schedule as much as the plan, and an OCR-read schedule may have missed a row.
+DECIDED_BY_CONTEXT = {"unscheduled_mark"}
+
+
 def mark_ocr(finding: Finding) -> None:
     """A finding whose problem was READ by OCR (words drawn as shapes) is at
     most MEDIUM and says so in its question: an OCR misread is a false
     finding, and the reader must know to look at the sheet before asking."""
+    deciding = ("finding", "context") if finding.check_type in DECIDED_BY_CONTEXT else ("finding",)
     read = sorted({e.get("sheetNumber") or f"page {e.get('pageNumber')}"
                    for e in finding.evidence
-                   if e.get("source") == "ocr" and e.get("role", "finding") == "finding"})
+                   if e.get("source") == "ocr" and e.get("role", "finding") in deciding})
     if not read:
         return
     if finding.confidence == "high":

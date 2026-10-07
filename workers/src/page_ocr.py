@@ -49,7 +49,7 @@ log = logutil.get("page_ocr")
 
 # Bump when what is read changes; pages read under an older version are read
 # again by the next scan.
-OCR_VERSION = 1
+OCR_VERSION = 2  # 2: a picture is illegible only when 1-bit (see Picture.illegible)
 SOURCE_MODEL = "ocr:paddleocr"
 
 OCR_DPI = 200          # 8pt CAD text is ~22px tall: PaddleOCR's comfortable range
@@ -57,7 +57,7 @@ TILE_PX = 1600         # also the detector's side limit (ocr._get_engine)
 OVERLAP = 0.25         # of a tile: a line up to ~144pt long is whole in one tile
 MIN_CONFIDENCE = 0.85  # below this, a line is more often a misread than a reading
 PICTURE_MIN_PT = 144   # a picture under 2in on a side is a logo or a stamp
-ILLEGIBLE_DPI = 72     # placed coarser than this, letters lose strokes
+ILLEGIBLE_DPI = 100    # a 1-bit picture placed coarser than this loses letter strokes
 ILLEGIBLE_MIN_LINES = 10  # it must visibly hold text: a coarse PHOTO is not a schedule
 ILLEGIBLE_READ_SHARE = 0.5  # ...most of which OCR could not read
 
@@ -75,11 +75,19 @@ class Picture:
     dpi: float
     lines: int = 0  # text lines OCR found inside it, at any confidence
     readable: int = 0  # ...of which at MIN_CONFIDENCE or better
+    bits: int = 8  # bits per component: 1 is pure black and white
 
     @property
     def illegible(self) -> bool:
+        """Coarse, 1-BIT, full of text and mostly unread. The 1-bit condition
+        was paid for: at 72 DPI the first rule also flagged a UL listing, a
+        manufacturer's product sheet and a gate-operator table on JETRIGHT —
+        grey and colour screenshots whose anti-aliased letters a person reads
+        easily. A 1-bit picture has no grey edge to fall back on, and at 67
+        DPI E0.05's panel schedules visibly lose strokes."""
         return (
-            self.dpi < ILLEGIBLE_DPI
+            self.bits <= 1
+            and self.dpi < ILLEGIBLE_DPI
             and self.lines >= ILLEGIBLE_MIN_LINES
             and self.readable < ILLEGIBLE_READ_SHARE * self.lines
         )
@@ -118,7 +126,7 @@ def pictures(page) -> list[Picture]:
         px = sorted((info["width"], info["height"]))
         pt = sorted((r.width, r.height))
         dpi = min(px[0] / pt[0], px[1] / pt[1]) * 72
-        out.append(Picture(tuple(r), dpi))
+        out.append(Picture(tuple(r), dpi, bits=int(info.get("bpc") or 8)))
     return out
 
 

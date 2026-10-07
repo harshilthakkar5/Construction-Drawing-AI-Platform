@@ -116,6 +116,7 @@ def test_a_picture_reports_the_resolution_it_was_placed_at():
     doc, page = _with_picture((300, 200), (0, 0, 432, 288))  # 6 x 4 in
     [pic] = page_ocr.pictures(page)
     assert pic.dpi == pytest.approx(50, abs=0.5)
+    assert pic.bits == 8
 
 
 def test_a_picture_placed_rotated_is_measured_long_side_to_long_side():
@@ -130,16 +131,18 @@ def test_small_pictures_are_logos_not_schedules():
 
 
 @pytest.mark.parametrize(
-    "dpi,lines,readable,illegible",
+    "dpi,lines,readable,bits,illegible",
     [
-        (67, 175, 42, True),     # E0.05's panel schedules
-        (96, 61, 36, False),     # M0.02's certificate: coarse, but it reads
-        (67, 3, 0, False),       # a coarse photo, not a page of text
-        (67, 100, 80, False),    # coarse, and it still reads
+        (67, 175, 42, 1, True),     # E0.05's panel schedules: 1-bit, strokes lost
+        (96, 61, 36, 8, False),     # M0.02's certificate: coarse, but it reads
+        (67, 3, 0, 1, False),       # a coarse photo, not a page of text
+        (67, 100, 80, 1, False),    # coarse, and it still reads
+        (72, 44, 0, 8, False),      # A0.01's product table: grey, readable by eye, OCR or not
+        (72, 50, 17, 8, False),     # C-901's product sheet
     ],
 )
-def test_illegible_means_coarse_full_of_text_and_mostly_unread(dpi, lines, readable, illegible):
-    assert page_ocr.Picture((0, 0, 1, 1), dpi, lines, readable).illegible is illegible
+def test_illegible_means_coarse_one_bit_full_of_text_and_mostly_unread(dpi, lines, readable, bits, illegible):
+    assert page_ocr.Picture((0, 0, 1, 1), dpi, lines, readable, bits).illegible is illegible
 
 
 def test_a_line_is_dropped_below_the_confidence_floor(monkeypatch):

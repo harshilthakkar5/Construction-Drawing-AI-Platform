@@ -638,6 +638,7 @@ def ocr_pending(project_id: str) -> list[str]:
     read: list[str] = []
     deferred = 0
     unread = 0
+    unopened = 0
     illegible: list[str] = []
     from rfi_review import _documents
 
@@ -647,6 +648,7 @@ def ocr_pending(project_id: str) -> list[str]:
             try:
                 page = open_page(document_id, page_number)
                 if page is None:
+                    unopened += 1
                     continue
                 reason = page_ocr.plan(page)
                 if reason is None:
@@ -672,7 +674,16 @@ def ocr_pending(project_id: str) -> list[str]:
                     illegible.append(name)
             except Exception as exc:  # one unreadable page must not stop the scan
                 log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
+        errors = dict(getattr(open_page, "errors", {}))
     notes = []
+    if unopened:
+        # Never silent: these pages were not examined and stay unmarked, so
+        # the next scan tries them again.
+        notes.append(
+            f"OCR could not open {unopened} page(s) because the worker could not download or open the drawing "
+            f"file ({'; '.join(sorted(set(errors.values())))[:300] or 'see the worker log'}). Their text drawn as "
+            "shapes was NOT read. Check the worker can reach the object store, then scan again."
+        )
     if read:
         _index_new_chunks(project_id, sorted({d for d, _, _ in todo}))
         notes.append(

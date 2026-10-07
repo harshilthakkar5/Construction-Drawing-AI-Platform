@@ -746,11 +746,40 @@ def test_text_layer_findings_are_not_touched_by_the_ocr_rule():
     assert f.confidence == "high" and "readByOcr" not in f.facts and "source" not in f.evidence[0]
 
 
-def test_ocr_context_alone_does_not_cap_a_finding():
-    # Only where the PROBLEM was read counts: a schedule read by OCR that a
-    # text-layer mark is checked against is context.
-    f = Finding("unscheduled_mark", "fp", "high", "s", "q",
-                [{"sheetNumber": "S-101", "role": "finding"},
-                 {"sheetNumber": "S-501", "role": "context", "source": "ocr"}])
-    rfi_checks.mark_ocr(f)
-    assert f.confidence == "high"
+def test_ocr_context_caps_only_where_context_decides():
+    # "No row for PC4" rests on the schedule: read by OCR, it may have missed
+    # the row, so the finding is capped. A tag conflict's context does not
+    # decide it.
+    def finding(check):
+        return Finding(check, "fp", "high", "s", "q",
+                       [{"sheetNumber": "S-101", "role": "finding"},
+                        {"sheetNumber": "S-501", "role": "context", "source": "ocr"}])
+    mark, tag = finding("unscheduled_mark"), finding("tag_value_conflict")
+    rfi_checks.mark_ocr(mark)
+    rfi_checks.mark_ocr(tag)
+    assert mark.confidence == "medium" and mark.facts["readByOcr"] == ["S-501"]
+    assert tag.confidence == "high"
+
+
+def _ocr(cid, pid, text, identifiers=()):
+    return Chunk(cid, pid, text, {"x": 1, "y": 2, "width": 3, "height": 4}, tuple(identifiers), ocr=True)
+
+
+def test_ocr_text_never_names_a_missing_sheet():
+    # JETRIGHT: "FP0.O1" (a letter O for a zero) and "1/16 in" read "l/i6".
+    pages = [page("p1", "S-101"), page("p2", "S-102")]
+    chunks = [index("p1", sheets=("S-101", "S-102")), _ocr("o1", "p2", "SEE DETAILS ON SHEET S-109")]
+    findings, notes = dangling_references(pages, chunks)
+    assert findings == []
+    assert any("read only by OCR" in n for n in notes)
+
+
+def test_an_ocr_read_mark_on_a_plan_is_never_unscheduled_but_an_ocr_schedule_suppresses():
+    pages = [page("p1", "S-101"), page("p2", "S-102")]
+    schedule = chunk("sch", "p1", "PILE CAP SCHEDULE\nPC1\nPC2\nPC3", ["PC1", "PC2", "PC3"])
+    misread = _ocr("o1", "p2", "PC8 AT 4/B", ["PC8"])
+    assert unscheduled_marks(pages, [schedule, misread])[0] == []
+    # A row only OCR could read still counts as scheduled.
+    ocr_row = _ocr("o2", "p1", "PC4 24x24", ["PC4"])
+    plan = chunk("pl", "p2", "PC4 AT 4/B", ["PC4"])
+    assert unscheduled_marks(pages, [schedule, ocr_row, plan])[0] == []
