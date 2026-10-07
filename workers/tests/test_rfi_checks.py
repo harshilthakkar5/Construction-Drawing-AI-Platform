@@ -649,3 +649,12 @@ def test_a_fraction_rating_is_compared_by_value():
 )
 def test_look_alikes_are_not_tag_ratings(text):
     assert [r for r in rfi_checks.tag_ratings(text) if r[0] == "RTU-3" and r[1] == "MBH"] == []
+
+
+def test_a_reference_must_be_numbered_like_the_sets_sheets_of_its_prefix():
+    """JETRIGHT: "MECHANICAL DRAWING E2" on A4.01, in a set whose electrical
+    sheets are E2.01, E2.02 — accepted only because the cover sheet is T1."""
+    pages = [page("p1", "T1"), page("p2", "E2.01"), page("p3", "E2.02"), page("p4", "A4.01")]
+    chunks = [index(sheets=("T1", "E2.01", "E2.02", "A4.01", "A4.02")),
+              chunk("c", "p4", "SEE MECHANICAL DRAWING E2 FOR DUCT")]
+    assert dangling_references(pages, chunks)[0] == []

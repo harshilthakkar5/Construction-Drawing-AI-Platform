@@ -330,10 +330,24 @@ in drawings", not the full scan):
 | JR-006 CF-2 2 HP vs 2-1/2 HP | not found | both schedules (M0.02, E0.05) are pasted in as pictures, with no text to read |
 | JR-003 oil/water separator dimensions, JR-005 shower recess depth | not found | need reading two product details, or noticing a missing dimension |
 
-Run over every text block of the 103 pages, the Project checks return exactly those three, plus the gate
-transceiver "PART NUMBER TBD" and the grout colour TBD (Astra's V-02 and V-04). It no longer
-raises "T.B.C.O." (a traffic-bearing cover rating) as an open item, or insulation R-values
-as railing marks. The other client's eleven sheets give the same output as before.
+The real Project-checks job, run on all 103 pages after a full ingest (real chunks,
+identifier index, grid reading, no AI wording), returns 10 findings: those three, the
+numbered half of JR-004 ("8 = 7; 7.9 = 6.9 …" between S2.01 and P1.03, Astra's "architecture
+labels the outer line 7 while structure labels it 8"), G1.21's "SEE … DETAIL ON G1.22" with
+no G1.22 in the sheet index, and five TBD notes, two of them Astra's V-02 (gate transceiver
+part number) and V-04 (grout colour). That run also found three bugs that the per-check tests
+had not:
+
+- the grid merge raised `KeyError: 'plumbing'`, because P1.03 and M1.02 draw the
+  architect's grid and the merge had only an architectural and a structural list (a sheet
+  is now listed under the naming it uses);
+- A1.01 bubbles one line both E and F, and position-order matching reported "E = F" against
+  M1.02 (same names now match first);
+- "MECHANICAL DRAWING E2" was taken as a missing sheet because the cover sheet is T1 (a
+  reference must be numbered like the set's sheets of its own prefix).
+
+It no longer raises "T.B.C.O." (a traffic-bearing cover rating) as an open item, or
+insulation R-values as railing marks. The other client's eleven sheets give the same output as before.
 
 ### When the provider refuses the account
 

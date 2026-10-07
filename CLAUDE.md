@@ -2702,7 +2702,14 @@ label says what it is; `level_claim_unsupported` rejects a kept height/elevation
 close-up prints EL./T.O./SLOPE/STEP/SECTION. The package cover's "Issue:" field is now read off
 each finding sheet's title block (`rfi_package.title_block_issue`: issue line + date in the right
 or bottom quarter, the plot stamp ignored, NOT FOR CONSTRUCTION a status and never an issue,
-each sheet listed when they differ) instead of "Revision: Unknown".
+each sheet listed when they differ) instead of "Revision: Unknown". The real job on all 103
+pages returned 10 findings (the three above, the numbered grid 8 = 7 between S2.01 and P1.03,
+G1.22 referenced and absent from the index, five TBDs) — and found three bugs the per-check tests
+had not: the grid merge raised KeyError: 'plumbing' (a consultant sheet drawn on the architect's
+grid is evidence too; it is now listed under the naming it carries, `rfi_grid._naming_side`);
+A1.01 bubbles one line E and F, and position-order matching said "E = F" (`_match` pairs same
+names FIRST); and "MECHANICAL DRAWING E2" was a missing sheet because the cover is T1 (a
+reference must be numbered like the set's sheets of its own prefix).
 
 ## Claude prompting pattern for grounded answers
 

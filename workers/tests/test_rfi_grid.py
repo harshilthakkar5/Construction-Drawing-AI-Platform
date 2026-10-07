@@ -520,3 +520,38 @@ def test_an_offset_just_across_a_bin_edge_still_lines_up():
     found = rfi_grid.align(a, b)
     assert found is not None and found.offset == pytest.approx(-27.35, abs=0.2)
     assert ("U", "T") in found.pairs and ("G", "F") in found.pairs and ("A", "A") in found.pairs
+
+
+def test_a_consultant_sheet_on_the_architects_grid_is_listed_with_that_naming():
+    """JETRIGHT: P1.03 (plumbing) draws the architect's grid, so it joined the
+    architectural-structural dispute as evidence — and the merge, which only
+    had an architectural and a structural list, raised KeyError: 'plumbing' and
+    failed the whole scan."""
+    pages = [
+        page("s1", "S2.105", "structural", 1),
+        page("a", "A3.01", "architectural", 2),
+        page("s2", "S2.107", "structural", 3),
+        page("p", "P1.03", "plumbing", 4),
+    ]
+    arch = (shifted(ARCH_COLUMNS, -146), shifted(ARCH_ROWS, -30))
+    systems = [
+        GridSystem("s1", "blue 27pt", COLUMNS, STRUCT_ROWS),
+        GridSystem("a", "grey 18pt", *arch),
+        GridSystem("s2", "blue 27pt", shifted(COLUMNS, 12), shifted(dict(STRUCT_ROWS, **{"7": 1600.0}), 12)),
+        GridSystem("p", "grey 18pt", shifted(arch[0], 40), shifted(arch[1], 40)),
+    ]
+    findings, _ = grid_mismatches(pages, systems)
+    merged = [f for f in findings if "architectural" in f.subject and "structural" in f.subject]
+    assert len(merged) == 1
+    q = merged[0].question
+    assert q.startswith("The drawings using the architectural grid naming (A3.01 and P1.03)"), q
+    assert all(not k.startswith("_") for f in findings for e in f.evidence for k in e)
+
+
+def test_a_line_bubbled_with_two_names_matches_the_one_the_other_sheet_uses():
+    """JETRIGHT's A1.01 bubbles one line both E and F; M1.02 calls it F. Taken
+    in position order, E claimed M1.02's F first and the scan said "E = F"."""
+    a = {"D": 2100.0, "E": 2270.31, "F": 2270.57, "G": 2450.0, "H": 2630.0, "J": 2810.0}
+    b = {"D": 2100.0, "F": 2270.4, "G": 2450.0, "H": 2630.0, "J": 2810.0}
+    found = align(a, b)
+    assert found is not None and rfi_grid._renamed(found) == []

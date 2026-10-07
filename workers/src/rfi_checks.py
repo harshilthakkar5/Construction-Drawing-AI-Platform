@@ -325,6 +325,11 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
     shapes = {signature(k)[1:] for k in known if signature(k)}  # (digits, trailing)
     digit_counts = {shape[0] for shape in shapes}
     prefixes = {signature(k)[0] for k in known if signature(k)}
+    digits_by_prefix: dict[str, set[int]] = {}
+    for k in known:
+        sig = signature(k)
+        if sig:
+            digits_by_prefix.setdefault(sig[0], set()).add(sig[1])
     title_block_text = " ".join(normalize(p.region_text or "") for p in pages)
     unread = sum(1 for p in pages if not p.sheet_number)
 
@@ -349,6 +354,12 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
             # set numbered S-101P) is weaker evidence rather than none: it may
             # be a sheet from another package. It is kept, and marked low.
             if digits not in digit_counts or not _discipline_prefix(prefix):
+                continue
+            # When the set HAS sheets of this prefix, the reference must be
+            # numbered like them: JETRIGHT numbers its electrical sheets E2.01,
+            # and "MECHANICAL DRAWING E2" matched only because the cover sheet
+            # is T1.
+            if prefix in digits_by_prefix and digits not in digits_by_prefix[prefix]:
                 continue
             if (digits, trailing) not in shapes:
                 off_pattern.add(ref)
