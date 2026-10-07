@@ -2337,6 +2337,14 @@ confident wrong RFI. Tested with a stand-in engine (boxes at 0/90/180/270, the c
 itself was exercised locally only through rapidocr (same PP-OCR models, ONNX), because the model
 CDN is blocked in the sandbox — production builds the real models into the worker image.
 
+A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
+heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
+gets 1-55%), the worker's own line ("OCR on page 41 of 103: M0.02 …"), run time and last update, and
+a warning after 3 quiet minutes. A rescan that read shape text ran an hour behind one spinner before
+this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
+time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
+step and a failed write is a log line, never a failed scan.
+
 Evidence boxes are PINPOINTED (`workers/src/rfi_pinpoint.py`): a check records the printed words
 (`_term`, and `_near` for a tag's rating), the scan finds them inside the chunk box and shrinks the
 box to them (JETRIGHT RTU-3: 2681x608pt → 36x26), leaving it alone when they are not found; the `_`

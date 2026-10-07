@@ -972,6 +972,14 @@ export interface RfiScanDto {
   /** A "Rescan from scratch" rather than an ordinary scan. */
   fresh: boolean;
   error: string | null;
+  /** What the worker is doing now (ocr | grids | checks | pinpoint | wording |
+   * saving), 0-100, and a line for people. Null stage = not started yet. */
+  stage: string | null;
+  progress: number;
+  detail: string | null;
+  /** The worker's last sign of life; a running scan silent for
+   * STALE_SCAN_MS is presumed dead. */
+  heartbeatAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;

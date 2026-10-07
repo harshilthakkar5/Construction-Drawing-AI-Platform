@@ -713,6 +713,16 @@ model RfiScan {
   /// words only findings it has never seen.
   fresh         Boolean       @default(false)
   error         String?
+  /// What the worker is doing right now, written as it goes: the step
+  /// (ocr | grids | checks | pinpoint | wording | saving), 0-100, and a line
+  /// for people ("Reading text drawn as shapes: page 12 of 37 (M0.02)"). A scan
+  /// that read shape text ran an hour behind one spinner before this existed.
+  stage         String?
+  progress      Int           @default(0)
+  detail        String?
+  /// Touched with every progress write. A scan is presumed dead when this goes
+  /// quiet, not when it has merely run long: OCR legitimately takes an hour.
+  heartbeatAt   DateTime?
   startedAt     DateTime?
   finishedAt    DateTime?
   createdAt     DateTime      @default(now())

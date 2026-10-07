@@ -544,7 +544,7 @@ def test_a_full_rescan_reopens_and_rewords_but_never_touches_a_live_rfi(database
 
     sent: list[str] = []
 
-    def fake_word(findings, project_id, usage=None):
+    def fake_word(findings, project_id, usage=None, progress=None):
         sent.extend(sorted(f.check_type for f in findings))
         return {f.fingerprint: ("Reworded subject", "A reworded question, please advise.") for f in findings}, None
 
@@ -581,7 +581,7 @@ def test_a_full_rescan_keeps_the_old_wording_when_the_model_fails(database, monk
             'WHERE "projectId" = %s',
             (project,),
         )
-    monkeypatch.setattr(rfi_scan, "word", lambda findings, project_id, usage=None: ({}, None))
+    monkeypatch.setattr(rfi_scan, "word", lambda findings, project_id, usage=None, progress=None: ({}, None))
     rfi_scan.run(project, _scan(database, project, fresh=True))
     with database.connect() as conn:
         rows = conn.execute(
@@ -618,7 +618,7 @@ def test_a_rescan_words_only_what_is_new(database, monkeypatch):
     # for free — and a finding added since is the only one sent.
     sent: list[list[str]] = []
 
-    def fake_word(findings, project_id, usage=None):
+    def fake_word(findings, project_id, usage=None, progress=None):
         sent.append(sorted(f.check_type for f in findings))
         return {}, None
 

@@ -26,6 +26,7 @@ import { api } from "@/api";
 import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RfiFullScan, canPlanFullScan } from "@/components/RfiFullScan";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
@@ -305,8 +306,13 @@ export function RfiReview({ projectId }: { projectId: string }) {
                 onToggle={() => setShowUsage((v) => !v)}
               />
             )}
+            {scanning && <ScanProgressView scan={scan.data} />}
             {scan.data.status === "failed" && (
-              <Notice tone="error">The last scan failed: {scan.data.error ?? "unknown error"}</Notice>
+              <Notice tone="error">
+                The last scan failed
+                {scan.data.stage && scan.data.stage !== "done" ? ` while ${(STEP_LABEL[scan.data.stage] ?? scan.data.stage).toLowerCase()}` : ""}:{" "}
+                {scan.data.error ?? "unknown error"}
+              </Notice>
             )}
             {scan.data.notes.length > 0 && (
               <div className="mt-1">
@@ -444,6 +450,74 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** The scan's steps in the order the worker runs them (rfi_scan.STEPS). */
+const STEP_ORDER = ["starting", "ocr", "loading", "grids", "checks", "pinpoint", "wording", "saving"] as const;
+const STEP_LABEL: Record<string, string> = {
+  starting: "Starting",
+  ocr: "Reading text drawn as shapes (OCR)",
+  loading: "Loading the drawings' text",
+  grids: "Reading grid lines",
+  checks: "Running the code checks",
+  pinpoint: "Pinpointing the evidence",
+  wording: "Writing the RFI questions",
+  saving: "Saving the findings",
+};
+/** No progress for this long, and the person is told the worker may be stuck
+ * rather than left watching a bar that will never move. Every step reports
+ * at least once a minute or so; one OCR page can take a little over that. */
+const QUIET_MS = 3 * 60 * 1000;
+
+function minutes(ms: number): string {
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return `${Math.max(1, Math.round(ms / 1000))} s`;
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/**
+ * What a running scan is doing, so an hour-long rescan reads as work and
+ * not as a frozen spinner: the step (n of 8), the worker's own line ("page
+ * 12 of 37 (M0.02)"), a bar, how long it has run, and when the worker last
+ * reported. A queued scan says it is waiting for a worker, and a scan whose
+ * worker has gone quiet says so and where to look.
+ */
+function ScanProgressView({ scan }: { scan: RfiScanDto }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const queued = scan.status === "queued" || !scan.stage;
+  const since = Date.parse(scan.startedAt ?? scan.createdAt);
+  const beat = scan.heartbeatAt ? Date.parse(scan.heartbeatAt) : since;
+  const quiet = now - beat > QUIET_MS;
+  const index = STEP_ORDER.indexOf((scan.stage ?? "starting") as (typeof STEP_ORDER)[number]);
+  return (
+    <div className="mt-1 flex flex-col gap-1.5 text-xs" aria-live="polite">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-medium">
+          {queued
+            ? "Waiting for a worker to pick up the scan"
+            : `Step ${Math.max(1, index + 1)} of ${STEP_ORDER.length} · ${STEP_LABEL[scan.stage!] ?? scan.stage}`}
+        </span>
+        <span className="text-muted-foreground tabular-nums">{scan.progress}%</span>
+      </div>
+      <Progress value={scan.progress} aria-label="Scan progress" />
+      {scan.detail && !queued && <p className="text-muted-foreground leading-relaxed">{scan.detail}</p>}
+      <p className="text-muted-foreground tabular-nums">
+        {queued ? "Queued" : "Running"} for {minutes(now - since)}
+        {!queued && ` · last update ${minutes(now - beat)} ago`}
+      </p>
+      {quiet && (
+        <Notice tone="error">
+          {queued
+            ? `No worker has picked this scan up for ${minutes(now - beat)}. Check that the worker is running.`
+            : `No update from the worker for ${minutes(now - beat)}. It may be busy on one large page, or stopped — check the worker's log.`}
+        </Notice>
+      )}
+    </div>
   );
 }
 
