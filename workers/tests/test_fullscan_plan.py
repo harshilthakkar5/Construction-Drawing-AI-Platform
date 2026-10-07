@@ -236,3 +236,29 @@ def test_stray_bubbles_on_a_gridless_sheet_are_not_several_views():
     real = facts("p3", "E4.01", "electrical", level="LEVEL 1", repeats=True)
     pairs, skipped = fp.candidate_pairs([a, real])
     assert pairs == [] and "sheet with several views (a grid label in two places)" in skipped
+
+
+def test_two_consultants_plans_are_not_compared_with_each_other():
+    """JETRIGHT's mezzanine: E2.02 against P1.03 produced a "floor edge" RFI out
+    of two differently exported copies of the architect's background. Each
+    consultant plan is compared with the plan that governs the geometry."""
+    e = facts("p1", "E2.02", "electrical", level="MEZZANINE")
+    p = facts("p2", "P1.03", "plumbing", level="MEZZANINE")
+    g = facts("p3", "G2.01", "general", level="MEZZANINE")
+    pairs, skipped = fp.candidate_pairs([e, p, g])
+    assert pairs == []
+    reason = next(k for k in skipped if "no architectural or structural plan" in k)
+    assert set(skipped[reason]) == {"E2.02", "P1.03", "G2.01"}
+    # With the architectural plan of that level present, each is compared with IT.
+    a = facts("p4", "A1.02", "architectural", level="MEZZANINE")
+    pairs, _ = fp.candidate_pairs([e, p, g, a])
+    assert sorted((x.a.sheet_number, x.b.sheet_number) for x in pairs) == [
+        ("A1.02", "E2.02"), ("A1.02", "G2.01"), ("A1.02", "P1.03")]
+
+
+def test_an_enlarged_consultant_plan_pairs_with_its_own_discipline_only():
+    big = facts("p1", "P1.05", "plumbing", level="LEVEL 1", kind="enlarged_plan", scales=(18.0,))
+    own = facts("p2", "P1.01", "plumbing", level="LEVEL 1")
+    other = facts("p3", "E2.01", "electrical", level="LEVEL 1")
+    pairs, _ = fp.candidate_pairs([big, own, other])
+    assert [(x.kind, x.a.sheet_number, x.b.sheet_number) for x in pairs] == [("enlarged", "P1.05", "P1.01")]

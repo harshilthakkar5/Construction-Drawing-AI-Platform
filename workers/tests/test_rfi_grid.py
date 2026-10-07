@@ -503,3 +503,55 @@ def test_s2105_grid_lines_sit_where_their_leaders_land():
     assert system["along_x"]["H"] == pytest.approx(2129.52, abs=0.5)
     # Lines bubbled straight on are untouched.
     assert system["along_x"]["G"] == pytest.approx(1939.56, abs=0.5)
+
+
+def test_an_offset_just_across_a_bin_edge_still_lines_up():
+    """JETRIGHT A1.01 against S2.01, positions as read: every lettered line is
+    renamed one step (A1.01's U is S2.01's T) at -27.3pt. That offset sits just
+    past the edge of the bin that won the vote, and one median over all three
+    bins landed at -22.8, matched two lines and reported nothing (Astra's
+    JR-004 on that set)."""
+    a = {"U": 214.06, "T": 286.06, "S": 290.57, "R": 470.57, "Q": 650.57, "P": 830.57, "N": 1010.57,
+         "M": 1190.57, "L": 1370.57, "K": 1550.57, "J": 1730.57, "H": 1910.57, "G": 2090.57,
+         "E": 2270.31, "F": 2270.57, "D": 2293.11, "C": 2346.89, "B": 2535.32, "A": 2694.32}
+    b = {"T": 186.66, "S": 258.66, "R": 263.22, "Q": 443.22, "P": 623.22, "N": 803.22, "M": 983.22,
+         "L": 1163.22, "K": 1343.22, "J": 1523.22, "H": 1703.22, "G": 1883.22, "F": 2063.22,
+         "E": 2243.22, "D": 2247.66, "C": 2319.42, "B": 2507.94, "A": 2666.94}
+    found = rfi_grid.align(a, b)
+    assert found is not None and found.offset == pytest.approx(-27.35, abs=0.2)
+    assert ("U", "T") in found.pairs and ("G", "F") in found.pairs and ("A", "A") in found.pairs
+
+
+def test_a_consultant_sheet_on_the_architects_grid_is_listed_with_that_naming():
+    """JETRIGHT: P1.03 (plumbing) draws the architect's grid, so it joined the
+    architectural-structural dispute as evidence — and the merge, which only
+    had an architectural and a structural list, raised KeyError: 'plumbing' and
+    failed the whole scan."""
+    pages = [
+        page("s1", "S2.105", "structural", 1),
+        page("a", "A3.01", "architectural", 2),
+        page("s2", "S2.107", "structural", 3),
+        page("p", "P1.03", "plumbing", 4),
+    ]
+    arch = (shifted(ARCH_COLUMNS, -146), shifted(ARCH_ROWS, -30))
+    systems = [
+        GridSystem("s1", "blue 27pt", COLUMNS, STRUCT_ROWS),
+        GridSystem("a", "grey 18pt", *arch),
+        GridSystem("s2", "blue 27pt", shifted(COLUMNS, 12), shifted(dict(STRUCT_ROWS, **{"7": 1600.0}), 12)),
+        GridSystem("p", "grey 18pt", shifted(arch[0], 40), shifted(arch[1], 40)),
+    ]
+    findings, _ = grid_mismatches(pages, systems)
+    merged = [f for f in findings if "architectural" in f.subject and "structural" in f.subject]
+    assert len(merged) == 1
+    q = merged[0].question
+    assert q.startswith("The drawings using the architectural grid naming (A3.01 and P1.03)"), q
+    assert all(not k.startswith("_") for f in findings for e in f.evidence for k in e)
+
+
+def test_a_line_bubbled_with_two_names_matches_the_one_the_other_sheet_uses():
+    """JETRIGHT's A1.01 bubbles one line both E and F; M1.02 calls it F. Taken
+    in position order, E claimed M1.02's F first and the scan said "E = F"."""
+    a = {"D": 2100.0, "E": 2270.31, "F": 2270.57, "G": 2450.0, "H": 2630.0, "J": 2810.0}
+    b = {"D": 2100.0, "F": 2270.4, "G": 2450.0, "H": 2630.0, "J": 2810.0}
+    found = align(a, b)
+    assert found is not None and rfi_grid._renamed(found) == []

@@ -613,7 +613,7 @@ CONVENTIONS = {
     "displaySpace": "PDF points (1/72 in) as the sheet is SEEN, after its /Rotate is applied; origin top-left, y down. Tile windows, crop rectangles and the boxes a model returns are in this space.",
     "unrotatedSpace": "PDF points in the page's own coordinate system before /Rotate; origin top-left, y down. Stored evidence boxes, chunk boxes and PDF annotations (clouds) are in this space.",
     "modelBoxes": "Boxes a model returns are fractions 0-1 of the image they refer to: [x0, y0, x1, y1].",
-    "sheetRevision": "The sheet revision printed in a title block is NOT extracted by this system: it is 'unknown'. documents.revision is the upload version of the file (1 = first upload), not the drawing's revision.",
+    "sheetRevision": "The sheet revision printed in a title block is not extracted into this export: it is 'unknown' here. The marked-up RFI package (output/rfi-package.pdf) reads each finding sheet's issue line and date off its title block for its cover. documents.revision is the upload version of the file (1 = first upload), not the drawing's revision.",
     "images": "Every file under images/ is the exact byte stream sent to the provider. Nothing is re-rendered for this export.",
 }
 

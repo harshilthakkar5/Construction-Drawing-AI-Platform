@@ -2304,7 +2304,7 @@ model only WORDS each finding as a question. A model asked "what is missing from
 writes a fluent, confident list with nothing to tell the real items from the invented ones, and
 an RFI that is not real costs an engineer an afternoon.
 
-Four checks, each built for precision before recall — a missed gap is found the normal way, a
+Five checks, each built for precision before recall — a missed gap is found the normal way, a
 false one is a question someone has to answer:
 
   * `dangling_reference` — "SEE 5/S-501", "REFER TO SHEET A-301", with no S-501 in the set. Only
@@ -2338,6 +2338,26 @@ false one is a question someone has to answer:
     (`title_names_family`: SR is STUD RAIL or STUDRAIL, never LEVEL; S is not DOOR), and a mark
     followed by SCREWS/BOLTS/… is a product type ("TYPE S-8 PAN HEAD STEEL SCREWS"). The client
     rejected SR-25 "missing from the level schedule" and S8 "missing from the door schedule".
+    A heading's ROWS may be separate text blocks: rows printed under it (`_under_heading`, 700pt
+    down, 400pt either side) count with it — JETRIGHT's S1.02 prints "FOOTING SCHEDULE" 79pt above
+    its F5.0 … F11.0B block, and the check reported "no schedule" on a set with one. A dot BETWEEN
+    digits (F6.0) is matched only when the family's schedule writes its own marks that way
+    (`_writes_dotted`), and then a plain F10 is not F1.0; a dot after the LETTERS (grid F.7) never
+    is. Opening those schedules exposed three more false families, each now a rule: a schedule
+    speaks only for its own DISCIPLINE's sheets; a sheet showing ≥2 unlisted marks of a family and
+    more unlisted than listed uses the letters for something else (the roof plan's R7..R18 beside
+    a railing schedule of R1..R6); and a mark followed by MIN/BATT/INSULATION is an R-value. Marks
+    are reported AS PRINTED ("F6.0", "SR-25"), not as indexed. On JETRIGHT's 103 pages: exactly one
+    finding, F6.0 on S2.01 — a reviewer's JR-001.
+  * `tag_value_conflict` — one equipment tag (letters-hyphen-number: RTU-3, CF-2) printed with
+    two different ratings of one equipment unit (MBH, HP, CFM, GPM, KW, KVA, TONS, BTUH) on two
+    SHEETS: RTU-3 at 80 MBH on P0.02 and P1.03, 100 MBH on P1.04 (a reviewer's JR-002). The tag is
+    the entity match — it is what makes two numbers about one unit; a rating is the ONE value of
+    that unit within 40 characters after the tag, cut at the next tag (a schedule row carrying
+    INPUT and OUTPUT MBH gives neither); one sheet alone is two quantities, never a conflict; pipe
+    sizes and dimensions are not ratings. High when two sheets agree against a third. Blind spot:
+    a schedule pasted in as a PICTURE has no text — JETRIGHT's M0.02 and E0.05 are images, so
+    CF-2's 2 HP against 2-1/2 HP is invisible to it.
   * `open_item_note` — TBD / TO BE DETERMINED / TO BE CONFIRMED (high), TBC / ??? / PENDING …
     (medium). Grouped by the NOTE, so a TBD in the general notes of forty sheets is one finding
     with up to five evidence locations. VERIFY IN FIELD is NOT an open item: field verification is
@@ -2387,6 +2407,10 @@ false one is a question someone has to answer:
     agree; one that contradicts the merged mapping is a separate dispute; a lone finding keeps its
     old fingerprint so an RFI already accepted from it is not proposed again. The highlight is ONE END of the
     renamed lines, never their union, which spans the sheet. `RFI_GRID_CHECK=false` skips it.
+    `align` refines the winning vote bin by trying the median of EACH of its three bins and
+    keeping the best: one median over all three was pulled off a true offset sitting just past a
+    bin edge (A1.01 against S2.01 at -27.3pt landed at -22.8, matched 2 lines instead of 17) and
+    JETRIGHT's whole lettered axis, renamed one step (U = T, T = S …), went unreported.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
@@ -2665,6 +2689,27 @@ lined up (670–965 lines, next best 31–148), 7 of 7 wrong pairs refused; the 
 to 18. Ink matching and room-label anchors were tried first and gave WRONG shifts — room labels
 move between disciplines, walls do not. The several-views rule now needs a real grid: stray
 bubbles left E4.01 out.
+A second reviewer (ChatGPT Astra) then compared a scan package with its own coordination review of
+the same set and rejected the package's one RFI — "mezzanine floor edge uniform on E2.02, stepped
+on P1.03" — as two consultants' pale background copies compared as design, an element nobody
+labelled, and an "elevation" read off a plan. Astra's own RFIs were ENTITY matches (one tag, two
+values; a tag with no schedule row; one grid, two names), which is code's work: three of its six
+are now Project checks (above). On the scan side: a pair needs a GOVERNING sheet
+(`fullscan_plan.governs` — architectural/structural/interiors, or one discipline's enlarged plan
+with its own overall), so E vs P vs G are never compared with each other; both prompts say pale
+background linework is not design and a plan shows no heights, and name an element only when a
+label says what it is; `level_claim_unsupported` rejects a kept height/elevation claim unless a
+close-up prints EL./T.O./SLOPE/STEP/SECTION. The package cover's "Issue:" field is now read off
+each finding sheet's title block (`rfi_package.title_block_issue`: issue line + date in the right
+or bottom quarter, the plot stamp ignored, NOT FOR CONSTRUCTION a status and never an issue,
+each sheet listed when they differ) instead of "Revision: Unknown". The real job on all 103
+pages returned 10 findings (the three above, the numbered grid 8 = 7 between S2.01 and P1.03,
+G1.22 referenced and absent from the index, five TBDs) — and found three bugs the per-check tests
+had not: the grid merge raised KeyError: 'plumbing' (a consultant sheet drawn on the architect's
+grid is evidence too; it is now listed under the naming it carries, `rfi_grid._naming_side`);
+A1.01 bubbles one line E and F, and position-order matching said "E = F" (`_match` pairs same
+names FIRST); and "MECHANICAL DRAWING E2" was a missing sheet because the cover is T1 (a
+reference must be numbered like the set's sheets of its own prefix).
 
 ## Claude prompting pattern for grounded answers
 

@@ -141,6 +141,26 @@ def _why_left_out(f: PageFacts) -> str | None:
     return None
 
 
+# The disciplines whose plans GOVERN where things are: walls, columns, slab
+# edges. Every other discipline draws its design over a copy of one of these.
+GOVERNING = frozenset({"architectural", "structural", "interiors"})
+
+
+def governs(a: PageFacts, b: PageFacts) -> bool:
+    """Whether comparing a and b can find a real disagreement rather than two
+    copies of a background disagreeing.
+
+    An electrical plan and a plumbing plan share nothing but the architectural
+    floor plan each consultant copied under its own design — and each copy is
+    exported, halftoned and trimmed differently. JETRIGHT's E2.02 against
+    P1.03 produced "the mezzanine floor edge is uniform on one and stepped on
+    the other": pale background linework, compared as if it were design. So a
+    pair needs one sheet that governs the geometry (each consultant plan is
+    still compared with the architectural or structural plan of its level),
+    or two sheets of ONE discipline (an enlarged plan with its own overall)."""
+    return a.discipline == b.discipline or a.discipline in GOVERNING or b.discipline in GOVERNING
+
+
 def _why_unpaired(f: PageFacts, same_level: list[PageFacts]) -> str:
     """Why a plan WITH a level and a scale still found no partner — said as
     the thing to fix. One line ("no other sheet of its level") used to cover
@@ -150,6 +170,9 @@ def _why_unpaired(f: PageFacts, same_level: list[PageFacts]) -> str:
     others = [g for g in same_level if g is not f and g.discipline and g.discipline != f.discipline]
     if not others:
         return "plan with no plan of another discipline on the same level"
+    if not any(governs(f, g) for g in others):
+        return ("plan whose level has no architectural or structural plan to compare against "
+                "(two consultants' plans share only the background each copied)")
     return "plan with no printed scale in common with the other discipline's plan of its level"
 
 
@@ -227,6 +250,8 @@ def candidate_pairs(facts: list[PageFacts]) -> tuple[list[Pair], dict[str, list[
             for b in overall[i + 1 :]:
                 if not a.discipline or not b.discipline or a.discipline == b.discipline:
                     continue
+                if not governs(a, b):
+                    continue
                 if not share_a_scale(a.scales, b.scales):
                     continue
                 pairs.append(Pair(
@@ -246,6 +271,8 @@ def candidate_pairs(facts: list[PageFacts]) -> tuple[list[Pair], dict[str, list[
                 if ratio is None:
                     continue
                 if a.kind == "plan" and (ratio < 2 or a.discipline != b.discipline):
+                    continue
+                if not governs(a, b):
                     continue
                 pairs.append(Pair(
                     "enlarged", a, b,

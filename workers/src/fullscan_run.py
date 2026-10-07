@@ -54,7 +54,7 @@ KINDS = ("conflict", "missing")
 CALL_CONCURRENCY = int(os.environ.get("FULL_SCAN_CALL_CONCURRENCY", "4"))
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256, so two runs can be compared exactly.
-PROMPT_VERSION = "fullscan-2026-10-06.2"
+PROMPT_VERSION = "fullscan-2026-10-07.1"
 BATCH_WAVE = int(os.environ.get("FULL_SCAN_BATCH_WAVE", "40"))
 DISCOVERY_TOKENS = 1500
 VERIFY_TOKENS = 1500
@@ -127,7 +127,15 @@ _NOT_A_PROBLEM = (
     "3 inches or less on the drawing (at its printed scale) between an architectural and a structural "
     "drawing, the same tolerance the system measures columns with; a dimension string — never call it the distance between two grid lines unless both "
     "of its ends visibly sit on those grid lines; a pier, pedestal, footing, pile cap or drop cap outline drawn "
-    "AROUND a column is a different element from the column — never compare its size with the column's size"
+    "AROUND a column is a different element from the column — never compare its size with the column's size; "
+    # A reviewer's critique of a JETRIGHT package: "the mezzanine floor edge
+    # is uniform on E2.02 and stepped on P1.03" was two consultants' copies of
+    # the architect's background, pale grey on both, compared as if design.
+    "a difference only in pale, grey or halftone BACKGROUND linework — every discipline draws its own design in "
+    "dark ink over a copy of the architectural plan, and each copy is exported, trimmed and simplified "
+    "differently, so the background proves nothing; compare the design each sheet draws for itself; "
+    "a height, elevation or level change read from a PLAN — a line moving across the sheet moves in plan, not up "
+    "or down; only a printed elevation, section or slope note says a level changes"
 )
 # How a kept finding names what it compares: what each sheet DRAWS at that
 # place, and "the same element" only when a mark on both sheets says so. A
@@ -136,7 +144,9 @@ _NOT_A_PROBLEM = (
 _SAME_ELEMENT = (
     "Describe what each sheet draws at that place in its own terms. Call the two the same element only when "
     "a mark or label printed on BOTH sheets names it; otherwise write \"at the same location\" and ask "
-    "whether they are the same element."
+    "whether they are the same element. Name WHAT an element is (a slab edge, a column, a shaft) only when a "
+    "label or note in the words says so; otherwise describe what is drawn (\"a line\", \"a rectangle\") — an "
+    "RFI that names an element nobody labelled asks about something the drawings never claimed."
 )
 
 _CHECK_LIST = "\n".join(f"- {c['id']}: {c['label']}" for c in RFI_REVIEW_CHECKS)
@@ -1229,6 +1239,36 @@ def grid_spacing_agrees(text: str, facts_a: dict | None, facts_b: dict | None) -
     return f"{said} at their printed scales, so the dimensions quoted measure to something else, not between the grid lines"
 
 
+# A claim about HEIGHT, and the printed evidence that could support one. A plan
+# shows where things are, not how high: a reviewer rejected "multiple
+# horizontal segments at different elevations" on JETRIGHT's P1.03, read off
+# lines moving across a plan with no elevation printed anywhere near them.
+_LEVEL_CLAIM = re.compile(
+    r"\b(?:ELEVATIONS?|HEIGHTS?|AT DIFFERENT LEVELS|DIFFERENT LEVELS|(?:CHANGE|DIFFERENCE) IN LEVEL|LEVEL CHANGES?|"
+    r"RAISED|LOWERED|DEPRESSED|RECESSED|HIGHER|LOWER THAN)\b",
+    re.I,
+)
+_LEVEL_EVIDENCE = re.compile(
+    # "T.O." needs its dots (or TOS/TOF/TOW): plain TO is in every "UP TO RTU-4".
+    # UP/DN are left out for the same reason — a pipe goes "UP TO" a unit.
+    r"(?<![A-Z])(?:EL|ELEV|ELEVATION|T\.O\.?[SFWCPB]?|TO[SFW]|B\.O\.?[SFW]?|BO[SF]|SLOPES?|AFF|A\.F\.F|FFE?|"
+    r"STEP|STEPS|DEPRESS\w*|RECESS\w*|DROP|SECTION|SECT|RAMP)(?![A-Z])",
+    re.I,
+)
+
+
+def level_claim_unsupported(text: str, material: str) -> str | None:
+    """Why a claim that something sits at a different height must be rejected,
+    or None. Pure: a claim of height needs a printed elevation, slope, step or
+    section in the close-ups' own words."""
+    if not _LEVEL_CLAIM.search(text):
+        return None
+    if _LEVEL_EVIDENCE.search(material or ""):
+        return None
+    return ("it claims a difference in height or elevation, and neither close-up prints an elevation, slope, "
+            "step or section — on a plan, a line moving across the sheet moves in plan, not up or down")
+
+
 def rule_out(pair: dict, verdict: dict | None, material: str, facts: tuple[dict | None, dict | None] = (None, None)) -> str | None:
     """Why a kept problem must still be rejected, or None to save it. The
     model is not trusted to apply these to itself."""
@@ -1243,6 +1283,9 @@ def rule_out(pair: dict, verdict: dict | None, material: str, facts: tuple[dict 
     ok, why = grounded(f"{verdict['subject']}\n{verdict['question']}", material)
     if not ok:
         return f"its wording {why}"
+    height = level_claim_unsupported(f"{verdict['subject']}\n{verdict['question']}", material)
+    if height:
+        return height
     measured = grid_spacing_agrees(f"{verdict['subject']}\n{verdict['question']}", *facts)
     if measured:
         return measured

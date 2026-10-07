@@ -138,22 +138,31 @@ def _match(a: list[tuple[float, str]], b: list[tuple[float, str]], offset: float
     each `b` line used once."""
     used: set[int] = set()
     pairs = []
-    for pos, label in a:
+    # A line drawn with TWO names sits at one position under both: the
+    # client's structural sheets bubble one line "2.3" at its left end and
+    # "2.4" at its right. Nearest-first paired the architectural "2.3" with
+    # whichever came first, and the scan asked which naming governs
+    # "2.3 = 2.4" — a line both drawings call 2.3. So within tolerance the
+    # same name wins — and it wins FIRST, across the whole axis: JETRIGHT's
+    # A1.01 bubbles one line both E and F (2270.3 and 2270.6pt); taken in
+    # position order its E claimed M1.02's F before its own F could, and the
+    # scan reported "E = F" between two sheets that both call the line F.
+    taken_a: set[int] = set()
+    for i, (pos, label) in enumerate(a):
+        same = [j for j, (other, other_label) in enumerate(b)
+                if j not in used and other_label == label and abs(other - (pos + offset)) <= MATCH_TOL_PT]
+        if same:
+            used.add(same[0])
+            taken_a.add(i)
+            pairs.append((label, label))
+    for i, (pos, label) in enumerate(a):
+        if i in taken_a:
+            continue
         best, best_d = None, MATCH_TOL_PT
         for j, (other, other_label) in enumerate(b):
             d = abs(other - (pos + offset))
             if j not in used and d <= best_d:
                 best, best_d = j, d
-        # A line drawn with TWO names sits at one position under both: the
-        # client's structural sheets bubble one line "2.3" at its left end and
-        # "2.4" at its right. Nearest-first paired the architectural "2.3" with
-        # whichever came first, and the scan asked which naming governs
-        # "2.3 = 2.4" — a line both drawings call 2.3. Within tolerance, the
-        # same name wins.
-        same = [j for j, (other, other_label) in enumerate(b)
-                if j not in used and other_label == label and abs(other - (pos + offset)) <= MATCH_TOL_PT]
-        if same:
-            best = same[0]
         if best is not None:
             used.add(best)
             pairs.append((label, b[best][1]))
@@ -195,16 +204,27 @@ def align(a: dict[str, float], b: dict[str, float], fixed_offset: float | None =
         if any(abs(k - t) <= 2 for t in tried):
             continue
         tried.append(k)
-        # Refine inside the bin: the mean of the differences that voted for it.
-        diffs = [
-            pos_b - pos_a
-            for pos_a, _ in pa
-            for pos_b, _ in pb
-            if abs((pos_b - pos_a) / MATCH_TOL_PT - k) <= 1
-        ]
-        offset = sorted(diffs)[len(diffs) // 2]
-        pairs = _match(pa, pb, offset)
-        candidates.append((len(pairs), offset, pairs))
+        # Refine: the median of each of the three bins that scored k, and keep
+        # whichever matches most. One median over all three was pulled off the
+        # true offset: JETRIGHT's A1.01 against S2.01 is -27.3pt, just across
+        # the edge into bin -9 while bin -8 won the vote, so the median landed
+        # at -22.8, matched 2 lines instead of 17, and the whole lettered axis
+        # renamed one step (A1.01's U is S2.01's T) went unreported.
+        best_here: tuple[int, float, list[tuple[str, str]]] | None = None
+        for bin_ in (k - 1, k, k + 1):
+            diffs = sorted(
+                pos_b - pos_a
+                for pos_a, _ in pa
+                for pos_b, _ in pb
+                if round((pos_b - pos_a) / MATCH_TOL_PT) == bin_
+            )
+            if not diffs:
+                continue
+            offset = diffs[len(diffs) // 2]
+            pairs = _match(pa, pb, offset)
+            if best_here is None or len(pairs) > best_here[0]:
+                best_here = (len(pairs), offset, pairs)
+        candidates.append(best_here)
         if len(tried) >= 6:
             break
     candidates.sort(key=lambda c: -c[0])
@@ -381,9 +401,12 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
                     entry["places"].add(place)
                     labels = [pair[side] for pair in renamed]
                     name = _system_name(system, by_page, same_page)
-                    entry["evidence"].append(
-                        _evidence(system, by_page[system.page_id], labels, name, axis)
-                    )
+                    item = _evidence(system, by_page[system.page_id], labels, name, axis)
+                    # Which naming this sheet carries, for the merge: a
+                    # plumbing plan drawn on the architect's grid belongs with
+                    # the architectural sheets, whatever its own discipline.
+                    item["_labels"] = labels
+                    entry["evidence"].append(item)
 
     if other_scale:
         shown = ", ".join(f"{x} / {y}" for x, y in sorted(other_scale)[:6])
@@ -446,7 +469,7 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
                 confidence=confidence,
                 subject=subject,
                 question=question,
-                evidence=entry["evidence"],
+                evidence=[_public(e) for e in entry["evidence"]],
                 facts={
                     "sheets": [name_a, name_b],
                     "axis": word,
@@ -511,6 +534,28 @@ def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page]) -> tupl
     return groups, singles
 
 
+def _public(item: dict) -> dict:
+    return {k: v for k, v in item.items() if not k.startswith("_")}
+
+
+def _naming_side(page: Page, item: dict, left: str, right: str, mapping: dict[str, str]) -> str | None:
+    """Which side of the dispute a sheet is listed under: its own discipline
+    when that is one of the two, otherwise the naming its labels show.
+    JETRIGHT's P1.03 and M1.02 draw the architect's grid; with only two lists
+    to put them in, the merge raised KeyError: 'plumbing' and the whole scan
+    failed."""
+    own = _discipline(page)
+    if own in (left, right):
+        return own
+    labels = set(item.get("_labels") or ())
+    on_left, on_right = labels <= set(mapping), labels <= set(mapping.values())
+    if on_left and not on_right:
+        return left
+    if on_right and not on_left:
+        return right
+    return None
+
+
 def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
     left, right, mapping = group["left"], group["right"], group["mapping"]
     # Every sheet drawn with each naming, read off the evidence: a grid shared
@@ -518,6 +563,7 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
     # still name all of them.
     by_place = {(p.document_id, p.page_number): p for p in pages.values()}
     sheets: dict[str, list[str]] = {left: [], right: []}
+    borrowed: dict[str, bool] = {left: False, right: False}  # a sheet of another discipline on this naming
     evidence: list[dict] = []
     places: set = set()
     for entry in group["members"]:
@@ -525,12 +571,14 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
             page = by_place.get((item["documentId"], item["pageNumber"]))
             if page is not None:
                 label = page_label(page)
-                if label not in sheets[_discipline(page)]:
-                    sheets[_discipline(page)].append(label)
+                side = _naming_side(page, item, left, right, mapping)
+                if side is not None and label not in sheets[side]:
+                    sheets[side].append(label)
+                    borrowed[side] = borrowed[side] or _discipline(page) != side
             place = (item["documentId"], item["pageNumber"], item["quote"])
             if place not in places and len(evidence) < MAX_EVIDENCE:
                 places.add(place)
-                evidence.append(item)
+                evidence.append(_public(item))
 
     def listed(names: list[str]) -> str:
         return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
@@ -550,8 +598,11 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
     if lettered:
         parts.append("lettered lines " + "; ".join(lettered[:14]) + ("; …" if len(lettered) > 14 else ""))
     word = " and ".join(w for w, items in (("numbered", numbered), ("lettered", lettered)) if items)
+    def who(side: str) -> str:
+        return f"the drawings using the {side} grid naming" if borrowed[side] else f"the {side} drawings"
+
     question = (
-        f"The {left} drawings ({listed(sheets[left])}) and the {right} drawings "
+        f"{who(left)[0].upper()}{who(left)[1:]} ({listed(sheets[left])}) and {who(right)} "
         f"({listed(sheets[right])}) are drawn on the same grid lines, but {len(mapping)} of them are named "
         f"differently ({left} = {right}): {'. '.join(parts)}. Please confirm which grid naming governs for "
         "layout and coordination, and whether the other drawings will be reissued to match."

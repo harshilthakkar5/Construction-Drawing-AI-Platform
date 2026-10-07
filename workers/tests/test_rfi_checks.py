@@ -337,7 +337,7 @@ def test_a_mark_is_checked_only_against_a_schedule_named_for_its_family():
     assert unscheduled_marks(pages, chunks)[0] == []
     # ...while the stud rail schedule itself still checks it.
     chunks[0] = chunk("sched", "p1", "DECON STUDRAIL SCHEDULE SR-10 SR-11", ["SR10", "SR11"])
-    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["SR25"]
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["SR-25"]  # as printed
 
 
 def test_a_fastener_type_is_not_a_door_missing_from_the_door_schedule():
@@ -371,6 +371,69 @@ def test_a_secondary_grid_line_is_not_a_mark():
     # The same mark written as a mark is still checked.
     chunks[2] = chunk("b", "p2", "FINISH F7 AT CORRIDOR", ["F7"])
     assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["F7"]
+
+
+def jetright(plan_text, plan_ids, *, plan_discipline="structural", plan_page="p67", plan_sheet="S2.01"):
+    """JETRIGHT's S1.02: the heading "FOOTING SCHEDULE" is a text block of its
+    own, and the rows (F5.0 ... F11.0B) are separate blocks under it."""
+    pages = [
+        Page("p66", "doc", 66, 66, "S1.02", discipline="structural"),
+        Page(plan_page, "doc", 67, 67, plan_sheet, discipline=plan_discipline),
+    ]
+    heading = Chunk("h", "p66", "FOOTING SCHEDULE\n", {"x": 949, "y": 220, "width": 120, "height": 12})
+    rows = Chunk(
+        "r", "p66", "F5.0\n2' - 0\"\n6#5 T&B\nF5.0B\nF7.0\n7#6 T&B\nF8.0\nF11.0\nF11.0B\n",
+        {"x": 873, "y": 299, "width": 300, "height": 140}, ("F50", "F50B", "F70", "F80", "F110", "F110B"),
+    )
+    plan = Chunk("plan", plan_page, plan_text, {"x": 10, "y": 10, "width": 50, "height": 50}, tuple(plan_ids))
+    return pages, [heading, rows, plan]
+
+
+def test_a_dotted_footing_mark_missing_from_a_schedule_printed_apart_from_its_heading():
+    """Astra's JR-001, which this check could not see: the heading and the rows
+    were different blocks, and F6.0 has a dot."""
+    pages, chunks = jetright("F5.0 F7.0 F6.0 F8.0 F6.0", ["F50", "F70", "F60", "F80"])
+    findings, _ = unscheduled_marks(pages, chunks)
+    assert [f.facts["mark"] for f in findings] == ["F6.0"]
+    assert "F5.0, F7.0" in findings[0].question, "the schedule is quoted as printed"
+
+
+def test_a_plain_mark_beside_a_dotted_schedule_is_not_its_dotted_twin():
+    """F10 on a plan is not F1.0 in a schedule that writes F5.0, F7.0."""
+    pages, chunks = jetright("F5.0 AT 3/B. FINISH F10.", ["F50", "F10"])
+    assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_a_schedule_speaks_only_for_its_own_discipline():
+    pages, chunks = jetright("F6.0 TYPE", ["F60"], plan_discipline="architectural", plan_sheet="A6.01")
+    assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_a_sheet_using_the_letters_for_something_else_is_not_checked():
+    """A3.01, the roof plan, labels R4, R7 ... R18 beside a railing schedule of
+    R1..R6: eleven 'missing railings' that are not railings."""
+    pages = [Page("s", "doc", 55, 55, "A5.32", discipline="architectural"),
+             Page("roof", "doc", 43, 43, "A3.01", discipline="architectural")]
+    chunks = [
+        Chunk("h", "s", "RAILING SCHEDULE", {"x": 752, "y": 78, "width": 100, "height": 12}),
+        Chunk("r", "s", "R1 R2 R3 R4 R5 R6", {"x": 186, "y": 124, "width": 300, "height": 200},
+              ("R1", "R2", "R3", "R4", "R5", "R6")),
+        Chunk("p", "roof", "R4 R7 R8 R9 R11 R13 R18", None, ("R4", "R7", "R8", "R9", "R11", "R13", "R18")),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
+    # One stray mark on a sheet that otherwise uses the schedule is still found.
+    chunks[2] = Chunk("p", "roof", "R1 R2 R4 R7", None, ("R1", "R2", "R4", "R7"))
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["R7"]
+
+
+def test_an_insulation_rating_is_not_a_mark():
+    pages = [Page("s", "doc", 55, 55, "A5.32", discipline="architectural"),
+             Page("w", "doc", 70, 70, "A6.02", discipline="architectural")]
+    chunks = [
+        Chunk("h", "s", "RAILING SCHEDULE R1 R2 R3", None, ("R1", "R2", "R3")),
+        Chunk("p", "w", "INSULATION BY PEMB SUPPLIER - R-13 MIN.", None, ("R13",)),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
 
 
 def test_a_schedule_title_does_not_run_across_a_line_break():
@@ -432,7 +495,11 @@ def test_overlapping_patterns_report_once_at_the_stronger_confidence(monkeypatch
     assert [h[2] for h in open_items("ELEV TBD")] == ["high"]
 
 
-@pytest.mark.parametrize("text", ["STBD SIDE", "TBDX", "WHAT? YES", "VIFTER", "VERIFY IN FIELD", "DIM V.I.F."])
+@pytest.mark.parametrize(
+    "text",
+    ["STBD SIDE", "TBDX", "WHAT? YES", "VIFTER", "VERIFY IN FIELD", "DIM V.I.F.",
+     "TRAFFIC BEARING (T.B.C.O.)"],  # C-301: a cover rating, not "to be confirmed"
+)
 def test_look_alikes_are_not_open_items(text):
     assert open_items(text) == []
 
@@ -494,8 +561,9 @@ def test_the_cap_keeps_the_strongest_and_says_so(monkeypatch):
 def test_run_all_runs_every_check():
     from rfi_grid import GridSystem
 
-    pages, chunks = mark_project([("p1", "PC4 AT 7/D. SEE 5/S-509. PILE TIP TBD", ["PC4"])])
+    pages, chunks = mark_project([("p1", "PC4 AT 7/D. SEE 5/S-509. PILE TIP TBD. EF-1 400 CFM", ["PC4"])])
     chunks.append(index(sheets=("S-101", "S-102", "S-501", "S-502", "S-503")))
+    chunks.append(chunk("fan", "p2", "EF-1 450 CFM"))
     rows = {"1": 100.0, "2": 330.0, "3": 470.0, "4": 800.0}
     grids = [
         GridSystem(pages[0].id, "blue 27pt", {}, rows),
@@ -527,3 +595,66 @@ def test_the_column_check_writes_a_labelled_type():
     import rfi_columns
 
     assert rfi_columns.CHECK_TYPE in rfi_checks.REVIEW_CHECK_TYPES
+
+
+# --- one tag, two ratings ------------------------------------------------------
+
+
+def three_sheets(*texts):
+    pages = [Page(f"p{i}", "doc", i, i, sheet) for i, sheet in enumerate(("P0.02", "P1.03", "P1.04"), start=1)]
+    return pages, [Chunk(f"c{i}", f"p{i}", text, None) for i, text in enumerate(texts, start=1)]
+
+
+def test_one_tag_with_two_ratings_on_two_sheets_is_found():
+    """Astra's JR-002 on JETRIGHT: RTU-3 at 80 MBH on the gas riser and the
+    mezzanine piping plan, 100 MBH on the roof piping plan."""
+    pages, chunks = three_sheets("UP TO\nRTU-3 \n80MBH", "UP TO RTU-3 80MBH", "RTU-3\n100 MBH\nRTU-2 80MBH")
+    findings, _ = rfi_checks.tag_value_conflicts(pages, chunks)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.facts["tag"] == "RTU-3" and f.confidence == "high"  # two sheets agree, one does not
+    assert f.question.startswith("RTU-3 is labelled 80 MBH on P0.02, P1.03; 100 MBH on P1.04.")
+    assert {e["sheetNumber"] for e in f.evidence} == {"P0.02", "P1.03", "P1.04"}
+
+
+def test_agreeing_ratings_and_other_tags_are_not_findings():
+    pages, chunks = three_sheets("RTU-3 80MBH", "RTU-3 80 MBH", "RTU-2 100 MBH")
+    assert rfi_checks.tag_value_conflicts(pages, chunks)[0] == []
+
+
+def test_two_values_on_one_sheet_are_two_quantities_not_a_conflict():
+    pages = [Page("p1", "doc", 1, 1, "M0.02"), Page("p2", "doc", 2, 2, "P1.04")]
+    chunks = [Chunk("a", "p1", "RTU-3 INPUT 80 MBH OUTPUT 64.8 MBH", None), Chunk("b", "p2", "RTU-3 100 MBH", None)]
+    # The schedule row carries two MBH values after the tag: neither is taken.
+    assert rfi_checks.tag_value_conflicts(pages, chunks)[0] == []
+
+
+def test_a_fraction_rating_is_compared_by_value():
+    pages = [Page("p1", "doc", 1, 1, "M0.02"), Page("p2", "doc", 2, 2, "E0.05")]
+    chunks = [Chunk("a", "p1", "CF-2 2 HP", None), Chunk("b", "p2", "CF-2 2-1/2 HP", None)]
+    (f,) = rfi_checks.tag_value_conflicts(pages, chunks)[0]
+    assert f.confidence == "medium" and "2 HP on M0.02" in f.question and "2-1/2 HP on E0.05" in f.question
+    chunks[1] = Chunk("b", "p2", "CF-2 2.0 HP", None)
+    assert rfi_checks.tag_value_conflicts(pages, chunks)[0] == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'RTU-3 3/4"ø G',  # a pipe size is not a rating
+        "RTU 3 100 MBH",  # no hyphen: not a tag
+        "RTU-3.1 100 MBH",  # a sub-tag
+        "SEE 1/RTU-3 100 MBH",  # part of a reference
+    ],
+)
+def test_look_alikes_are_not_tag_ratings(text):
+    assert [r for r in rfi_checks.tag_ratings(text) if r[0] == "RTU-3" and r[1] == "MBH"] == []
+
+
+def test_a_reference_must_be_numbered_like_the_sets_sheets_of_its_prefix():
+    """JETRIGHT: "MECHANICAL DRAWING E2" on A4.01, in a set whose electrical
+    sheets are E2.01, E2.02 — accepted only because the cover sheet is T1."""
+    pages = [page("p1", "T1"), page("p2", "E2.01"), page("p3", "E2.02"), page("p4", "A4.01")]
+    chunks = [index(sheets=("T1", "E2.01", "E2.02", "A4.01", "A4.02")),
+              chunk("c", "p4", "SEE MECHANICAL DRAWING E2 FOR DUCT")]
+    assert dangling_references(pages, chunks)[0] == []

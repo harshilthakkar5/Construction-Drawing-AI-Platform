@@ -24,6 +24,9 @@ normal way, a false one is a question someone has to answer:
   grid_mismatch        one grid line named differently by two drawings
                        (rfi_grid.py — read from the PDF's geometry, the one
                        check that is not built on text).
+  tag_value_conflict   one equipment tag printed with two different ratings
+                       on two sheets: RTU-3 at 80 MBH on the gas riser and the
+                       mezzanine piping plan, 100 MBH on the roof piping plan.
 
 Everything here is pure — pages and chunks in, findings out — so every rule
 and every guard is tested without a database or a PDF. Only `kind="text"`
@@ -43,7 +46,7 @@ from classify import PREFIX_TO_DISCIPLINE
 # Keys written into rfi_candidates.checkType. Mirrored as RFI_CHECK_LABELS in
 # @cdip/shared, and test_rfi_checks reads that file to fail on a drift — a
 # check the UI has no label for renders as its raw key.
-CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch")
+CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict")
 # Written only by the targeted review (rfi_columns.py): they need two named
 # sheets laid over each other. Labelled in the same RFI_CHECK_LABELS.
 REVIEW_CHECK_TYPES = ("column_mismatch",)
@@ -322,6 +325,11 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
     shapes = {signature(k)[1:] for k in known if signature(k)}  # (digits, trailing)
     digit_counts = {shape[0] for shape in shapes}
     prefixes = {signature(k)[0] for k in known if signature(k)}
+    digits_by_prefix: dict[str, set[int]] = {}
+    for k in known:
+        sig = signature(k)
+        if sig:
+            digits_by_prefix.setdefault(sig[0], set()).add(sig[1])
     title_block_text = " ".join(normalize(p.region_text or "") for p in pages)
     unread = sum(1 for p in pages if not p.sheet_number)
 
@@ -346,6 +354,12 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
             # set numbered S-101P) is weaker evidence rather than none: it may
             # be a sheet from another package. It is kept, and marked low.
             if digits not in digit_counts or not _discipline_prefix(prefix):
+                continue
+            # When the set HAS sheets of this prefix, the reference must be
+            # numbered like them: JETRIGHT numbers its electrical sheets E2.01,
+            # and "MECHANICAL DRAWING E2" matched only because the cover sheet
+            # is T1.
+            if prefix in digits_by_prefix and digits not in digits_by_prefix[prefix]:
                 continue
             if (digits, trailing) not in shapes:
                 off_pattern.add(ref)
@@ -441,19 +455,63 @@ def _mark_parts(identifier: str) -> tuple[str, int, bool] | None:
     return m.group(1), len(m.group(2)), bool(m.group(3))
 
 
-def _mark_pattern(mark: str) -> re.Pattern:
+def _mark_pattern(mark: str, dotted: bool = False) -> re.Pattern:
     """Find a normalized mark in raw text, however it was separated: PC4, PC-4.
 
-    Never with a DOT. `cdip_identifiers` strips every separator, so the grid
-    line F.7 — bubbled on every plan of a set — is indexed as F7, exactly the
-    shape of a mark. A full scan of 423 client pages proposed "Mark F7 missing
-    from the concrete finish schedule" with four sheets of evidence, every one
-    of them the grid bubble. A dotted label is a secondary grid line (F.7,
-    B1.6, 2.3) or a section number, never a schedule mark."""
+    Never with a dot straight after the LETTERS. `cdip_identifiers` strips
+    every separator, so the grid line F.7 — bubbled on every plan of a set — is
+    indexed as F7, exactly the shape of a mark. A full scan of 423 client pages
+    proposed "Mark F7 missing from the concrete finish schedule" with four
+    sheets of evidence, every one of them the grid bubble.
+
+    A dot BETWEEN DIGITS is allowed only when `dotted`: the family's own
+    schedule writes its marks that way. JETRIGHT's footing schedule lists F5.0,
+    F7.0, F11.0 and the plan tags F6.0 — a mark this pattern could never quote
+    while it refused every dot, so the footing with no schedule entry (the
+    first RFI a reviewer raised on that set) was invisible. A secondary grid
+    line like B1.6 has the same shape, which is why the schedule has to vouch
+    for it."""
     m = _MARK.match(mark)
     assert m, mark
+    digits = m.group(2)
+    if dotted:
+        # Written the schedule's way: one dot between digits, never none — F10
+        # on an architectural sheet is not F1.0 in a schedule of F5.0, F7.0.
+        cuts = [digits[:i] + r"\." + digits[i:] for i in range(1, len(digits))]
+        if not cuts:
+            return re.compile(r"(?!x)x")  # a one-digit mark cannot carry a dot
+        digits = "(?:" + "|".join(cuts) + ")"
     return re.compile(
-        rf"(?<![A-Z0-9.]){m.group(1)}[- ]?{m.group(2)}{m.group(3)}(?![A-Z0-9]|\.\d)"
+        rf"(?<![A-Z0-9.]){m.group(1)}[- ]?{digits}{m.group(3)}(?![A-Z0-9]|\.\d)"
+    )
+
+
+def _writes_dotted(family: str, text: str) -> bool:
+    """Whether `text` writes marks of `family` with a dot between digits
+    (F5.0, F11.0B) — the schedule's own notation."""
+    return re.search(rf"(?<![A-Z0-9.]){family}[- ]?\d+\.\d", text.upper()) is not None
+
+
+# How far a schedule's rows may sit from its heading: the heading and the
+# table are often separate text blocks (JETRIGHT's S1.02 prints "FOOTING
+# SCHEDULE" 79pt above the block of F5.0 ... F7.0 rows), so a chunk holding
+# only the heading would never count as a schedule. A table hangs below its
+# heading; its columns may spread either side of a centred title.
+SCHEDULE_BODY_BELOW_PT = 700.0
+SCHEDULE_BODY_SIDE_PT = 400.0
+
+
+def _under_heading(heading: dict | None, body: dict | None) -> bool:
+    if not heading or not body:
+        return False
+    hx0, hy0 = heading["x"], heading["y"]
+    hx1, hy1 = hx0 + heading["width"], hy0 + heading["height"]
+    bx0, by0 = body["x"], body["y"]
+    bx1 = bx0 + body["width"]
+    return (
+        hy0 - 2 <= by0 <= hy1 + SCHEDULE_BODY_BELOW_PT
+        and bx1 >= hx0 - SCHEDULE_BODY_SIDE_PT
+        and bx0 <= hx1 + SCHEDULE_BODY_SIDE_PT
     )
 
 
@@ -469,6 +527,9 @@ _SEE_AFTER = re.compile(r"^\W{0,3}(?:[A-Z]+\s+){0,3}(?:SEE|REFER|REF\.?)\b")
 # door missing from the door schedule.
 _FASTENER_AFTER = re.compile(
     r"^\W{0,3}(?:[A-Z#/.-]+\s+){0,4}(?:SCREWS?|BOLTS?|NAILS?|ANCHORS?|WASHERS?|RIVETS?|FASTENERS?|STAPLES?|PINS?)\b"
+    # ...or an insulation rating: "R-13 MIN.", "R-30 BATT INSULATION" sat
+    # beside a railing schedule of R1..R6 and read as railings missing from it.
+    r"|^\W{0,3}(?:MIN\b|MINIMUM|(?:[A-Z]+\s+){0,2}INSUL|BATT|C\.?I\.?\b|RIGID|CONTINUOUS\s+INSUL|THERMAL)"
 )
 
 
@@ -540,11 +601,27 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
     schedule_pages: dict[str, set[str]] = {}
     schedule_chunk: dict[str, Chunk] = {}
     schedule_name: dict[str, str] = {}
+    dotted: dict[str, bool] = {}
+    schedule_text: dict[str, list[str]] = {}
+    on_page: dict[str, list[Chunk]] = {}
+    for chunk in chunks:
+        on_page.setdefault(chunk.page_id, []).append(chunk)
     for chunk in chunks:
         if not _SCHEDULE_WORD.search(chunk.text):
             continue
         titles = schedule_titles(chunk.text)
-        for family, marks in marks_of(chunk).items():
+        if not titles:
+            continue
+        # The heading's own chunk, plus the rows printed under it when the
+        # table is a separate text block.
+        body = [chunk] + [
+            c for c in on_page.get(chunk.page_id, []) if c is not chunk and _under_heading(chunk.bbox, c.bbox)
+        ]
+        families: dict[str, set[str]] = {}
+        for c in body:
+            for family, marks in marks_of(c).items():
+                families.setdefault(family, set()).update(marks)
+        for family, marks in families.items():
             if len(marks) < MIN_SCHEDULE_MARKS:
                 continue
             # The schedule must be a heading, and a heading about THIS family.
@@ -554,6 +631,8 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
             schedule_pages.setdefault(family, set()).add(chunk.page_id)
             schedule_chunk.setdefault(family, chunk)
             schedule_name.setdefault(family, named[0])
+            dotted[family] = dotted.get(family, False) or any(_writes_dotted(family, c.text) for c in body)
+            schedule_text.setdefault(family, []).extend(c.text.upper() for c in body)
 
     if not schedule_pages:
         notes.append(
@@ -579,6 +658,28 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                 for mark in marks:
                     on_plans.setdefault(family, {}).setdefault(mark, []).append((page, chunk))
 
+    # A sheet that shows several marks of a family the schedule does not list,
+    # and fewer that it does, is using those letters for something else: the
+    # roof plan's R7..R18 beside a railing schedule of R1..R6, R-19 and R-30
+    # insulation values, a code sheet's generic TA02..TA10 accessory diagrams.
+    # A real gap is the exception on a sheet that otherwise speaks the
+    # schedule's vocabulary — S2.01 tags two F6.0 among some thirty F5.0,
+    # F7.0, F8.0 and F11.0 footings.
+    foreign: set[tuple[str, str]] = set()
+    for family, marks in on_plans.items():
+        in_schedule = scheduled.get(family, set())
+        per_page: dict[str, tuple[set[str], set[str]]] = {}
+        for mark, places in marks.items():
+            for page, _ in places:
+                listed, unlisted = per_page.setdefault(page.id, (set(), set()))
+                (listed if mark in in_schedule else unlisted).add(mark)
+        for page_id, (listed, unlisted) in per_page.items():
+            if len(unlisted) >= 2 and len(unlisted) > len(listed):
+                foreign.add((family, page_id))
+    schedule_discipline = {
+        family: by_page[schedule_chunk[family].page_id].discipline for family in schedule_chunk
+    }
+
     findings: list[Finding] = []
     for family in sorted(on_plans):
         in_schedule = scheduled.get(family, set())
@@ -587,14 +688,31 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
         shapes = {_mark_parts(m)[1:] for m in in_schedule}
         title = schedule_name.get(family) or f"{family} schedule"
         schedule_page = by_page[schedule_chunk[family].page_id]
-        listed = sorted(in_schedule, key=lambda m: (len(m), m))
+        def shown(mark: str, texts: list[str]) -> str:
+            """The mark as the drawings print it (F6.0), not as the index
+            stores it (F60) — a reader searches the sheet for what we quote."""
+            pattern = _mark_pattern(mark, dotted.get(family, False))
+            for text in texts:
+                hit = pattern.search(text)
+                if hit:
+                    return hit.group(0)
+            return mark
+
+        listed = [shown(m, schedule_text.get(family, [])) for m in sorted(in_schedule, key=lambda m: (len(m), m))]
 
         for mark, places in sorted(on_plans[family].items()):
             if mark in in_schedule or _mark_parts(mark)[1:] not in shapes:
                 continue
-            pattern = _mark_pattern(mark)
+            pattern = _mark_pattern(mark, dotted.get(family, False))
             evidence: list[dict] = []
             for page, chunk in places:
+                if (family, page.id) in foreign:
+                    continue
+                # A schedule speaks for its own discipline's sheets: a footing
+                # schedule says nothing about F10 on an architectural sheet.
+                own = schedule_discipline.get(family)
+                if own and page.discipline and page.discipline != own:
+                    continue
                 upper = chunk.text.upper()
                 hit = next(
                     (h for h in pattern.finditer(upper) if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])),
@@ -609,6 +727,7 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     evidence.append(_evidence(page, chunk, _quote(chunk.text, hit.start(), hit.end())))
             if not evidence:
                 continue
+            printed = shown(mark, [c.text.upper() for _, c in places])
             distinct_places = {(e["documentId"], e["pageNumber"], e["chunkId"]) for e in evidence}
             evidence.append(
                 _evidence(
@@ -627,16 +746,16 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     check_type="unscheduled_mark",
                     fingerprint=fingerprint("unscheduled_mark", mark),
                     confidence=confidence,
-                    subject=f"{mark} has no entry in the {title.lower()}",
+                    subject=f"{printed} has no entry in the {title.lower()}",
                     question=(
-                        f"Mark {mark} is shown on {where}, but the {title} lists "
-                        f"{', '.join(listed[:12])} and has no entry for {mark}. Please "
-                        f"provide the {title} entry for {mark}, or confirm which mark "
+                        f"Mark {printed} is shown on {where}, but the {title} lists "
+                        f"{', '.join(listed[:12])} and has no entry for {printed}. Please "
+                        f"provide the {title} entry for {printed}, or confirm which mark "
                         "is intended."
                     ),
                     evidence=evidence,
                     facts={
-                        "mark": mark,
+                        "mark": printed,
                         "schedule": title,
                         "scheduledMarks": listed[:12],
                         "shownOn": where,
@@ -653,12 +772,14 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
 # genuine gap, often boilerplate telling the contractor to check dimensions,
 # so it is proposed but not pre-selected.
 _OPEN_ITEM_PATTERNS: list[tuple[re.Pattern, str, str]] = [
-    (re.compile(r"(?<![A-Z0-9])T\.?B\.?D\.?(?![A-Z0-9])"), "high", "to be determined"),
+    (re.compile(r"(?<![A-Z0-9.])T\.?B\.?D\.?(?![A-Z0-9]|\.[A-Z0-9])"), "high", "to be determined"),
     (re.compile(r"\bTO BE DETERMINED\b"), "high", "to be determined"),
     (re.compile(r"\bTO BE CONFIRMED\b"), "high", "to be confirmed"),
     (re.compile(r"\bNOT YET (?:DETERMINED|DESIGNED|SELECTED|CONFIRMED|AVAILABLE)\b"), "high", "not yet determined"),
     (re.compile(r"\bINFORMATION (?:TO FOLLOW|PENDING|NOT AVAILABLE)\b"), "high", "information to follow"),
-    (re.compile(r"(?<![A-Z0-9])T\.?B\.?C\.?(?![A-Z0-9])"), "medium", "to be confirmed"),
+    # Never part of a longer dotted abbreviation: C-301's "TRAFFIC BEARING
+    # (T.B.C.O.)" is a cover rating, and was proposed as an open item.
+    (re.compile(r"(?<![A-Z0-9.])T\.?B\.?C\.?(?![A-Z0-9]|\.[A-Z0-9])"), "medium", "to be confirmed"),
     (re.compile(r"\?{2,}"), "medium", "unresolved"),
     (re.compile(r"\bPENDING (?:APPROVAL|CONFIRMATION|DESIGN|REVIEW|INFORMATION)\b"), "medium", "pending"),
 ]
@@ -758,6 +879,139 @@ def _sentence(text: str, start: int, end: int) -> str:
 # --- Running them -------------------------------------------------------------
 
 
+# --- Check 4: one tag, two ratings ---------------------------------------------
+
+# An equipment tag: letters, a hyphen, a number (RTU-3, CF-2, EF-12, IRH-1).
+# The hyphen is required: without it a tag is indistinguishable from a sheet
+# number, a grid crossing or a mark, and a mark's value is a schedule question.
+_TAG = re.compile(r"(?<![A-Z0-9.\-/])([A-Z]{1,4}-\d{1,3}[A-Z]?)(?![A-Z0-9]|-\d|\.\d|,\d)")
+# A rating printed next to it, in a unit that rates EQUIPMENT. Dimensions,
+# pipe sizes and elevations are not on the list: a 3/4" pipe to RTU-3 and a
+# 1" pipe to RTU-3 are two pipes, not a conflict.
+_RATING = re.compile(
+    r"(?<![\d./-])(\d{1,2}[- ]\d/\d|\d/\d|\d{1,5}(?:\.\d{1,2})?)\s*"
+    r"(MBH|BTUH|HP|CFM|GPM|KVA|KW|TONS?)(?![A-Z])"
+)
+_UNIT_NOUN = {
+    "MBH": "input", "BTUH": "capacity", "HP": "motor horsepower", "CFM": "airflow",
+    "GPM": "flow", "KW": "power", "KVA": "load", "TON": "capacity", "TONS": "capacity",
+}
+# How far after the tag its rating may be printed: one label is a tag and one
+# or two lines under it ("UP TO\nRTU-3\n80MBH"). A schedule row runs further,
+# and is cut at the next tag anyway.
+RATING_WINDOW_CHARS = 40
+
+
+def _rating_value(text: str) -> float:
+    text = text.replace(" ", "-")
+    if "-" in text and "/" in text:
+        whole, frac = text.split("-", 1)
+        num, den = frac.split("/")
+        return float(whole) + float(num) / float(den)
+    if "/" in text:
+        num, den = text.split("/")
+        return float(num) / float(den)
+    return float(text)
+
+
+def tag_ratings(text: str) -> list[tuple[str, str, float, str, int, int]]:
+    """(tag, unit, value, value as printed, start, end) for every tag with ONE
+    rating of a unit printed straight after it. Two ratings of one unit after
+    the same tag (a schedule row with INPUT and OUTPUT MBH) say nothing about
+    which one belongs to it, so neither is taken."""
+    upper = text.upper()
+    tags = list(_TAG.finditer(upper))
+    out = []
+    for i, m in enumerate(tags):
+        stop = min(m.end() + RATING_WINDOW_CHARS, tags[i + 1].start() if i + 1 < len(tags) else len(upper))
+        window = upper[m.end() : stop]
+        by_unit: dict[str, list[re.Match]] = {}
+        for r in _RATING.finditer(window):
+            unit = "TONS" if r.group(2) == "TON" else r.group(2)
+            by_unit.setdefault(unit, []).append(r)
+        for unit, found in by_unit.items():
+            if len(found) != 1:
+                continue
+            r = found[0]
+            try:
+                value = _rating_value(r.group(1))
+            except (ValueError, ZeroDivisionError):
+                continue
+            out.append((m.group(1), unit, value, f"{r.group(1)} {unit}", m.start(), m.end() + r.end()))
+    return out
+
+
+def tag_value_conflicts(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Finding], list[str]]:
+    """One tag, two ratings of one unit, on two different SHEETS.
+
+    Entity matching first, comparison second: the tag is what makes the two
+    numbers about the same piece of equipment — RTU-3 on the gas riser, RTU-3
+    on the roof piping plan. Within one sheet a second value is more likely a
+    second quantity (input and output) than a disagreement, so a conflict must
+    cross sheets. Ratings in a unit that rates equipment only; a pipe size or
+    a dimension beside a tag describes something else.
+
+    Blind spot, stated: a schedule pasted into the sheet as a PICTURE has no
+    text to read. JETRIGHT's M0.02 equipment schedules and E0.05 panel
+    schedules are images, so CF-2's 2 HP against 2-1/2 HP (a reviewer's RFI on
+    that set) is not visible to this check."""
+    notes: list[str] = []
+    by_page = {p.id: p for p in pages}
+    seen: dict[tuple[str, str], dict[float, list[tuple[Page, Chunk, str, int, int]]]] = {}
+    for chunk in chunks:
+        page = by_page.get(chunk.page_id)
+        if page is None:
+            continue
+        for tag, unit, value, printed, start, end in tag_ratings(chunk.text):
+            seen.setdefault((tag, unit), {}).setdefault(round(value, 3), []).append((page, chunk, printed, start, end))
+
+    findings: list[Finding] = []
+    for (tag, unit), values in sorted(seen.items()):
+        if len(values) < 2:
+            continue
+        sheets_of = {v: {page.id for page, *_ in places} for v, places in values.items()}
+        all_sheets = set().union(*sheets_of.values())
+        if len(all_sheets) < 2:
+            continue  # one sheet: input and output, or two units of one kind
+        # Most-repeated value first, so the odd one out reads last.
+        ordered = sorted(values, key=lambda v: (-len(sheets_of[v]), v))
+        evidence: list[dict] = []
+        said: list[str] = []
+        for v in ordered:
+            places = values[v]
+            sheets = sorted({page_label(page) for page, *_ in places})
+            said.append(f"{places[0][2]} on {', '.join(sheets)}")
+            for page, chunk, printed, start, end in places:
+                if sum(1 for e in evidence if e.get("_value") == v) >= 2 or len(evidence) >= MAX_EVIDENCE:
+                    continue
+                item = _evidence(page, chunk, _quote(chunk.text, start, end))
+                item["_value"] = v
+                evidence.append(item)
+        for item in evidence:
+            item.pop("_value", None)
+        # A value repeated on two sheets against one odd sheet is the shape of a
+        # real disagreement (two drawings agree, one does not).
+        confidence = "high" if max(len(s) for s in sheets_of.values()) >= 2 else "medium"
+        noun = _UNIT_NOUN.get(unit, "rating")
+        subject = f"{tag} {noun} differs between drawings"
+        question = (
+            f"{tag} is labelled {'; '.join(said)}. Please confirm the required {noun} for {tag} "
+            "and coordinate the drawings."
+        )
+        findings.append(
+            Finding(
+                check_type="tag_value_conflict",
+                fingerprint=fingerprint("tag_value_conflict", tag, unit),
+                confidence=confidence,
+                subject=subject,
+                question=question,
+                evidence=evidence,
+                facts={"tag": tag, "unit": unit, "values": said},
+            )
+        )
+    return _cap("tag_value_conflict", findings, notes), notes
+
+
 def _cap(check_type: str, findings: list[Finding], notes: list[str]) -> list[Finding]:
     """Strongest first, then cut — and SAY it was cut."""
     findings.sort(key=lambda f: _RANK[f.confidence])
@@ -785,7 +1039,7 @@ def run_all(
 
     findings: list[Finding] = []
     notes: list[str] = []
-    for check in (dangling_references, unscheduled_marks, open_item_notes):
+    for check in (dangling_references, unscheduled_marks, open_item_notes, tag_value_conflicts):
         found, said = check(pages, chunks)
         findings.extend(found)
         notes.extend(said)
