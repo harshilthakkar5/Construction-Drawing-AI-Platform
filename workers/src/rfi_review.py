@@ -1314,6 +1314,11 @@ def _documents(project_id: str, document_ids: list[str]):
                 except Exception as exc:
                     log.warning("rfi review: could not open %s: %s", document_id[:8], exc)
                     opened[document_id] = None
+                    # Kept for the caller: a page that could not be OPENED must
+                    # never be reported as a page whose drawing disagreed. The
+                    # full scan said "the walls do not line up" for every pair
+                    # of a set whose PDF the worker could not download.
+                    open_page.errors[document_id] = f"{type(exc).__name__}: {exc}"[:300]
             doc = opened[document_id]
             if doc is None or not 1 <= page_number <= doc.page_count:
                 return None
@@ -1322,6 +1327,7 @@ def _documents(project_id: str, document_ids: list[str]):
             # that carries them shows the model the answer to its own question.
             return grid.without_markup(doc[page_number - 1])
 
+        open_page.errors = {}
         try:
             yield open_page
         finally:

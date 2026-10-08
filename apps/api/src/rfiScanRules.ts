@@ -6,23 +6,26 @@ import type { RfiConfidence, RfiScanDto, RfiScanStatus, RfiScanUsageDto } from "
  */
 
 /**
- * How long a scan may sit queued or running before it is presumed dead.
+ * How long a scan may go SILENT before it is presumed dead.
  *
  * Without this a worker that died mid-scan would leave the row `running`
  * forever, and "a scan is already running" would disable the button for the
  * life of the project — a failure that looks exactly like a scan that is
- * merely slow. Thirty minutes is far past any real scan: the checks are a few
- * SQL reads and the wording is a handful of batched calls.
+ * merely slow. It is measured from the worker's last heartbeat, not from the
+ * start: reading text drawn as shapes takes 40-70s a page, so a healthy scan
+ * can run an hour, and the old start-time rule would have called it dead at
+ * thirty minutes while it was still working. A scan written before heartbeats
+ * existed falls back to its start time.
  */
 export const STALE_SCAN_MS = 30 * 60 * 1000;
 
 export function scanIsActive(
-  scan: { status: RfiScanStatus; createdAt: Date; startedAt: Date | null } | null,
+  scan: { status: RfiScanStatus; createdAt: Date; startedAt: Date | null; heartbeatAt?: Date | null } | null,
   now: Date,
 ): boolean {
   if (!scan) return false;
   if (scan.status !== "queued" && scan.status !== "running") return false;
-  const since = (scan.startedAt ?? scan.createdAt).getTime();
+  const since = (scan.heartbeatAt ?? scan.startedAt ?? scan.createdAt).getTime();
   return now.getTime() - since < STALE_SCAN_MS;
 }
 
@@ -89,6 +92,10 @@ export function toScanDto(
   usage?: unknown;
   fresh?: boolean;
   error: string | null;
+  stage?: string | null;
+  progress?: number;
+  detail?: string | null;
+  heartbeatAt?: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
   createdAt: Date;
@@ -109,6 +116,10 @@ export function toScanDto(
     usage: scanUsage(row.usage, costOf),
     fresh: row.fresh === true,
     error: row.error,
+    stage: row.stage ?? null,
+    progress: Math.max(0, Math.min(100, Math.round(row.progress ?? 0))),
+    detail: row.detail ?? null,
+    heartbeatAt: row.heartbeatAt?.toISOString() ?? null,
     startedAt: row.startedAt?.toISOString() ?? null,
     finishedAt: row.finishedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),

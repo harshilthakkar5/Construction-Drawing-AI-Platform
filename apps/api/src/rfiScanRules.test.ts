@@ -29,6 +29,17 @@ describe("scanIsActive", () => {
     expect(scanIsActive(stuck, NOW)).toBe(false);
   });
 
+  /**
+   * Reading text drawn as shapes takes 40-70s a page, so a healthy scan runs
+   * an hour. Measured from the start, it was "dead" at thirty minutes while
+   * still writing progress every page.
+   */
+  it("keeps a long scan alive while its heartbeat keeps coming", () => {
+    const long = { status: "running" as const, createdAt: ago(STALE_SCAN_MS * 3), startedAt: ago(STALE_SCAN_MS * 2), heartbeatAt: ago(30_000) };
+    expect(scanIsActive(long, NOW)).toBe(true);
+    expect(scanIsActive({ ...long, heartbeatAt: ago(STALE_SCAN_MS + 1) }, NOW)).toBe(false);
+  });
+
   it("measures from when the scan STARTED, not when it was queued", () => {
     // Queued long ago behind other work, started a minute ago: still live.
     const running = { status: "running" as const, createdAt: ago(STALE_SCAN_MS * 2), startedAt: ago(60_000) };
@@ -157,3 +168,17 @@ function baseRow() {
     createdAt: NOW,
   };
 }
+
+describe("toScanDto progress", () => {
+  const row = { id: "s", status: "running", findings: 0, modelWorded: 0, byCheck: null, notes: [], error: null,
+    startedAt: ago(1000), finishedAt: null, createdAt: ago(2000) };
+
+  it("carries the step, a clamped percent and the line for people", () => {
+    const dto = toScanDto({ ...row, stage: "ocr", progress: 140, detail: "page 3 of 9", heartbeatAt: ago(5) });
+    expect(dto).toMatchObject({ stage: "ocr", progress: 100, detail: "page 3 of 9", heartbeatAt: ago(5).toISOString() });
+  });
+
+  it("reads a scan from before progress existed as not started", () => {
+    expect(toScanDto(row)).toMatchObject({ stage: null, progress: 0, detail: null, heartbeatAt: null });
+  });
+});

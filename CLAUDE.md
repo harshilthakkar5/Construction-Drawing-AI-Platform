@@ -2324,13 +2324,26 @@ page unmarked for one with it, and says so in the scan notes rather than "found 
 finding whose problem was read by OCR is capped at MEDIUM and its question says so
 (`rfi_checks.mark_ocr`); OCR context does not cap it. ~40-70s of CPU a page, so the scan reads at
 most `OCR_MAX_PAGES_PER_SCAN` new pages each run. A PICTURE is measured too (`Picture.dpi`, long
-side to long side, since images are placed rotated): placed under 72 DPI, ≥10 text lines found,
-under half of them readable = ILLEGIBLE, and becomes the `illegible_schedule` finding asking for a
-legible copy. Nothing is guessed off it: E0.05's seven panel schedules (67 DPI, letters missing
+side to long side, since images are placed rotated): 1-BIT, placed under 100 DPI, ≥10 text lines
+found, under half of them readable = ILLEGIBLE, and becomes the `illegible_schedule` finding asking
+for a legible copy. The 1-bit condition was paid for: without it the JETRIGHT run flagged six sheets,
+four of them grey/colour 72-DPI screenshots (a UL listing, a product sheet, a gate-operator table)
+that a person reads easily; only E0.04/E0.05 (1-bit, 67 DPI) are real (`OCR_VERSION` 2). OCR text may
+never RAISE a missing sheet or an unscheduled mark — one misread glyph mints a sheet ("FP0.O1",
+"1/16 in" read "l/i6" → I6) — it only suppresses them (an OCR-read schedule row counts as listed),
+and a finding whose deciding schedule was OCR-read is capped like any other OCR finding. Nothing is guessed off it: E0.05's seven panel schedules (67 DPI, letters missing
 strokes) are where a reviewer read CF-2 at 2-1/2 HP, and a value read off that picture would be a
 confident wrong RFI. Tested with a stand-in engine (boxes at 0/90/180/270, the core rule); PaddleOCR
 itself was exercised locally only through rapidocr (same PP-OCR models, ONNX), because the model
 CDN is blocked in the sandbox — production builds the real models into the worker image.
+
+A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
+heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
+gets 1-55%), the worker's own line ("OCR on page 41 of 103: M0.02 …"), run time and last update, and
+a warning after 3 quiet minutes. A rescan that read shape text ran an hour behind one spinner before
+this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
+time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
+step and a failed write is a log line, never a failed scan.
 
 Evidence boxes are PINPOINTED (`workers/src/rfi_pinpoint.py`): a check records the printed words
 (`_term`, and `_near` for a tag's rating), the scan finds them inside the chunk box and shrinks the
@@ -2712,6 +2725,11 @@ candidates had one box written x-first on image A and y-first on B and were reje
 apart". Boxes are now asked for as named edges `{left, top, right, bottom}`, and a pair that is its
 own transpose (`transposed_pair`) is dropped and asked again. Replaying the export's 498 replies
 catches exactly the three bad locations and reads the other 17 issues unchanged.
+A drawing the worker could not DOWNLOAD or open is never reported as a disagreement: `_documents`
+records the error (`open_page.errors`), the pair is skipped as "the drawing file could not be
+downloaded or opened" and the plan's note names the file and the error (`fullscan.unopened_note`).
+Before, every such pair read "the walls do not line up either" — a user's plan showed 0 pairs and 6
+wall failures on a set whose walls line up 5 times out of 6 here. The OCR pass reports it the same way.
 A 103-page client set then paired NOTHING (33 plans, 11 levels read): `sheet_facts.level_in` only knew
 "LEVEL n". Numbered floors in words ("FIRST FLOOR", "2ND FLOOR", "FLOOR 2") now read as "LEVEL n";
 named floors (ground, basement n, mezzanine, roof) read as their name and pair only with the same

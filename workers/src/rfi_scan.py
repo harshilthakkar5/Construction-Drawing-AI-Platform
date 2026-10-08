@@ -305,7 +305,7 @@ class WordingUsage:
 
 
 def word(
-    findings: list[Finding], project_id: str, usage: WordingUsage | None = None
+    findings: list[Finding], project_id: str, usage: WordingUsage | None = None, progress=None,
 ) -> tuple[dict[str, tuple[str, str]], str | None]:
     """{fingerprint: (subject, question)} for the findings the model worded.
 
@@ -328,8 +328,13 @@ def word(
         return {}, f"{key} is not set on the worker, so every question uses its template wording."
 
     result: dict[str, tuple[str, str]] = {}
+    batches = (len(findings) + BATCH_SIZE - 1) // BATCH_SIZE
     for start in range(0, len(findings), BATCH_SIZE):
         batch = findings[start : start + BATCH_SIZE]
+        if progress is not None:
+            n = start // BATCH_SIZE
+            progress("wording", n, batches, f"Writing {len(findings)} question(s) with AI: batch {n + 1} of {batches}",
+                     force=True)
         user = "\n".join(_finding_block(i, f) for i, f in enumerate(batch))
         reply = llm.complete(
             _SYSTEM,
@@ -423,7 +428,7 @@ def _grid_key(document_id: str, page_number: int) -> str:
     return f"rfi:grid:v{GRID_CACHE_VERSION}:{document_id}:{page_number}"
 
 
-def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | None, str | None]:
+def load_grids(project_id: str, pages: list[Page], progress=None) -> tuple[list[GridSystem] | None, str | None]:
     """Every grid on every live page, read from the PDFs themselves.
 
     The only check input that is not in Postgres: a grid bubble is a circle
@@ -469,6 +474,7 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
                 ).fetchall()
             )
         read = 0
+        to_read = sum(len(v) for v in missing.values())
         started = time.monotonic()
         for document_id, doc_pages in missing.items():
             key = keys.get(document_id)
@@ -484,6 +490,10 @@ def load_grids(project_id: str, pages: list[Page]) -> tuple[list[GridSystem] | N
                 pdf = fitz.open(path)
                 try:
                     for page in doc_pages:
+                        if progress is not None:
+                            progress("grids", read, to_read,
+                                     f"Reading grid lines: page {read + 1} of {to_read} "
+                                     f"({page.sheet_number or f'page {page.page_number}'})")
                         index = page.page_number - 1
                         found: list[dict] = []
                         if 0 <= index < pdf.page_count:
@@ -574,7 +584,8 @@ def plan_wording(
 
 def run(project_id: str, scan_id: str) -> dict:
     with db.connect() as conn:
-        _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
+        _set_scan(conn, scan_id, status="running", startedAt=_now(conn), heartbeatAt=_now(conn), error=None,
+                  stage="starting", progress=0, detail="Starting")
     try:
         return _run(project_id, scan_id)
     except Exception as exc:
@@ -618,7 +629,59 @@ def _now(conn):
     return conn.execute("SELECT now()").fetchone()[0]
 
 
-def ocr_pending(project_id: str) -> list[str]:
+# Where each step sits on the 0-100 bar. OCR gets most of it because it is
+# most of the wall clock: 40-70s a page, against seconds for everything else.
+STEPS = {
+    "starting": (0, 1),
+    "ocr": (1, 55),
+    "loading": (55, 57),
+    "grids": (57, 75),
+    "checks": (75, 79),
+    "pinpoint": (79, 82),
+    "wording": (82, 97),
+    "saving": (97, 99),
+    "done": (100, 100),
+}
+
+
+class ScanProgress:
+    """Writes what the scan is doing to its row as it goes: the step, a 0-100
+    figure, a line for people, and a heartbeat. A rescan that read shape text
+    ran an hour behind one spinner before this existed, and the person could
+    not tell a working scan from a dead one.
+
+    Writes are throttled (`MIN_INTERVAL`) except on a step change or when
+    forced, so a 1000-page grid read does not write a thousand rows. A failed
+    write is a log line: progress must never fail the scan it reports on."""
+
+    MIN_INTERVAL = 2.0
+
+    def __init__(self, scan_id: str | None):
+        self.scan_id = scan_id
+        self.stage: str | None = None
+        self._last = 0.0
+
+    def __call__(self, stage: str, done: int = 0, total: int = 0, detail: str = "", force: bool = False) -> None:
+        if not self.scan_id:
+            return
+        now = time.monotonic()
+        changed = stage != self.stage
+        if not (changed or force) and now - self._last < self.MIN_INTERVAL:
+            return
+        self.stage, self._last = stage, now
+        lo, hi = STEPS.get(stage, (0, 0))
+        pct = lo + (hi - lo) * (done / total if total else 0)
+        if changed:
+            log.info("rfi scan %s: step %s — %s", self.scan_id[:8], stage, detail)
+        try:
+            with db.connect() as conn:
+                _set_scan(conn, self.scan_id, stage=stage, progress=int(round(pct)), detail=detail[:300],
+                          heartbeatAt=_now(conn))
+        except Exception as exc:
+            log.warning("rfi scan %s: could not record progress (%s)", self.scan_id[:8], exc)
+
+
+def ocr_pending(project_id: str, progress=None) -> list[str]:
     """Read, with OCR, every page of the project the current OCR reader has
     not examined — words drawn as shapes, pasted schedule pictures — and
     store the lines as text chunks before the checks load. Documents
@@ -638,15 +701,22 @@ def ocr_pending(project_id: str) -> list[str]:
     read: list[str] = []
     deferred = 0
     unread = 0
+    unopened = 0
     illegible: list[str] = []
     from rfi_review import _documents
 
     sheets = _sheet_names(project_id)
+    report = progress or (lambda *a, **k: None)
     with _documents(project_id, sorted({d for d, _, _ in todo})) as open_page:
-        for document_id, _key, page_number in todo:
+        for done, (document_id, _key, page_number) in enumerate(todo):
+            name = sheets.get((document_id, page_number)) or f"page {page_number}"
+            report("ocr", done, len(todo),
+                   f"Looking for text drawn as shapes: page {done + 1} of {len(todo)} ({name})"
+                   + (f" · read {len(read)} so far" if read else ""))
             try:
                 page = open_page(document_id, page_number)
                 if page is None:
+                    unopened += 1
                     continue
                 reason = page_ocr.plan(page)
                 if reason is None:
@@ -659,6 +729,9 @@ def ocr_pending(project_id: str) -> list[str]:
                 if len(read) >= config.OCR_MAX_PAGES_PER_SCAN:
                     deferred += 1
                     continue
+                report("ocr", done, len(todo),
+                       f"OCR on page {done + 1} of {len(todo)}: {name} ({reason}) "
+                       f"· about a minute a page · {len(read)} read so far", force=True)
                 started = time.monotonic()
                 result = page_ocr.read_page(page)
                 log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs", document_id[:8],
@@ -666,14 +739,24 @@ def ocr_pending(project_id: str) -> list[str]:
                          time.monotonic() - started)
                 db.replace_page_ocr(document_id, page_number, result.as_json(), page_ocr.OCR_VERSION,
                                     page_ocr.SOURCE_MODEL, page_ocr.to_chunks(result, page))
-                name = sheets.get((document_id, page_number)) or f"page {page_number}"
                 read.append(name)
                 if any(p.illegible for p in result.pictures):
                     illegible.append(name)
             except Exception as exc:  # one unreadable page must not stop the scan
                 log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
+        errors = dict(getattr(open_page, "errors", {}))
     notes = []
+    if unopened:
+        # Never silent: these pages were not examined and stay unmarked, so
+        # the next scan tries them again.
+        notes.append(
+            f"OCR could not open {unopened} page(s) because the worker could not download or open the drawing "
+            f"file ({'; '.join(sorted(set(errors.values())))[:300] or 'see the worker log'}). Their text drawn as "
+            "shapes was NOT read. Check the worker can reach the object store, then scan again."
+        )
     if read:
+        report("ocr", len(todo), len(todo), f"Indexing the text OCR read on {len(read)} page(s) so chat can find it",
+               force=True)
         _index_new_chunks(project_id, sorted({d for d, _, _ in todo}))
         notes.append(
             f"OCR read {len(read)} page(s) whose words are drawn as shapes or pasted as pictures "
@@ -735,12 +818,17 @@ def _index_new_chunks(project_id: str, document_ids: list[str]) -> None:
 
 
 def _run(project_id: str, scan_id: str) -> dict:
-    ocr_notes = ocr_pending(project_id)
+    progress = ScanProgress(scan_id)
+    ocr_notes = ocr_pending(project_id, progress)
+    progress("loading", detail="Loading the drawings' text")
     pages, chunks = load(project_id)
     log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
-    grids, grid_note = load_grids(project_id, pages)
+    grids, grid_note = load_grids(project_id, pages, progress)
+    progress("checks", detail=f"Running the code checks on {len(pages)} pages "
+                              "(missing sheets, schedules, TBDs, tag ratings, grids)")
     findings, notes = rfi_checks.run_all(pages, chunks, grids)
     notes = ocr_notes + notes
+    progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
     pinpoint_evidence(project_id, findings)
     if grid_note:
         # Replaces run_all's generic "did not run" with the actual reason.
@@ -769,7 +857,8 @@ def _run(project_id: str, scan_id: str) -> dict:
 
     to_word, reopened = plan_wording(findings, existing, fresh)
     usage = WordingUsage()
-    worded, wording_note = word(to_word, project_id, usage)
+    progress("wording", detail=f"Writing {len(to_word)} question(s)" if to_word else "No new findings to word")
+    worded, wording_note = word(to_word, project_id, usage, progress=progress)
     if wording_note:
         notes.append(wording_note)
     if fresh:
@@ -779,6 +868,7 @@ def _run(project_id: str, scan_id: str) -> dict:
             + ". Findings already issued as a live RFI were left alone."
         )
 
+    progress("saving", detail=f"Saving {len(findings)} finding(s)")
     by_check: dict[str, int] = {}
     with db.connect() as conn:
         if reopened:
@@ -867,6 +957,10 @@ def _run(project_id: str, scan_id: str) -> dict:
             byCheck=json.dumps(by_check),
             notes=json.dumps(notes),
             usage=json.dumps(usage.as_json()),
+            stage="done",
+            progress=100,
+            detail=f"Done: {len(findings)} finding(s)",
+            heartbeatAt=_now(conn),
             finishedAt=_now(conn),
         )
 
