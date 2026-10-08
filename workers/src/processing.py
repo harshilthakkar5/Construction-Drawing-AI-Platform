@@ -33,6 +33,7 @@ import db
 import embeddings
 import gridmarks
 import logutil
+import ocr
 import page_ocr
 import storage
 import tables
@@ -83,7 +84,13 @@ def _process_page(
     # FR-7, widened: a page with no text layer, words drawn as shapes, or a
     # pasted schedule picture is read in tiles (page_ocr.py). The old path
     # sent the whole sheet as one image, which the detector shrinks to 960px.
-    reading = page_ocr.read_page(page) if config.OCR_ENABLED else page_ocr.PageOcr(reason=None)
+    try:
+        reading = page_ocr.read_page(page) if config.OCR_ENABLED else page_ocr.PageOcr(reason=None)
+    except ocr.OcrError as exc:
+        # A broken OCR engine must not fail the page. Not marked examined
+        # (ran=False), so the next RFI scan reads it on a working engine.
+        log.warning("page %d: OCR failed (%s); page kept without OCR text", page_number, exc)
+        reading = page_ocr.PageOcr(reason="ocr failed")
     used_ocr = bool(reading.reason) and reading.ran
     if not text and reading.lines:
         text = chunker.strip_nul("\n".join(line.text for line in reading.lines))

@@ -75,6 +75,11 @@ OCR_SHAPE_TEXT = os.environ.get("OCR_SHAPE_TEXT", "true").lower() != "false"
 OCR_SHAPE_TEXT_MAX_WORDS = int(os.environ.get("OCR_SHAPE_TEXT_MAX_WORDS", "400"))
 OCR_SHAPE_TEXT_MIN_DRAWINGS = int(os.environ.get("OCR_SHAPE_TEXT_MIN_DRAWINGS", "2000"))
 OCR_MAX_PAGES_PER_SCAN = int(os.environ.get("OCR_MAX_PAGES_PER_SCAN", "60"))
+# Longest side (px) the OCR detector works at. 1600 keeps a page_ocr tile at
+# the resolution it was rendered at; a worker short of memory can lower it
+# (960 is PaddleOCR's own default). A tile the engine fails on is retried
+# once at FALLBACK size regardless.
+OCR_DET_LIMIT = int(os.environ.get("OCR_DET_LIMIT", "1600"))
 
 # FR-8: lift schedules out of the page as whole tables instead of letting the
 # block extractor shred them. Detection is a heuristic (workers/src/tables.py);

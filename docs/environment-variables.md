@@ -123,6 +123,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `OCR_SHAPE_TEXT_MAX_WORDS` | `400` | Worker | A page with at most this many text-layer words… |
 | `OCR_SHAPE_TEXT_MIN_DRAWINGS` | `2000` | Worker | …over at least this many drawing paths is read for text drawn as shapes. |
 | `OCR_MAX_PAGES_PER_SCAN` | `60` | Worker | New pages the RFI scan OCRs per run (~40-70s each); the rest wait for the next scan. |
+| `OCR_DET_LIMIT` | `1600` | Worker | Longest side (px) the OCR detector works at. Lower it (e.g. `960`) on a worker short of memory; a tile the engine fails on is retried at 960 anyway. |
 | `PAGE_RENDER_ZOOM` | `2` | Worker | Page image resolution (2 = 144 DPI). Bigger = sharper viewer, more memory and storage. |
 | `THUMB_WIDTH` | `200` | Worker | Thumbnail width in pixels. |
 | `TABLE_EXTRACTION_ENABLED` | `true` | Worker | Lift schedules out as whole tables. |

@@ -685,6 +685,18 @@ class ScanProgress:
             log.warning("rfi scan %s: could not record progress (%s)", self.scan_id[:8], exc)
 
 
+# Pages in a row the OCR engine may fail on before the scan stops asking it.
+# A broken engine fails every page in about a second; one bad page does not
+# make a streak.
+OCR_FAILURE_STREAK = 3
+OCR_FAILURE_HELP = (
+    "Restart the worker (this version runs one OCR call at a time and rebuilds the engine after a "
+    "failure). If it still fails: give the worker more memory (WORKER_MEM_LIMIT) or set "
+    "OCR_DET_LIMIT=960; a CPU without AVX — e.g. an x86 image under emulation on an Apple-silicon Mac "
+    "— cannot run PaddlePaddle at all, so run the worker on an x86 machine or set OCR_ENABLED=false."
+)
+
+
 def ocr_pending(project_id: str, progress=None) -> list[str]:
     """Read, with OCR, every page of the project the current OCR reader has
     not examined — words drawn as shapes, pasted schedule pictures — and
@@ -706,6 +718,9 @@ def ocr_pending(project_id: str, progress=None) -> list[str]:
     deferred = 0
     unread = 0
     unopened = 0
+    failed: list[str] = []
+    failure = ""
+    streak = 0
     illegible: list[str] = []
     from rfi_review import _documents
 
@@ -730,6 +745,11 @@ def ocr_pending(project_id: str, progress=None) -> list[str]:
                 if not engine:
                     unread += 1
                     continue
+                if streak >= OCR_FAILURE_STREAK:
+                    # The engine is broken, not the pages: stop paying a
+                    # failure per page and leave them for a working worker.
+                    failed.append(name)
+                    continue
                 if len(read) >= config.OCR_MAX_PAGES_PER_SCAN:
                     deferred += 1
                     continue
@@ -744,8 +764,19 @@ def ocr_pending(project_id: str, progress=None) -> list[str]:
                 db.replace_page_ocr(document_id, page_number, result.as_json(), page_ocr.OCR_VERSION,
                                     page_ocr.SOURCE_MODEL, page_ocr.to_chunks(result, page))
                 read.append(name)
+                streak = 0
                 if any(p.illegible for p in result.pictures):
                     illegible.append(name)
+            except ocr.OcrError as exc:
+                # Not marked examined: the next scan (on a working engine) reads it.
+                failed.append(name)
+                failure = str(exc)
+                streak += 1
+                log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
+                if streak == OCR_FAILURE_STREAK:
+                    log.error("ocr: %d pages in a row failed (%s) — the OCR engine is not working on this "
+                              "worker; skipping OCR for the rest of this scan. %s",
+                              streak, exc, OCR_FAILURE_HELP)
             except Exception as exc:  # one unreadable page must not stop the scan
                 log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
         errors = dict(getattr(open_page, "errors", {}))
@@ -772,6 +803,12 @@ def ocr_pending(project_id: str, progress=None) -> list[str]:
         notes.append(
             f"OCR: {deferred} more page(s) need reading; the next scan reads up to "
             f"{config.OCR_MAX_PAGES_PER_SCAN} more (OCR_MAX_PAGES_PER_SCAN)."
+        )
+    if failed:
+        notes.append(
+            f"OCR FAILED on {len(failed)} page(s) ({_list(failed)}): the OCR engine raised "
+            f"\"{failure[:160]}\". Their text drawn as shapes was NOT read and they stay unmarked, so the next "
+            f"scan tries them again. {OCR_FAILURE_HELP}"
         )
     if unread:
         notes.append(
