@@ -362,6 +362,51 @@ is and what to do, in place of the raw SDK error. Every area already checked is 
 account and press Resume. A scan keeps the provider it was planned with, so switching to another
 provider means planning a new scan.
 
+## One pass: the code compares first, the AI sees only what is left (8 Oct 2026)
+
+"Find RFIs in drawings" was two passes over the same drawings. The code checks downloaded and read
+every PDF; the plan for this scan downloaded and read them again, lined up the sheet pairs, and sent
+the AI every window of every pair — including windows where the code could already measure that the
+two sheets draw the same thing. The measurements existed (`grid_spacing_agrees`, `boxes_apart`,
+`column_position_agrees`, `wall_match`) but ran only AFTER the AI had looked, to throw out its mistakes.
+
+Now the code-check scan (`rfi_scan._run`) plans this scan itself, in the same pass:
+
+1. **One opener** (`rfi_review._documents`) around the whole job: each PDF is downloaded the first
+   time any step needs a page of it, and shared by OCR, the grid read, the page facts
+   (`sheet_facts.catalogue(open_page=…)`), the sheet pairs (`fullscan.build_plan`), the code's own
+   comparisons and pinpointing. The API creates the plan row with the scan (`rfi_scans.fullScanId`,
+   `prepareStepTwo`); the worker keeps its heartbeat alive and marks it failed if the checks fail.
+2. **The code compares the pairs** (`geometry_checks.py`, zero tokens): `grid_spacing` — two sheets
+   that name the same grid lines but draw a bay a different size at the scale both print (refused
+   when a shared name lands on another line of the other sheet: that is a naming dispute, and the
+   client's RFI 002 sheets read as "F-G is 21'-1" here and 28'-10" there" until this guard existed);
+   `column_mismatch` — rfi_columns' overlay on architectural/structural pairs and enlarged plans
+   (sizes are not compared across disciplines; a sheet whose columns the reader cannot see gets a
+   "not compared" note, never silence).
+3. **Triage** (`geometry_checks.triage_tiles`): an area is SETTLED and never sent when one sheet draws
+   nothing there, or one sheet is an exact copy of the other there (≥85% of its wall lines land
+   exactly, ≥25 lines) and no wall line of either is drawn 3 in to 2 ft off. One-sided on purpose:
+   an engineer's plan copies the architect's background (87–100% of its lines land on JETRIGHT)
+   while the architect's sheet also carries furniture and text the copy leaves out (33–45%). Every
+   other area goes to the AI with `<already_reported>` (findings whose evidence is in it) and
+   `<measured_by_code>` (the wall lines drawn apart, located as a share of the window). Settled
+   tiles are stored `skipped` with outcome `settled_by_code` and the reason; they are not counted
+   in the price, the progress bar or `tiles.total`, and the summary lists them.
+
+Measured: JETRIGHT downloaded once (it was once per step); its plan went from 40 AI areas to 22, the
+settled ones checked by eye (an exact electrical copy of the architect's walls), and a flagged area
+was a real lobby wall difference. The RFI 002 sheets: 9 areas → 3, and the spacing check stays quiet
+on the naming dispute. Neither set produced a new pair finding — the honest result is fewer tokens
+and the AI told where to look, not more RFIs. What this does NOT know: whether the AI would have
+found something in a settled area (the rule is built on positive evidence of a copy, not measured
+against a model's answers), and how often the hints change what the AI reports.
+
+Two "could not look" leaks were closed on the way, because a check that did not run must never
+delete its earlier findings as "resolved": the pair checks when the pairs cannot be built, the grid
+check when its PDFs cannot be read, and the illegible-schedule check while pages wait for OCR under
+the current rules (an older OCR reading is no longer trusted at all).
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   BATCH_STAGE,
+  canPlanAgain,
   STALE_FULL_SCAN_MS,
   budgetToTokens,
   canResume,
@@ -155,6 +156,18 @@ describe("toFullScanDto", () => {
     expect(dto.notes).toEqual(["a"]);
     expect(dto.limits).toEqual({ maxTotalTokens: 1000, budgetUsd: 5 });
   });
+
+  it("carries how many areas of each pair the code settled, and none for an older plan", () => {
+    const pair = { index: 0, kind: "same_level", a: {}, b: {}, reason: "Level 1", tiles: 4 };
+    const dto = toFullScanDto(
+      scan({ pairs: [{ ...pair, tilesSettled: 4 }, { ...pair, index: 1 }] }),
+      { total: 8, done: 0, failed: 0, settled: 4 },
+      spentOf([]),
+      NOW,
+    );
+    expect(dto.pairs.map((p) => p.tilesSettled)).toEqual([4, undefined]);
+    expect(dto.tiles.settled).toBe(4);
+  });
 });
 
 describe("the worker's estimate shape", () => {
@@ -169,5 +182,25 @@ describe("the worker's estimate shape", () => {
   it("names the batch stage the worker tags", () => {
     const source = readFileSync(new URL("../../../workers/src/fullscan_run.py", import.meta.url), "utf8");
     expect(source).toContain(`"${BATCH_STAGE}"`);
+  });
+});
+
+describe("canPlanAgain", () => {
+  it("lets one Find RFIs press prepare a fresh step-2 plan, replacing an unstarted one", () => {
+    expect(canPlanAgain(null, NOW)).toBe(true);
+    for (const status of ["planned", "ready", "partial", "cancelled", "stale"]) {
+      expect(canPlanAgain(scan({ status }), NOW)).toBe(true);
+    }
+    // A plan that failed before it was started is replaced; a run that failed
+    // part-way is resumed instead, so its paid-for tiles are not thrown away.
+    expect(canPlanAgain(scan({ status: "failed" }), NOW)).toBe(true);
+    expect(canPlanAgain(scan({ status: "failed", startedAt: NOW }), NOW)).toBe(false);
+  });
+
+  it("never replaces a plan being made or a run in progress, unless its worker is dead", () => {
+    expect(canPlanAgain(scan({ status: "planning" }), NOW)).toBe(false);
+    expect(canPlanAgain(scan({ status: "running", startedAt: NOW }), NOW)).toBe(false);
+    const dead = new Date(NOW.getTime() - STALE_FULL_SCAN_MS - 1);
+    expect(canPlanAgain(scan({ status: "planning", heartbeatAt: dead }), NOW)).toBe(true);
   });
 });

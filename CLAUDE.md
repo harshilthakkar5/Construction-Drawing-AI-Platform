@@ -2307,6 +2307,21 @@ comparison / Targeted review) and "Read by OCR" when its evidence was. The serve
 not change; the merge is the UI orchestrating the two existing jobs. Targeted review stays its
 own mode — it answers a different question.
 
+**And one pass** (`rfi_scan._run`, docs/rfi-full-scan.md "One pass"): the code-check job opens each
+PDF ONCE (`_opener` → `rfi_review._documents`, shared by OCR, grids, page facts, sheet pairs and
+pinpointing), builds the sheet pairs (`fullscan.build_plan`), compares them in code
+(`geometry_checks.py`: `grid_spacing`, `column_mismatch` — `rfi_checks.PAIR_CHECK_TYPES`) and writes
+step 2's plan (`fullscan.write_plan`) with the areas the code settled stored `skipped` /
+`settled_by_code` (one sheet blank, or one an exact copy of the other — ≥85% of ITS wall lines land,
+one-sided because the architect's sheet carries furniture the copy omits — with no wall line drawn
+3 in–2 ft off) and the rest carrying `known`/`measured` hints into the AI's prompt
+(`<already_reported>`, `<measured_by_code>`). The API creates that plan row with the scan
+(`rfi_scans.fullScanId`, `prepareStepTwo`, `canPlanAgain`); the UI no longer queues a plan job.
+JETRIGHT: one download, 40 AI areas → 22. A grid name that lands on ANOTHER line of the other sheet is
+a naming dispute and never a spacing finding (RFI 002's G = F.7 read as "21'-1" vs 28'-10""). A check
+that could not LOOK (pairs not built, grids unread, pages awaiting OCR) never deletes its earlier
+findings as resolved, and an OCR reading from an older `OCR_VERSION` is not trusted.
+
 Step 1 now also READS what the text layer does not hold (`workers/src/page_ocr.py`, task of
 `rfi_scan.ocr_pending` for documents processed before it existed, and of ingest after). CAD text
 exported as strokes (SHX) has no text layer: JETRIGHT's M0.02 has 164 words over 10,905 drawings

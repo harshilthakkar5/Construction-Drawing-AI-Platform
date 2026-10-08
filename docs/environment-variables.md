@@ -175,6 +175,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RFI_THINKING` | — (global setting) | Worker | `off`/`minimal`/`low`/`medium`/`high` for the wording model only. |
 | `RFI_AI_WORDING` | `true` | Worker | `false` = template wording, no model calls. |
 | `RFI_GRID_CHECK` | `true` | Worker | The grid-mismatch check (reads the PDFs). |
+| `RFI_GEOMETRY_CHECKS` | `true` | Worker | The scan's own comparison of the sheet pairs it lines up: grid spacing and columns (zero tokens). Off only to compare against a run without them; their earlier findings are kept while off. |
 | `RFI_WORDING_BATCH` | `15` | Worker | Findings worded per model call. |
 
 ## 11. Worker concurrency and job handling

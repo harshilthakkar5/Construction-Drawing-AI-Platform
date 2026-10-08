@@ -862,9 +862,9 @@ export const RFI_CHECK_LABELS = {
   grid_mismatch: "Grid line named differently between drawings",
   tag_value_conflict: "Same equipment tag, different rating on two drawings",
   illegible_schedule: "Schedule pasted as a picture too coarse to read",
-  // Targeted review only (workers/src/rfi_columns.py): it needs two named
-  // sheets laid over each other, which a whole-project scan does not have.
+  // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
+  grid_spacing: "Grid lines drawn a different distance apart on two drawings",
 } as const;
 export type RfiCheckType = keyof typeof RFI_CHECK_LABELS;
 
@@ -1641,7 +1641,10 @@ export interface RfiFullScanPairDto {
   b: RfiFullScanSheetRef;
   /** In words, for the plan screen. */
   reason: string;
+  /** Areas left for the AI. */
   tiles: number;
+  /** Areas the code settled itself (plans made before this existed: absent). */
+  tilesSettled?: number;
 }
 
 export interface RfiFullScanCatalogueDto {
@@ -1687,7 +1690,10 @@ export interface RfiFullScanDto {
   estimate: RfiFullScanEstimateDto | null;
   /** The approved ceiling; the run stops `partial` when it is reached. */
   limits: { maxTotalTokens: number; budgetUsd: number | null } | null;
-  tiles: { total: number; done: number; failed: number };
+  /** `settled`: areas the code compared itself at plan time and never sends
+   * to the AI (one sheet blank there, or one sheet an exact copy of the other
+   * with no wall drawn apart). Not counted in `total`. */
+  tiles: { total: number; done: number; failed: number; settled?: number };
   spent: { inputTokens: number; outputTokens: number; costUsd: number | null };
   findings: number;
   /** What a finished run concluded; null before it finishes (and on runs

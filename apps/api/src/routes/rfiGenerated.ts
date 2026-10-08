@@ -13,6 +13,7 @@ import { prisma } from "../db.js";
 import { rfiScanQueue } from "../queues.js";
 import { summaryLimiter } from "../rateLimit.js";
 import { meetsConfidence, queuePlace, scanIsActive, toScanDto } from "../rfiScanRules.js";
+import { canPlanAgain, fullScanAvailability } from "../rfiFullScanRules.js";
 import type { RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
@@ -173,8 +174,13 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
     return void res.status(409).json({ error: `a scan is already ${latest!.status}` });
   }
 
+  // Step 2's plan is prepared by THIS scan, in the same pass over the PDFs:
+  // the worker lines the sheet pairs up once, compares them in code, and
+  // writes the plan with every area the code could settle set aside. Still
+  // no AI call — the person starts step 2, priced.
+  const fullScanId = await prepareStepTwo(projectId, actor.id);
   const scan = await prisma.rfiScan.create({
-    data: { projectId, requestedById: actor.id, fresh },
+    data: { projectId, requestedById: actor.id, fresh, fullScanId },
   });
   const job = await rfiScanQueue.add("scan", { projectId, scanId: scan.id });
   const updated = await prisma.rfiScan.update({
@@ -186,6 +192,23 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   );
   res.status(202).json(toScanDto(updated, estimateCostUsd));
 });
+
+/** A step-2 plan row for the scan to fill, or null when the AI comparison is
+ * off or one is already being planned or run. An unstarted older plan is
+ * cancelled: the new one is built from the current drawings and findings. */
+async function prepareStepTwo(projectId: string, userId: string): Promise<string | null> {
+  if (fullScanAvailability() === "off") return null;
+  const now = new Date();
+  const latest = await prisma.rfiFullScan.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  if (!canPlanAgain(latest, now)) return null;
+  if (latest?.status === "planned") {
+    await prisma.rfiFullScan.updateMany({ where: { id: latest.id, status: "planned" }, data: { status: "cancelled" } });
+  }
+  const plan = await prisma.rfiFullScan.create({
+    data: { projectId, createdById: userId, status: "planning", stage: "with_code_checks", heartbeatAt: now },
+  });
+  return plan.id;
+}
 
 // --- Reviewing --------------------------------------------------------------
 

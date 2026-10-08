@@ -268,27 +268,17 @@ def test_a_drawing_the_worker_could_not_open_is_not_called_a_disagreement(monkey
     """A user's plan reported 'the walls do not line up' for all six pairs of a
     set whose walls line up five times out of six here: every PDF download had
     failed, and an unread drawing became a drawing that disagreed."""
-    from contextlib import contextmanager
-
     import fullscan
-    import rfi_review
 
-    @contextmanager
-    def unreachable(project_id, docs):
-        def open_page(document_id, page_number):
-            open_page.errors[document_id] = "EndpointConnectionError: could not connect"
-            return None
+    def open_page(document_id, page_number):
+        open_page.errors[document_id] = "EndpointConnectionError: could not connect"
+        return None
 
-        open_page.errors = {}
-        yield open_page
-
-    monkeypatch.setattr(rfi_review, "_documents", unreachable)
-    monkeypatch.setattr(fullscan, "_set", lambda *a, **k: None)
-    monkeypatch.setattr(fullscan, "_check_cancel", lambda *a: None)
+    open_page.errors = {}
     pair = fp.Pair("same_level", facts("p1", "A1.01", "architectural", x={}, y={}),
                    facts("p2", "E2.01", "electrical", x={}, y={}), "Level 2")
     skipped, errors = {}, {}
-    assert fullscan._line_up("scan", "project", [pair], skipped, errors) == []
+    assert fullscan._line_up("project", [pair], skipped, errors, open_page=open_page) == []
     assert skipped == {fullscan.UNOPENED: ["A1.01 / E2.01"]}
     assert not any("walls do not line up" in reason for reason in skipped)
     note = fullscan.unopened_note(errors, {"d": "jet.pdf"})

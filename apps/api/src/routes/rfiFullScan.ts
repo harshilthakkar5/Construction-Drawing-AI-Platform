@@ -60,7 +60,13 @@ async function tileCounts(scanIds: string[]): Promise<Map<string, RfiFullScanDto
   if (!scanIds.length) return out;
   const rows = await prisma.rfiFullScanTile.groupBy({ by: ["scanId", "status"], where: { scanId: { in: scanIds } }, _count: { _all: true } });
   for (const row of rows) {
-    const t = out.get(row.scanId) ?? { total: 0, done: 0, failed: 0 };
+    const t = out.get(row.scanId) ?? { total: 0, done: 0, failed: 0, settled: 0 };
+    // Settled by the code at plan time: never sent, so never "to do".
+    if (row.status === "skipped") {
+      t.settled = (t.settled ?? 0) + row._count._all;
+      out.set(row.scanId, t);
+      continue;
+    }
     t.total += row._count._all;
     if (row.status === "done") t.done += row._count._all;
     if (row.status === "failed") t.failed += row._count._all;

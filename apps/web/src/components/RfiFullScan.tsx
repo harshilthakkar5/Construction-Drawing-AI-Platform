@@ -30,6 +30,8 @@ const ACTIVE = new Set(["planning", "queued", "running"]);
 
 const STAGE: Record<string, string> = {
   queued: "Waiting for a worker",
+  // Prepared by step 1 in the same pass over the drawings (one download per PDF).
+  with_code_checks: "Being prepared together with step 1",
   catalogue: "Reading every page",
   pairs: "Pairing and lining up sheets",
   "first look": "AI first look at each area",
@@ -232,6 +234,14 @@ function Planned({
         </p>
       )}
 
+      {scan.tiles.settled ? (
+        <p className="text-muted-foreground text-xs">
+          The code compared {scan.tiles.total + scan.tiles.settled} areas itself and settled {scan.tiles.settled} of
+          them (one sheet blank there, or one sheet an exact copy of the other), so only {scan.tiles.total} go to the
+          AI — and each one goes with what the code already found or measured there.
+        </p>
+      ) : null}
+
       <Section title={`${scan.pairs.length} sheet pair${scan.pairs.length === 1 ? "" : "s"} to compare`} defaultOpen={scan.pairs.length <= 6}>
         <ul className="flex flex-col gap-1">
           {scan.pairs.map((p) => (
@@ -240,7 +250,8 @@ function Planned({
                 {sheetName(p.a)} ↔ {sheetName(p.b)}
               </span>
               <span className="text-muted-foreground">
-                {p.reason} · {p.tiles} area{p.tiles === 1 ? "" : "s"}
+                {p.reason} · {p.tiles} area{p.tiles === 1 ? "" : "s"} for the AI
+                {p.tilesSettled ? ` · ${p.tilesSettled} settled by the code` : ""}
               </span>
             </li>
           ))}
@@ -395,6 +406,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
 }
 
 const AREA_LABELS: [string, string][] = [
+  ["settled_by_code", "settled by the code (not sent to the AI)"],
   ["agree", "agree"],
   ["issues", "had a possible problem"],
   ["unclear", "the AI could not judge"],

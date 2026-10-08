@@ -185,6 +185,23 @@ def test_the_tile_prompt_names_the_sheets_and_the_scale():
     assert labels[0].startswith("Image A") and labels[1].startswith("Image B")
 
 
+def test_the_tile_prompt_carries_what_the_code_already_knows_and_says_how_to_use_it():
+    """The one-pass scan hands each area to the AI with the findings already
+    reported there (never to be re-reported, so never paid for twice) and the
+    wall lines the code measured as drawn apart (to look at, not to trust)."""
+    pair = {"reason": "Level 1", "a": {"sheetNumber": "A1.01"}, "b": {"sheetNumber": "E2.01"}}
+    tile = {"tile": 0, "windows": {"known": ["RTU-3 input differs between drawings"],
+                                   "measured": ["a vertical wall line is drawn 1'-5\" apart on the two sheets"]}}
+    user, _ = fr.tile_prompt(pair, tile, "", "")
+    assert "<already_reported>- RTU-3 input differs between drawings</already_reported>" in user
+    assert "<measured_by_code>- a vertical wall line is drawn 1'-5\" apart" in user
+    system = fr.discovery_system()
+    assert "<already_reported>" in system and "never report them again" in system
+    assert "<measured_by_code>" in system
+    plain, _ = fr.tile_prompt(pair, {"tile": 0}, "", "")
+    assert "<already_reported>" not in plain and "<measured_by_code>" not in plain
+
+
 # --- the whole run, against a real database -------------------------------------------------
 
 needs_db = pytest.mark.skipif(

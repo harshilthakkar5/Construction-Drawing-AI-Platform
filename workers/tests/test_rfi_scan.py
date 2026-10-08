@@ -378,6 +378,18 @@ def database(monkeypatch):
     # The seeded documents have no PDF behind them; the grid check reads PDFs
     # and is tested on its own (test_rfi_grid.py).
     monkeypatch.setattr(rfi_scan, "GRID_CHECK", False)
+    # Nor have they pages to pair; the pair comparisons are test_geometry_checks.
+    monkeypatch.setattr(rfi_scan, "GEOMETRY_CHECKS", False)
+    # And no engine: a sandbox without the PaddleOCR models retries the model
+    # download for every page (test_page_ocr covers OCR with a stand-in).
+    monkeypatch.setattr(rfi_scan.config, "OCR_ENABLED", False)
+
+    def no_pdf(key, path):
+        raise FileNotFoundError(f"test document {key} has no PDF")
+
+    # A refused download, at once: a real client against no object store
+    # retries for nine seconds, every scan.
+    monkeypatch.setattr(rfi_scan.storage, "download_to_file", no_pdf)
     return db
 
 
@@ -698,3 +710,69 @@ def test_a_failed_scan_is_marked_failed(database, monkeypatch):
             "SELECT status, error FROM rfi_scans WHERE id = %s", (scan,)
         ).fetchone()
     assert status == "failed" and "division" in error
+
+
+@needs_db
+def test_a_check_that_could_not_look_keeps_its_earlier_findings(database, monkeypatch):
+    """"Could not look" is not "fixed": with the pair comparisons off (or the
+    sheet pairs failing to build) a grid-spacing finding from an earlier scan
+    must survive, while a text finding the drawings no longer produce goes."""
+    project, _ = _seed(database)
+    monkeypatch.setattr(rfi_scan, "GEOMETRY_CHECKS", False)
+    with database.connect() as conn:
+        for fp, check in (("old-spacing", "grid_spacing"), ("old-reference", "dangling_reference")):
+            conn.execute(
+                'INSERT INTO rfi_candidates (id, "projectId", fingerprint, "checkType", confidence, subject, '
+                'question, "questionSource", evidence, status, "updatedAt") VALUES '
+                "(%s, %s, %s, %s, 'medium', 's', 'q', 'template', '[]', 'pending', now())",
+                (str(uuid.uuid4()), project, fp, check),
+            )
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        left = {r[0] for r in conn.execute('SELECT fingerprint FROM rfi_candidates WHERE "projectId" = %s', (project,))}
+    assert "old-spacing" in left and "old-reference" not in left
+
+
+@needs_db
+def test_the_scan_plans_step_two_in_the_same_pass_with_settled_areas_set_aside(database, monkeypatch):
+    import fullscan
+    import fullscan_plan as fp
+    import geometry_checks
+    from sheet_facts import PageFacts
+
+    project, document = _seed(database)
+    with database.connect() as conn:
+        page_ids = [r[0] for r in conn.execute(
+            'SELECT id FROM pages WHERE "documentId" = %s ORDER BY "pageNumber"', (document,))]
+        plan_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO rfi_full_scans (id, \"projectId\", status, stage) VALUES (%s, %s, 'planning', 'with_code_checks')",
+                     (plan_id, project))
+    scan = _scan(database, project)
+    with database.connect() as conn:
+        conn.execute('UPDATE rfi_scans SET "fullScanId" = %s WHERE id = %s', (plan_id, scan))
+
+    def sheet(pid, number, discipline):
+        return PageFacts(pid, document, 1, 1, number, discipline, "plan", "LEVEL 1", [9.0], {"size": [600, 800]})
+
+    pair = fp.Pair("same_level", sheet(page_ids[0], "S-101", "structural"), sheet(page_ids[1], "S-102", "architectural"), "Level 1")
+    pair.transform = fp.Transform(1.0, 0.0, 0.0)
+    pair.windows = [([0, 0, 300, 300], [0, 0, 300, 300]), ([300, 0, 600, 300], [300, 0, 600, 300])]
+    built = fullscan.PlanResult([], {}, 0, {"pages": 3, "byKind": {}}, [pair], {}, {})
+    monkeypatch.setattr(fullscan, "build_plan", lambda *a, **k: built)
+    monkeypatch.setattr(rfi_scan, "geometry_findings", lambda *a: ([], [], set()))
+    monkeypatch.setattr(geometry_checks, "triage_tiles", lambda *a, **k: geometry_checks.Triage(
+        reasons={(0, 0): "sheet B copies the other here"},
+        hints={(0, 1): {"known": [], "measured": ["a wall line is drawn 0'-6\" apart"]}},
+    ))
+
+    rfi_scan.run(project, scan)
+    plan = fullscan.load_scan(plan_id)
+    assert plan["status"] == "planned" and plan["estimate"]["calls"] == 1
+    assert plan["pairs"][0]["tiles"] == 1 and plan["pairs"][0]["tilesSettled"] == 1
+    with database.connect() as conn:
+        tiles = conn.execute('SELECT status, outcome, "outcomeNote", windows FROM rfi_full_scan_tiles '
+                             'WHERE "scanId" = %s ORDER BY "tileIndex"', (plan_id,)).fetchall()
+        notes = conn.execute("SELECT notes FROM rfi_scans WHERE id = %s", (scan,)).fetchone()[0]
+    assert tiles[0][:3] == ("skipped", "settled_by_code", "sheet B copies the other here")
+    assert tiles[1][0] == "pending" and tiles[1][3]["measured"] == ["a wall line is drawn 0'-6\" apart"]
+    assert any(n.startswith("Step 2 is ready: 1 area(s)") for n in notes)

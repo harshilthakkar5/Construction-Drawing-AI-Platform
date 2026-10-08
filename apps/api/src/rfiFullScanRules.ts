@@ -159,6 +159,22 @@ export function shownStatus(scan: ScanRow, now: Date): { status: RfiFullScanStat
   return { status, error: scan.error };
 }
 
+/**
+ * Whether "Find RFIs in drawings" may prepare a NEW step-2 plan: there is no
+ * plan, or the latest one is finished, stopped, or planned and never started.
+ * An unstarted plan is replaced rather than kept: the scan that prepares the
+ * new one has just read the current drawings and the current findings, which
+ * is what the plan's triage depends on. One being planned or run is left
+ * alone. Mirrors canPlanFullScan in the web client, plus "planned".
+ */
+export function canPlanAgain(latest: ScanRow | null, now: Date): boolean {
+  if (!latest) return true;
+  const shown = shownStatus(latest, now).status;
+  return (
+    ["cancelled", "stale", "ready", "partial", "planned"].includes(shown) || (shown === "failed" && !latest.startedAt)
+  );
+}
+
 /** A scan that stopped with work left — budget reached, a failed batch, a
  * dead worker — can carry on. A stale one cannot: its tiles point at pages
  * that moved, so it has to be planned again. */
@@ -209,6 +225,7 @@ export function toFullScanDto(
       b: p.b,
       reason: p.reason,
       tiles: p.tiles,
+      ...(typeof p.tilesSettled === "number" ? { tilesSettled: p.tilesSettled } : {}),
     })),
     skipped: (Array.isArray(scan.skipped) ? scan.skipped : []) as RfiFullScanDto["skipped"],
     // Before Start no model is chosen yet: priced on the default one.

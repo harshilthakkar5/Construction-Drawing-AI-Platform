@@ -359,16 +359,17 @@ def _facts(row: dict) -> PageFacts:
     )
 
 
-def catalogue(project_id: str, progress=None) -> tuple[list[PageFacts], dict[str, int], int]:
+def catalogue(project_id: str, progress=None, open_page=None) -> tuple[list[PageFacts], dict[str, int], int]:
     """(facts for every live page, excluded counts, pages read now).
 
     Pages already read at FACTS_VERSION come from Postgres; the rest are read
-    one document at a time from a temporary download, one page at a time —
-    never the whole set in memory. `progress(done, total)` is called as pages
-    finish."""
+    one page at a time — never the whole set in memory. `progress(done,
+    total)` is called as pages finish.
+
+    `open_page(document_id, page_number)` is the RFI scan's shared opener
+    (rfi_review._documents): one download per PDF for every step of the scan.
+    Without one, each document is downloaded here, one at a time."""
     import db
-    import fitz
-    import storage
 
     rows, excluded = live_pages(project_id)
     todo: dict[str, list[dict]] = {}
@@ -377,32 +378,43 @@ def catalogue(project_id: str, progress=None) -> tuple[list[PageFacts], dict[str
             todo.setdefault(row["documentId"], []).append(row)
     total = sum(len(v) for v in todo.values())
     done = 0
+
+    def read_rows(doc_rows: list[dict], page_of) -> None:
+        nonlocal done
+        for row in doc_rows:
+            facts = {"kind": "other", "level": None, "scales": [], "grid": {}}
+            try:
+                page = page_of(row["pageNumber"])
+                if page is not None:
+                    facts = read_page(page, row["regionText"])
+            except Exception as exc:  # one unreadable page is "other", not a failed plan
+                log.warning("full scan: could not read page %s: %s", row["id"][:8], exc)
+            with db.connect() as conn:
+                conn.execute(
+                    'UPDATE pages SET "sheetKind" = %s, level = %s, scales = %s::jsonb, '
+                    '"gridSummary" = %s::jsonb, "factsVersion" = %s WHERE id = %s',
+                    (facts["kind"], facts["level"], json.dumps(facts["scales"]), json.dumps(facts["grid"]),
+                     FACTS_VERSION, row["id"]),
+                )
+            row.update(sheetKind=facts["kind"], level=facts["level"], scales=facts["scales"],
+                       gridSummary=facts["grid"], factsVersion=FACTS_VERSION)
+            done += 1
+            if progress:
+                progress(done, total)
+
     for document_id, doc_rows in todo.items():
+        if open_page is not None:
+            read_rows(doc_rows, lambda n, d=document_id: open_page(d, n))
+            continue
+        import fitz
+        import storage
+
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "original.pdf")
             storage.download_to_file(doc_rows[0]["spacesKey"], path)
             pdf = fitz.open(path)
             try:
-                for row in doc_rows:
-                    index = row["pageNumber"] - 1
-                    facts = {"kind": "other", "level": None, "scales": [], "grid": {}}
-                    if 0 <= index < pdf.page_count:
-                        try:
-                            facts = read_page(pdf.load_page(index), row["regionText"])
-                        except Exception as exc:  # one unreadable page is "other", not a failed plan
-                            log.warning("full scan: could not read page %s: %s", row["id"][:8], exc)
-                    with db.connect() as conn:
-                        conn.execute(
-                            'UPDATE pages SET "sheetKind" = %s, level = %s, scales = %s::jsonb, '
-                            '"gridSummary" = %s::jsonb, "factsVersion" = %s WHERE id = %s',
-                            (facts["kind"], facts["level"], json.dumps(facts["scales"]), json.dumps(facts["grid"]),
-                             FACTS_VERSION, row["id"]),
-                        )
-                    row.update(sheetKind=facts["kind"], level=facts["level"], scales=facts["scales"],
-                               gridSummary=facts["grid"], factsVersion=FACTS_VERSION)
-                    done += 1
-                    if progress:
-                        progress(done, total)
+                read_rows(doc_rows, lambda n: pdf.load_page(n - 1) if 1 <= n <= pdf.page_count else None)
             finally:
                 pdf.close()
     return [_facts(r) for r in rows], excluded, done
