@@ -583,10 +583,14 @@ def plan_wording(
 
 
 def run(project_id: str, scan_id: str) -> dict:
-    with db.connect() as conn:
-        _set_scan(conn, scan_id, status="running", startedAt=_now(conn), heartbeatAt=_now(conn), error=None,
-                  stage="starting", progress=0, detail="Starting")
+    log.info("rfi scan %s: picked up for project %s", scan_id[:8], project_id[:8])
     try:
+        # The status first and on its own: the progress columns are newer, and
+        # a database that has not had that migration must still see the scan
+        # leave "queued" — otherwise it looks stuck in line forever.
+        with db.connect() as conn:
+            _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
+        ScanProgress(scan_id)("starting", detail="Starting", force=True)
         return _run(project_id, scan_id)
     except Exception as exc:
         with db.connect() as conn:

@@ -81,3 +81,22 @@ def test_every_step_the_scan_reports_is_on_the_bar():
     assert used and used <= set(rfi_scan.STEPS)
     bounds = [rfi_scan.STEPS[k] for k in ("starting", "ocr", "loading", "grids", "checks", "pinpoint", "wording", "saving")]
     assert all(a[1] <= b[0] for a, b in zip(bounds, bounds[1:]))  # the bar only moves forward
+
+
+def test_a_database_without_the_progress_columns_still_sees_the_scan_start(monkeypatch):
+    """The status is written on its own, before any progress column: a worker
+    on new code against a database without that migration used to fail its
+    very first write, so the scan stayed "queued" and looked stuck in line."""
+    sink = []
+
+    class OldSchema(_Conn):
+        def execute(self, sql, params=()):
+            if '"stage"' in sql:
+                raise RuntimeError('column "stage" does not exist')
+            return super().execute(sql, params)
+
+    monkeypatch.setattr(rfi_scan.db, "connect", lambda: OldSchema(sink))
+    monkeypatch.setattr(rfi_scan, "_run", lambda project_id, scan_id: {"findings": 0})
+    assert rfi_scan.run("project-1", "scan-1") == {"findings": 0}
+    [first, *_] = [sql for sql, _ in sink if sql.startswith("UPDATE rfi_scans")]
+    assert '"status"' in first and '"stage"' not in first

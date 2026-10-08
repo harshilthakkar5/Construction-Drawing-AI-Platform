@@ -2344,6 +2344,12 @@ a warning after 3 quiet minutes. A rescan that read shape text ran an hour behin
 this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
 time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
 step and a failed write is a log line, never a failed scan.
+A QUEUED scan says why it waits (`GET /scan` → `queue`, `rfiScanRules.queuePlace`: scans running
+and scans ahead, or "no longer in the queue"): the worker runs `RFI_SCAN_CONCURRENCY` (1) scans
+at a time across every project, so a scan pressed while another runs sat on "Waiting for a worker"
+and read as stuck. The worker writes `status=running` ALONE before any progress column, so a
+database missing that migration still sees the scan start; running with no step reads "Running"
+with a hint to migrate and restart, never "Waiting for a worker".
 
 Evidence boxes are PINPOINTED (`workers/src/rfi_pinpoint.py`): a check records the printed words
 (`_term`, and `_near` for a tag's rating), the scan finds them inside the chunk box and shrinks the

@@ -12,7 +12,8 @@ import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { rfiScanQueue } from "../queues.js";
 import { summaryLimiter } from "../rateLimit.js";
-import { meetsConfidence, scanIsActive, toScanDto } from "../rfiScanRules.js";
+import { meetsConfidence, queuePlace, scanIsActive, toScanDto } from "../rfiScanRules.js";
+import type { RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
 
@@ -65,8 +66,38 @@ rfiGeneratedRouter.get("/scan", async (req, res) => {
     where: { projectId },
     orderBy: { createdAt: "desc" },
   });
-  res.json(latest ? toScanDto(latest, estimateCostUsd) : null);
+  if (!latest) return void res.json(null);
+  const dto = toScanDto(latest, estimateCostUsd);
+  if (latest.status === "queued") dto.queue = await scanQueuePlace(latest.jobId);
+  res.json(dto);
 });
+
+/**
+ * Where a queued scan stands in line. The worker runs RFI_SCAN_CONCURRENCY
+ * scans at a time (default 1, across all projects), so a scan can wait behind
+ * one that takes an hour, and "waiting for a worker" alone read as stuck.
+ * Best effort: a queue that cannot be asked returns null, never an error.
+ */
+async function scanQueuePlace(jobId: string | null): Promise<RfiScanQueueDto | null> {
+  if (!jobId) return null;
+  try {
+    const [job, state, running, waiting] = await Promise.all([
+      rfiScanQueue.getJob(jobId),
+      rfiScanQueue.getJobState(jobId),
+      rfiScanQueue.getActiveCount(),
+      rfiScanQueue.getJobs(["waiting", "prioritized", "delayed"], 0, 500),
+    ]);
+    return queuePlace(
+      job ? state : null,
+      job?.timestamp ?? null,
+      waiting.filter((j) => j && j.id !== jobId).map((j) => j.timestamp),
+      running,
+    );
+  } catch (err) {
+    console.warn(`[rfis] could not read the scan queue: ${(err as Error).message}`);
+    return null;
+  }
+}
 
 /**
  * Everything this project has spent on RFI wording, across every scan —

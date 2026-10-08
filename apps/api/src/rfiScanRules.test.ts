@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meetsConfidence, scanIsActive, scanUsage, STALE_SCAN_MS, toScanDto } from "./rfiScanRules.js";
+import { meetsConfidence, queuePlace, scanIsActive, scanUsage, STALE_SCAN_MS, toScanDto } from "./rfiScanRules.js";
 
 const NOW = new Date("2026-06-01T12:00:00Z");
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
@@ -180,5 +180,20 @@ describe("toScanDto progress", () => {
 
   it("reads a scan from before progress existed as not started", () => {
     expect(toScanDto(row)).toMatchObject({ stage: null, progress: 0, detail: null, heartbeatAt: null });
+  });
+});
+
+describe("queuePlace", () => {
+  it("counts the scans running and those queued earlier, so waiting reads as a line, not as stuck", () => {
+    expect(queuePlace("waiting", 300, [100, 200, 400], 1)).toEqual({ state: "waiting", running: 1, ahead: 2 });
+    expect(queuePlace("prioritized", 300, [], 0)).toEqual({ state: "waiting", running: 0, ahead: 0 });
+  });
+
+  it("says when a worker already holds the job, and when the queue no longer has it", () => {
+    expect(queuePlace("active", 300, [100], 1)).toEqual({ state: "active", running: 1, ahead: 0 });
+    // A job gone from Redis will never start: that must not read as "in line".
+    expect(queuePlace(null, null, [100], 1)).toEqual({ state: "missing", running: 1, ahead: 0 });
+    expect(queuePlace("unknown", 300, [], 0).state).toBe("missing");
+    expect(queuePlace("failed", 300, [], 0).state).toBe("other");
   });
 });

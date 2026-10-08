@@ -983,6 +983,22 @@ export interface RfiScanDto {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /** Where a scan that has not started yet stands in the worker's queue.
+   * Null once it has started (or when the queue could not be asked). */
+  queue?: RfiScanQueueDto | null;
+}
+
+/** A waiting scan's place in line. The worker takes RFI_SCAN_CONCURRENCY
+ * scans at a time (default 1, across every project), so "waiting" usually
+ * means another scan is still running — which the person cannot see. */
+export interface RfiScanQueueDto {
+  /** waiting = in line; active = a worker has it (status not written yet);
+   * missing = the queue no longer holds it (Redis cleared, job removed). */
+  state: "waiting" | "active" | "missing" | "other";
+  /** Scans a worker is running right now (any project). */
+  running: number;
+  /** Scans in line BEFORE this one. */
+  ahead: number;
 }
 
 /** One scan's wording calls, written by the worker (workers/src/rfi_scan.py
