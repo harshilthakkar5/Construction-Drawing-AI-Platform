@@ -99,6 +99,10 @@ class Pair:
     transform: Transform | None = None
     # [(window on A, window on B)], display points.
     windows: list[tuple[list[float], list[float]]] = field(default_factory=list)
+    # What lining up found, kept for the code's own comparisons of the pair:
+    # plan_match alignments (enlarged pairs) and the wall shift (no grid).
+    alignments: list = field(default_factory=list)
+    wall_shift: object = None
 
     def tiles(self) -> list[dict]:
         return [

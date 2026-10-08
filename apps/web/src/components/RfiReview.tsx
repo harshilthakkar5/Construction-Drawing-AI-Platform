@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { RfiFullScan, canPlanFullScan } from "@/components/RfiFullScan";
+import { RfiFullScan } from "@/components/RfiFullScan";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -178,18 +178,10 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const start = useMutation({
     mutationFn: async (fresh: boolean) => {
       const started = await api.startRfiScan(projectId, { fresh });
-      // Step 2's plan comes with it: free (no AI call), and it means the
-      // comparison's cost is on screen by the time the checks finish. A plan
-      // already waiting or running is left alone; a failure here never
-      // undoes the checks, which have already started.
-      if (fullScanOffered && canPlanFullScan(fullScan.data?.scans[0])) {
-        try {
-          await api.planRfiFullScan(projectId);
-        } catch {
-          // Shown by step 2 itself, which offers "Prepare the comparison only".
-        }
-        void queryClient.invalidateQueries({ queryKey: ["rfi-full-scans", projectId] });
-      }
+      // Step 2's plan is prepared by the same scan, in the same pass over the
+      // drawings (the API creates it with the scan): free, no AI call, and its
+      // price is on screen by the time the checks finish.
+      if (fullScanOffered) void queryClient.invalidateQueries({ queryKey: ["rfi-full-scans", projectId] });
       return started;
     },
     onSuccess: (started) => {
@@ -454,14 +446,19 @@ export function RfiReview({ projectId }: { projectId: string }) {
 }
 
 /** The scan's steps in the order the worker runs them (rfi_scan.STEPS). */
-const STEP_ORDER = ["starting", "ocr", "loading", "grids", "checks", "pinpoint", "wording", "saving"] as const;
+const STEP_ORDER = [
+  "starting", "ocr", "loading", "grids", "checks", "pairs", "geometry", "pinpoint", "plan", "wording", "saving",
+] as const;
 const STEP_LABEL: Record<string, string> = {
   starting: "Starting",
   ocr: "Reading text drawn as shapes (OCR)",
   loading: "Loading the drawings' text",
   grids: "Reading grid lines",
   checks: "Running the code checks",
+  pairs: "Lining up the sheets that should agree",
+  geometry: "Comparing sheet pairs in code (grid spacing, columns)",
   pinpoint: "Pinpointing the evidence",
+  plan: "Choosing which areas still need the AI",
   wording: "Writing the RFI questions",
   saving: "Saving the findings",
 };

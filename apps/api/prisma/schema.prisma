@@ -726,9 +726,14 @@ model RfiScan {
   startedAt     DateTime?
   finishedAt    DateTime?
   createdAt     DateTime      @default(now())
+  /// The AI comparison (step 2) this scan plans in the same pass: the scan
+  /// reads each PDF once, lines the sheet pairs up, compares them in code and
+  /// writes the plan — what the AI is then shown, and what the code settled.
+  fullScanId    String?
 
   project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   requestedBy User?          @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  fullScan    RfiFullScan?   @relation(fields: [fullScanId], references: [id], onDelete: SetNull)
   candidates  RfiCandidate[]
 
   @@index([projectId, createdAt])
@@ -904,6 +909,7 @@ model RfiFullScan {
   createdBy  User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
   tiles      RfiFullScanTile[]
   candidates RfiCandidate[]
+  codeScans  RfiScan[]
 
   @@unique([projectId, idempotencyKey])
   @@index([projectId, createdAt])

@@ -54,10 +54,15 @@ from classify import PREFIX_TO_DISCIPLINE
 # @cdip/shared, and test_rfi_checks reads that file to fail on a drift — a
 # check the UI has no label for renders as its raw key.
 CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict",
-               "illegible_schedule")
-# Written only by the targeted review (rfi_columns.py): they need two named
-# sheets laid over each other. Labelled in the same RFI_CHECK_LABELS.
-REVIEW_CHECK_TYPES = ("column_mismatch",)
+               "illegible_schedule",
+               # geometry_checks.py, on the sheet pairs the scan lines up:
+               "grid_spacing", "column_mismatch")
+# The two above that compare a PAIR of sheets the scan lined up
+# (geometry_checks.py) rather than the text run_all reads.
+PAIR_CHECK_TYPES = ("grid_spacing", "column_mismatch")
+# Written only by the targeted review. Empty since the scan lines up sheet
+# pairs itself (column_mismatch used to need a review's two named sheets).
+REVIEW_CHECK_TYPES: tuple[str, ...] = ()
 
 # Evidence kept per finding. A TBD repeated in the general notes of forty
 # sheets is ONE open item; forty evidence rows would bury the one that matters.

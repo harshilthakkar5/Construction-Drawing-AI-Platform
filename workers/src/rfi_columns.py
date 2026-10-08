@@ -124,6 +124,21 @@ class Sheet:
         level = sheet_level([text for _, text in pm.text_lines(geometry.page, geometry.words)])
         return cls(page_row, geometry, grid_x, grid_y, details, level)
 
+    @classmethod
+    def from_geometry(cls, page_row: Page, geometry: pm.SheetGeometry, level: str | None = None) -> "Sheet":
+        """`read` on geometry another step already read (the RFI scan reads
+        each sheet once). `level`, when given, is the one the planner matched."""
+        grid_x, grid_y = ({}, {})
+        if geometry.elements:
+            try:
+                grid_x, grid_y = grid.page_grid(geometry.page)
+            except Exception:
+                pass
+        details = pm.detail_names(geometry.page, geometry) if geometry.elements else {}
+        if level is None:
+            level = sheet_level([text for _, text in pm.text_lines(geometry.page, geometry.words)])
+        return cls(page_row, geometry, grid_x, grid_y, details, level)
+
     @property
     def label(self) -> str:
         return page_label(self.page)
@@ -245,10 +260,15 @@ def comparable_alignments(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) ->
     return kept, None
 
 
-def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) -> tuple[list[Finding], list[str]]:
+def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
+                      kinds: set[str] | None = None) -> tuple[list[Finding], list[str]]:
     """Findings for sheet A (the larger-scale one) laid over sheet B, one per
     aligned detail that disagrees with B. Also notes for what was compared and
-    what was set aside, so "found nothing" can be told from "could not look"."""
+    what was set aside, so "found nothing" can be told from "could not look".
+
+    `kinds` limits which differences are reported (moved, size, only_a,
+    only_b); every difference still counts toward MAX_DIFF_SHARE, so a
+    mis-aligned detail is set aside whichever kinds are asked for."""
     findings: list[Finding] = []
     notes: list[str] = []
     ratio_text = "at the same scale" if not alignments or abs(alignments[0].scale - 1) < 1e-6 else "enlarged"
@@ -269,6 +289,10 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) -> tup
                 f"against {matched} matching columns means the two probably do not show the same area."
             )
             continue
+        if kinds is not None:
+            diffs = [d for d in diffs if d.kind in kinds]
+            if not diffs:
+                continue
         lines, evidence = [], []
         for diff in diffs:
             line, spots = describe(diff, al, a, b)

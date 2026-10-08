@@ -574,7 +574,8 @@ def test_run_all_runs_every_check():
 
     pages[0] = dataclasses.replace(pages[0], illegible_pictures=(COARSE,))
     findings, _ = run_all(pages, chunks, grids)
-    assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES)
+    # The pair checks need sheets the scan lined up (test_geometry_checks).
+    assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES) - set(rfi_checks.PAIR_CHECK_TYPES)
 
 
 def test_run_all_says_when_the_grid_check_could_not_look():
@@ -598,7 +599,7 @@ def test_check_types_match_the_labels_the_ui_renders():
 def test_the_column_check_writes_a_labelled_type():
     import rfi_columns
 
-    assert rfi_columns.CHECK_TYPE in rfi_checks.REVIEW_CHECK_TYPES
+    assert rfi_columns.CHECK_TYPE in rfi_checks.CHECK_TYPES
 
 
 # --- one tag, two ratings ------------------------------------------------------

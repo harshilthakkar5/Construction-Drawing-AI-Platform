@@ -39,6 +39,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import db
 import fullscan_plan as plan_rules
@@ -155,30 +156,52 @@ def _check_cancel(scan_id: str) -> None:
         raise Cancelled()
 
 
-def _plan(scan_id: str, project_id: str) -> dict:
-    started = time.monotonic()
-    _set(scan_id, stage="catalogue", progress=1)
+@dataclass
+class PlanResult:
+    """What planning found, before anything is written: the pages read, the
+    pairs lined up (with their windows) and everything left out. Built once by
+    the RFI scan (sharing its PDF opener) or by a plan-only job."""
+
+    facts: list
+    excluded: dict
+    read: int
+    catalogue: dict
+    kept: list
+    skipped: dict
+    open_errors: dict
+    notes: list = field(default_factory=list)
+    # What lining up read ({"walls": …, "geometry": …}), reused by the code's
+    # own comparisons so no page is read twice.
+    cache: dict = field(default_factory=dict)
+
+
+def live_document_ids(project_id: str) -> list[str]:
+    rows, _ = sheet_facts.live_pages(project_id)
+    return sorted({r["documentId"] for r in rows})
+
+
+def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progress=None) -> PlanResult:
+    """Phases 1 and 2 with no writes to any scan row: the catalogue, the pairs
+    and their line-up. `progress(fraction, detail)` is called as it goes."""
+    report = progress or (lambda fraction, detail: None)
     last = [0.0]
 
-    def progress(done: int, total: int) -> None:
+    def catalogue_progress(done: int, total: int) -> None:
         # Not every page: a 1000-page set would write a thousand updates.
         if time.monotonic() - last[0] > 3 or done == total:
             last[0] = time.monotonic()
-            _check_cancel(scan_id)
-            _set(scan_id, progress=1 + int(59 * done / max(total, 1)))
+            check_cancel()
+            report(0.6 * done / max(total, 1), f"Reading what each sheet is: page {done} of {total}")
 
-    facts, excluded, read = sheet_facts.catalogue(project_id, progress)
+    facts, excluded, read = sheet_facts.catalogue(project_id, catalogue_progress, open_page=open_page)
     catalogue = sheet_facts.summary(facts, excluded)
-    log.info("full scan %s: catalogue of %d page(s), %d read now: %s", scan_id[:8], len(facts), read, catalogue["byKind"])
-    _set(scan_id, stage="pairs", progress=62, catalogue=json.dumps(catalogue))
-
+    report(0.62, "Choosing the sheet pairs that should agree")
     pairs, skipped = plan_rules.candidate_pairs(facts)
     open_errors: dict[str, str] = {}
-    kept = _line_up(scan_id, project_id, pairs, skipped, open_errors)
-    tiles = [t for p in kept for t in p.tiles()]
-    if len(tiles) > plan_rules.MAX_TILES:
-        cut = len(tiles) - plan_rules.MAX_TILES
-        skipped.setdefault(f"tile beyond the first {plan_rules.MAX_TILES} (FULL_SCAN_MAX_TILES)", []).append(f"{cut} tile(s)")
+    cache: dict = {}
+    kept = _line_up(project_id, pairs, skipped, open_errors, open_page=open_page, check_cancel=check_cancel, cache=cache,
+                    tick=lambda done, work: report(0.62 + 0.35 * done / max(work, 1),
+                                                   f"Lining up sheet pairs: {done} of {work}"))
     notes = []
     off = sheet_facts.excluded_documents(project_id) if excluded.get("excludedFromRfi") else []
     kept_out = plan_rules.kept_out_note(excluded, len(facts), off)
@@ -186,44 +209,81 @@ def _plan(scan_id: str, project_id: str) -> dict:
         notes.append(kept_out)
     unopened = unopened_note(open_errors, _filenames(project_id, list(open_errors)))
     if unopened:
-        log.error("full scan %s: %s", scan_id[:8], unopened)
         notes.append(unopened)
     # With no page read, "nothing could be paired" restates the note above and
     # reads as a second, separate problem.
     if not kept and (facts or not kept_out):
         notes.append(plan_rules.no_pairs_note(skipped))
+    return PlanResult(facts, excluded, read, catalogue, kept, skipped, open_errors, notes, cache)
 
+
+def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
+               extra_notes: list[str] | None = None) -> dict:
+    """Store a built plan on its scan row: the tiles to look at and the price.
+    `triage` (geometry_checks.Triage) sets aside the windows the code settled
+    and carries what it tells the AI about the rest."""
+    reasons = triage.reasons if triage is not None else {}
+    hints = triage.hints if triage is not None else {}
+    kept, skipped = result.kept, dict(result.skipped)
+    tiles = [t for p in kept for t in p.tiles()]
+    if len(tiles) > plan_rules.MAX_TILES:
+        cut = len(tiles) - plan_rules.MAX_TILES
+        skipped.setdefault(f"tile beyond the first {plan_rules.MAX_TILES} (FULL_SCAN_MAX_TILES)", []).append(f"{cut} tile(s)")
+    notes = list(result.notes) + list(extra_notes or [])
+    if result.open_errors:
+        log.error("full scan %s: %s", scan_id[:8], unopened_note(result.open_errors, {}))
     with db.connect() as conn:
         conn.execute("DELETE FROM rfi_full_scan_tiles WHERE \"scanId\" = %s", (scan_id,))
         written = 0
+        set_aside = 0
         pair_json = []
         for index, pair in enumerate(kept):
             pair_tiles = pair.tiles()
             room = plan_rules.MAX_TILES - written
             pair_tiles = pair_tiles[: max(0, room)]
+            sent = 0
             for t_index, tile in enumerate(pair_tiles):
+                why = reasons.get((index, t_index))
+                if (index, t_index) in hints:
+                    tile = {**tile, **hints[(index, t_index)]}
+                # A tile the code already settled is stored done, with the
+                # reason, so the run never pays for it and the screen can say
+                # why it was not shown to the AI.
                 conn.execute(
-                    'INSERT INTO rfi_full_scan_tiles (id, "scanId", "pairIndex", "tileIndex", windows, status, "updatedAt") '
-                    "VALUES (gen_random_uuid()::text, %s, %s, %s, %s::jsonb, 'pending', now())",
-                    (scan_id, index, t_index, json.dumps(tile)),
+                    'INSERT INTO rfi_full_scan_tiles (id, "scanId", "pairIndex", "tileIndex", windows, status, '
+                    'outcome, "outcomeNote", "updatedAt") '
+                    "VALUES (gen_random_uuid()::text, %s, %s, %s, %s::jsonb, %s, %s, %s, now())",
+                    (scan_id, index, t_index, json.dumps(tile), "skipped" if why else "pending",
+                     "settled_by_code" if why else None, why),
                 )
-            written += len(pair_tiles)
+                if why:
+                    set_aside += 1
+                else:
+                    sent += 1
+            written += sent
             pair_json.append({
                 "index": index,
                 "kind": pair.kind,
                 "a": pair.a.ref(),
                 "b": pair.b.ref(),
                 "reason": pair.reason,
-                "tiles": len(pair_tiles),
+                "tiles": sent,
+                "tilesSettled": len(pair_tiles) - sent,
                 "transform": pair.transform.as_json() if pair.transform else None,
             })
-
+    if set_aside:
+        notes.append(
+            f"The code settled {set_aside} of {written + set_aside} area(s) itself, so they are not sent to the AI "
+            "(blank on one sheet, or every line both sheets draw lines up exactly). "
+            f"{written} area(s) are left for the AI to compare."
+        )
     estimate = plan_rules.estimate(written)
     _set(
         scan_id,
         status="planned",
         stage="planned",
         progress=100,
+        catalogue=json.dumps(result.catalogue),
         pairs=json.dumps(pair_json),
         skipped=json.dumps(plan_rules.skipped_list(skipped)),
         estimate=json.dumps(estimate),
@@ -231,10 +291,31 @@ def _plan(scan_id: str, project_id: str) -> dict:
         notes=json.dumps(notes),
         plannedAt=_now(),
     )
-    log.info(
-        "full scan %s: planned %d pair(s), %d tile(s) in %.1fs", scan_id[:8], len(kept), written, time.monotonic() - started
-    )
-    return {"pairs": len(kept), "tiles": written, "pages": len(facts)}
+    log.info("full scan %s: planned %d pair(s), %d tile(s) for the AI, %d settled by code",
+             scan_id[:8], len(kept), written, set_aside)
+    return {"pairs": len(kept), "tiles": written, "settled": set_aside, "pages": len(result.facts)}
+
+
+def _plan(scan_id: str, project_id: str) -> dict:
+    """The plan-only job ("Prepare the comparison only"): its own opener."""
+    from rfi_review import _documents
+
+    started = time.monotonic()
+    _set(scan_id, stage="catalogue", progress=1)
+
+    def progress(fraction: float, detail: str) -> None:
+        _set(scan_id, stage="catalogue" if fraction < 0.6 else "pairs", progress=1 + int(96 * fraction))
+
+    with _documents(project_id, live_document_ids(project_id)) as open_page:
+        result = build_plan(project_id, open_page, check_cancel=lambda: _check_cancel(scan_id), progress=progress)
+        import geometry_checks
+
+        triage = geometry_checks.triage_tiles(result.kept, open_page, result.cache) if result.kept else None
+    log.info("full scan %s: catalogue of %d page(s), %d read now: %s", scan_id[:8], len(result.facts), result.read,
+             result.catalogue["byKind"])
+    out = write_plan(scan_id, project_id, result, triage)
+    log.info("full scan %s: planned in %.1fs", scan_id[:8], time.monotonic() - started)
+    return out
 
 
 UNOPENED = "pair not compared: the drawing file could not be downloaded or opened (see the note above)"
@@ -266,18 +347,22 @@ def _filenames(project_id: str, document_ids: list[str]) -> dict[str, str]:
         ).fetchall())
 
 
-def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]],
-             open_errors: dict[str, str] | None = None):
+def _line_up(project_id: str, pairs, skipped: dict[str, list[str]],
+             open_errors: dict[str, str] | None = None, *, open_page, check_cancel=lambda: None,
+             tick=lambda done, work: None, cache: dict | None = None):
     """Each candidate pair with its tiles, or into `skipped` with the reason.
     Same-level pairs line up from the cached grid positions; one that cannot
     (no grid, as on most electrical and life-safety plans) is lined up by the
     walls both sheets draw instead (wall_match), read from the PDFs. An
-    enlarged pair needs both sheets' geometry (the columns they draw)."""
+    enlarged pair needs both sheets' geometry (the columns they draw).
+
+    `cache` keeps what was read ({"walls": …, "geometry": …} by (document,
+    page)) for the code's own comparisons of the same pairs afterwards."""
     import plan_match
     import wall_match
-    from rfi_review import _documents
 
     open_errors = {} if open_errors is None else open_errors
+    cache = {} if cache is None else cache
     kept = []
     enlarged = [p for p in pairs if p.kind == "enlarged"]
     by_walls = []
@@ -292,57 +377,57 @@ def _line_up(scan_id: str, project_id: str, pairs, skipped: dict[str, list[str]]
             by_walls.append((pair, why))
     if not enlarged and not by_walls:
         return kept
-    docs = sorted({f.document_id for p in enlarged for f in (p.a, p.b)} | {f.document_id for p, _ in by_walls for f in (p.a, p.b)})
-    geometry: dict[tuple[str, int], object] = {}
-    walls: dict[tuple[str, int], object] = {}
+    geometry = cache.setdefault("geometry", {})
+    walls = cache.setdefault("walls", {})
     work = len(by_walls) + len(enlarged)
-    with _documents(project_id, docs) as open_page:
-        for i, (pair, grid_why) in enumerate(by_walls):
-            _check_cancel(scan_id)
-            for f in (pair.a, pair.b):
-                key = (f.document_id, f.page_number)
-                if key not in walls:
-                    page = open_page(f.document_id, f.page_number)
-                    walls[key] = wall_match.read_walls(page) if page is not None else None
-            wa, wb = walls[(pair.a.document_id, pair.a.page_number)], walls[(pair.b.document_id, pair.b.page_number)]
-            if wa is None or wb is None:
-                # Not a disagreement: the drawing was never read.
-                skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
-                _set(scan_id, progress=62 + int(35 * (i + 1) / work))
-                continue
-            shift = wall_match.align(wa, wb)
-            windows, why = plan_rules.wall_windows(pair, shift)
-            if windows:
-                pair.windows = windows
-                kept.append(pair)
-                log.info("full scan %s: %s / %s lined up by walls (%d match, next best %d)",
-                         scan_id[:8], pair.a.label, pair.b.label, shift.matched, shift.runner_up)
-            else:
-                skipped.setdefault(f"pair not compared: {grid_why}, and the walls do not line up either", []).append(
-                    f"{pair.a.label} / {pair.b.label}"
-                )
-            _set(scan_id, progress=62 + int(35 * (i + 1) / work))
-        for i, pair in enumerate(enlarged):
-            _check_cancel(scan_id)
-            for f in (pair.a, pair.b):
-                key = (f.document_id, f.page_number)
-                if key not in geometry:
-                    page = open_page(f.document_id, f.page_number)
-                    geometry[key] = plan_match.SheetGeometry.read(page) if page is not None else None
-            ga, gb = geometry[(pair.a.document_id, pair.a.page_number)], geometry[(pair.b.document_id, pair.b.page_number)]
-            if ga is None or gb is None:
-                skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
-                _set(scan_id, progress=62 + int(35 * (len(by_walls) + i + 1) / work))
-                continue
-            alignments = plan_match.align_sheets(ga, gb)
-            windows, why = plan_rules.enlarged_windows(pair, alignments, detail_boxes(ga, alignments))
-            if windows:
-                pair.windows = windows
-                kept.append(pair)
-            else:
-                skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
-            _set(scan_id, progress=62 + int(35 * (len(by_walls) + i + 1) / work))
-        open_errors.update(getattr(open_page, "errors", {}))
+    for i, (pair, grid_why) in enumerate(by_walls):
+        check_cancel()
+        for f in (pair.a, pair.b):
+            key = (f.document_id, f.page_number)
+            if key not in walls:
+                page = open_page(f.document_id, f.page_number)
+                walls[key] = wall_match.read_walls(page) if page is not None else None
+        wa, wb = walls[(pair.a.document_id, pair.a.page_number)], walls[(pair.b.document_id, pair.b.page_number)]
+        if wa is None or wb is None:
+            # Not a disagreement: the drawing was never read.
+            skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
+            tick(i + 1, work)
+            continue
+        shift = wall_match.align(wa, wb)
+        pair.wall_shift = shift
+        windows, why = plan_rules.wall_windows(pair, shift)
+        if windows:
+            pair.windows = windows
+            kept.append(pair)
+            log.info("full scan: %s / %s lined up by walls (%d match, next best %d)",
+                     pair.a.label, pair.b.label, shift.matched, shift.runner_up)
+        else:
+            skipped.setdefault(f"pair not compared: {grid_why}, and the walls do not line up either", []).append(
+                f"{pair.a.label} / {pair.b.label}"
+            )
+        tick(i + 1, work)
+    for i, pair in enumerate(enlarged):
+        check_cancel()
+        for f in (pair.a, pair.b):
+            key = (f.document_id, f.page_number)
+            if key not in geometry:
+                page = open_page(f.document_id, f.page_number)
+                geometry[key] = plan_match.SheetGeometry.read(page) if page is not None else None
+        ga, gb = geometry[(pair.a.document_id, pair.a.page_number)], geometry[(pair.b.document_id, pair.b.page_number)]
+        if ga is None or gb is None:
+            skipped.setdefault(UNOPENED, []).append(f"{pair.a.label} / {pair.b.label}")
+            tick(len(by_walls) + i + 1, work)
+            continue
+        alignments = plan_match.align_sheets(ga, gb)
+        pair.alignments = alignments
+        windows, why = plan_rules.enlarged_windows(pair, alignments, detail_boxes(ga, alignments))
+        if windows:
+            pair.windows = windows
+            kept.append(pair)
+        else:
+            skipped.setdefault(f"pair not compared: {why}", []).append(f"{pair.a.label} / {pair.b.label}")
+        tick(len(by_walls) + i + 1, work)
+    open_errors.update(getattr(open_page, "errors", {}))
     return kept
 
 

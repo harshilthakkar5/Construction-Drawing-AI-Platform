@@ -23,6 +23,7 @@ sentences is not reasoning, and a scan can word a hundred findings.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -367,6 +368,23 @@ def word(
 # --- Loading ---------------------------------------------------------------------
 
 
+def _pages_left_for_ocr(project_id: str) -> bool:
+    import page_ocr
+
+    if not config.OCR_ENABLED:
+        return False
+    try:
+        return bool(db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION))
+    except Exception:
+        return True
+
+
+def _ocr_version() -> int:
+    import page_ocr
+
+    return page_ocr.OCR_VERSION
+
+
 def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
     """Live pages and TEXT chunks only. A superseded revision is not part of
     the set being asked about, and a description is a model's account of a
@@ -377,12 +395,15 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
             """
             SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber",
                    p."sheetNumber", p."sheetRegionText", p.discipline::text,
-                   p.ocr -> 'pictures'
+                   -- Only a reading by the CURRENT OCR rules: an older one may call a
+                   -- picture illegible by a rule since tightened (OCR_VERSION 2 added
+                   -- "1-bit"), and a worker with no engine never re-reads it.
+                   CASE WHEN p."ocrVersion" = %s THEN p.ocr -> 'pictures' END
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
             """,
-            (project_id,),
+            (_ocr_version(), project_id),
         ).fetchall()
         chunk_rows = conn.execute(
             """
@@ -428,7 +449,8 @@ def _grid_key(document_id: str, page_number: int) -> str:
     return f"rfi:grid:v{GRID_CACHE_VERSION}:{document_id}:{page_number}"
 
 
-def load_grids(project_id: str, pages: list[Page], progress=None) -> tuple[list[GridSystem] | None, str | None]:
+def load_grids(project_id: str, pages: list[Page], progress=None,
+               open_page=None) -> tuple[list[GridSystem] | None, str | None]:
     """Every grid on every live page, read from the PDFs themselves.
 
     The only check input that is not in Postgres: a grid bubble is a circle
@@ -466,63 +488,75 @@ def load_grids(project_id: str, pages: list[Page], progress=None) -> tuple[list[
                 missing.setdefault(document_id, []).append(page)
 
     if missing:
-        with db.connect() as conn:
-            keys = dict(
-                conn.execute(
-                    'SELECT id, "spacesKey" FROM documents WHERE id = ANY(%s::text[])',
-                    (list(missing),),
-                ).fetchall()
-            )
         read = 0
         to_read = sum(len(v) for v in missing.values())
         started = time.monotonic()
-        for document_id, doc_pages in missing.items():
-            key = keys.get(document_id)
-            if not key:
-                return None, "Grid check did not run: a document's PDF could not be located."
-            with tempfile.TemporaryDirectory() as tmp:
-                path = os.path.join(tmp, "original.pdf")
+
+        def read_pages(document_id: str, doc_pages: list[Page], page_of) -> None:
+            nonlocal read
+            for page in doc_pages:
+                if progress is not None:
+                    progress("grids", read, to_read,
+                             f"Reading grid lines: page {read + 1} of {to_read} "
+                             f"({page.sheet_number or f'page {page.page_number}'})")
+                found: list[dict] = []
                 try:
-                    storage.download_to_file(key, path)
+                    loaded = page_of(page.page_number)
+                    if loaded is not None:
+                        loaded = grid.without_markup(loaded)
+                        found = grid.styled_systems(loaded)
+                        # Grids are read in DISPLAY space; evidence is
+                        # stored unrotated. Carry the way back.
+                        scales = plan_match.page_scales(loaded) if found else []
+                        for system in found:
+                            system["toUnrotated"] = list(loaded.derotation_matrix)
+                            # v4: grids at different scales are never compared.
+                            system["scales"] = scales
                 except Exception as exc:
-                    log.warning("rfi scan: grid check could not download %s: %s", document_id[:8], exc)
+                    # One unreadable page is a sheet with no grid, not a failed scan.
+                    log.warning("rfi scan: grid read failed on %s page %d: %s",
+                                document_id[:8], page.page_number, exc)
+                raw[page.id] = found
+                read += 1
+                if cache is not None:
+                    try:
+                        cache.set(_grid_key(document_id, page.page_number), json.dumps(found))
+                    except Exception:
+                        pass
+
+        if open_page is not None:
+            # The scan's shared opener: each PDF is downloaded once for OCR,
+            # grids, page facts, pinpointing and the sheet pairs together.
+            for document_id, doc_pages in missing.items():
+                first = open_page(document_id, doc_pages[0].page_number)
+                if first is None and document_id in getattr(open_page, "errors", {}):
                     return None, "Grid check did not run: a document's PDF could not be downloaded."
-                pdf = fitz.open(path)
-                try:
-                    for page in doc_pages:
-                        if progress is not None:
-                            progress("grids", read, to_read,
-                                     f"Reading grid lines: page {read + 1} of {to_read} "
-                                     f"({page.sheet_number or f'page {page.page_number}'})")
-                        index = page.page_number - 1
-                        found: list[dict] = []
-                        if 0 <= index < pdf.page_count:
-                            try:
-                                loaded = grid.without_markup(pdf.load_page(index))
-                                found = grid.styled_systems(loaded)
-                                # Grids are read in DISPLAY space; evidence is
-                                # stored unrotated. Carry the way back.
-                                scales = plan_match.page_scales(loaded) if found else []
-                                for system in found:
-                                    system["toUnrotated"] = list(loaded.derotation_matrix)
-                                    # v4: grids at different scales are never compared.
-                                    system["scales"] = scales
-                            except Exception as exc:
-                                # One unreadable page is a sheet with no grid,
-                                # not a failed scan.
-                                log.warning(
-                                    "rfi scan: grid read failed on %s page %d: %s",
-                                    document_id[:8], page.page_number, exc,
-                                )
-                        raw[page.id] = found
-                        read += 1
-                        if cache is not None:
-                            try:
-                                cache.set(_grid_key(document_id, page.page_number), json.dumps(found))
-                            except Exception:
-                                pass
-                finally:
-                    pdf.close()
+                read_pages(document_id, doc_pages, lambda n, d=document_id: open_page(d, n))
+        else:
+            with db.connect() as conn:
+                keys = dict(
+                    conn.execute(
+                        'SELECT id, "spacesKey" FROM documents WHERE id = ANY(%s::text[])',
+                        (list(missing),),
+                    ).fetchall()
+                )
+            for document_id, doc_pages in missing.items():
+                key = keys.get(document_id)
+                if not key:
+                    return None, "Grid check did not run: a document's PDF could not be located."
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = os.path.join(tmp, "original.pdf")
+                    try:
+                        storage.download_to_file(key, path)
+                    except Exception as exc:
+                        log.warning("rfi scan: grid check could not download %s: %s", document_id[:8], exc)
+                        return None, "Grid check did not run: a document's PDF could not be downloaded."
+                    pdf = fitz.open(path)
+                    try:
+                        read_pages(document_id, doc_pages,
+                                   lambda n: pdf.load_page(n - 1) if 1 <= n <= pdf.page_count else None)
+                    finally:
+                        pdf.close()
         log.info(
             "rfi scan: read grids on %d page(s) in %.1fs (%d from cache)",
             read, time.monotonic() - started, len(raw) - read,
@@ -584,6 +618,7 @@ def plan_wording(
 
 def run(project_id: str, scan_id: str) -> dict:
     log.info("rfi scan %s: picked up for project %s", scan_id[:8], project_id[:8])
+    full_scan_id = None
     try:
         # The status first and on its own: the progress columns are newer, and
         # a database that has not had that migration must still see the scan
@@ -591,14 +626,165 @@ def run(project_id: str, scan_id: str) -> dict:
         with db.connect() as conn:
             _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
         ScanProgress(scan_id)("starting", detail="Starting", force=True)
-        return _run(project_id, scan_id)
+        full_scan_id = _ai_plan_requested(scan_id)
+        if full_scan_id is None:
+            return _run(project_id, scan_id)
+        import fullscan
+
+        # The AI comparison's plan is built by this job, so this job keeps its
+        # row alive: an hour of OCR must not read as a dead plan.
+        with fullscan.heartbeat(full_scan_id):
+            return _run(project_id, scan_id, full_scan_id)
     except Exception as exc:
         with db.connect() as conn:
             _set_scan(conn, scan_id, status="failed", error=str(exc)[:500], finishedAt=_now(conn))
+        if full_scan_id:
+            _fail_ai_plan(full_scan_id, f"the code checks failed before the comparison was planned: {exc}")
         raise
 
 
-def pinpoint_evidence(project_id: str, findings) -> None:
+# --- One pass: the sheet pairs, the code's comparisons and the AI's plan --------
+
+# The code's own comparisons of the sheet pairs (geometry_checks.py): grid
+# spacing and columns. Zero tokens; off only to compare with a run without them.
+GEOMETRY_CHECKS = os.environ.get("RFI_GEOMETRY_CHECKS", "true").lower() != "false"
+
+
+def _document_ids(project_id: str) -> list[str]:
+    """Every current document of the project; the opener downloads one only
+    when a step first asks for a page of it."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT id FROM documents WHERE "projectId" = %s AND "supersededAt" IS NULL', (project_id,)
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _ai_plan_requested(scan_id: str) -> str | None:
+    """The AI comparison this scan was asked to plan (rfi_scans.fullScanId),
+    while that plan is still waiting for it."""
+    try:
+        with db.connect() as conn:
+            row = conn.execute(
+                'SELECT f.id FROM rfi_scans s JOIN rfi_full_scans f ON f.id = s."fullScanId" '
+                "WHERE s.id = %s AND f.status = 'planning'",
+                (scan_id,),
+            ).fetchone()
+    except Exception as exc:  # a database without the column plans nothing, it does not fail
+        log.warning("rfi scan %s: could not read the comparison to plan (%s)", scan_id[:8], exc)
+        return None
+    return row[0] if row else None
+
+
+def _fail_ai_plan(full_scan_id: str, why: str) -> None:
+    import fullscan
+
+    try:
+        if fullscan.status_of(full_scan_id) == "planning":
+            fullscan._set(full_scan_id, status="failed", error=f"planning failed: {why}"[:500], completedAt=fullscan._now())
+    except Exception as exc:
+        log.warning("rfi scan: could not mark the comparison plan %s failed: %s", full_scan_id[:8], exc)
+
+
+def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, notes: list[str]):
+    """The pairs of sheets that should agree, lined up — built ONCE and used by
+    both the code's comparisons and the AI's plan. A failure here is a note,
+    never a failed scan: the text checks already ran."""
+    import fullscan
+
+    last = [0.0]
+
+    def report(fraction: float, detail: str) -> None:
+        progress("pairs", int(1000 * fraction), 1000, detail)
+        if full_scan_id and time.monotonic() - last[0] > 3:
+            last[0] = time.monotonic()
+            try:
+                fullscan._set(full_scan_id, stage="catalogue" if fraction < 0.6 else "pairs",
+                              progress=1 + int(90 * fraction))
+            except Exception:
+                pass
+
+    def check_cancel() -> None:
+        if full_scan_id:
+            fullscan._check_cancel(full_scan_id)
+
+    progress("pairs", detail="Finding the sheets that should agree (plans of one level, enlarged plans)")
+    try:
+        return fullscan.build_plan(project_id, open_page, check_cancel=check_cancel, progress=report)
+    except fullscan.Cancelled:
+        notes.append("The AI comparison's plan was cancelled, so the sheet pairs were not compared either.")
+    except Exception as exc:
+        log.exception("rfi scan: sheet pairs failed for project %s", project_id[:8])
+        notes.append(f"The sheet pairs could not be built ({exc}), so no pair of sheets was compared.")
+        if full_scan_id:
+            _fail_ai_plan(full_scan_id, str(exc))
+    return None
+
+
+GEOMETRY_TYPES = rfi_checks.PAIR_CHECK_TYPES
+
+
+def geometry_findings(plan, pages: list[Page], open_page) -> tuple[list[Finding], list[str], set[str]]:
+    """(findings, notes, check types that failed to run)."""
+    import geometry_checks
+
+    by_id = {p.id: p for p in pages}
+    findings: list[Finding] = []
+    notes: list[str] = []
+    failed: set[str] = set()
+    for name, check_type, check in (
+        ("grid spacing", "grid_spacing", geometry_checks.grid_spacing_findings),
+        ("columns", "column_mismatch", lambda k, b, o: geometry_checks.column_findings(k, b, o, plan.cache)),
+    ):
+        try:
+            found, more = check(plan.kept, by_id, open_page)
+            findings += found
+            notes += more
+        except Exception as exc:  # one comparison failing is a note, not a failed scan
+            log.exception("rfi scan: %s comparison failed", name)
+            notes.append(f"The {name} comparison of the sheet pairs did not run ({exc}).")
+            failed.add(check_type)
+    return findings, notes, failed
+
+
+def save_ai_plan(full_scan_id: str, project_id: str, plan, open_page, findings, progress, notes: list[str]) -> None:
+    """Step 2's plan, from the pairs this scan already lined up: every window
+    the code could settle is set aside, the rest carry what the code knows
+    about them. Still no AI call — the person starts it, priced."""
+    import fullscan
+    import geometry_checks
+
+    progress("plan", detail="Choosing which areas still need the AI (step 2)")
+    try:
+        fullscan._check_cancel(full_scan_id)
+        triage = geometry_checks.triage_tiles(plan.kept, open_page, plan.cache, findings) if plan.kept else None
+        out = fullscan.write_plan(full_scan_id, project_id, plan, triage)
+        notes.append(
+            f"Step 2 is ready: {out['tiles']} area(s) of {out['pairs']} sheet pair(s) left for the AI to compare"
+            + (f"; the code settled {out['settled']} itself" if out.get("settled") else "")
+            + ". Nothing is sent to an AI until you press Start."
+        )
+    except fullscan.Cancelled:
+        pass
+    except Exception as exc:
+        log.exception("rfi scan: could not save the comparison plan %s", full_scan_id[:8])
+        _fail_ai_plan(full_scan_id, str(exc))
+
+
+@contextlib.contextmanager
+def _opener(project_id: str, document_ids, open_page=None):
+    """The scan's shared opener when there is one (one download per PDF for
+    the whole scan), else a private one for `document_ids`."""
+    if open_page is not None:
+        yield open_page
+        return
+    from rfi_review import _documents
+
+    with _documents(project_id, list(document_ids)) as own:
+        yield own
+
+
+def pinpoint_evidence(project_id: str, findings, open_page=None) -> None:
     """Shrink each finding's evidence from its chunk to the words it is about
     (`rfi_pinpoint`). Opens each cited document once. A document that cannot
     be read keeps its chunk boxes; the internal keys are removed either way,
@@ -609,14 +795,12 @@ def pinpoint_evidence(project_id: str, findings) -> None:
     docs = sorted({e["documentId"] for e in items if e.get("_term") and e.get("documentId")})
     try:
         if docs:
-            from rfi_review import _documents
-
             pages: dict[tuple[str, int], object] = {}
-            with _documents(project_id, docs) as open_page:
+            with _opener(project_id, docs, open_page) as opened:
                 def page_of(document_id: str, page_number: int):
                     key = (document_id, page_number)
                     if key not in pages:
-                        pages[key] = open_page(document_id, page_number)
+                        pages[key] = opened(document_id, page_number)
                     return pages[key]
 
                 tightened = rfi_pinpoint.pinpoint(items, page_of)
@@ -637,12 +821,15 @@ def _now(conn):
 # most of the wall clock: 40-70s a page, against seconds for everything else.
 STEPS = {
     "starting": (0, 1),
-    "ocr": (1, 55),
-    "loading": (55, 57),
-    "grids": (57, 75),
-    "checks": (75, 79),
-    "pinpoint": (79, 82),
-    "wording": (82, 97),
+    "ocr": (1, 45),
+    "loading": (45, 46),
+    "grids": (46, 58),
+    "checks": (58, 60),
+    "pairs": (60, 80),
+    "geometry": (80, 85),
+    "pinpoint": (85, 87),
+    "plan": (87, 90),
+    "wording": (90, 97),
     "saving": (97, 99),
     "done": (100, 100),
 }
@@ -697,7 +884,7 @@ OCR_FAILURE_HELP = (
 )
 
 
-def ocr_pending(project_id: str, progress=None) -> list[str]:
+def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
     """Read, with OCR, every page of the project the current OCR reader has
     not examined — words drawn as shapes, pasted schedule pictures — and
     store the lines as text chunks before the checks load. Documents
@@ -722,11 +909,10 @@ def ocr_pending(project_id: str, progress=None) -> list[str]:
     failure = ""
     streak = 0
     illegible: list[str] = []
-    from rfi_review import _documents
 
     sheets = _sheet_names(project_id)
     report = progress or (lambda *a, **k: None)
-    with _documents(project_id, sorted({d for d, _, _ in todo})) as open_page:
+    with _opener(project_id, sorted({d for d, _, _ in todo}), open_page) as open_page:
         for done, (document_id, _key, page_number) in enumerate(todo):
             name = sheets.get((document_id, page_number)) or f"page {page_number}"
             report("ocr", done, len(todo),
@@ -858,23 +1044,53 @@ def _index_new_chunks(project_id: str, document_ids: list[str]) -> None:
         log.warning("ocr: indexing the new chunks failed (%s); a reindex will pick them up", exc)
 
 
-def _run(project_id: str, scan_id: str) -> dict:
+def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict:
     progress = ScanProgress(scan_id)
-    ocr_notes = ocr_pending(project_id, progress)
-    progress("loading", detail="Loading the drawings' text")
-    pages, chunks = load(project_id)
-    log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
-    grids, grid_note = load_grids(project_id, pages, progress)
-    progress("checks", detail=f"Running the code checks on {len(pages)} pages "
-                              "(missing sheets, schedules, TBDs, tag ratings, grids)")
-    findings, notes = rfi_checks.run_all(pages, chunks, grids)
-    notes = ocr_notes + notes
-    progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
-    pinpoint_evidence(project_id, findings)
-    if grid_note:
-        # Replaces run_all's generic "did not run" with the actual reason.
-        notes = [n for n in notes if not n.startswith("Grid check did not run: the drawings'")]
-        notes.append(grid_note)
+    # ONE opener for the whole scan: each PDF is downloaded once, the first
+    # time any step needs a page of it, and shared by OCR, the grid read, the
+    # page facts, the sheet pairs, the code's own comparisons and pinpointing.
+    # Before this the code checks and the AI comparison each downloaded and
+    # read the whole set separately.
+    with _opener(project_id, _document_ids(project_id)) as open_page:
+        ocr_notes = ocr_pending(project_id, progress, open_page)
+        progress("loading", detail="Loading the drawings' text")
+        pages, chunks = load(project_id)
+        log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
+        grids, grid_note = load_grids(project_id, pages, progress, open_page)
+        progress("checks", detail=f"Running the code checks on {len(pages)} pages "
+                                  "(missing sheets, schedules, TBDs, tag ratings, grids)")
+        findings, notes = rfi_checks.run_all(pages, chunks, grids)
+        notes = ocr_notes + notes
+        if grid_note:
+            # Replaces run_all's generic "did not run" with the actual reason.
+            notes = [n for n in notes if not n.startswith("Grid check did not run: the drawings'")]
+            notes.append(grid_note)
+
+        # Checks that could not LOOK this time: their earlier findings are
+        # kept, never removed as "resolved" — "could not look" is not "fixed".
+        not_run: set[str] = set()
+        if grids is None:
+            not_run.add("grid_mismatch")
+        if _pages_left_for_ocr(project_id):
+            # Pictures on pages OCR has not examined under the current rules
+            # (no engine on this worker, or the per-scan cap) were not
+            # measured: their earlier illegible-schedule findings stand.
+            not_run.add("illegible_schedule")
+        plan = None
+        if GEOMETRY_CHECKS or full_scan_id:
+            plan = sheet_pairs(project_id, open_page, progress, full_scan_id, notes)
+        if plan is not None and GEOMETRY_CHECKS:
+            progress("geometry", detail=f"Comparing {len(plan.kept)} sheet pair(s): grid spacing and columns")
+            found, more, failed = geometry_findings(plan, pages, open_page)
+            findings += found
+            notes += more
+            not_run |= failed
+        else:
+            not_run |= set(GEOMETRY_TYPES)
+        progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
+        pinpoint_evidence(project_id, findings, open_page)
+        if plan is not None and full_scan_id:
+            save_ai_plan(full_scan_id, project_id, plan, open_page, findings, progress, notes)
 
     with db.connect() as conn:
         fresh = bool(
@@ -981,8 +1197,9 @@ def _run(project_id: str, scan_id: str) -> dict:
              WHERE "projectId" = %s AND status = 'pending'
                AND origin = 'deterministic_scan'
                AND NOT (fingerprint = ANY(%s::text[]))
+               AND NOT ("checkType" = ANY(%s::text[]))
             """,
-            (project_id, found),
+            (project_id, found, sorted(not_run)),
         ).rowcount
         if resolved:
             notes.append(
