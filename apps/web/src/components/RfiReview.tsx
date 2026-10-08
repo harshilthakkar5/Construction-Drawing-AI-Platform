@@ -483,13 +483,33 @@ function minutes(ms: number): string {
  * reported. A queued scan says it is waiting for a worker, and a scan whose
  * worker has gone quiet says so and where to look.
  */
+/** Why a queued scan has not started. The worker runs one scan at a time
+ * (RFI_SCAN_CONCURRENCY, across every project), so the usual reason is
+ * another scan still running — which nothing else on screen shows. */
+function queueLine(queue: RfiScanDto["queue"]): string {
+  if (!queue) return "A worker starts it as soon as one is free.";
+  if (queue.state === "active") return "A worker has just picked it up.";
+  if (queue.state === "missing") return "";
+  const parts: string[] = [];
+  if (queue.running > 0)
+    parts.push(`${queue.running} other scan${queue.running === 1 ? " is" : "s are"} running now`);
+  if (queue.ahead > 0) parts.push(`${queue.ahead} ${queue.ahead === 1 ? "is" : "are"} waiting ahead of this one`);
+  if (parts.length === 0) return "Nothing is ahead of it — if it does not start within a minute, check that the worker is running.";
+  return `${parts.join(" and ")}. The worker takes one scan at a time (RFI_SCAN_CONCURRENCY), so this one starts when ${
+    queue.running + queue.ahead === 1 ? "that one finishes" : "those finish"
+  }.`;
+}
+
 function ScanProgressView({ scan }: { scan: RfiScanDto }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const queued = scan.status === "queued" || !scan.stage;
+  const queued = scan.status === "queued";
+  // Running with no step written: a worker from before step reporting, or
+  // one whose database lacks that migration. It IS working; say so.
+  const unreported = scan.status === "running" && !scan.stage;
   const since = Date.parse(scan.startedAt ?? scan.createdAt);
   const beat = scan.heartbeatAt ? Date.parse(scan.heartbeatAt) : since;
   const quiet = now - beat > QUIET_MS;
@@ -500,19 +520,32 @@ function ScanProgressView({ scan }: { scan: RfiScanDto }) {
         <span className="font-medium">
           {queued
             ? "Waiting for a worker to pick up the scan"
-            : `Step ${Math.max(1, index + 1)} of ${STEP_ORDER.length} · ${STEP_LABEL[scan.stage!] ?? scan.stage}`}
+            : unreported
+              ? "Running"
+              : `Step ${Math.max(1, index + 1)} of ${STEP_ORDER.length} · ${STEP_LABEL[scan.stage!] ?? scan.stage}`}
         </span>
         <span className="text-muted-foreground tabular-nums">{scan.progress}%</span>
       </div>
       <Progress value={scan.progress} aria-label="Scan progress" />
+      {queued && queueLine(scan.queue) && (
+        <p className="text-muted-foreground leading-relaxed">{queueLine(scan.queue)}</p>
+      )}
+      {unreported && (
+        <p className="text-muted-foreground leading-relaxed">
+          The worker has not reported a step. Its code or the database may be older than this screen: pull, run{" "}
+          <code>npx prisma migrate deploy</code>, and restart the worker to see each step.
+        </p>
+      )}
       {scan.detail && !queued && <p className="text-muted-foreground leading-relaxed">{scan.detail}</p>}
       <p className="text-muted-foreground tabular-nums">
         {queued ? "Queued" : "Running"} for {minutes(now - since)}
         {!queued && ` · last update ${minutes(now - beat)} ago`}
       </p>
-      {quiet && (
+      {(quiet || (queued && scan.queue?.state === "missing")) && (
         <Notice tone="error">
-          {queued
+          {queued && scan.queue?.state === "missing"
+            ? "This scan is no longer in the worker's queue (Redis was cleared or the job was removed), so it will never start. It frees itself after 30 minutes; or restart the worker and scan again."
+            : queued
             ? `No worker has picked this scan up for ${minutes(now - beat)}. Check that the worker is running.`
             : `No update from the worker for ${minutes(now - beat)}. It may be busy on one large page, or stopped — check the worker's log.`}
         </Notice>

@@ -2336,6 +2336,14 @@ strokes) are where a reviewer read CF-2 at 2-1/2 HP, and a value read off that p
 confident wrong RFI. Tested with a stand-in engine (boxes at 0/90/180/270, the core rule); PaddleOCR
 itself was exercised locally only through rapidocr (same PP-OCR models, ONNX), because the model
 CDN is blocked in the sandbox — production builds the real models into the worker image.
+The engine is ONE object shared by every thread in a worker (ingest page threads, scrape threads,
+an RFI scan) and a Paddle predictor is not thread-safe: concurrent calls corrupted it and then
+EVERY call failed with oneDNN's "could not create a primitive", page after page. `ocr._predict`
+serialises all calls under one lock, rebuilds the engine after a failure and retries that image at
+960px (`OcrError` if that fails too — never an empty reading). Ingest keeps a page whose OCR
+failed (unmarked, so a scan reads it later); `ocr_pending` stops asking after
+`OCR_FAILURE_STREAK` (3) failures in a row and writes one note naming the error and the fixes
+(memory / `OCR_DET_LIMIT` / a CPU without AVX, e.g. x86 under emulation on Apple silicon).
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
@@ -2344,6 +2352,12 @@ a warning after 3 quiet minutes. A rescan that read shape text ran an hour behin
 this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
 time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
 step and a failed write is a log line, never a failed scan.
+A QUEUED scan says why it waits (`GET /scan` → `queue`, `rfiScanRules.queuePlace`: scans running
+and scans ahead, or "no longer in the queue"): the worker runs `RFI_SCAN_CONCURRENCY` (1) scans
+at a time across every project, so a scan pressed while another runs sat on "Waiting for a worker"
+and read as stuck. The worker writes `status=running` ALONE before any progress column, so a
+database missing that migration still sees the scan start; running with no step reads "Running"
+with a hint to migrate and restart, never "Waiting for a worker".
 
 Evidence boxes are PINPOINTED (`workers/src/rfi_pinpoint.py`): a check records the printed words
 (`_term`, and `_near` for a tag's rating), the scan finds them inside the chunk box and shrinks the

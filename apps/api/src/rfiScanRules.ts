@@ -1,4 +1,4 @@
-import type { RfiConfidence, RfiScanDto, RfiScanStatus, RfiScanUsageDto } from "@cdip/shared";
+import type { RfiConfidence, RfiScanDto, RfiScanQueueDto, RfiScanStatus, RfiScanUsageDto } from "@cdip/shared";
 
 /**
  * The decisions around a scan, kept pure so they are tested without a queue
@@ -27,6 +27,28 @@ export function scanIsActive(
   if (scan.status !== "queued" && scan.status !== "running") return false;
   const since = (scan.heartbeatAt ?? scan.startedAt ?? scan.createdAt).getTime();
   return now.getTime() - since < STALE_SCAN_MS;
+}
+
+/**
+ * Where a not-yet-started scan stands in the worker's queue, from what
+ * BullMQ reports. `state` is the job's BullMQ state (null when the job is not
+ * in the queue at all); `waiting` is every waiting job's enqueue time and
+ * `running` the number of active ones. A scan is "ahead" when it was queued
+ * earlier — BullMQ is first in, first out.
+ */
+export function queuePlace(
+  state: string | null,
+  enqueuedAt: number | null,
+  waiting: number[],
+  running: number,
+): RfiScanQueueDto {
+  if (!state || state === "unknown") return { state: "missing", running, ahead: 0 };
+  if (state === "active") return { state: "active", running, ahead: 0 };
+  if (state === "waiting" || state === "prioritized" || state === "delayed") {
+    const ahead = enqueuedAt === null ? 0 : waiting.filter((t) => t < enqueuedAt).length;
+    return { state: "waiting", running, ahead };
+  }
+  return { state: "other", running, ahead: 0 };
 }
 
 const RANK: Record<RfiConfidence, number> = { high: 0, medium: 1, low: 2 };
