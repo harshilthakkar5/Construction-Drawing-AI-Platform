@@ -147,6 +147,9 @@ export interface ProjectDto {
   /** Disciplines the project is read for; steers summary emphasis only. */
   roles: string[];
   createdAt: string;
+  /** "Find RFIs in drawings" starts the AI comparison by itself when it may
+   * cost up to this many dollars; null = always ask. Owner-set. */
+  rfiAutoScanUsd?: number | null;
 }
 
 export interface DocumentDto {
@@ -953,6 +956,18 @@ export interface RfiCandidateDto {
   /** Suggested by the targeted review; the accepted RFI still starts at the
    * RFI's own default unless a person changes it. */
   priority: RfiPriority | null;
+  /** The OTHER reader agreed (docs/rfi-full-scan.md "Code and AI agree"):
+   * `by: "ai"` on a code finding the AI comparison found again on its own,
+   * `by: "code"` on an AI finding where the code had measured a wall drawn in
+   * two places. Either makes the finding high. Null on a full-scan finding
+   * means the AI alone saw it, which is never above medium. */
+  corroboration: RfiCorroborationDto | null;
+}
+
+export interface RfiCorroborationDto {
+  by: "ai" | "code";
+  note: string;
+  fullScanId?: string;
 }
 
 export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review" | "full_scan";
@@ -1699,12 +1714,24 @@ export interface RfiFullScanDto {
   /** What a finished run concluded; null before it finishes (and on runs
    * finished before this existed). */
   summary: RfiFullScanSummaryDto | null;
+  /** One-click start under the project's spend limit (projects.rfiAutoScanUsd);
+   * null when the plan was not made with one. `decision` null = not decided
+   * yet (the plan is still being prepared). */
+  autoStart: RfiFullScanAutoStartDto | null;
   notes: string[];
   error: string | null;
   createdAt: string;
   plannedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+export interface RfiFullScanAutoStartDto {
+  limitUsd: number;
+  decision: "started" | "over_limit" | "no_price" | "no_key" | "nothing" | null;
+  /** The high estimate at the full rate, which is what the limit is held to. */
+  priceUsd: number | null;
+  reason: string | null;
 }
 
 /** Written by the worker (`fullscan_run.scan_summary`). "0 findings" alone
@@ -1715,6 +1742,10 @@ export interface RfiFullScanSummaryDto {
   /** Kept on the close look but already on file — dismissed earlier, already
    * an RFI, or waiting from another run. Never restored or re-proposed. */
   foundAgain: { subject: string; where: string; fingerprint: string | null }[];
+  /** Kept close up, and the same problem the code checks had already
+   * reported: that finding was raised to high instead of a second one saved.
+   * Absent on a summary written before this existed. */
+  confirmsCode?: { subject: string; checkType: string | null; fingerprint: string | null; status: string | null }[];
   possibleProblems: number;
   rejected: number;
   /** The close look could not decide either way. */

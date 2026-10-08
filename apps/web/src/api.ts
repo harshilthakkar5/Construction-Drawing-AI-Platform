@@ -206,7 +206,7 @@ export const api = {
     request<ProjectDto>("/projects", { method: "POST", body: JSON.stringify(body) }),
   updateProject: (
     id: string,
-    body: { name?: string; description?: string | null; roles?: string[] },
+    body: { name?: string; description?: string | null; roles?: string[]; rfiAutoScanUsd?: number | null },
   ) =>
     request<ProjectDto>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),

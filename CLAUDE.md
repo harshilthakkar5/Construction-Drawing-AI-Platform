@@ -2322,6 +2322,19 @@ a naming dispute and never a spacing finding (RFI 002's G = F.7 read as "21'-1" 
 that could not LOOK (pairs not built, grids unread, pages awaiting OCR) never deletes its earlier
 findings as resolved, and an OCR reading from an older `OCR_VERSION` is not trusted.
 
+**Code and AI agree, and one click** (docs/rfi-full-scan.md Phases 4–5). `workers/src/agreement.py`:
+an AI finding that a code finding of the same KIND (`CODE_FAMILIES`: grid → G01, column → C01/C03)
+already reported on both sheets at the same place raises THAT finding to high with
+`rfi_candidates.corroboration = {by: "ai"}` instead of writing a duplicate; a WALL/edge claim landing where
+the code measured a wall drawn apart (`measuredAt` on the tile) is saved high `{by: "code"}` — a column
+claim beside it is not the same problem; AI-only is capped
+at medium and badged "check on the sheet". A box over a quarter of its window agrees with nothing.
+The code scan's upsert keeps a corroborated finding high. `projects.rfiAutoScanUsd` → the plan's
+`autoStart`; `apps/api/src/rfiAutoStart.ts` starts step 2 once the code scan has COMPLETED (the run
+reads its findings) when the high estimate at the FULL rate fits the limit — the ceiling is converted
+at the full rate, so a batch-price comparison could start a run that stops on its own ceiling.
+Triggered by the rfi-scan queue's `completed` event and by the screen's GETs; one conditional claim.
+
 Step 1 now also READS what the text layer does not hold (`workers/src/page_ocr.py`, task of
 `rfi_scan.ocr_pending` for documents processed before it existed, and of ingest after). CAD text
 exported as strokes (SHX) has no text layer: JETRIGHT's M0.02 has 164 words over 10,905 drawings
@@ -2814,12 +2827,12 @@ reference must be numbered like the set's sheets of its own prefix).
 ## PostgreSQL schema (Prisma)
 
 ```
-projects(id, name, description, roles[], createdAt)
+projects(id, name, description, roles[], createdAt, rfiAutoScanUsd)
 sheet_regions(id, projectId UNIQUE, relX/relY/relW/relH, version, scrapeStatus, counters)
 documents(id, projectId, filename, spacesKey, pages, revision, status)
 rfi_packages(id, projectId, createdById, items JSON, status, key, pages, notes, error)  // marked-up PDFs
 rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBatch, catalogue, pairs,
-     skipped, estimate (tokens), limits {maxTotalTokens, budgetUsd}, sourceRevisions, notes, findings, summary,
+     skipped, estimate (tokens), autoStart {limitUsd, decision}, limits {maxTotalTokens, budgetUsd}, sourceRevisions, notes, findings, summary,
      idempotencyKey, heartbeatAt, ...)   // + rfi_full_scan_tiles(scanId, pairIndex, tileIndex,
      windows, status, issues[+verdict], outcome, outcomeNote, dropped); pages.sheetKind/level/scales/gridSummary/factsVersion
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
@@ -2851,7 +2864,7 @@ rfis.source (manual|generated), rfis.checkType   // who proposed the QUESTION
 rfi_scans(id, projectId, status, findings, modelWorded, byCheck, notes, usage, fresh, error, ...)
      // usage: JSON cost of THIS scan's wording (tokens, asked vs sent thinking)
 rfi_candidates(id, projectId, scanId, fingerprint, checkType, confidence, subject,
-     question, questionSource, evidence JSON, status, rfiId,
+     question, questionSource, evidence JSON, status, rfiId, corroboration JSON,
      origin (deterministic_scan|targeted_review), reviewRunId, reasoning, priority)
      // UNIQUE(projectId, fingerprint): a finding, NOT an RFI — no number until a
      // person accepts it, so a dismissed finding never burns one

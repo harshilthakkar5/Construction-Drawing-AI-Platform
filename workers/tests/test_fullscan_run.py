@@ -365,6 +365,11 @@ def test_a_run_looks_at_every_tile_and_saves_a_confirmed_finding(database, monke
     assert summary["areas"] == {"issues": 1, "unstated": 2} and summary["pagesCompared"] == 2
     (subject, question, evidence, origin, source), = _candidates(database, seed["scan"])
     assert origin == "full_scan" and source == "model" and "S2.105" in question
+    # The model said "high"; nothing measured it, so it is saved as medium.
+    with database.connect() as conn:
+        confidence, corroboration = conn.execute(
+            'SELECT confidence::text, corroboration FROM rfi_candidates WHERE "fullScanId" = %s', (seed["scan"],)).fetchone()
+    assert (confidence, corroboration) == ("medium", None)
     assert [e["sheetNumber"] for e in evidence] == ["S2.105", "A3.01"]
     # The stored box is in the page's UNROTATED space and lands inside the
     # tile's display window once rotated back.
@@ -379,6 +384,84 @@ def test_a_run_looks_at_every_tile_and_saves_a_confirmed_finding(database, monke
         stages = dict(conn.execute('SELECT stage, count(*) FROM usage_events WHERE "reviewRunId" = %s GROUP BY stage',
                                    (seed["scan"],)).fetchall())
     assert stages == {"discovery": 3, "verification": 1}
+
+
+def _unrotated(document_page: int, rect: list[float]) -> dict:
+    page = fitz.open(CLIENT_PDF)[document_page - 1]
+    r = fitz.Rect(rect) * page.derotation_matrix
+    r.normalize()
+    return {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}
+
+
+@needs_db
+def test_the_ai_confirming_a_code_finding_raises_it_instead_of_adding_a_second(database, monkeypatch):
+    # Tile 1's window is x 600-1200, y 300-900; the stub's box is its middle
+    # fifth: [840, 540, 960, 660] in display space on both sheets.
+    seed = _seed(database)
+    code_id = str(uuid.uuid4())
+    evidence = [{"documentId": seed["document"], "pageNumber": n, "bbox": _unrotated(n, [880, 580, 920, 620]),
+                 "sheetNumber": s} for n, s in ((1, "S2.105"), (2, "A3.01"))]
+    with database.connect() as conn:
+        conn.execute(
+            'INSERT INTO rfi_candidates (id, "projectId", fingerprint, "checkType", confidence, subject, question, '
+            '"questionSource", evidence, status, "updatedAt") VALUES (%s, %s, %s, %s, \'medium\', %s, %s, '
+            '\'template\', %s::jsonb, \'pending\', now())',
+            (code_id, seed["project"], "column_mismatch:test", "column_mismatch", "Column C-6 missing on A3.01",
+             "S2.105 shows column C-6; A3.01 does not.", json.dumps(evidence)),
+        )
+    _install(monkeypatch, Stub(issue_on=(1,)))
+    fullscan.handle(seed["scan"], "run")
+    assert _candidates(database, seed["scan"]) == []  # not saved twice
+    with database.connect() as conn:
+        confidence, corroboration = conn.execute(
+            "SELECT confidence::text, corroboration FROM rfi_candidates WHERE id = %s", (code_id,)).fetchone()
+        summary, = conn.execute("SELECT summary FROM rfi_full_scans WHERE id = %s", (seed["scan"],)).fetchone()
+    assert confidence == "high" and corroboration["by"] == "ai" and corroboration["fullScanId"] == seed["scan"]
+    assert "found the same problem on its own" in corroboration["note"]
+    assert [c["fingerprint"] for c in summary["confirmsCode"]] == ["column_mismatch:test"]
+    assert summary["newFindings"] == 0 and summary["foundAgain"] == []
+
+
+@needs_db
+def test_the_ai_landing_on_a_wall_the_code_measured_is_saved_high(database, monkeypatch):
+    seed = _seed(database)
+    with database.connect() as conn:
+        conn.execute(
+            """UPDATE rfi_full_scan_tiles SET windows = windows || %s::jsonb
+                WHERE "scanId" = %s AND "tileIndex" = 1""",
+            (json.dumps({"measured": ["a wall line is drawn 0'-6\" apart"],
+                         "measuredAt": [{"rect": [850, 600, 950, 604.5], "note": "a wall line is drawn 0'-6\" apart",
+                                         "ptPerFt": 9.0}]}), seed["scan"]),
+        )
+    stub = Stub(issue_on=(1,))
+    stub._issues = lambda labels: ([_issue(element="partition wall", whatA="wall on grid 3", whatB="wall 6 in east",
+                                           boxA=[0.4, 0.4, 0.6, 0.6], boxB=[0.4, 0.4, 0.6, 0.6])]
+                                   if labels[0].endswith("window 2") else [])
+    _install(monkeypatch, stub)
+    fullscan.handle(seed["scan"], "run")
+    with database.connect() as conn:
+        confidence, corroboration = conn.execute(
+            'SELECT confidence::text, corroboration FROM rfi_candidates WHERE "fullScanId" = %s', (seed["scan"],)).fetchone()
+    assert confidence == "high" and corroboration == {"by": "code", "note": "The code measured the same place: a wall line is drawn 0'-6\" apart."}
+
+
+@needs_db
+def test_a_column_claim_beside_a_wall_the_code_measured_stays_ai_only(database, monkeypatch):
+    # Near each other is not the same problem: the code measured a WALL.
+    seed = _seed(database)
+    with database.connect() as conn:
+        conn.execute(
+            """UPDATE rfi_full_scan_tiles SET windows = windows || %s::jsonb
+                WHERE "scanId" = %s AND "tileIndex" = 1""",
+            (json.dumps({"measuredAt": [{"rect": [850, 600, 950, 604.5], "note": "a wall line", "ptPerFt": 9.0}]}),
+             seed["scan"]),
+        )
+    _install(monkeypatch, Stub(issue_on=(1,)))
+    fullscan.handle(seed["scan"], "run")
+    with database.connect() as conn:
+        confidence, corroboration = conn.execute(
+            'SELECT confidence::text, corroboration FROM rfi_candidates WHERE "fullScanId" = %s', (seed["scan"],)).fetchone()
+    assert (confidence, corroboration) == ("medium", None)
 
 
 @needs_db

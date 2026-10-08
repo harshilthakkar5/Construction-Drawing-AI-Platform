@@ -25,8 +25,11 @@ const updateProjectSchema = z
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
     roles: rolesSchema.optional(),
+    // Spending money is the owner's call, like every other change here; null
+    // turns one-click off. Capped well under the full-scan budget ceiling.
+    rfiAutoScanUsd: z.number().positive().max(1000).nullable().optional(),
   })
-  .refine((b) => b.name !== undefined || b.description !== undefined || b.roles !== undefined, {
+  .refine((b) => b.name !== undefined || b.description !== undefined || b.roles !== undefined || b.rfiAutoScanUsd !== undefined, {
     message: "nothing to update",
   });
 

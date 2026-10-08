@@ -624,6 +624,36 @@ def test_a_rescan_is_idempotent_and_respects_decisions(database):
 
 
 @needs_db
+def test_a_rescan_keeps_a_finding_the_ai_confirmed_high(database, monkeypatch):
+    import rfi_checks
+
+    # agreement.py raised it when the AI comparison found the same problem;
+    # the next code scan re-derives the check's own confidence (medium, here)
+    # and must not quietly lower it again — but does lower one nobody confirmed.
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        confirmed, other = [r[0] for r in conn.execute(
+            'SELECT id FROM rfi_candidates WHERE "projectId" = %s ORDER BY id LIMIT 2', (project,)).fetchall()]
+        conn.execute("UPDATE rfi_candidates SET confidence = 'high', corroboration = %s::jsonb WHERE id = %s",
+                     (json.dumps({"by": "ai", "note": "same problem"}), confirmed))
+    real = rfi_checks.run_all
+
+    def medium(*args, **kw):
+        findings, notes = real(*args, **kw)
+        for f in findings:
+            f.confidence = "medium"
+        return findings, notes
+
+    monkeypatch.setattr(rfi_checks, "run_all", medium)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        got = dict(conn.execute("SELECT id, confidence::text FROM rfi_candidates WHERE id = ANY(%s)",
+                                ([confirmed, other],)).fetchall())
+    assert got == {confirmed: "high", other: "medium"}
+
+
+@needs_db
 def test_a_rescan_words_only_what_is_new(database, monkeypatch):
     # Wording costs a model call per batch. A finding already accepted,
     # dismissed or pending keeps its question, so an unchanged set re-scans

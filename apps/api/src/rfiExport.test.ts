@@ -417,6 +417,7 @@ function candidate(over: Partial<RfiCandidateDto> = {}): RfiCandidateDto {
     fullScanId: null,
     reasoning: null,
     priority: null,
+    corroboration: null,
     ...over,
   };
 }

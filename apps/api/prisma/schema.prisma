@@ -249,6 +249,12 @@ model Project {
   /// leaves a visible gap rather than letting the next one take its place.
   rfiCounter Int @default(0)
 
+  /// "Find RFIs in drawings" starts step 2 (the AI comparison) by itself when
+  /// its plan may cost up to this many dollars; null = always show the price
+  /// and wait for Start. Read when the scan is pressed and stored on the plan
+  /// (rfi_full_scans.autoStart), so changing it never moves a scan in flight.
+  rfiAutoScanUsd Float?
+
   owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   members       ProjectMember[]
   documents     Document[]
@@ -760,6 +766,10 @@ model RfiCandidate {
   /// shows, and the priority it suggests.
   reasoning      String?
   priority       String?
+  /// The other reader agreed: {by: "ai"|"code", note, fullScanId?} — the AI
+  /// comparison found a code finding again, or the code had measured where
+  /// the AI found something (workers/src/agreement.py). Either makes it high.
+  corroboration  Json?
   fingerprint    String
   checkType      String
   confidence     RfiConfidence
@@ -885,6 +895,10 @@ model RfiFullScan {
   skipped         Json?
   /// Worker's token count; the API prices it.
   estimate        Json?
+  /// One-click start (rfiAutoStart.ts): {limitUsd} set by "Find RFIs in
+  /// drawings" from projects.rfiAutoScanUsd, then the decision once the plan
+  /// was priced — {decision: started|over_limit|no_price|no_key|nothing, ...}.
+  autoStart       Json?
   /// maxTotalTokens and the dollar budget it was set from.
   limits          Json?
   /// documentId -> page count at plan time; a run on a changed set is stale.

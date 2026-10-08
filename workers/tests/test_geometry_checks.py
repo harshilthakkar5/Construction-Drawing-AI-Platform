@@ -202,3 +202,6 @@ def test_triage_sends_a_blank_sheet_away_and_a_known_finding_back_to_the_ai():
     assert hint["known"] == ["TBD on A1.01"]
     assert hint["measured"] == ['a horizontal wall line about 38% from the left and 26% from the top '
                                 'is drawn 0\'-6" apart on the two sheets']
+    # ...and WHERE on sheet B, so an AI finding there can be matched to it.
+    [at] = hint["measuredAt"]
+    assert at["rect"] == pytest.approx([50.0, 200.0, 400.0, 204.5]) and at["note"] == hint["measured"][0]
