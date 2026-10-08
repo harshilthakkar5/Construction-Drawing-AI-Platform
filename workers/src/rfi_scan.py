@@ -1153,7 +1153,10 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
                         'pending', now(), now())
                 ON CONFLICT ("projectId", fingerprint) DO UPDATE
                    SET "scanId" = EXCLUDED."scanId",
-                       confidence = EXCLUDED.confidence,
+                       -- Confirmed by the AI comparison (agreement.py): the
+                       -- next code scan must not quietly lower it again.
+                       confidence = CASE WHEN rfi_candidates.corroboration IS NOT NULL
+                                         THEN 'high'::"RfiConfidence" ELSE EXCLUDED.confidence END,
                        evidence = EXCLUDED.evidence,
                        -- Wording is replaced only by a full rescan that
                        -- actually re-worded this finding: a failed call must

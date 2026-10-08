@@ -90,7 +90,13 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
   const list = useQuery({
     queryKey: ["rfi-full-scans", projectId],
     queryFn: () => api.listRfiFullScans(projectId),
-    refetchInterval: (q) => (q.state.data?.scans[0] && ACTIVE.has(q.state.data.scans[0].status) ? 2500 : false),
+    refetchInterval: (q) => {
+      const latest = q.state.data?.scans[0];
+      if (!latest) return false;
+      // A plan waiting on its one-click decision is about to start by itself.
+      const deciding = latest.status === "planned" && latest.autoStart && !latest.autoStart.decision;
+      return ACTIVE.has(latest.status) || deciding ? 2500 : false;
+    },
   });
   const scan = list.data?.scans[0] ?? null;
   const setScan = (next: RfiFullScanDto) =>
@@ -125,6 +131,7 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
         )}
       </div>
 
+      {scan && <AutoStartLine scan={scan} />}
       {scan && ACTIVE.has(scan.status) && <Running scan={scan} onCancel={() => cancel.mutate(scan.id)} cancelling={cancel.isPending} />}
       {scan?.status === "planned" && (
         <Planned projectId={projectId} scan={scan} models={list.data!.models} prices={list.data!.prices} onStarted={setScan} onCancel={() => cancel.mutate(scan.id)} />
@@ -154,6 +161,32 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
         </div>
       )}
     </div>
+  );
+}
+
+/** What the project's spend limit did with this plan (Phase 5). */
+function AutoStartLine({ scan }: { scan: RfiFullScanDto }) {
+  const auto = scan.autoStart;
+  if (!auto) return null;
+  const limit = money(auto.limitUsd);
+  if (!auto.decision) {
+    if (!["planning", "planned"].includes(scan.status)) return null;
+    return (
+      <p className="text-muted-foreground text-xs">
+        Starts by itself when the code checks finish, if it may cost up to {limit} (your spend limit).
+      </p>
+    );
+  }
+  if (auto.decision === "started") {
+    return <p className="text-muted-foreground text-xs">Started by itself: {auto.reason ?? `within your ${limit} limit`}.</p>;
+  }
+  if (auto.decision === "nothing") return <p className="text-muted-foreground text-xs">Not started: {auto.reason}.</p>;
+  if (scan.status !== "planned") return null;
+  return (
+    <p className="bg-warning/10 text-warning rounded-md px-3 py-2 text-xs leading-relaxed" role="status">
+      Waiting for you — not started by itself because {auto.reason ?? "it is over your limit"}. Check the price below and
+      press Start, or raise the spend limit above.
+    </p>
   );
 }
 
@@ -424,8 +457,22 @@ function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> 
     ([key, label]) => `${summary.areas[key]} ${label}`,
   );
   const gaps = (summary.areas.unclear ?? 0) + (summary.areas.misaligned ?? 0) + (summary.areas.unstated ?? 0);
+  const confirms = summary.confirmsCode ?? [];
   return (
     <div className="text-muted-foreground flex flex-col gap-1">
+      {confirms.length > 0 && (
+        <div>
+          <span className="text-foreground font-medium">
+            {confirms.length} confirmed a code finding
+          </span>{" "}
+          — the AI found the same problem as the code checks, so that finding is now high confidence:
+          <ul className="list-disc pl-5">
+            {confirms.map((f) => (
+              <li key={f.fingerprint ?? f.subject}>“{f.subject}”</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {summary.foundAgain.length > 0 && (
         <div>
           <span className="text-foreground font-medium">
@@ -443,7 +490,8 @@ function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> 
       )}
       <p>
         {summary.possibleProblems} possible problem{summary.possibleProblems === 1 ? "" : "s"} on the first look:{" "}
-        {summary.newFindings} saved, {summary.foundAgain.length} already on file, {summary.rejected} rejected
+        {summary.newFindings} saved{confirms.length ? `, ${confirms.length} confirmed a code finding` : ""},{" "}
+        {summary.foundAgain.length} already on file, {summary.rejected} rejected
         {summary.unclear > 0 ? `, ${summary.unclear} could not be decided close up` : ""}
         {summary.notChecked > 0 ? `, ${summary.notChecked} not yet checked` : ""}
         {summary.unplaceable > 0 ? `, ${summary.unplaceable} dropped (location unreadable)` : ""}.

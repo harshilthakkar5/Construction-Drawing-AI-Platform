@@ -413,13 +413,22 @@ def compare_lines(walls_a, walls_b, wa: list[float], wb: list[float], scale: flo
                 key=lambda t: abs(t.pos - pos), default=None,
             )
             if twin is not None:
-                near.append({"horizontal": horizontal, "posA": s.pos, "posB": twin.pos, "offset": twin.pos - pos,
-                             "lo": lo, "hi": hi})
+                near.append({"horizontal": horizontal, "posA": s.pos, "posOnB": pos, "posB": twin.pos,
+                             "offset": twin.pos - pos, "lo": lo, "hi": hi})
     # A twin whose own line has an exact partner is the other face of a wall,
     # not a wall that moved.
     exact_b = {(t.pos, t.lo, t.hi) for segs in (hb, vb) for t in segs if id(t) in matched_b_ids}
     near = [n for n in near if not any(abs(n["posB"] - p) < 1e-6 for p, _, _ in exact_b)]
     return len(ha) + len(va), len(hb) + len(vb), matched_a, len(matched_b_ids), near
+
+
+def near_miss_rect(n: dict) -> list[float]:
+    """The strip between a wall line and its twin, on sheet B (display space):
+    where the two drawings put one wall in two places."""
+    lo_pos, hi_pos = sorted((n.get("posOnB", n["posB"]), n["posB"]))
+    if n["horizontal"]:
+        return [n["lo"], lo_pos, n["hi"], hi_pos]
+    return [lo_pos, n["lo"], hi_pos, n["hi"]]
 
 
 def _where(n: dict, wb: list[float]) -> str:
@@ -498,13 +507,16 @@ def triage_tiles(pairs, open_page, cache: dict | None = None, findings=()) -> Tr
                 out.reasons[(i, j)] = why
                 continue
             known = _known_in(findings, pair, wa, wb, to_display)
-            measured = []
+            measured: list[str] = []
+            measured_at: list[dict] = []
             for n in view.near_misses:
                 line = (f"a {'horizontal' if n['horizontal'] else 'vertical'} wall line {_where(n, wb)} "
                         f"is drawn {_feet(n['offset'], ptft)} apart on the two sheets")
-                if line not in measured:
+                if line not in measured and len(measured) < MAX_HINTS:
                     measured.append(line)
-            measured = measured[:MAX_HINTS]
+                    # Where, on sheet B, so a problem the AI raises there can
+                    # be recognised as the same one (fullscan_run.settle).
+                    measured_at.append({"rect": near_miss_rect(n), "note": line, "ptPerFt": ptft})
             if known or measured:
-                out.hints[(i, j)] = {"known": known, "measured": measured}
+                out.hints[(i, j)] = {"known": known, "measured": measured, "measuredAt": measured_at}
     return out

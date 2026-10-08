@@ -26,6 +26,7 @@ import time
 
 import fitz
 
+import agreement
 import db
 import diagnostics
 import fullscan as fs
@@ -522,6 +523,7 @@ class Run:
         self.notes: list[str] = list(scan.get("notes") or [])
         self.stopped: str | None = None
         self.checked_access = time.monotonic()
+        self._code_findings: list[dict] | None = None
 
     # A call's estimated size, so the ceiling is never crossed by the calls
     # already in flight when it is checked.
@@ -538,6 +540,22 @@ class Run:
         if not self.limit:
             return 1 << 60
         return self.limit - self.spent() - in_flight
+
+    def code_findings(self) -> list[dict]:
+        """The code's drawing-comparison findings in this project (any status),
+        read once per run: what an AI finding may confirm (agreement.py)."""
+        if self._code_findings is None:
+            with db.connect() as conn:
+                rows = conn.execute(
+                    'SELECT id, fingerprint, "checkType", status::text, subject, evidence FROM rfi_candidates '
+                    'WHERE "projectId" = %s AND origin = %s AND "checkType" = ANY(%s)',
+                    (self.project_id, "deterministic_scan", list(agreement.CODE_FAMILIES)),
+                ).fetchall()
+            self._code_findings = [
+                {"id": r[0], "fingerprint": r[1], "checkType": r[2], "status": r[3], "subject": r[4], "evidence": r[5] or []}
+                for r in rows
+            ]
+        return self._code_findings
 
     def guard(self) -> None:
         """Between calls: stop for a cancel; every minute, for lost access."""
@@ -1349,23 +1367,39 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
             "imageKey": key,
         })
     reasoning = verdict["reason"] or f"{pair['a'].get('sheetNumber')}: {issue['whatA']} / {pair['b'].get('sheetNumber')}: {issue['whatB']}"
+    # Phase 4: the code and the AI read a drawing differently, so a problem
+    # both report at one place is worth more than either alone (agreement.py).
+    facts_b = run.facts.get(pair["b"].get("pageId"))
+    confirmed = agreement.code_finding_agreement(issue["checkId"], evidence, run.code_findings(),
+                                                 item["windows"], _pt_per_ft(facts_b))
+    if confirmed is not None:
+        _confirm_code_finding(run, pair, item, record, confirmed, verdict, links)
+        return
+    measured = agreement.measured_agreement(issue, box_rect(wb, issue["boxB"]), wb["rect"], item["windows"].get("measuredAt"))
+    if measured:
+        confidence, corroboration = "high", {"by": "code", "note": measured}
+    else:
+        confidence, corroboration = agreement.cap_ai_only(verdict["confidence"]), None
+    record["confidence"] = confidence
     with db.connect() as conn:
         cur = conn.execute(
             """
             INSERT INTO rfi_candidates
                 (id, "projectId", "fullScanId", origin, fingerprint, "checkType", confidence, subject, question,
-                 "questionSource", evidence, reasoning, priority, status, "createdAt", "updatedAt")
+                 "questionSource", evidence, reasoning, priority, corroboration, status, "createdAt", "updatedAt")
             VALUES (gen_random_uuid()::text, %s, %s, 'full_scan', %s, %s, %s::"RfiConfidence", %s, %s,
-                    'model', %s::jsonb, %s, %s, 'pending', now(), now())
+                    'model', %s::jsonb, %s, %s, %s::jsonb, 'pending', now(), now())
             ON CONFLICT ("projectId", fingerprint) DO UPDATE
                SET "fullScanId" = EXCLUDED."fullScanId", confidence = EXCLUDED.confidence,
                    subject = EXCLUDED.subject, question = EXCLUDED.question, evidence = EXCLUDED.evidence,
-                   reasoning = EXCLUDED.reasoning, priority = EXCLUDED.priority, "updatedAt" = now()
+                   reasoning = EXCLUDED.reasoning, priority = EXCLUDED.priority,
+                   corroboration = EXCLUDED.corroboration, "updatedAt" = now()
              -- A person's decision stands, and another tool's finding keeps its wording.
              WHERE rfi_candidates.status = 'pending' AND rfi_candidates.origin = 'full_scan'
             """,
-            (run.project_id, run.id, fp, issue["checkId"], verdict["confidence"], verdict["subject"],
-             verdict["question"], json.dumps(evidence), reasoning[:600], verdict["priority"]),
+            (run.project_id, run.id, fp, issue["checkId"], confidence, verdict["subject"],
+             verdict["question"], json.dumps(evidence), reasoning[:600], verdict["priority"],
+             json.dumps(corroboration) if corroboration else None),
         )
         if cur.rowcount == 0:
             record["foundAgain"] = _where_found(conn, run.project_id, fp)
@@ -1382,6 +1416,31 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
         **links,
     )
     _remember_links(fp, links)
+
+
+def _confirm_code_finding(run: Run, pair: dict, item: dict, record: dict, finding: dict, verdict: dict,
+                          links: dict) -> None:
+    """The AI found, on its own, a problem the code already reported: that
+    finding becomes HIGH and says so, and no second candidate is written for
+    one problem. A finding a person already decided keeps their decision."""
+    sheets_named = f"{pair['a'].get('sheetNumber') or 'sheet A'} and {pair['b'].get('sheetNumber') or 'sheet B'}"
+    corroboration = {"by": "ai", "fullScanId": run.id,
+                     "note": f"The AI comparison of {sheets_named} found the same problem on its own: {verdict['subject']}"}
+    with db.connect() as conn:
+        conn.execute(
+            """
+            UPDATE rfi_candidates
+               SET confidence = 'high'::"RfiConfidence", corroboration = %s::jsonb, "updatedAt" = now()
+             WHERE id = %s AND status = 'pending'
+            """,
+            (json.dumps(corroboration), finding["id"]),
+        )
+    record["confirms"] = {"candidateId": finding["id"], "fingerprint": finding["fingerprint"],
+                          "checkType": finding["checkType"], "subject": finding["subject"], "status": finding["status"]}
+    record["fingerprint"] = finding["fingerprint"]
+    _record_verdict(item["tileId"], item["n"], record)
+    diagnostics.event("finding_confirms_code", tileId=item["tileId"], issueIndex=item["n"], issue=item["issue"],
+                      verdict=verdict, confirms=record["confirms"], **links)
 
 
 # --- Diagnostics (no-ops unless RFI_DIAGNOSTICS=on) ------------------------------------------
@@ -1590,9 +1649,15 @@ def scan_summary(tiles: list[tuple], saved: int, pages_compared: int, pages_read
         {"subject": v.get("subject") or "", "where": v["foundAgain"], "fingerprint": v.get("fingerprint")}
         for v in verdicts if "foundAgain" in v
     ]
+    confirms = [
+        {"subject": v["confirms"].get("subject") or "", "checkType": v["confirms"].get("checkType"),
+         "fingerprint": v["confirms"].get("fingerprint"), "status": v["confirms"].get("status")}
+        for v in verdicts if "confirms" in v
+    ]
     return {
         "newFindings": int(saved),
         "foundAgain": found_again,
+        "confirmsCode": confirms,
         "possibleProblems": len(issues),
         "rejected": sum(1 for v in verdicts if v.get("decision") == "reject"),
         "unclear": sum(1 for v in verdicts if v.get("decision") == "unclear"),
@@ -1615,8 +1680,10 @@ def finish(run: Run) -> dict:
             'SELECT count(*) FROM rfi_candidates WHERE "fullScanId" = %s AND origin = %s', (run.id, "full_scan")
         ).fetchone()[0]
     issues = [i for (status, _, items, _) in rows if status == "done" for i in (items or [])]
-    kept = [i for i in issues if (i.get("verdict") or {}).get("decision") == "keep" and "foundAgain" not in i["verdict"]]
+    kept = [i for i in issues if (i.get("verdict") or {}).get("decision") == "keep"
+            and "foundAgain" not in i["verdict"] and "confirms" not in i["verdict"]]
     again = [i for i in issues if "foundAgain" in (i.get("verdict") or {})]
+    confirms = [i for i in issues if "confirms" in (i.get("verdict") or {})]
     rejected = [i for i in issues if (i.get("verdict") or {}).get("decision") == "reject"]
     waiting = [i for i in issues if "verdict" not in i]
     pages_compared = len({p[side].get("pageId") for p in run.pairs.values() for side in ("a", "b")})
@@ -1628,7 +1695,8 @@ def finish(run: Run) -> dict:
         f"{counts.get('pending', 0)} not reached"
         + (f", {counts['skipped']} settled by the code without the AI" if counts.get("skipped") else "")
         + f"; {len(issues)} possible problem(s) on the first look, "
-        f"{len(kept)} confirmed close up and saved, {len(again)} already on file, {len(rejected)} rejected, "
+        f"{len(kept)} confirmed close up and saved, {len(confirms)} matching a code finding (now high), "
+        f"{len(again)} already on file, {len(rejected)} rejected, "
         f"{summary['unclear']} could not be decided close up, {len(waiting)} not yet checked."
     )
     if a.get("unclear") or a.get("misaligned") or a.get("unstated"):

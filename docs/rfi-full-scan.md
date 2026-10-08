@@ -407,6 +407,50 @@ delete its earlier findings as "resolved": the pair checks when the pairs cannot
 check when its PDFs cannot be read, and the illegible-schedule check while pages wait for OCR under
 the current rules (an older OCR reading is no longer trusted at all).
 
+## Code and AI agree (Phase 4)
+
+The scan has two readers that fail differently: the code cannot read a drawing, and the AI cannot
+measure one. So a problem BOTH report at one place is worth more than either alone, and the
+confidence a person sees now says which it was (`workers/src/agreement.py`, applied in
+`fullscan_run.settle`):
+
+| What happened | Saved as |
+|---|---|
+| The AI kept a problem that a code finding of the same KIND already reported on both sheets, at the same place (boxes within 1 ft of drawing) | the CODE finding is raised to **high** with `corroboration = {by: "ai", note, fullScanId}`; no second candidate is written. A finding a person already decided keeps their decision. |
+| The AI kept a problem about a WALL or edge (C02/FL01, or the claim names a wall, partition, edge, face, curb or parapet) where the code had MEASURED a wall line drawn 3 in–2 ft apart (the tile's `measuredAt`, a rect on sheet B). A column claim beside a moved wall is NOT agreement — the first JETRIGHT run matched exactly that | the AI finding is **high** with `corroboration = {by: "code", note}` naming what was measured |
+| The AI alone | never above **medium**, and the review card says "AI only — check on the sheet" |
+
+"Same kind" is a table, not a judgement: `grid_spacing` and `grid_mismatch` answer G01, and
+`column_mismatch` answers C01/C03. A text check (TBD, missing sheet) never confirms a drawing claim.
+A box covering a quarter of its window or more agrees with nothing — it would otherwise agree with
+everything. The next code scan keeps a confirmed finding high (`rfi_scan` upsert), so the
+confirmation is not lost on a rescan. The run summary counts `confirmsCode` separately from new
+findings and findings already on file.
+
+What it does NOT know: whether agreement actually predicts a real RFI. It is built on the two readers
+being independent, which is an argument, not a measurement; the stub-model tests prove the matching
+and nothing about accuracy.
+
+## One click under a spend limit (Phase 5)
+
+`projects.rfiAutoScanUsd` (set by the owner in the RFIs tab: "Start the AI comparison by itself when it
+costs up to $…"). Pressing "Find RFIs in drawings" copies it onto the step-2 plan
+(`rfi_full_scans.autoStart = {limitUsd}`), so changing it never moves a scan in flight. When the
+code-check scan has FINISHED — the run reads its saved findings to recognise agreement, and the plan
+is written before they are — `apps/api/src/rfiAutoStart.ts` decides once (`autoStartDecision`):
+
+- the plan's HIGH estimate at the FULL rate is within the limit → started exactly as the Start
+  button would (default model, batch mode at half price, the limit as its budget). Compared at the
+  full rate because the run's token ceiling is converted at the full rate: a plan passed against its
+  batch price could stop part-way on its own ceiling. The bill is usually well under the limit.
+- over the limit, no price for the model, no key, or nothing left to compare → the plan waits and
+  the screen says why.
+
+The decision is written on the plan, so it is taken once. It is triggered from the rfi-scan queue's
+`completed` event (works with no browser open) and, as a fallback, from the two GET routes the
+screen polls; the start is the same conditional `planned → queued` claim the Start route makes, so
+any number of callers start one run (DB test: three at once, one job).
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with

@@ -5,6 +5,7 @@ import type {
   RfiConfidence,
   RfiDto,
   RfiEventDto,
+  RfiCorroborationDto,
   RfiEvidenceDto,
   RfiLocationDto,
   RfiPriority,
@@ -100,7 +101,16 @@ export function toCandidateDto(row: CandidateRow): RfiCandidateDto {
     reasoning: row.reasoning ?? null,
     // Written by the worker as text; only a known value reaches the UI.
     priority: RFI_PRIORITIES.includes(row.priority as RfiPriority) ? (row.priority as RfiPriority) : null,
+    corroboration: corroborationOf(row.corroboration),
   };
+}
+
+/** The worker's JSON, admitted only in the shape the UI reads. */
+export function corroborationOf(value: unknown): RfiCorroborationDto | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if ((v.by !== "ai" && v.by !== "code") || typeof v.note !== "string") return null;
+  return { by: v.by, note: v.note, ...(typeof v.fullScanId === "string" ? { fullScanId: v.fullScanId } : {}) };
 }
 
 /** A pin as a caller asks for it. */

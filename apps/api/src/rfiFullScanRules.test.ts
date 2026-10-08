@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  autoStartDecision,
+  autoStartOf,
   BATCH_STAGE,
   canPlanAgain,
   STALE_FULL_SCAN_MS,
@@ -202,5 +204,44 @@ describe("canPlanAgain", () => {
     expect(canPlanAgain(scan({ status: "running", startedAt: NOW }), NOW)).toBe(false);
     const dead = new Date(NOW.getTime() - STALE_FULL_SCAN_MS - 1);
     expect(canPlanAgain(scan({ status: "planning", heartbeatAt: dead }), NOW)).toBe(true);
+  });
+});
+
+describe("one-click start under the project's spend limit", () => {
+  const model = "claude-sonnet-5";
+  const fullHigh = priceEstimate(ESTIMATE, model, false)!.costUsd!.high;
+  const batchHigh = priceEstimate(ESTIMATE, model, true)!.costUsd!.high;
+  const base = { estimate: ESTIMATE, model, tilesTotal: 12, keyPresent: true };
+
+  it("starts when the high estimate at the FULL rate is within the limit", () => {
+    const d = autoStartDecision({ ...base, limitUsd: fullHigh + 0.01 });
+    expect(d.decision).toBe("started");
+    expect(d.priceUsd).toBeCloseTo(fullHigh, 4);
+    expect(d.reason).toMatch(/within your \$/);
+  });
+
+  it("waits when only the batch price fits — the ceiling is converted at the full rate", () => {
+    // Started here, the run's token ceiling (budgetToTokens, full rate) could
+    // stop it part-way: a one-click run must be able to finish.
+    const between = (batchHigh + fullHigh) / 2;
+    expect(batchHigh).toBeLessThan(between);
+    const d = autoStartDecision({ ...base, limitUsd: between });
+    expect(d.decision).toBe("over_limit");
+    expect(d.reason).toMatch(/more than your \$/);
+  });
+
+  it("never starts without a price, a key, or anything left to compare", () => {
+    expect(autoStartDecision({ ...base, limitUsd: 1000, model: "someone-elses-model" }).decision).toBe("no_price");
+    expect(autoStartDecision({ ...base, limitUsd: 1000, keyPresent: false }).decision).toBe("no_key");
+    expect(autoStartDecision({ ...base, limitUsd: 1000, tilesTotal: 0 }).decision).toBe("nothing");
+    expect(autoStartDecision({ ...base, limitUsd: 1000, estimate: null }).decision).toBe("no_price");
+  });
+
+  it("reads back only a stored state with a positive limit", () => {
+    expect(autoStartOf(null)).toBeNull();
+    expect(autoStartOf({ limitUsd: 0 })).toBeNull();
+    expect(autoStartOf({ limitUsd: 2 })).toEqual({ limitUsd: 2, decision: null, priceUsd: null, reason: null });
+    expect(autoStartOf({ limitUsd: 2, decision: "started", priceUsd: 1.5, reason: "r" })!.decision).toBe("started");
+    expect(autoStartOf({ limitUsd: 2, decision: "whatever" })!.decision).toBeNull();
   });
 });

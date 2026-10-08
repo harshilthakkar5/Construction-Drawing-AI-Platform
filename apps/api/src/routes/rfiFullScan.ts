@@ -10,6 +10,7 @@ import {
   budgetToTokens,
   canResume,
   fullScanAvailability,
+  MAX_TOKENS_CEILING,
   pricesByModel,
   scanIsActive,
   shownStatus,
@@ -18,6 +19,7 @@ import {
   type ScanRow,
   type WorkerEstimate,
 } from "../rfiFullScanRules.js";
+import { maybeAutoStart } from "../rfiAutoStart.js";
 import { reviewModelOptions } from "../rfiReviewPlanner.js";
 
 /**
@@ -37,7 +39,6 @@ export const rfiFullScanRouter = Router({ mergeParams: true });
 const projectParam = z.object({ projectId: z.string().uuid() });
 const scanParams = projectParam.extend({ scanId: z.string().uuid() });
 
-const MAX_TOKENS_CEILING = 200_000_000;
 const startBody = z.object({
   provider: z.enum(["claude", "gemini"]).optional(),
   model: z.string().trim().min(1).max(80).optional(),
@@ -106,7 +107,12 @@ async function one(projectId: string, scanId: string): Promise<RfiFullScanDto> {
  * which the screen must say, because its accuracy is not yet measured. */
 rfiFullScanRouter.get("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
-  const scans = await prisma.rfiFullScan.findMany({ where: { projectId }, orderBy: { createdAt: "desc" }, take: 10 });
+  let scans = await prisma.rfiFullScan.findMany({ where: { projectId }, orderBy: { createdAt: "desc" }, take: 10 });
+  // One-click step 2, in case the code-check job's "completed" event was missed.
+  if (scans[0]?.status === "planned" && scans[0].autoStart) {
+    await maybeAutoStart(scans[0].id).catch((err) => console.warn(`[rfi-full-scan] one-click start failed: ${(err as Error).message}`));
+    scans = await prisma.rfiFullScan.findMany({ where: { projectId }, orderBy: { createdAt: "desc" }, take: 10 });
+  }
   const models = reviewModelOptions();
   const latest = scans[0];
   res.json({

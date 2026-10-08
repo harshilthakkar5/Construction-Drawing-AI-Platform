@@ -1,4 +1,5 @@
 import type {
+  RfiFullScanAutoStartDto,
   RfiFullScanAvailability,
   RfiFullScanCatalogueDto,
   RfiFullScanSummaryDto,
@@ -84,6 +85,62 @@ export function budgetToTokens(budgetUsd: number, model: string, estimate: Worke
   return perToken > 0 ? Math.floor(budgetUsd / perToken) : null;
 }
 
+/** The highest token ceiling a run may be given, however it was set. */
+export const MAX_TOKENS_CEILING = 200_000_000;
+
+/**
+ * One-click step 2 (Phase 5): may this plan start by itself under the
+ * project's spend limit? Pure; rfiAutoStart.ts does the I/O.
+ *
+ * The limit is compared with the HIGH end of the estimate at the FULL rate,
+ * even though the run uses the half-price batch API: the ceiling the worker
+ * enforces is converted at the full rate too (budgetToTokens), so a plan
+ * passed against its batch price could still stop part-way on its own
+ * ceiling. Compared this way, a plan that starts can finish, and the bill is
+ * usually well under the limit.
+ */
+export function autoStartDecision(input: {
+  limitUsd: number;
+  estimate: WorkerEstimate | null;
+  model: string;
+  tilesTotal: number;
+  keyPresent: boolean;
+}): { decision: RfiFullScanAutoStartDto["decision"] & string; priceUsd: number | null; reason: string } {
+  const price = priceEstimate(input.estimate, input.model, false)?.costUsd?.high ?? null;
+  const limit = `your ${usd(input.limitUsd)} limit`;
+  if (input.tilesTotal <= 0) {
+    return { decision: "nothing", priceUsd: 0, reason: "the code settled every area, so there is nothing for the AI to compare" };
+  }
+  if (!input.keyPresent) {
+    return { decision: "no_key", priceUsd: price, reason: "no API key is configured for the AI model, so it cannot start" };
+  }
+  if (price === null) {
+    return { decision: "no_price", priceUsd: null, reason: `${input.model} has no known price, so it cannot be checked against ${limit}` };
+  }
+  if (price > input.limitUsd) {
+    return { decision: "over_limit", priceUsd: price, reason: `it may cost up to ${usd(price)}, more than ${limit}` };
+  }
+  return { decision: "started", priceUsd: price, reason: `it may cost up to ${usd(price)}, within ${limit}` };
+}
+
+/** The stored one-click state, admitted only in the shape the screen reads. */
+export function autoStartOf(value: unknown): RfiFullScanAutoStartDto | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.limitUsd !== "number" || !(v.limitUsd > 0)) return null;
+  const decisions = ["started", "over_limit", "no_price", "no_key", "nothing"];
+  return {
+    limitUsd: v.limitUsd,
+    decision: typeof v.decision === "string" && decisions.includes(v.decision) ? (v.decision as RfiFullScanAutoStartDto["decision"]) : null,
+    priceUsd: typeof v.priceUsd === "number" ? v.priceUsd : null,
+    reason: typeof v.reason === "string" ? v.reason : null,
+  };
+}
+
+function usd(n: number): string {
+  return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
+}
+
 export interface SpentRow {
   model: string;
   stage: string | null;
@@ -123,6 +180,7 @@ export interface ScanRow {
   pairs: unknown;
   skipped: unknown;
   estimate: unknown;
+  autoStart?: unknown;
   limits: unknown;
   notes: unknown;
   findings: number;
@@ -231,6 +289,7 @@ export function toFullScanDto(
     // Before Start no model is chosen yet: priced on the default one.
     estimate: priceEstimate((scan.estimate ?? null) as WorkerEstimate | null, scan.model ?? defaultModel, scan.useBatch),
     limits: limits && typeof limits.maxTotalTokens === "number" ? limits : null,
+    autoStart: autoStartOf(scan.autoStart),
     tiles,
     spent,
     findings: scan.findings,

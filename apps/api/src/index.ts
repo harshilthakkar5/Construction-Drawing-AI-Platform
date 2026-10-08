@@ -10,6 +10,7 @@ import {
   summarizePortionQueue,
   summarizeProjectQueue,
 } from "./queues.js";
+import { listenForFinishedScans } from "./rfiAutoStart.js";
 import { observeQueues, startTelemetry } from "./telemetry.js";
 
 /**
@@ -71,6 +72,8 @@ if (workers === 1) {
     rfiScanQueue,
   ]);
   reportStaleModels();
+  // One listener per machine: here, or in the cluster primary below.
+  listenForFinishedScans();
   await serve(null);
 } else if (cluster.isPrimary) {
   reportStaleModels();
@@ -88,6 +91,7 @@ if (workers === 1) {
   console.log(
     `API primary: forking ${workers} workers; queue metrics on :${metricsPort}/metrics`,
   );
+  listenForFinishedScans();
   for (let i = 0; i < workers; i++) cluster.fork();
 
   cluster.on("exit", (worker, code, signal) => {

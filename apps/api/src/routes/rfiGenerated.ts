@@ -16,6 +16,7 @@ import { meetsConfidence, queuePlace, scanIsActive, toScanDto } from "../rfiScan
 import { canPlanAgain, fullScanAvailability } from "../rfiFullScanRules.js";
 import type { RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
+import { maybeAutoStartForScan } from "../rfiAutoStart.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
 
 /**
@@ -68,6 +69,8 @@ rfiGeneratedRouter.get("/scan", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   if (!latest) return void res.json(null);
+  // One-click step 2, in case the job's "completed" event was missed.
+  await maybeAutoStartForScan(latest);
   const dto = toScanDto(latest, estimateCostUsd);
   if (latest.status === "queued") dto.queue = await scanQueuePlace(latest.jobId);
   res.json(dto);
@@ -178,7 +181,8 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   // the worker lines the sheet pairs up once, compares them in code, and
   // writes the plan with every area the code could settle set aside. Still
   // no AI call — the person starts step 2, priced.
-  const fullScanId = await prepareStepTwo(projectId, actor.id);
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { rfiAutoScanUsd: true } });
+  const fullScanId = await prepareStepTwo(projectId, actor.id, project.rfiAutoScanUsd);
   const scan = await prisma.rfiScan.create({
     data: { projectId, requestedById: actor.id, fresh, fullScanId },
   });
@@ -196,7 +200,7 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
 /** A step-2 plan row for the scan to fill, or null when the AI comparison is
  * off or one is already being planned or run. An unstarted older plan is
  * cancelled: the new one is built from the current drawings and findings. */
-async function prepareStepTwo(projectId: string, userId: string): Promise<string | null> {
+async function prepareStepTwo(projectId: string, userId: string, autoLimitUsd: number | null): Promise<string | null> {
   if (fullScanAvailability() === "off") return null;
   const now = new Date();
   const latest = await prisma.rfiFullScan.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
@@ -205,7 +209,15 @@ async function prepareStepTwo(projectId: string, userId: string): Promise<string
     await prisma.rfiFullScan.updateMany({ where: { id: latest.id, status: "planned" }, data: { status: "cancelled" } });
   }
   const plan = await prisma.rfiFullScan.create({
-    data: { projectId, createdById: userId, status: "planning", stage: "with_code_checks", heartbeatAt: now },
+    data: {
+      projectId,
+      createdById: userId,
+      status: "planning",
+      stage: "with_code_checks",
+      heartbeatAt: now,
+      // The limit as it stands when the button is pressed (rfiAutoStart.ts).
+      ...(autoLimitUsd && autoLimitUsd > 0 ? { autoStart: { limitUsd: autoLimitUsd } } : {}),
+    },
   });
   return plan.id;
 }
