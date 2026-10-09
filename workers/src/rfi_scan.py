@@ -877,9 +877,9 @@ class ScanProgress:
 # make a streak.
 OCR_FAILURE_STREAK = 3
 OCR_FAILURE_HELP = (
-    "Restart the worker (this version runs one OCR call at a time and rebuilds the engine after a "
-    "failure). If it still fails: give the worker more memory (WORKER_MEM_LIMIT) or set "
-    "OCR_DET_LIMIT=960; a CPU without AVX — e.g. an x86 image under emulation on an Apple-silicon Mac "
+    "Restart the worker. If it still fails it is almost always memory: give the worker more "
+    "(WORKER_MEM_LIMIT, and on Windows the Docker VM's memory in .wslconfig), set OCR_DET_LIMIT=960, or "
+    "lower OCR_MAX_PAGES_PER_SCAN; a CPU without AVX — e.g. an x86 image under emulation on an Apple-silicon Mac "
     "— cannot run PaddlePaddle at all, so run the worker on an x86 machine or set OCR_ENABLED=false."
 )
 
@@ -944,9 +944,10 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
                        f"· about a minute a page · {len(read)} read so far", force=True)
                 started = time.monotonic()
                 result = page_ocr.read_page(page)
-                log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs", document_id[:8],
+                rss = ocr._rss_mb()
+                log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs%s", document_id[:8],
                          page_number, reason, len(result.lines), sum(p.illegible for p in result.pictures),
-                         time.monotonic() - started)
+                         time.monotonic() - started, f" · worker memory {rss:.0f} MB" if rss else "")
                 db.replace_page_ocr(document_id, page_number, result.as_json(), page_ocr.OCR_VERSION,
                                     page_ocr.SOURCE_MODEL, page_ocr.to_chunks(result, page))
                 read.append(name)
@@ -957,7 +958,9 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
                 # Not marked examined: the next scan (on a working engine) reads it.
                 failed.append(name)
                 failure = str(exc)
-                streak += 1
+                # Stopped for memory: asking again would only fail again (or
+                # worse), so the rest of this scan's OCR is skipped at once.
+                streak = OCR_FAILURE_STREAK if ocr.halted() else streak + 1
                 log.warning("ocr: %s p%d failed: %s", document_id[:8], page_number, exc)
                 if streak == OCR_FAILURE_STREAK:
                     log.error("ocr: %d pages in a row failed (%s) — the OCR engine is not working on this "

@@ -14,6 +14,8 @@ setuptools>=70
 paddleocr==2.9.1
 paddlepaddle==2.6.2
 opencv-python-headless==4.10.0.84
+# Memory readings for the OCR guards (ocr.py); without it the guards are off.
+psutil==6.1.1
 
 # Object storage (DigitalOcean Spaces / local MinIO via S3 API)
 boto3==1.36.2
