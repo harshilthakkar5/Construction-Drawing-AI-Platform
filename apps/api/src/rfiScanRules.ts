@@ -103,6 +103,11 @@ export function scanUsage(raw: unknown, costOf: CostOf): RfiScanUsageDto | null 
   return { ...usage, costUsd };
 }
 
+/** How POST /scan/stop starts the error it writes — and so how the screen
+ * tells a scan a person stopped from one that failed. The worker never
+ * writes this prefix. */
+export const STOPPED_BY = "Stopped by";
+
 export function toScanDto(
   row: {
   id: string;
@@ -138,6 +143,7 @@ export function toScanDto(
     usage: scanUsage(row.usage, costOf),
     fresh: row.fresh === true,
     error: row.error,
+    stopped: row.status === "failed" && (row.error ?? "").startsWith(STOPPED_BY),
     stage: row.stage ?? null,
     progress: Math.max(0, Math.min(100, Math.round(row.progress ?? 0))),
     detail: row.detail ?? null,

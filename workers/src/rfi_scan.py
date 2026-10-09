@@ -619,13 +619,28 @@ def plan_wording(
 def run(project_id: str, scan_id: str) -> dict:
     log.info("rfi scan %s: picked up for project %s", scan_id[:8], project_id[:8])
     full_scan_id = None
+    # BullMQ hands a job back after the worker died mid-run (the job is
+    # "stalled"), so a restart resumes the scan. One that was STOPPED, or has
+    # already finished, is not run again.
+    status = scan_status(scan_id)
+    if status not in ("queued", "running"):
+        log.info("rfi scan %s: not run — it is %s", scan_id[:8], status)
+        return {"skipped": status or "no such scan"}
+    resumed = status == "running"
     try:
         # The status first and on its own: the progress columns are newer, and
         # a database that has not had that migration must still see the scan
         # leave "queued" — otherwise it looks stuck in line forever.
         with db.connect() as conn:
-            _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
-        ScanProgress(scan_id)("starting", detail="Starting", force=True)
+            if resumed:
+                _set_scan(conn, scan_id, error=None)
+            else:
+                _set_scan(conn, scan_id, status="running", startedAt=_now(conn), error=None)
+        if resumed:
+            log.warning("rfi scan %s: RESUMED after the worker stopped mid-scan; pages already read are kept. "
+                        "Press Stop in the RFIs tab to end it.", scan_id[:8])
+        ScanProgress(scan_id)("starting", detail="Resuming after the worker restarted" if resumed else "Starting",
+                              force=True)
         full_scan_id = _ai_plan_requested(scan_id)
         if full_scan_id is None:
             return _run(project_id, scan_id)
@@ -635,6 +650,13 @@ def run(project_id: str, scan_id: str) -> dict:
         # row alive: an hour of OCR must not read as a dead plan.
         with fullscan.heartbeat(full_scan_id):
             return _run(project_id, scan_id, full_scan_id)
+    except ScanStopped:
+        # The row already says who stopped it and when; the job ends cleanly
+        # so BullMQ does not count it as a failure to retry.
+        log.info("rfi scan %s: stopped by a person", scan_id[:8])
+        if full_scan_id:
+            _fail_ai_plan(full_scan_id, "the scan was stopped before the comparison was planned")
+        return {"stopped": True}
     except Exception as exc:
         with db.connect() as conn:
             _set_scan(conn, scan_id, status="failed", error=str(exc)[:500], finishedAt=_now(conn))
@@ -835,6 +857,23 @@ STEPS = {
 }
 
 
+class ScanStopped(BaseException):
+    """A person pressed Stop (POST /scan/stop set the row to failed). Raised
+    from the next progress write, so a scan stops between pages, never in the
+    middle of saving one. A BaseException, like KeyboardInterrupt, because
+    every step has an `except Exception` that turns one bad page into a note
+    and must not turn a Stop into one."""
+
+
+STOPPED_PREFIX = "Stopped by"
+
+
+def scan_status(scan_id: str) -> str | None:
+    with db.connect() as conn:
+        row = conn.execute("SELECT status::text FROM rfi_scans WHERE id = %s", (scan_id,)).fetchone()
+    return row[0] if row else None
+
+
 class ScanProgress:
     """Writes what the scan is doing to its row as it goes: the step, a 0-100
     figure, a line for people, and a heartbeat. A rescan that read shape text
@@ -860,6 +899,14 @@ class ScanProgress:
         if not (changed or force) and now - self._last < self.MIN_INTERVAL:
             return
         self.stage, self._last = stage, now
+        # Stop is checked where progress is written: often enough to stop
+        # between pages, and never inside a write the scan depends on.
+        try:
+            status = scan_status(self.scan_id)
+        except Exception:
+            status = None  # cannot read it: carry on rather than stop on a hiccup
+        if status is not None and status != "running":
+            raise ScanStopped(f"scan {self.scan_id[:8]} is {status}")
         lo, hi = STEPS.get(stage, (0, 0))
         pct = lo + (hi - lo) * (done / total if total else 0)
         if changed:
@@ -1196,6 +1243,11 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
         # is not something the project checks could ever produce, so "the scan
         # did not find it again" says nothing about it — and without the origin
         # filter every scan silently deleted every pending targeted finding.
+        # Stopped while it was wording? Then save nothing: this transaction is
+        # rolled back, and the row keeps saying who stopped it.
+        locked = conn.execute("SELECT status::text FROM rfi_scans WHERE id = %s FOR UPDATE", (scan_id,)).fetchone()
+        if locked and locked[0] != "running":
+            raise ScanStopped(f"scan {scan_id[:8]} is {locked[0]}")
         found = [f.fingerprint for f in findings]
         resolved = conn.execute(
             """

@@ -12,7 +12,7 @@ import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { rfiScanQueue } from "../queues.js";
 import { summaryLimiter } from "../rateLimit.js";
-import { meetsConfidence, queuePlace, scanIsActive, toScanDto } from "../rfiScanRules.js";
+import { meetsConfidence, queuePlace, scanIsActive, STOPPED_BY, toScanDto } from "../rfiScanRules.js";
 import { canPlanAgain, fullScanAvailability } from "../rfiFullScanRules.js";
 import type { RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
@@ -197,6 +197,58 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   res.status(202).json(toScanDto(updated, estimateCostUsd));
 });
 
+/**
+ * Stop the scan that is queued or running. The row is marked failed with who
+ * stopped it; the worker sees that at its next progress write (between
+ * pages), ends the job cleanly and saves nothing more. A job still waiting in
+ * the queue is removed from it. Pages OCR already read stay read, so the next
+ * scan carries on from there. Before this existed, a scan resumed by itself
+ * after every worker restart (BullMQ hands a stalled job back) and there was
+ * no way to end it.
+ */
+rfiGeneratedRouter.post("/scan/stop", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const actor = currentUser(req);
+  const latest = await prisma.rfiScan.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  if (!latest || (latest.status !== "queued" && latest.status !== "running")) {
+    return void res.status(409).json({ error: "no scan is running" });
+  }
+  const stopped = await prisma.rfiScan.updateMany({
+    where: { id: latest.id, status: { in: ["queued", "running"] } },
+    data: {
+      status: "failed",
+      error: `${STOPPED_BY} ${actor.name || actor.email}. Pages already read are kept; scan again to carry on.`,
+      finishedAt: new Date(),
+    },
+  });
+  if (stopped.count === 0) return void res.status(409).json({ error: "this scan has just finished" });
+  if (latest.jobId) {
+    try {
+      const job = await rfiScanQueue.getJob(latest.jobId);
+      // Only a job no worker holds can be removed; a running one stops itself.
+      if (job && (await job.getState()) !== "active") await job.remove();
+    } catch (err) {
+      console.warn(`[rfis] could not remove scan job ${latest.jobId}: ${(err as Error).message}`);
+    }
+  }
+  // Step 2's plan is being built by THIS scan (one code scan per project at
+  // a time), so a plan still waiting on step 1 dies with it — linked or not:
+  // a plan orphaned by an earlier crash would otherwise read "Being prepared
+  // together with step 1" with no step 1 left to prepare it.
+  await prisma.rfiFullScan.updateMany({
+    where: {
+      projectId,
+      status: "planning",
+      // Never `{ id: undefined }`: Prisma reads that as no condition at all.
+      OR: [{ stage: "with_code_checks" }, ...(latest.fullScanId ? [{ id: latest.fullScanId }] : [])],
+    },
+    data: { status: "cancelled", completedAt: new Date() },
+  });
+  console.log(`[rfis] scan ${latest.id.slice(0, 8)} stopped by ${actor.email}`);
+  const updated = await prisma.rfiScan.findUniqueOrThrow({ where: { id: latest.id } });
+  res.json(toScanDto(updated, estimateCostUsd));
+});
+
 /** A step-2 plan row for the scan to fill, or null when the AI comparison is
  * off or one is already being planned or run. An unstarted older plan is
  * cancelled: the new one is built from the current drawings and findings. */
@@ -204,6 +256,22 @@ async function prepareStepTwo(projectId: string, userId: string, autoLimitUsd: n
   if (fullScanAvailability() === "off") return null;
   const now = new Date();
   const latest = await prisma.rfiFullScan.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  // A plan "being prepared together with step 1" whose step 1 is no longer
+  // queued or running was orphaned (the scan was stopped, or died and was not
+  // handed back): it would block this one for ten minutes, then fail.
+  if (latest?.status === "planning" && latest.stage === "with_code_checks") {
+    const owner = await prisma.rfiScan.findFirst({
+      where: { fullScanId: latest.id, status: { in: ["queued", "running"] } },
+      select: { id: true },
+    });
+    if (!owner) {
+      await prisma.rfiFullScan.updateMany({
+        where: { id: latest.id, status: "planning" },
+        data: { status: "cancelled", completedAt: now },
+      });
+      latest.status = "cancelled";
+    }
+  }
   if (!canPlanAgain(latest, now)) return null;
   if (latest?.status === "planned") {
     await prisma.rfiFullScan.updateMany({ where: { id: latest.id, status: "planned" }, data: { status: "cancelled" } });
