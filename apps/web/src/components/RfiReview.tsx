@@ -7,6 +7,7 @@ import {
   RotateCcwIcon,
   ScanSearchIcon,
   SparklesIcon,
+  SquareIcon,
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
@@ -194,6 +195,13 @@ export function RfiReview({ projectId }: { projectId: string }) {
       setConfirmFresh(false);
     },
   });
+  const stop = useMutation({
+    mutationFn: () => api.stopRfiScan(projectId),
+    onSuccess: (stopped) => {
+      queryClient.setQueryData(["rfi-scan", projectId], stopped);
+      if (fullScanOffered) void queryClient.invalidateQueries({ queryKey: ["rfi-full-scans", projectId] });
+    },
+  });
   const accept = useMutation({
     mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id),
     onSuccess: refreshAll,
@@ -215,7 +223,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const highCount = candidates.filter((c) => c.confidence === "high").length;
   const dismissedCount = pending.data?.counts.dismissed ?? 0;
   const busy = accept.isPending || dismiss.isPending || acceptAll.isPending;
-  const error = (confirmFresh ? null : start.error) ?? accept.error ?? dismiss.error ?? acceptAll.error ?? restore.error;
+  const error = (confirmFresh ? null : start.error) ?? stop.error ?? accept.error ?? dismiss.error ?? acceptAll.error ?? restore.error;
 
   return (
     <section className="mb-4">
@@ -257,6 +265,18 @@ export function RfiReview({ projectId }: { projectId: string }) {
                 ? "Scan again"
                 : "Find RFIs in drawings"}
           </Button>
+          {scanning && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => stop.mutate()}
+              disabled={stop.isPending}
+              title="End this scan. Pages already read stay read; the next scan carries on from there."
+            >
+              {stop.isPending ? <Spinner /> : <SquareIcon />}
+              Stop
+            </Button>
+          )}
           {scan.data && !scanning && (
             <Button
               size="sm"
@@ -306,7 +326,10 @@ export function RfiReview({ projectId }: { projectId: string }) {
               />
             )}
             {scanning && <ScanProgressView scan={scan.data} />}
-            {scan.data.status === "failed" && (
+            {scan.data.status === "failed" && scan.data.stopped && (
+              <p className="text-muted-foreground text-xs">{scan.data.error}</p>
+            )}
+            {scan.data.status === "failed" && !scan.data.stopped && (
               <Notice tone="error">
                 The last scan failed
                 {scan.data.stage && scan.data.stage !== "done" ? ` while ${(STEP_LABEL[scan.data.stage] ?? scan.data.stage).toLowerCase()}` : ""}:{" "}
@@ -841,7 +864,7 @@ function AutoScanLimit({ projectId }: { projectId: string }) {
           min={0}
           step="0.5"
           placeholder="ask me"
-          className="h-7 w-20 text-xs"
+          className="h-7 w-24 text-xs"
           value={value}
           onChange={(e) => setDraft(e.target.value)}
         />

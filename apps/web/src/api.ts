@@ -461,6 +461,10 @@ export const api = {
       body: JSON.stringify({ fresh: options.fresh ?? false }),
     }),
 
+  /** Stop the queued or running scan; pages already read stay read. */
+  stopRfiScan: (projectId: string) =>
+    request<RfiScanDto>(`/projects/${projectId}/rfis/generated/scan/stop`, { method: "POST" }),
+
   listRfiCandidates: (projectId: string, status: RfiCandidateStatus = "pending") =>
     request<{ candidates: RfiCandidateDto[]; counts: Partial<Record<RfiCandidateStatus, number>> }>(
       `/projects/${projectId}/rfis/generated?status=${status}`,

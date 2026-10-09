@@ -603,6 +603,51 @@ def test_a_full_rescan_keeps_the_old_wording_when_the_model_fails(database, monk
 
 
 @needs_db
+def test_stop_while_wording_saves_nothing_and_keeps_who_stopped_it(database, monkeypatch):
+    # A person presses Stop while the scan words its findings: nothing it
+    # found is saved, and the row still says who stopped it.
+    project, _ = _seed(database)
+    scan = _scan(database, project)
+
+    def stop_then_word(findings, project_id, usage=None, progress=None):
+        with database.connect() as conn:
+            conn.execute("UPDATE rfi_scans SET status = 'failed', error = 'Stopped by Pat.' WHERE id = %s", (scan,))
+        return {}, None
+
+    monkeypatch.setattr(rfi_scan, "word", stop_then_word)
+    assert rfi_scan.run(project, scan) == {"stopped": True}
+    with database.connect() as conn:
+        status, error = conn.execute("SELECT status::text, error FROM rfi_scans WHERE id = %s", (scan,)).fetchone()
+        saved = conn.execute('SELECT count(*) FROM rfi_candidates WHERE "projectId" = %s', (project,)).fetchone()[0]
+    assert (status, error, saved) == ("failed", "Stopped by Pat.", 0)
+    # Handed back by the queue later, it is not run again.
+    assert "skipped" in rfi_scan.run(project, scan)
+
+
+@needs_db
+def test_stop_after_the_last_progress_write_still_saves_nothing(database, monkeypatch):
+    # The narrow race: Stop lands after the "saving" step was reported but
+    # before the findings are written. The save transaction re-reads the row
+    # under a lock and rolls back, so a stopped scan never ends "completed".
+    project, _ = _seed(database)
+    scan = _scan(database, project)
+    real = rfi_scan.ScanProgress.__call__
+
+    def report(self, stage, *a, **kw):
+        real(self, stage, *a, **kw)
+        if stage == "saving":
+            with database.connect() as conn:
+                conn.execute("UPDATE rfi_scans SET status = 'failed', error = 'Stopped by Pat.' WHERE id = %s", (scan,))
+
+    monkeypatch.setattr(rfi_scan.ScanProgress, "__call__", report)
+    assert rfi_scan.run(project, scan) == {"stopped": True}
+    with database.connect() as conn:
+        status = conn.execute("SELECT status::text FROM rfi_scans WHERE id = %s", (scan,)).fetchone()[0]
+        saved = conn.execute('SELECT count(*) FROM rfi_candidates WHERE "projectId" = %s', (project,)).fetchone()[0]
+    assert (status, saved) == ("failed", 0)
+
+
+@needs_db
 def test_a_rescan_is_idempotent_and_respects_decisions(database):
     project, _ = _seed(database)
     rfi_scan.run(project, _scan(database, project))

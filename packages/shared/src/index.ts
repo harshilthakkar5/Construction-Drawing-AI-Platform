@@ -987,6 +987,8 @@ export interface RfiScanDto {
   /** A "Rescan from scratch" rather than an ordinary scan. */
   fresh: boolean;
   error: string | null;
+  /** Ended by a person's Stop (POST /scan/stop), not by a failure. */
+  stopped?: boolean;
   /** What the worker is doing now (ocr | grids | checks | pinpoint | wording |
    * saving), 0-100, and a line for people. Null stage = not started yet. */
   stage: string | null;

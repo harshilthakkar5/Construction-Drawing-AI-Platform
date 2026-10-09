@@ -37,6 +37,7 @@ class _Conn:
 def writes(monkeypatch):
     sink = []
     monkeypatch.setattr(rfi_scan.db, "connect", lambda: _Conn(sink))
+    monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id: "running")
     return sink
 
 
@@ -97,8 +98,63 @@ def test_a_database_without_the_progress_columns_still_sees_the_scan_start(monke
             return super().execute(sql, params)
 
     monkeypatch.setattr(rfi_scan.db, "connect", lambda: OldSchema(sink))
+    monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id: "queued" if not sink else "running")
     monkeypatch.setattr(rfi_scan, "_run", lambda project_id, scan_id, *a: {"findings": 0})
     monkeypatch.setattr(rfi_scan, "_ai_plan_requested", lambda scan_id: None)
     assert rfi_scan.run("project-1", "scan-1") == {"findings": 0}
     [first, *_] = [sql for sql, _ in sink if sql.startswith("UPDATE rfi_scans")]
     assert '"status"' in first and '"stage"' not in first
+
+
+# --- Stop -----------------------------------------------------------------------------
+
+
+def test_a_stopped_scan_raises_at_its_next_progress_write(writes, monkeypatch):
+    report = rfi_scan.ScanProgress("scan-1")
+    report("ocr", 1, 10, "page 1")
+    monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id: "failed")  # a person pressed Stop
+    with pytest.raises(rfi_scan.ScanStopped):
+        report("ocr", 2, 10, "page 2", force=True)
+    # A BaseException: the per-page `except Exception` in every step must not
+    # turn a Stop into "one page failed" and carry on.
+    assert not issubclass(rfi_scan.ScanStopped, Exception)
+
+
+def test_a_status_that_cannot_be_read_does_not_stop_the_scan(writes, monkeypatch):
+    def gone(scan_id):
+        raise RuntimeError("database hiccup")
+
+    monkeypatch.setattr(rfi_scan, "scan_status", gone)
+    rfi_scan.ScanProgress("scan-1")("ocr", 1, 10, "page 1")  # no exception
+
+
+def test_a_stopped_or_finished_scan_handed_back_by_the_queue_is_not_run_again(writes, monkeypatch):
+    ran = []
+    monkeypatch.setattr(rfi_scan, "_run", lambda *a: ran.append(a))
+    for status in ("failed", "completed", None):
+        monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id, s=status: s)
+        assert "skipped" in rfi_scan.run("project-1", "scan-1")
+    assert ran == [] and _updates(writes) == []  # not touched: the row keeps who stopped it
+
+
+def test_stop_during_the_run_ends_the_job_cleanly_and_leaves_the_row_alone(writes, monkeypatch):
+    monkeypatch.setattr(rfi_scan, "_ai_plan_requested", lambda scan_id: None)
+
+    def stopped(*a):
+        raise rfi_scan.ScanStopped("scan-1 is failed")
+
+    monkeypatch.setattr(rfi_scan, "_run", stopped)
+    monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id: "queued")
+    assert rfi_scan.run("project-1", "scan-1") == {"stopped": True}
+    assert not any(p and p[0] == "failed" for p in _updates(writes))  # never overwritten with a failure
+
+
+def test_a_scan_the_worker_died_in_is_resumed_not_restarted(writes, monkeypatch):
+    monkeypatch.setattr(rfi_scan, "_ai_plan_requested", lambda scan_id: None)
+    monkeypatch.setattr(rfi_scan, "_run", lambda *a: {"findings": 0})
+    # "running" at pickup: BullMQ handed back a job whose worker stopped.
+    monkeypatch.setattr(rfi_scan, "scan_status", lambda scan_id: "running")
+    assert rfi_scan.run("project-1", "scan-1") == {"findings": 0}
+    first = next(sql for sql, _ in writes if sql.startswith("UPDATE rfi_scans"))
+    assert '"startedAt"' not in first  # the run time keeps counting from the real start
+    assert any("Resuming" in str(p) for p in _updates(writes))

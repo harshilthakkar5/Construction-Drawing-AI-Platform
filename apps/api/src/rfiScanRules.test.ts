@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meetsConfidence, queuePlace, scanIsActive, scanUsage, STALE_SCAN_MS, toScanDto } from "./rfiScanRules.js";
+import { meetsConfidence, queuePlace, scanIsActive, scanUsage, STALE_SCAN_MS, STOPPED_BY, toScanDto } from "./rfiScanRules.js";
 
 const NOW = new Date("2026-06-01T12:00:00Z");
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
@@ -195,5 +195,14 @@ describe("queuePlace", () => {
     expect(queuePlace(null, null, [100], 1)).toEqual({ state: "missing", running: 1, ahead: 0 });
     expect(queuePlace("unknown", 300, [], 0).state).toBe("missing");
     expect(queuePlace("failed", 300, [], 0).state).toBe("other");
+  });
+});
+
+describe("a scan a person stopped", () => {
+  it("is told apart from one that failed, by the prefix only Stop writes", () => {
+    const stopped = toScanDto({ ...baseRow(), status: "failed", error: `${STOPPED_BY} Pat. Pages already read are kept.` });
+    expect(stopped.stopped).toBe(true);
+    expect(toScanDto({ ...baseRow(), status: "failed", error: "could not create a primitive" }).stopped).toBe(false);
+    expect(toScanDto({ ...baseRow(), status: "running", error: `${STOPPED_BY} Pat.` }).stopped).toBe(false);
   });
 });

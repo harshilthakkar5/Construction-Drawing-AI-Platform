@@ -2391,6 +2391,20 @@ a warning after 3 quiet minutes. A rescan that read shape text ran an hour behin
 this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
 time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
 step and a failed write is a log line, never a failed scan.
+A scan can be STOPPED (`POST /scan/stop`, the Stop button beside the scanning one). Before it existed
+a scan could not be ended at all, and it came back by itself: a worker that dies mid-job leaves its
+BullMQ job "stalled", and once its lock lapses (`WORKER_LOCK_DURATION_MS`) the restarted worker is
+handed it again — once (BullMQ's default `maxStalledCount`); a second crash fails the job. That
+resume is kept on purpose (OCR'd pages are saved, so it carries on) and now logs RESUMED and says
+"Resuming after the worker restarted"; the run time keeps its real start. Stop marks the row
+`failed` with an error starting `STOPPED_BY` (`rfiScanRules`, DTO `stopped`, shown as a plain line,
+not an error), removes a job no worker holds, and cancels the step-2 plan waiting on it — linked or
+orphaned. The worker sees it at its next progress write (`ScanProgress` reads the status;
+`ScanStopped` is a BaseException so no per-page `except Exception` swallows it), and the save
+transaction re-reads the row `FOR UPDATE` and rolls back, so a stopped scan never ends `completed`
+and never saves findings. A job handed back for a stopped or finished scan is skipped.
+`prepareStepTwo` also cancels a "with_code_checks" plan whose scan is no longer queued or running,
+which otherwise blocked the next scan's plan for ten minutes.
 A QUEUED scan says why it waits (`GET /scan` → `queue`, `rfiScanRules.queuePlace`: scans running
 and scans ahead, or "no longer in the queue"): the worker runs `RFI_SCAN_CONCURRENCY` (1) scans
 at a time across every project, so a scan pressed while another runs sat on "Waiting for a worker"
