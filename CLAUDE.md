@@ -2372,6 +2372,17 @@ serialises all calls under one lock, rebuilds the engine after a failure and ret
 failed (unmarked, so a scan reads it later); `ocr_pending` stops asking after
 `OCR_FAILURE_STREAK` (3) failures in a row and writes one note naming the error and the fixes
 (memory / `OCR_DET_LIMIT` / a CPU without AVX, e.g. x86 under emulation on Apple silicon).
+The rebuild itself then took a laptop down: 42 minutes into a scan's OCR the engine failed with "could
+not create a primitive" (oneDNN failing to ALLOCATE), and the recovery built a second engine while the
+exception's traceback still held the first — Docker's VM ran out and Docker and the terminal died with
+it. Now an out-of-memory-shaped failure is never retried in-process: the engine is released and
+collected, OCR is STOPPED in that worker (`ocr.halted()`, restart to resume) and the scan stops asking
+at once; any other failure frees the old engine BEFORE building the new one. Before every call
+`_guard_memory` refuses it under `OCR_MIN_FREE_MB` free (the page stays unmarked), rebuilds the engine
+every `OCR_ENGINE_RECYCLE` images, and stops OCR when the process is still over `OCR_MAX_RSS_MB` after
+releasing it (psutil; without it these guards are off). Tiles are padded to one 1600px square
+(`image_lines(pad_to=)`) so the detector sees ONE input shape rather than a new one per edge tile.
+The memory growth itself is the likely cause, not a measured one: PaddleOCR could not be run here.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR

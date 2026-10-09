@@ -5,6 +5,7 @@ OCR_ENABLED=false), pages without a text layer keep empty text and a
 warning is logged instead of failing the whole document.
 """
 
+import gc
 import threading
 
 import config
@@ -31,6 +32,93 @@ FALLBACK_LIMIT = 960
 
 class OcrError(RuntimeError):
     """The engine failed on an image even after a rebuild and a smaller retry."""
+
+
+# Set once OCR must not run again in this process: a failure that looks like
+# memory running out, or a worker still over OCR_MAX_RSS_MB after the engine
+# was thrown away. A laptop whose OCR run grew until Docker's VM ran out of
+# memory lost Docker AND the terminal; the old recovery made that worse by
+# building a SECOND engine while the first was still held. Missing OCR on a
+# few pages is recoverable (they stay unmarked for the next scan); a machine
+# that falls over is not.
+_halted: str | None = None
+_calls = 0
+
+# How oneDNN, Paddle and the C++ runtime say "no memory left". "could not
+# create a primitive" is oneDNN failing to allocate; it is also what a CPU
+# without AVX says, and that never recovers either.
+_MEMORY_SIGNS = ("could not create a primitive", "out of memory", "bad_alloc", "memoryerror",
+                 "resourceexhausted", "cannot allocate", "failed to allocate", "alloc failed")
+
+
+def _looks_like_memory(message: str) -> bool:
+    m = message.lower()
+    return any(sign in m for sign in _MEMORY_SIGNS)
+
+
+def _rss_mb() -> float | None:
+    """This process's resident memory in MB, or None when it cannot be read."""
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / 2**20
+    except Exception:
+        return None
+
+
+def _free_mb() -> float | None:
+    """Memory the machine (or Docker's VM) still has available, in MB."""
+    try:
+        import psutil
+
+        return psutil.virtual_memory().available / 2**20
+    except Exception:
+        return None
+
+
+def halted() -> str | None:
+    """Why OCR is stopped in this worker process, or None."""
+    return _halted
+
+
+def _halt(reason: str) -> None:
+    global _halted
+    _halted = reason
+    _free_engine()
+    log.error("OCR STOPPED in this worker until it is restarted: %s. Pages not read stay unmarked and are "
+              "read by a later scan. Fixes: give the worker more memory (WORKER_MEM_LIMIT, and the Docker "
+              "VM's memory in .wslconfig on Windows), lower OCR_DET_LIMIT to 960, or OCR_ENABLED=false.", reason)
+
+
+def _free_engine() -> None:
+    """Drop the engine AND collect it before anything new is built: a new
+    engine next to a dead one doubles the memory at the worst moment."""
+    global _engine, _calls
+    _engine = None
+    _calls = 0
+    gc.collect()
+
+
+def _guard_memory() -> None:
+    """Before a call: refuse it when the machine is nearly out of memory, and
+    recycle (or stop) the engine when this process has grown too large."""
+    global _calls
+    free = _free_mb()
+    if config.OCR_MIN_FREE_MB and free is not None and free < config.OCR_MIN_FREE_MB:
+        _free_engine()
+        raise OcrError(f"only {free:.0f} MB of memory free (OCR_MIN_FREE_MB={config.OCR_MIN_FREE_MB}); "
+                       "OCR skipped so the machine does not run out")
+    if config.OCR_ENGINE_RECYCLE and _calls >= config.OCR_ENGINE_RECYCLE:
+        log.info("OCR: rebuilding the engine after %d images to release its memory", _calls)
+        _free_engine()
+    rss = _rss_mb()
+    if config.OCR_MAX_RSS_MB and rss is not None and rss > config.OCR_MAX_RSS_MB:
+        _free_engine()
+        rss = _rss_mb()
+        if rss is not None and rss > config.OCR_MAX_RSS_MB:
+            _halt(f"the worker uses {rss:.0f} MB, over OCR_MAX_RSS_MB={config.OCR_MAX_RSS_MB}, even after "
+                  "the OCR engine was released")
+            raise OcrError(_halted)
 
 
 def _get_engine():
@@ -79,44 +167,63 @@ def _get_engine():
     return _engine
 
 
-def _rebuild() -> None:
-    """Throw the engine away: after a failed run its state cannot be trusted."""
-    global _engine
-    _engine = None
-
-
 def _predict(img):
-    """engine.ocr(img), serialised, with one recovery: on a failure the engine
-    is rebuilt and the image retried at FALLBACK_LIMIT (scaled back, so the
-    caller sees pixel coordinates of the image it passed). Raises OcrError
-    when that fails too — never an empty reading, since "could not read" and
+    """engine.ocr(img), serialised and memory-guarded, with one recovery: on a
+    failure the engine is released and rebuilt and the image retried at
+    FALLBACK_LIMIT (scaled back, so the caller sees pixel coordinates of the
+    image it passed). A failure that looks like memory running out is NOT
+    retried — OCR stops in this worker instead (`_halt`). Raises OcrError when
+    nothing could be read — never an empty reading, since "could not read" and
     "nothing there" must stay tellable apart."""
+    global _calls
     import cv2
 
     with _lock:
+        if _halted:
+            raise OcrError(_halted)
+        _guard_memory()
         engine = _get_engine()
         if engine is None:
             return None
+        failure = None
         try:
-            return engine.ocr(img, cls=True)
-        except Exception as first:
-            log.warning("OCR engine failed on a %dx%d image (%s); rebuilding it and retrying at %dpx",
-                        img.shape[1], img.shape[0], first, FALLBACK_LIMIT)
-            _rebuild()
-            engine = _get_engine()
-            if engine is None:
-                raise OcrError(f"{first} (and the engine could not be restarted)") from first
-            scale = min(1.0, FALLBACK_LIMIT / max(img.shape[:2]))
-            small = img if scale == 1.0 else cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-            try:
-                result = engine.ocr(small, cls=True)
-            except Exception as second:
-                _rebuild()
-                raise OcrError(str(second)) from second
-            if scale == 1.0:
-                return result
-            return [[[[[x / scale, y / scale] for x, y in item[0]], *item[1:]] for item in block or []]
-                    for block in result or []]
+            result = engine.ocr(img, cls=True)
+            _calls += 1
+            return result
+        except Exception as exc:
+            # Only the message leaves this block: the exception's traceback
+            # holds the failed engine's frames, which must be freed with it.
+            failure = f"{exc}" or type(exc).__name__
+        del engine
+        _free_engine()
+        if _looks_like_memory(failure):
+            _halt(f"the OCR engine failed on a {img.shape[1]}x{img.shape[0]} image with \"{failure}\", "
+                  "which is how it reports running out of memory")
+            raise OcrError(_halted)
+        log.warning("OCR engine failed on a %dx%d image (%s); rebuilding it and retrying at %dpx",
+                    img.shape[1], img.shape[0], failure, FALLBACK_LIMIT)
+        engine = _get_engine()
+        if engine is None:
+            raise OcrError(f"{failure} (and the engine could not be restarted)")
+        scale = min(1.0, FALLBACK_LIMIT / max(img.shape[:2]))
+        small = img if scale == 1.0 else cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        second = None
+        try:
+            result = engine.ocr(small, cls=True)
+            _calls += 1
+        except Exception as exc:
+            second = f"{exc}" or type(exc).__name__
+        if second is not None:
+            del engine
+            _free_engine()
+            if _looks_like_memory(second):
+                _halt(f"the OCR engine failed twice, the second time with \"{second}\"")
+                raise OcrError(_halted)
+            raise OcrError(second)
+        if scale == 1.0:
+            return result
+        return [[[[[x / scale, y / scale] for x, y in item[0]], *item[1:]] for item in block or []]
+                for block in result or []]
 
 
 def ocr_png_bytes(png: bytes) -> str:
@@ -139,15 +246,21 @@ def ocr_png_bytes(png: bytes) -> str:
 
 
 def available() -> bool:
-    """Whether OCR can run at all (loads the engine on first call)."""
+    """Whether OCR can run at all (loads the engine on first call). False once
+    OCR has been stopped in this worker (`halted`)."""
     with _lock:
-        return _get_engine() is not None
+        return _halted is None and _get_engine() is not None
 
 
-def image_lines(pix) -> list[tuple[list, str, float]]:
+def image_lines(pix, pad_to: int | None = None) -> list[tuple[list, str, float]]:
     """Every line PaddleOCR finds in a fitz Pixmap (RGB, no alpha), as
     (four corner points in pixels, text, confidence). Raises OcrError when
-    the engine cannot read it."""
+    the engine cannot read it.
+
+    `pad_to` pads a smaller image with white on the right and bottom to that
+    square, so every tile reaches the detector at ONE size: Paddle keeps work
+    buffers per input shape, and the edge tiles of every page were each a new
+    shape. Coordinates are unchanged, since the padding is after the image."""
     if not available():
         return []
     import numpy as np
@@ -155,6 +268,10 @@ def image_lines(pix) -> list[tuple[list, str, float]]:
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
     if pix.n == 3:
         img = img[:, :, ::-1]  # RGB -> BGR, what PaddleOCR's cv2 pipeline expects
+    if pad_to and (img.shape[0] < pad_to or img.shape[1] < pad_to):
+        padded = np.full((max(pad_to, img.shape[0]), max(pad_to, img.shape[1]), img.shape[2]), 255, dtype=np.uint8)
+        padded[: img.shape[0], : img.shape[1]] = img
+        img = padded
     out = []
     for block in _predict(np.ascontiguousarray(img)) or []:
         for item in block or []:

@@ -93,6 +93,12 @@ Then `wsl --shutdown` in PowerShell and reopen Docker Desktop.
 
 **Linux** — nothing to do; containers use the host directly.
 
+Keep the container ceilings (§5) **below** the VM's memory. If they add up to more than the VM has,
+a growing worker exhausts the VM itself instead of hitting its own limit, and Docker Desktop goes
+down with every container and the terminal attached to it. The worker also guards OCR itself
+(`OCR_MIN_FREE_MB`, `OCR_MAX_RSS_MB`, `OCR_ENGINE_RECYCLE`): it skips or stops OCR before the
+machine runs out, and the pages it skipped are read by a later scan.
+
 ## 4. Get the code
 
 On **Windows, work inside WSL**, not on the Windows drive. A repo under

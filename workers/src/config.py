@@ -80,6 +80,16 @@ OCR_MAX_PAGES_PER_SCAN = int(os.environ.get("OCR_MAX_PAGES_PER_SCAN", "60"))
 # (960 is PaddleOCR's own default). A tile the engine fails on is retried
 # once at FALLBACK size regardless.
 OCR_DET_LIMIT = int(os.environ.get("OCR_DET_LIMIT", "1600"))
+# Memory guards for OCR (ocr.py). A long OCR run grows the worker's memory,
+# and one ran a laptop's Docker VM out of memory and took Docker and the
+# terminal down with it. Before every OCR call: under OCR_MIN_FREE_MB of free
+# memory on the machine the call is refused (the page is left for later); the
+# engine is rebuilt every OCR_ENGINE_RECYCLE images to drop what it caches;
+# and a worker above OCR_MAX_RSS_MB even after that stops OCR until restarted.
+# 0 turns a guard off.
+OCR_MIN_FREE_MB = int(os.environ.get("OCR_MIN_FREE_MB", "1024"))
+OCR_MAX_RSS_MB = int(os.environ.get("OCR_MAX_RSS_MB", "4096"))
+OCR_ENGINE_RECYCLE = int(os.environ.get("OCR_ENGINE_RECYCLE", "100"))
 
 # FR-8: lift schedules out of the page as whole tables instead of letting the
 # block extractor shred them. Detection is a heuristic (workers/src/tables.py);

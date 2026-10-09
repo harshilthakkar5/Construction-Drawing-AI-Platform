@@ -21,7 +21,7 @@ import ocr  # noqa: E402
 import page_ocr  # noqa: E402
 
 
-def _boxes_engine(pix):
+def _boxes_engine(pix, pad_to=None):
     """Each connected run of black pixels -> one 'line' reading BOX."""
     img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, 0]
     dark = img < 60
@@ -147,7 +147,7 @@ def test_illegible_means_coarse_one_bit_full_of_text_and_mostly_unread(dpi, line
 
 def test_a_line_is_dropped_below_the_confidence_floor(monkeypatch):
     monkeypatch.setattr(ocr, "available", lambda: True)
-    monkeypatch.setattr(ocr, "image_lines", lambda pix: [(q, t, 0.5) for q, t, _ in _boxes_engine(pix)])
+    monkeypatch.setattr(ocr, "image_lines", lambda pix, pad_to=None: [(q, t, 0.5) for q, t, _ in _boxes_engine(pix)])
     doc, page = _sheet()
     assert page_ocr.read(page).lines == []
 

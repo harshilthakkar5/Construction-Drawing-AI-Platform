@@ -197,7 +197,7 @@ def read(page, clips: list[fitz.Rect] | None = None) -> PageOcr:
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csRGB, alpha=False)
             if pix.width < 8 or pix.height < 8 or _blank(pix):
                 continue
-            for quad, text, conf in ocr.image_lines(pix):
+            for quad, text, conf in ocr.image_lines(pix, pad_to=TILE_PX):
                 xs = [clip.x0 + p[0] / zoom for p in quad]
                 ys = [clip.y0 + p[1] / zoom for p in quad]
                 shown = fitz.Rect(min(xs), min(ys), max(xs), max(ys))
