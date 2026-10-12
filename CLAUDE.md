@@ -2307,6 +2307,19 @@ comparison / Targeted review) and "Read by OCR" when its evidence was. The serve
 not change; the merge is the UI orchestrating the two existing jobs. Targeted review stays its
 own mode — it answers a different question.
 
+**Scoped** (docs/rfi-full-scan.md "Scoped scans"): the scan starts from a choice — Compare
+discipline A against B (each may be "all"), the questions to ask (pre-ticked by
+`recommendedChecks`: what BOTH sides draw), up to five of the person's own, and whether the
+whole-project text checks run. Stored as `rfi_scans.scope` → `rfi_full_scans.scope`; null =
+everything. `apps/api/src/rfiScanScope.ts` validates, `workers/src/scan_scope.py` decides pairs
+(`pair_in`/`facts_in`), checks (`check_types` via `RFI_QUESTION_CODE_CHECKS`) and questions. A
+scoped scan deletes a pending code finding only if its check ran AND its sheets are in the
+comparison (`rfi_scan.resolved_ids`) — otherwise S vs A would erase an M/A grid dispute. The first
+look answers each question (agree/issues/not_shown/unclear, `tiles.answers` → `summary.byQuestion`);
+a typed question is Q1..Q5 in the prompt (fenced in `<person_questions>`), saved as
+`checkType = "custom"`, fingerprinted by its words, AI-only so ≤ medium. `suggestWiderScan`
+(shared) offers the full scan when a narrow one found nothing — never runs it unasked.
+
 **And one pass** (`rfi_scan._run`, docs/rfi-full-scan.md "One pass"): the code-check job opens each
 PDF ONCE (`_opener` → `rfi_review._documents`, shared by OCR, grids, page facts, sheet pairs and
 pinpointing), builds the sheet pairs (`fullscan.build_plan`), compares them in code

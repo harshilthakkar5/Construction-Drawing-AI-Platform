@@ -1,4 +1,5 @@
 import type { RfiConfidence, RfiScanDto, RfiScanQueueDto, RfiScanStatus, RfiScanUsageDto } from "@cdip/shared";
+import { scopeOf } from "./rfiScanScope.js";
 
 /**
  * The decisions around a scan, kept pure so they are tested without a queue
@@ -118,6 +119,8 @@ export function toScanDto(
   notes: unknown;
   usage?: unknown;
   fresh?: boolean;
+  scope?: unknown;
+  fullScanId?: string | null;
   error: string | null;
   stage?: string | null;
   progress?: number;
@@ -142,6 +145,8 @@ export function toScanDto(
     notes: Array.isArray(row.notes) ? row.notes.filter((n): n is string => typeof n === "string") : [],
     usage: scanUsage(row.usage, costOf),
     fresh: row.fresh === true,
+    scope: scopeOf(row.scope),
+    fullScanId: row.fullScanId ?? null,
     error: row.error,
     stopped: row.status === "failed" && (row.error ?? "").startsWith(STOPPED_BY),
     stage: row.stage ?? null,

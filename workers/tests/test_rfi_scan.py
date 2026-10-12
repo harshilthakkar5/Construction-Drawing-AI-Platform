@@ -851,3 +851,31 @@ def test_the_scan_plans_step_two_in_the_same_pass_with_settled_areas_set_aside(d
     assert tiles[0][:3] == ("skipped", "settled_by_code", "sheet B copies the other here")
     assert tiles[1][0] == "pending" and tiles[1][3]["measured"] == ["a wall line is drawn 0'-6\" apart"]
     assert any(n.startswith("Step 2 is ready: 1 area(s)") for n in notes)
+
+
+@needs_db
+def test_a_scoped_scan_runs_only_what_was_asked_and_keeps_everything_else(database):
+    """Structural vs Architectural on the grid question, whole-project checks
+    unticked: no text check runs, so the TBD and the missing-sheet finding of
+    an earlier scan stay exactly where they are — a scan that did not look is
+    never a scan that found them resolved."""
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        before = {r[0] for r in conn.execute(
+            "SELECT \"checkType\" FROM rfi_candidates WHERE \"projectId\" = %s AND status = 'pending'", (project,))}
+        scoped = str(uuid.uuid4())
+        conn.execute(
+            'INSERT INTO rfi_scans (id, "projectId", scope) VALUES (%s, %s, %s)',
+            (scoped, project, json.dumps({"disciplineA": "structural", "disciplineB": "architectural",
+                                          "checkIds": ["G01"], "customQuestions": [], "projectChecks": False})),
+        )
+    result = rfi_scan.run(project, scoped)
+    with database.connect() as conn:
+        after = {r[0] for r in conn.execute(
+            "SELECT \"checkType\" FROM rfi_candidates WHERE \"projectId\" = %s AND status = 'pending'", (project,))}
+        notes, = conn.execute("SELECT notes FROM rfi_scans WHERE id = %s", (scoped,)).fetchone()
+    assert before == {"dangling_reference", "unscheduled_mark", "open_item_note"}
+    assert result["byCheck"] == {} and result["resolved"] == 0 and after == before
+    assert notes[0].startswith("This scan compared Structural vs Architectural, 1 question")
+    assert "whole-project checks" in notes[0]

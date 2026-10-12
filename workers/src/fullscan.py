@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 import db
 import fullscan_plan as plan_rules
 import rfi_checks
+import scan_scope
 import sheet_facts
 from rfi_review import grounded
 
@@ -143,7 +144,7 @@ def run_plan(scan_id: str) -> dict:
     project_id = scan["projectId"]
     try:
         with heartbeat(scan_id):
-            return _plan(scan_id, project_id)
+            return _plan(scan_id, project_id, scan_scope.parse(scan.get("scope")))
     except Cancelled:
         return {"cancelled": True}
     except Exception as exc:
@@ -173,6 +174,9 @@ class PlanResult:
     # What lining up read ({"walls": …, "geometry": …}), reused by the code's
     # own comparisons so no page is read twice.
     cache: dict = field(default_factory=dict)
+    # What the plan was built for; its price includes the scope's longer
+    # question list.
+    scope: scan_scope.Scope = scan_scope.EVERYTHING
 
 
 def live_document_ids(project_id: str) -> list[str]:
@@ -180,9 +184,14 @@ def live_document_ids(project_id: str) -> list[str]:
     return sorted({r["documentId"] for r in rows})
 
 
-def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progress=None) -> PlanResult:
+def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progress=None,
+               scope: scan_scope.Scope = scan_scope.EVERYTHING) -> PlanResult:
     """Phases 1 and 2 with no writes to any scan row: the catalogue, the pairs
-    and their line-up. `progress(fraction, detail)` is called as it goes."""
+    and their line-up. `progress(fraction, detail)` is called as it goes.
+
+    `scope` narrows the PAIRS to the chosen disciplines (scan_scope.pair_in);
+    the catalogue still reads every page, since it is cached per page and the
+    next scan may choose other disciplines."""
     report = progress or (lambda fraction, detail: None)
     last = [0.0]
 
@@ -196,7 +205,13 @@ def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progres
     facts, excluded, read = sheet_facts.catalogue(project_id, catalogue_progress, open_page=open_page)
     catalogue = sheet_facts.summary(facts, excluded)
     report(0.62, "Choosing the sheet pairs that should agree")
-    pairs, skipped = plan_rules.candidate_pairs(facts)
+    in_scope, outside = scan_scope.facts_in(scope, facts)
+    pairs, skipped = plan_rules.candidate_pairs(in_scope)
+    pairs, dropped = plan_rules.scoped_pairs(pairs, scope)
+    if outside:
+        skipped.setdefault(plan_rules.OUTSIDE_SCOPE, []).append(f"{outside} sheet(s)")
+    if dropped:
+        skipped.setdefault(plan_rules.OUTSIDE_SCOPE_PAIR, []).extend(dropped)
     open_errors: dict[str, str] = {}
     cache: dict = {}
     kept = _line_up(project_id, pairs, skipped, open_errors, open_page=open_page, check_cancel=check_cancel, cache=cache,
@@ -213,8 +228,8 @@ def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progres
     # With no page read, "nothing could be paired" restates the note above and
     # reads as a second, separate problem.
     if not kept and (facts or not kept_out):
-        notes.append(plan_rules.no_pairs_note(skipped))
-    return PlanResult(facts, excluded, read, catalogue, kept, skipped, open_errors, notes, cache)
+        notes.append(plan_rules.no_pairs_note(skipped, scope=scope))
+    return PlanResult(facts, excluded, read, catalogue, kept, skipped, open_errors, notes, cache, scope)
 
 
 def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
@@ -277,7 +292,7 @@ def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
             "(blank on one sheet, or every line both sheets draw lines up exactly). "
             f"{written} area(s) are left for the AI to compare."
         )
-    estimate = plan_rules.estimate(written)
+    estimate = plan_rules.estimate(written, scan_scope.prompt_extra_tokens(result.scope))
     _set(
         scan_id,
         status="planned",
@@ -296,7 +311,7 @@ def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
     return {"pairs": len(kept), "tiles": written, "settled": set_aside, "pages": len(result.facts)}
 
 
-def _plan(scan_id: str, project_id: str) -> dict:
+def _plan(scan_id: str, project_id: str, scope: scan_scope.Scope = scan_scope.EVERYTHING) -> dict:
     """The plan-only job ("Prepare the comparison only"): its own opener."""
     from rfi_review import _documents
 
@@ -307,7 +322,8 @@ def _plan(scan_id: str, project_id: str) -> dict:
         _set(scan_id, stage="catalogue" if fraction < 0.6 else "pairs", progress=1 + int(96 * fraction))
 
     with _documents(project_id, live_document_ids(project_id)) as open_page:
-        result = build_plan(project_id, open_page, check_cancel=lambda: _check_cancel(scan_id), progress=progress)
+        result = build_plan(project_id, open_page, check_cancel=lambda: _check_cancel(scan_id), progress=progress,
+                            scope=scope)
         import geometry_checks
 
         triage = geometry_checks.triage_tiles(result.kept, open_page, result.cache) if result.kept else None

@@ -42,6 +42,7 @@ import llm
 import logutil
 import plan_match
 import rfi_checks
+import scan_scope
 import storage
 from rfi_checks import Chunk, Finding, Page
 from rfi_grid import GridSystem
@@ -708,7 +709,8 @@ def _fail_ai_plan(full_scan_id: str, why: str) -> None:
         log.warning("rfi scan: could not mark the comparison plan %s failed: %s", full_scan_id[:8], exc)
 
 
-def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, notes: list[str]):
+def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, notes: list[str],
+                scope: scan_scope.Scope = scan_scope.EVERYTHING):
     """The pairs of sheets that should agree, lined up — built ONCE and used by
     both the code's comparisons and the AI's plan. A failure here is a note,
     never a failed scan: the text checks already ran."""
@@ -732,7 +734,7 @@ def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, 
 
     progress("pairs", detail="Finding the sheets that should agree (plans of one level, enlarged plans)")
     try:
-        return fullscan.build_plan(project_id, open_page, check_cancel=check_cancel, progress=report)
+        return fullscan.build_plan(project_id, open_page, check_cancel=check_cancel, progress=report, scope=scope)
     except fullscan.Cancelled:
         notes.append("The AI comparison's plan was cancelled, so the sheet pairs were not compared either.")
     except Exception as exc:
@@ -746,8 +748,13 @@ def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, 
 GEOMETRY_TYPES = rfi_checks.PAIR_CHECK_TYPES
 
 
-def geometry_findings(plan, pages: list[Page], open_page) -> tuple[list[Finding], list[str], set[str]]:
-    """(findings, notes, check types that failed to run)."""
+GEOMETRY_LABELS = {"grid_spacing": "grid spacing", "column_mismatch": "columns"}
+
+
+def geometry_findings(plan, pages: list[Page], open_page,
+                      only: set[str] | None = None) -> tuple[list[Finding], list[str], set[str]]:
+    """(findings, notes, check types that failed to run). `only`: the
+    comparisons a scoped scan asked for; None runs both."""
     import geometry_checks
 
     by_id = {p.id: p for p in pages}
@@ -758,6 +765,8 @@ def geometry_findings(plan, pages: list[Page], open_page) -> tuple[list[Finding]
         ("grid spacing", "grid_spacing", geometry_checks.grid_spacing_findings),
         ("columns", "column_mismatch", lambda k, b, o: geometry_checks.column_findings(k, b, o, plan.cache)),
     ):
+        if only is not None and check_type not in only:
+            continue
         try:
             found, more = check(plan.kept, by_id, open_page)
             findings += found
@@ -1094,23 +1103,98 @@ def _index_new_chunks(project_id: str, document_ids: list[str]) -> None:
         log.warning("ocr: indexing the new chunks failed (%s); a reindex will pick them up", exc)
 
 
+def _scan_scope(scan_id: str) -> scan_scope.Scope:
+    """The scope the person chose (rfi_scans.scope), or everything. Read off
+    the row, like `fresh`, so the job contract does not change; a database
+    without the column scans everything, as before."""
+    try:
+        with db.connect() as conn:
+            row = conn.execute("SELECT scope FROM rfi_scans WHERE id = %s", (scan_id,)).fetchone()
+    except Exception as exc:
+        log.warning("rfi scan %s: could not read its scope (%s); scanning everything", scan_id[:8], exc)
+        return scan_scope.EVERYTHING
+    return scan_scope.parse(row[0] if row else None)
+
+
+def _page_disciplines(pages: list[Page]) -> dict[tuple[str, int], str | None]:
+    return {(p.document_id, p.page_number): p.discipline for p in pages}
+
+
+def _disciplines_of(evidence, by_page: dict[tuple[str, int], str | None]) -> set[str | None]:
+    return {by_page.get((e.get("documentId"), e.get("pageNumber"))) for e in (evidence or []) if isinstance(e, dict)}
+
+
+def in_scope(findings: list[Finding], scope: scan_scope.Scope, pages: list[Page]) -> list[Finding]:
+    """The findings a scoped scan shows: the whole-project text checks as they
+    are (ticking them asks for the whole project), and a finding of a
+    sheet-comparing check only when its sheets are of the chosen disciplines.
+    Pure."""
+    if scope.everything:
+        return findings
+    by_page = _page_disciplines(pages)
+    project = set(scan_scope.RFI_PROJECT_CHECK_TYPES)
+    return [f for f in findings
+            if f.check_type in project or scan_scope.finding_in(scope, _disciplines_of(f.evidence, by_page))]
+
+
+def resolved_ids(rows: list[tuple], found: set[str], ran: set[str], scope: scan_scope.Scope,
+                 pages: list[Page]) -> list[str]:
+    """The pending code findings this scan may remove as resolved. Pure.
+
+    `rows` is (id, fingerprint, checkType, evidence) of every pending finding
+    the code checks wrote. A finding goes only when this scan LOOKED where it
+    is and did not find it again: its check ran, and — for a check that
+    compares sheets — its sheets are inside the comparison. "Structural vs
+    Architectural" says nothing about a grid dispute between Mechanical and
+    Architectural, so it must not delete one."""
+    by_page = _page_disciplines(pages)
+    project = set(scan_scope.RFI_PROJECT_CHECK_TYPES)
+    out = []
+    for cid, fingerprint, check_type, evidence in rows:
+        if fingerprint in found or check_type not in ran:
+            continue
+        if check_type in project or scan_scope.finding_in(scope, _disciplines_of(evidence, by_page)):
+            out.append(cid)
+    return out
+
+
 def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict:
     progress = ScanProgress(scan_id)
+    scope = _scan_scope(scan_id)
+    # The code checks this scan runs: every one, or the whole-project text
+    # checks when ticked plus the check behind each question asked.
+    ran = scan_scope.check_types(scope)
+    scoped_note = None if scope.everything else (
+        f"This scan compared {scan_scope.describe(scope)}"
+        + ("; the whole-project checks ran too." if scope.project_checks
+           else "; the whole-project checks (missing sheets, schedules, TBDs, tag ratings) were not run.")
+    )
     # ONE opener for the whole scan: each PDF is downloaded once, the first
     # time any step needs a page of it, and shared by OCR, the grid read, the
     # page facts, the sheet pairs, the code's own comparisons and pinpointing.
     # Before this the code checks and the AI comparison each downloaded and
     # read the whole set separately.
     with _opener(project_id, _document_ids(project_id)) as open_page:
-        ocr_notes = ocr_pending(project_id, progress, open_page)
+        # OCR feeds the text checks; a scan that runs none of them skips it
+        # (it is most of a scan's wall clock: 40-70s a page).
+        ocr_notes = ocr_pending(project_id, progress, open_page) if scope.project_checks else []
         progress("loading", detail="Loading the drawings' text")
         pages, chunks = load(project_id)
-        log.info("rfi scan %s: %d pages, %d text chunks", scan_id[:8], len(pages), len(chunks))
-        grids, grid_note = load_grids(project_id, pages, progress, open_page)
+        log.info("rfi scan %s: %d pages, %d text chunks (%s)", scan_id[:8], len(pages), len(chunks),
+                 scan_scope.describe(scope))
+        grids, grid_note = None, None
+        if "grid_mismatch" in ran:
+            named = scope.disciplines
+            grid_pages = pages if named is None else [p for p in pages if p.discipline in named]
+            grids, grid_note = load_grids(project_id, grid_pages, progress, open_page)
         progress("checks", detail=f"Running the code checks on {len(pages)} pages "
-                                  "(missing sheets, schedules, TBDs, tag ratings, grids)")
-        findings, notes = rfi_checks.run_all(pages, chunks, grids)
+                                  + ("(missing sheets, schedules, TBDs, tag ratings, grids)" if scope.everything
+                                     else f"({', '.join(sorted(ran)) or 'none asked'})"))
+        findings, notes = rfi_checks.run_all(pages, chunks, grids, **({} if scope.everything else {"only": ran}))
+        findings = in_scope(findings, scope, pages)
         notes = ocr_notes + notes
+        if scoped_note:
+            notes.insert(0, scoped_note)
         if grid_note:
             # Replaces run_all's generic "did not run" with the actual reason.
             notes = [n for n in notes if not n.startswith("Grid check did not run: the drawings'")]
@@ -1118,7 +1202,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
 
         # Checks that could not LOOK this time: their earlier findings are
         # kept, never removed as "resolved" — "could not look" is not "fixed".
-        not_run: set[str] = set()
+        not_run: set[str] = set(scan_scope.ALL_CHECK_TYPES) - ran
         if grids is None:
             not_run.add("grid_mismatch")
         if _pages_left_for_ocr(project_id):
@@ -1126,12 +1210,14 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             # (no engine on this worker, or the per-scan cap) were not
             # measured: their earlier illegible-schedule findings stand.
             not_run.add("illegible_schedule")
+        geometry_wanted = set(GEOMETRY_TYPES) & ran
         plan = None
-        if GEOMETRY_CHECKS or full_scan_id:
-            plan = sheet_pairs(project_id, open_page, progress, full_scan_id, notes)
-        if plan is not None and GEOMETRY_CHECKS:
-            progress("geometry", detail=f"Comparing {len(plan.kept)} sheet pair(s): grid spacing and columns")
-            found, more, failed = geometry_findings(plan, pages, open_page)
+        if (GEOMETRY_CHECKS and geometry_wanted) or full_scan_id:
+            plan = sheet_pairs(project_id, open_page, progress, full_scan_id, notes, scope)
+        if plan is not None and GEOMETRY_CHECKS and geometry_wanted:
+            progress("geometry", detail=f"Comparing {len(plan.kept)} sheet pair(s): "
+                                        + " and ".join(GEOMETRY_LABELS[t] for t in GEOMETRY_TYPES if t in geometry_wanted))
+            found, more, failed = geometry_findings(plan, pages, open_page, geometry_wanted)
             findings += found
             notes += more
             not_run |= failed
@@ -1249,16 +1335,31 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
         if locked and locked[0] != "running":
             raise ScanStopped(f"scan {scan_id[:8]} is {locked[0]}")
         found = [f.fingerprint for f in findings]
-        resolved = conn.execute(
-            """
-            DELETE FROM rfi_candidates
-             WHERE "projectId" = %s AND status = 'pending'
-               AND origin = 'deterministic_scan'
-               AND NOT (fingerprint = ANY(%s::text[]))
-               AND NOT ("checkType" = ANY(%s::text[]))
-            """,
-            (project_id, found, sorted(not_run)),
-        ).rowcount
+        if scope.everything:
+            resolved = conn.execute(
+                """
+                DELETE FROM rfi_candidates
+                 WHERE "projectId" = %s AND status = 'pending'
+                   AND origin = 'deterministic_scan'
+                   AND NOT (fingerprint = ANY(%s::text[]))
+                   AND NOT ("checkType" = ANY(%s::text[]))
+                """,
+                (project_id, found, sorted(not_run)),
+            ).rowcount
+        else:
+            # A scoped scan looked at part of the drawings: only what it looked
+            # at can have been resolved (resolved_ids).
+            rows = conn.execute(
+                """
+                SELECT id, fingerprint, "checkType", evidence FROM rfi_candidates
+                 WHERE "projectId" = %s AND status = 'pending' AND origin = 'deterministic_scan'
+                """,
+                (project_id,),
+            ).fetchall()
+            gone = resolved_ids(rows, set(found), ran - not_run, scope, pages)
+            resolved = conn.execute(
+                "DELETE FROM rfi_candidates WHERE id = ANY(%s::text[])", (gone,)
+            ).rowcount if gone else 0
         if resolved:
             notes.append(
                 f"{resolved} earlier finding(s) no longer appear in the drawings and were removed."

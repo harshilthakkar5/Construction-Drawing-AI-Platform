@@ -211,17 +211,44 @@ def kept_out_note(excluded: dict[str, int], read: int,
     return lead + "; ".join(parts) + "."
 
 
-def no_pairs_note(skipped: dict[str, list[str]], top: int = 3) -> str:
+# Reasons a sheet or pair is not in a SCOPED comparison: not a fault to fix,
+# the person chose other disciplines. Never ranked as "why nothing paired".
+OUTSIDE_SCOPE = "sheet of a discipline not chosen for this comparison"
+OUTSIDE_SCOPE_PAIR = "pair without the chosen discipline (not part of this comparison)"
+
+
+def scoped_pairs(pairs: list[Pair], scope) -> tuple[list[Pair], list[str]]:
+    """(pairs this scan compares, labels of the ones it does not). Pure."""
+    import scan_scope
+
+    kept, dropped = [], []
+    for p in pairs:
+        if scan_scope.pair_in(scope, p.a.discipline, p.b.discipline):
+            kept.append(p)
+        else:
+            dropped.append(f"{p.a.label} / {p.b.label}")
+    return kept, dropped
+
+
+def no_pairs_note(skipped: dict[str, list[str]], top: int = 3, scope=None) -> str:
     """What the plan says when NOTHING could be paired: the rule, then the
     biggest reasons with their counts, in the red box itself. Pure. The reasons
     used to sit behind a collapsed "Left out (44)", so the box read as a dead
     end on every set that named its floors in words the reader did not know."""
-    ranked = sorted(skipped.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:top]
-    lines = [
-        "No two sheets could be paired and lined up, so there is nothing for the AI to compare. "
-        "The full scan compares plans of the same level from two disciplines, or an enlarged plan with its "
-        "overall plan."
-    ]
+    import scan_scope
+
+    ranked = sorted(((why, labels) for why, labels in skipped.items()
+                     if why not in (OUTSIDE_SCOPE, OUTSIDE_SCOPE_PAIR)),
+                    key=lambda kv: (-len(kv[1]), kv[0]))[:top]
+    if scope is not None and not (scope.a == scan_scope.ALL and scope.b == scan_scope.ALL):
+        lead = (f"No sheet pair fits this comparison ({scan_scope.describe(scope)}), so there is nothing for the AI "
+                "to compare. A pair is two plans of the same level at a common scale, one from each chosen "
+                "discipline — or, within one discipline, an enlarged plan with its overall plan.")
+    else:
+        lead = ("No two sheets could be paired and lined up, so there is nothing for the AI to compare. "
+                "The full scan compares plans of the same level from two disciplines, or an enlarged plan with its "
+                "overall plan.")
+    lines = [lead]
     if ranked:
         lines.append("Most were left out because: " + "; ".join(f"{why} ({len(labels)})" for why, labels in ranked) + ".")
     return " ".join(lines)
@@ -473,16 +500,17 @@ def enlarged_windows(
 # --- The estimate -----------------------------------------------------------------------
 
 
-def estimate(tiles: int) -> dict:
+def estimate(tiles: int, extra_system: int = 0) -> dict:
     """Tokens for `tiles` discovery calls of two images each, plus a RANGE of
     close-up verification calls. The API prices it; the worker never guesses
-    a price."""
+    a price. `extra_system`: the longer question list a scoped scan sends
+    with every first look (scan_scope.prompt_extra_tokens)."""
     low = math.ceil(tiles * VERIFY_SHARE[0])
     high = math.ceil(tiles * VERIFY_SHARE[1])
     return {
         "calls": tiles,
         "images": tiles * 2,
-        "inputTokens": tiles * (2 * IMAGE_TOKENS + SYSTEM_TOKENS + WORDS_TOKENS),
+        "inputTokens": tiles * (2 * IMAGE_TOKENS + SYSTEM_TOKENS + extra_system + WORDS_TOKENS),
         "outputTokens": tiles * DISCOVERY_OUTPUT,
         "verifyCalls": {"low": low, "high": high},
         "verifyInputTokens": {"low": low * VERIFY_INPUT, "high": high * VERIFY_INPUT},
