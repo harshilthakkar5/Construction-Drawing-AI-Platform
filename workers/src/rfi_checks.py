@@ -1122,7 +1122,7 @@ def _cap(check_type: str, findings: list[Finding], notes: list[str]) -> list[Fin
 
 
 def run_all(
-    pages: list[Page], chunks: list[Chunk], grids: list | None = None
+    pages: list[Page], chunks: list[Chunk], grids: list | None = None, only: set[str] | None = None
 ) -> tuple[list[Finding], list[str]]:
     """Every check, in a fixed order. Returns (findings, notes).
 
@@ -1130,23 +1130,37 @@ def run_all(
     that needs geometry rather than text. None means it could not be read
     (the check is switched off, or storage failed), which is reported rather
     than confused with "no grids found".
+
+    `only` is the check types a scoped scan asked for (scan_scope.check_types);
+    None runs every check. A check left out is not run at all — its earlier
+    findings are the caller's to keep, never to remove as resolved.
     """
     # Imported here: rfi_grid builds on this module's Finding and helpers.
     import rfi_grid
 
+    wanted = (lambda check_type: True) if only is None else (lambda check_type: check_type in only)
     findings: list[Finding] = []
     notes: list[str] = []
-    for check in (dangling_references, unscheduled_marks, open_item_notes, tag_value_conflicts):
+    for check_type, check in (
+        ("dangling_reference", dangling_references),
+        ("unscheduled_mark", unscheduled_marks),
+        ("open_item_note", open_item_notes),
+        ("tag_value_conflict", tag_value_conflicts),
+    ):
+        if not wanted(check_type):
+            continue
         found, said = check(pages, chunks)
         findings.extend(found)
         notes.extend(said)
-    if grids is None:
-        notes.append("Grid check did not run: the drawings' grid bubbles were not read for this scan.")
-    else:
-        found, said = rfi_grid.grid_mismatches(pages, grids)
-        findings.extend(found)
-        notes.extend(said)
-    findings.extend(illegible_schedules(pages))
+    if wanted("grid_mismatch"):
+        if grids is None:
+            notes.append("Grid check did not run: the drawings' grid bubbles were not read for this scan.")
+        else:
+            found, said = rfi_grid.grid_mismatches(pages, grids)
+            findings.extend(found)
+            notes.extend(said)
+    if wanted("illegible_schedule"):
+        findings.extend(illegible_schedules(pages))
     for finding in findings:
         mark_ocr(finding)
     return findings, notes

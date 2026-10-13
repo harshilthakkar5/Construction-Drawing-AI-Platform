@@ -32,7 +32,9 @@ import type {
   RfiReviewRunDto,
   RfiReviewTarget,
   RfiReviewThinking,
+  RfiScanDisciplineDto,
   RfiScanDto,
+  RfiScanScopeDto,
   RfiStatus,
   RfiUsageTotalsDto,
   SheetRegionDto,
@@ -455,11 +457,17 @@ export const api = {
   rfiUsage: (projectId: string) =>
     request<RfiUsageTotalsDto>(`/projects/${projectId}/rfis/generated/usage`),
 
-  startRfiScan: (projectId: string, options: { fresh?: boolean } = {}) =>
+  /** `scope`: which disciplines to compare and which questions to ask;
+   * omitted = everything. */
+  startRfiScan: (projectId: string, options: { fresh?: boolean; scope?: RfiScanScopeDto } = {}) =>
     request<RfiScanDto>(`/projects/${projectId}/rfis/generated/scan`, {
       method: "POST",
-      body: JSON.stringify({ fresh: options.fresh ?? false }),
+      body: JSON.stringify({ fresh: options.fresh ?? false, ...(options.scope ? { scope: options.scope } : {}) }),
     }),
+
+  /** The disciplines this project has sheets of, for the scan's dropdowns. */
+  rfiScanDisciplines: (projectId: string) =>
+    request<RfiScanDisciplineDto[]>(`/projects/${projectId}/rfis/generated/disciplines`),
 
   /** Stop the queued or running scan; pages already read stay read. */
   stopRfiScan: (projectId: string) =>
@@ -550,8 +558,11 @@ export const api = {
 
   /** Catalogue every page, pair the sheets that should agree, count tokens.
    * No model call. */
-  planRfiFullScan: (projectId: string) =>
-    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans`, { method: "POST", body: JSON.stringify({}) }),
+  planRfiFullScan: (projectId: string, scope?: RfiScanScopeDto) =>
+    request<RfiFullScanDto>(`/projects/${projectId}/rfis/full-scans`, {
+      method: "POST",
+      body: JSON.stringify(scope ? { scope } : {}),
+    }),
 
   /** `key` makes a double click start ONE scan. */
   startRfiFullScan: (projectId: string, scanId: string, body: RfiFullScanStart, key: string) =>

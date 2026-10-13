@@ -19,6 +19,7 @@ import {
   type ScanRow,
   type WorkerEstimate,
 } from "../rfiFullScanRules.js";
+import { scopeFromRequest } from "../rfiDisciplines.js";
 import { maybeAutoStart } from "../rfiAutoStart.js";
 import { reviewModelOptions } from "../rfiReviewPlanner.js";
 
@@ -138,7 +139,18 @@ rfiFullScanRouter.post("/", summaryLimiter, async (req, res) => {
   if (open.some((s) => scanIsActive(s, now))) {
     return void res.status(409).json({ error: "a full scan of this project is already being planned or run" });
   }
-  const scan = await prisma.rfiFullScan.create({ data: { projectId, createdById: currentUser(req).id, status: "planning", stage: "queued" } });
+  // The disciplines and questions chosen on the scan screen, when given.
+  const checked = await scopeFromRequest(projectId, (req.body ?? {}).scope);
+  if ("error" in checked) return void res.status(400).json({ error: checked.error });
+  const scan = await prisma.rfiFullScan.create({
+    data: {
+      projectId,
+      createdById: currentUser(req).id,
+      status: "planning",
+      stage: "queued",
+      ...(checked.scope ? { scope: checked.scope as object } : {}),
+    },
+  });
   await rfiFullScanQueue.add("plan", { scanId: scan.id, mode: "plan" }, { jobId: `rfi-full-scan-plan-${scan.id}` });
   console.log(`[rfi-full-scan] ${scan.id.slice(0, 8)} planning for project ${projectId.slice(0, 8)}`);
   res.status(202).json(await one(projectId, scan.id));

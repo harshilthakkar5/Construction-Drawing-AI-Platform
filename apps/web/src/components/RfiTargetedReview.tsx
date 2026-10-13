@@ -468,7 +468,18 @@ export function RfiTargetedReview({
   );
 }
 
-function CheckPicker({ value, onChange }: { value: RfiReviewCheckId[]; onChange: (ids: RfiReviewCheckId[]) => void }) {
+/** The 16 original questions as a checklist, grouped like the client's list.
+ * `note` adds a line under a question (the scan screen says when one side of
+ * the comparison does not draw what it asks about). */
+export function CheckPicker({
+  value,
+  onChange,
+  note,
+}: {
+  value: RfiReviewCheckId[];
+  onChange: (ids: RfiReviewCheckId[]) => void;
+  note?: (id: RfiReviewCheckId) => string | null;
+}) {
   const sections = [...new Set(RFI_REVIEW_CHECKS.map((c) => c.sourceSection))];
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -492,6 +503,7 @@ function CheckPicker({ value, onChange }: { value: RfiReviewCheckId[]; onChange:
                       {check.id} {check.label}
                     </span>
                     <span className="text-muted-foreground block">“{check.originalQuestion}”</span>
+                    {note?.(check.id) && <span className="text-warning block">{note(check.id)}</span>}
                   </span>
                 </label>
               </li>

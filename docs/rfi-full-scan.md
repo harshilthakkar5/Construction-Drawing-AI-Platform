@@ -451,6 +451,40 @@ The decision is written on the plan, so it is taken once. It is triggered from t
 screen polls; the start is the same conditional `planned → queued` claim the Start route makes, so
 any number of callers start one run (DB test: three at once, one job).
 
+## Scoped scans: two disciplines, chosen questions (12 Oct 2026)
+
+"Scan all drawings" now starts from a choice instead of everything: **Compare** one discipline
+**against** another (each may be "All disciplines"), tick which of the 16 questions to ask, add up to
+five of your own, and decide whether the whole-project text checks run too. All disciplines on both
+sides with every question ticked is the scan as it was. The choice is stored on the scan
+(`rfi_scans.scope`, `RfiScanScopeDto`) and copied onto its step-2 plan (`rfi_full_scans.scope`);
+null on either means everything, so every older row reads as it always did.
+
+One module decides it on each side of the process boundary — `apps/api/src/rfiScanScope.ts`
+(validation and normalisation) and `workers/src/scan_scope.py` (what to pair, run and ask) — so the
+code checks, the plan and the AI comparison cannot disagree about what was asked:
+
+| | what changes |
+|---|---|
+| **Sheet pairs** | `facts_in` keeps only the chosen disciplines' sheets, so "why was this plan not paired" is answered against them; `pair_in` keeps a pair only when it is one sheet of each (X vs X: two of X — an enlarged plan with its overall; X vs all: any pair with an X sheet). The governing rule still holds: Electrical vs Plumbing has no pair, and the plan says it is two consultants' copies of one background. |
+| **Code checks** | `check_types`: the whole-project checks when ticked, plus the code check behind each question (`RFI_QUESTION_CODE_CHECKS`: G01 → grid naming and spacing, C01/C03 → the column overlay). OCR runs only with the whole-project checks (it feeds the text checks). |
+| **Resolved findings** | A scoped scan removes a pending code finding only when its check RAN and its sheets are INSIDE the comparison (`rfi_scan.resolved_ids`). "Structural vs Architectural" says nothing about a Mechanical/Architectural grid dispute, so it must not delete one. |
+| **AI questions** | The first look lists only the chosen questions — with what each asks and when it is a problem — and is told to report nothing else. The person's own questions go in a `<person_questions>` block as questions, never instructions; angle brackets are neutralised. Price includes the longer list (`scan_scope.prompt_extra_tokens`). |
+| **Per-question results** | Each first look answers every question asked: agree / issues / not_shown / unclear (`read_answers`, `rfi_full_scan_tiles.answers`). "issues" stands only where an issue for that question was listed AND placed; otherwise it is unclear, never agree. `scan_summary.byQuestion` counts them and the new findings per question; the screen shows a table, "Not shown" in its own column — footings asked of an architectural plan were absent, not checked. |
+| **Your own questions** | Ids Q1..Q5 in the run; saved with `checkType = "custom"`, fingerprinted by their WORDS (`custom_fingerprint_id`) since "Q1" is only what was typed first this time. The close look is shown the question and rejects a problem that does not answer it. Never confirmed by a code finding (no code family), so AI-only and capped at medium; the card says "Your question: …". |
+| **Nothing found** | `suggestWiderScan` (`@cdip/shared`): a finished narrow scan with no code finding and an AI step that found nothing new — or had no pair at all — offers "Scan every discipline, every question". Never run unasked: it costs more. A run stopped by its budget is not "nothing found". |
+
+Questions are pre-ticked with the ones both sides DRAW (`RFI_QUESTION_DISCIPLINES`,
+`recommendedChecks`): Structural vs Architectural gets grids, levels, floor edges and columns, not
+footings or beams. Any question can still be ticked; the list says when a side does not usually
+draw it.
+
+Measured on JETRIGHT with a stub model: Architectural vs Electrical with G01, G02 and one typed
+question — 14 areas to the AI (18 settled by code), two findings from the typed question saved as
+custom/medium, the table per question; Structural vs Architectural planned 0 pairs (the structural
+plans' titles name no level) and said so; Electrical vs Plumbing planned 0 pairs and offered the full
+scan. The stub proves the plumbing; accuracy of a scoped run is not measured any more than a full one.
+
 ## What is NOT claimed
 
 - **Accuracy.** All tests use stub models; they prove what the code does with

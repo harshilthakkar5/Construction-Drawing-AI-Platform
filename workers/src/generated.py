@@ -584,3 +584,34 @@ RFI_REVIEW_THINKING_LIMITS = {
     "min": 1024,
     "max": 32000,
 }
+
+
+# --- Scoped scans: questions answered by code, custom question ids ---
+
+RFI_QUESTION_CODE_CHECKS = {
+    "G01": [
+        "grid_mismatch",
+        "grid_spacing",
+    ],
+    "C01": [
+        "column_mismatch",
+    ],
+    "C03": [
+        "column_mismatch",
+    ],
+}
+RFI_PROJECT_CHECK_TYPES = [
+    "dangling_reference",
+    "unscheduled_mark",
+    "open_item_note",
+    "tag_value_conflict",
+    "illegible_schedule",
+]
+RFI_CUSTOM_QUESTION_IDS = [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4",
+    "Q5",
+]
+RFI_CUSTOM_QUESTION_CHARS = 300

@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, CoinsIcon, PlayIcon, RotateCcwIcon, ScanSearchIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RfiFullScanDto, RfiReviewProvider } from "@cdip/shared";
+import {
+  RFI_REVIEW_CHECKS,
+  RFI_CUSTOM_QUESTION_IDS,
+  type RfiFullScanDto,
+  type RfiQuestionResultDto,
+  type RfiReviewProvider,
+  type RfiScanScopeDto,
+} from "@cdip/shared";
 import { api, type RfiFullScanList } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
+import { scopeLine } from "@/components/RfiScanScope";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,7 +93,17 @@ export function canPlanFullScan(scan: RfiFullScanDto | null | undefined): boolea
  * two buttons for one job; they are one scan now. The button above prepares
  * this plan for free, and the AI is used only when the person starts it.
  */
-export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFinished: () => void }) {
+export function RfiFullScan({
+  projectId,
+  onFinished,
+  scope,
+}: {
+  projectId: string;
+  onFinished: () => void;
+  /** What "Prepare a new comparison" plans: the disciplines and questions
+   * chosen on the scan screen. */
+  scope?: RfiScanScopeDto;
+}) {
   const queryClient = useQueryClient();
   const list = useQuery({
     queryKey: ["rfi-full-scans", projectId],
@@ -111,7 +129,7 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
     last.current = scan?.status;
   }, [scan?.status]);
 
-  const plan = useMutation({ mutationFn: () => api.planRfiFullScan(projectId), onSuccess: setScan });
+  const plan = useMutation({ mutationFn: () => api.planRfiFullScan(projectId, scope), onSuccess: setScan });
   const cancel = useMutation({ mutationFn: (id: string) => api.cancelRfiFullScan(projectId, id), onSuccess: setScan });
 
   if (list.isLoading) return <Spinner />;
@@ -131,6 +149,7 @@ export function RfiFullScan({ projectId, onFinished }: { projectId: string; onFi
         )}
       </div>
 
+      {scan && <p className="text-muted-foreground text-xs">Comparing: {scopeLine(scan.scope)}</p>}
       {scan && <AutoStartLine scan={scan} />}
       {scan && ACTIVE.has(scan.status) && <Running scan={scan} onCancel={() => cancel.mutate(scan.id)} cancelling={cancel.isPending} />}
       {scan?.status === "planned" && (
@@ -411,6 +430,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
         {scan.spent.costUsd !== null ? money(scan.spent.costUsd) : `${tokens(scan.spent.inputTokens + scan.spent.outputTokens)} tokens`}
         {scan.findings > 0 ? " — they are in “Needs your review” below." : "."}
       </p>
+      {scan.summary?.byQuestion && <QuestionResults results={scan.summary.byQuestion} scope={scan.scope} />}
       {scan.summary && <Outcome summary={scan.summary} />}
       {stopped && (
         <div className="flex flex-col gap-2">
@@ -434,6 +454,52 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
         <MarkedUpPdfButton projectId={projectId} fullScanId={scan.id} label="Marked-up PDF of the findings" />
       )}
       <RfiDiagnosticsButton projectId={projectId} kind="full-scan" runId={scan.id} />
+    </div>
+  );
+}
+
+/** What a question's id names: the catalogue label, or the person's own words. */
+function questionName(id: string, scope: RfiScanScopeDto | null): string {
+  const custom = (RFI_CUSTOM_QUESTION_IDS as readonly string[]).indexOf(id);
+  if (custom >= 0) return scope?.customQuestions[custom] ? `“${scope.customQuestions[custom]}”` : "Your question";
+  const check = RFI_REVIEW_CHECKS.find((c) => c.id === id);
+  return check ? `${check.id} ${check.label}` : id;
+}
+
+/**
+ * How each question fared, area by area. "Not shown" is its own column, never
+ * folded into "agree": footings asked of an architectural plan were not
+ * checked, they were absent.
+ */
+function QuestionResults({ results, scope }: { results: Record<string, RfiQuestionResultDto>; scope: RfiScanScopeDto | null }) {
+  const rows = Object.entries(results);
+  if (!rows.length) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-xs">
+        <thead className="text-muted-foreground">
+          <tr>
+            <th className="py-1 pr-2 font-medium">Question</th>
+            <th className="px-1 py-1 text-right font-medium" title="New findings saved for review">RFIs</th>
+            <th className="px-1 py-1 text-right font-medium" title="Areas where both sheets show it and agree">Agree</th>
+            <th className="px-1 py-1 text-right font-medium" title="Areas where a sheet does not draw what it asks about">Not shown</th>
+            <th className="px-1 py-1 text-right font-medium" title="Areas the AI could not judge">Unclear</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([id, r]) => (
+            <tr key={id} className="border-t">
+              <td className="py-1 pr-2">{questionName(id, scope)}</td>
+              <td className={`px-1 py-1 text-right ${r.findings ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
+                {r.findings}
+              </td>
+              <td className="text-muted-foreground px-1 py-1 text-right">{r.agree}</td>
+              <td className="text-muted-foreground px-1 py-1 text-right">{r.notShown}</td>
+              <td className={`px-1 py-1 text-right ${r.unclear ? "text-warning" : "text-muted-foreground"}`}>{r.unclear}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

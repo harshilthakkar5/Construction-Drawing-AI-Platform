@@ -8,6 +8,7 @@ import type {
   RfiFullScanPairDto,
   RfiFullScanStatus,
 } from "@cdip/shared";
+import { scopeOf } from "./rfiScanScope.js";
 import { estimateCostUsd, pricingConfidence, rateFor } from "./usage.js";
 
 /**
@@ -181,6 +182,7 @@ export interface ScanRow {
   skipped: unknown;
   estimate: unknown;
   autoStart?: unknown;
+  scope?: unknown;
   limits: unknown;
   notes: unknown;
   findings: number;
@@ -290,6 +292,7 @@ export function toFullScanDto(
     estimate: priceEstimate((scan.estimate ?? null) as WorkerEstimate | null, scan.model ?? defaultModel, scan.useBatch),
     limits: limits && typeof limits.maxTotalTokens === "number" ? limits : null,
     autoStart: autoStartOf(scan.autoStart),
+    scope: scopeOf(scan.scope),
     tiles,
     spent,
     findings: scan.findings,

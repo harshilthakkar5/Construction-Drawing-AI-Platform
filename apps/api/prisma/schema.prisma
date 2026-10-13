@@ -718,6 +718,10 @@ model RfiScan {
   /// ones and findings whose RFI was voided. False is the ordinary scan, which
   /// words only findings it has never seen.
   fresh         Boolean       @default(false)
+  /// What this scan compares and asks (RfiScanScopeDto): two disciplines,
+  /// the catalogue questions, the person's own questions, and whether the
+  /// whole-project text checks run. Null = everything.
+  scope         Json?
   error         String?
   /// What the worker is doing right now, written as it goes: the step
   /// (ocr | grids | checks | pinpoint | wording | saving), 0-100, and a line
@@ -899,6 +903,9 @@ model RfiFullScan {
   /// drawings" from projects.rfiAutoScanUsd, then the decision once the plan
   /// was priced — {decision: started|over_limit|no_price|no_key|nothing, ...}.
   autoStart       Json?
+  /// The scan's scope, copied when the plan is made: which sheet pairs are
+  /// built and which questions the AI is asked. Null = everything.
+  scope           Json?
   /// maxTotalTokens and the dollar budget it was set from.
   limits          Json?
   /// documentId -> page count at plan time; a run on a changed set is stale.
@@ -950,6 +957,8 @@ model RfiFullScanTile {
   outcome     String?
   /// Why the model said unclear/misaligned, in its words.
   outcomeNote String?
+  /// The first look's answer per question asked: {G01: agree|issues|not_shown|unclear, Q1: ...}.
+  answers     Json?
   /// Possible problems dropped while parsing, with the reason and the raw item.
   dropped     Json?
   error       String?

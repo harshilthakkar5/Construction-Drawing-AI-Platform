@@ -13,12 +13,16 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+  fullScope,
+  isNarrowScope,
   RFI_CHECK_LABELS,
   RFI_REVIEW_CHECKS,
+  suggestWiderScan,
   type RfiCandidateDto,
   type RfiConfidence,
   type RfiEvidenceDto,
   type RfiScanDto,
+  type RfiScanScopeDto,
   type RfiScanUsageDto,
   type RfiUsageTotalsDto,
 } from "@cdip/shared";
@@ -31,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RfiFullScan } from "@/components/RfiFullScan";
+import { loadScope, saveScope, ScanScopeForm, scopeLine, scopeReady, scopeToSend } from "@/components/RfiScanScope";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -89,6 +94,7 @@ const ORIGIN: Record<string, { label: string; hint: string }> = {
 };
 
 const checkLabel = (checkType: string) =>
+  (checkType === "custom" ? "Your own question" : null) ??
   (RFI_CHECK_LABELS as Record<string, string>)[checkType] ??
   RFI_REVIEW_CHECKS.find((c) => c.id === checkType)?.label ??
   checkType;
@@ -145,6 +151,13 @@ export function RfiReview({ projectId }: { projectId: string }) {
     },
   });
   const scanning = scan.data?.status === "queued" || scan.data?.status === "running";
+  // What to compare and ask — remembered per project in this browser.
+  const [scope, setScopeState] = useState<RfiScanScopeDto>(() => loadScope(projectId));
+  const setScope = (next: RfiScanScopeDto) => {
+    setScopeState(next);
+    saveScope(projectId, next);
+  };
+  const [showScope, setShowScope] = useState(true);
   const [showUsage, setShowUsage] = useState(false);
   const [confirmFresh, setConfirmFresh] = useState(false);
   const usageTotals = useQuery({
@@ -182,8 +195,9 @@ export function RfiReview({ projectId }: { projectId: string }) {
   }, [scan.data?.status]);
 
   const start = useMutation({
-    mutationFn: async (fresh: boolean) => {
-      const started = await api.startRfiScan(projectId, { fresh });
+    mutationFn: async (args: boolean | { fresh: boolean; scope: RfiScanScopeDto }) => {
+      const { fresh, scope: chosen } = typeof args === "boolean" ? { fresh: args, scope } : args;
+      const started = await api.startRfiScan(projectId, { fresh, scope: scopeToSend(chosen) });
       // Step 2's plan is prepared by the same scan, in the same pass over the
       // drawings (the API creates it with the scan): free, no AI call, and its
       // price is on screen by the time the checks finish.
@@ -193,6 +207,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
     onSuccess: (started) => {
       queryClient.setQueryData(["rfi-scan", projectId], started);
       setConfirmFresh(false);
+      setShowScope(false);
     },
   });
   const stop = useMutation({
@@ -220,6 +235,12 @@ export function RfiReview({ projectId }: { projectId: string }) {
   });
 
   const candidates = pending.data?.candidates ?? [];
+  const stepTwo = scan.data?.fullScanId ? fullScan.data?.scans.find((s) => s.id === scan.data!.fullScanId) : null;
+  const wider = suggestWiderScan(scan.data, stepTwo);
+  const scanEverything = () => {
+    setScope(fullScope());
+    start.mutate({ fresh: false, scope: fullScope() });
+  };
   const highCount = candidates.filter((c) => c.confidence === "high").length;
   const dismissedCount = pending.data?.counts.dismissed ?? 0;
   const busy = accept.isPending || dismiss.isPending || acceptAll.isPending;
@@ -249,11 +270,25 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </div>
       ) : (
       <div className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3">
+        {!scanning && (showScope || !scan.data) ? (
+          <ScanScopeForm projectId={projectId} value={scope} onChange={setScope} disabled={start.isPending} />
+        ) : (
+          !scanning && (
+            <button
+              type="button"
+              className="text-muted-foreground flex items-center gap-1 self-start text-left text-xs hover:underline"
+              onClick={() => setShowScope(true)}
+            >
+              {scopeLine(scope)} · change
+              <ChevronDownIcon className="size-3" />
+            </button>
+          )
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             onClick={() => start.mutate(false)}
-            disabled={scanning || start.isPending}
+            disabled={scanning || start.isPending || !scopeReady(scope)}
             title={scan.data ? "Look for gaps added since the last scan" : undefined}
           >
             {scanning || start.isPending ? <Spinner /> : <ScanSearchIcon />}
@@ -261,9 +296,11 @@ export function RfiReview({ projectId }: { projectId: string }) {
               ? scan.data?.fresh
                 ? "Rescanning from scratch…"
                 : "Scanning drawings…"
-              : scan.data
-                ? "Scan again"
-                : "Find RFIs in drawings"}
+              : isNarrowScope(scope)
+                ? "Compare and find RFIs"
+                : scan.data
+                  ? "Scan again"
+                  : "Find RFIs in drawings"}
           </Button>
           {scanning && (
             <Button
@@ -282,7 +319,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
               size="sm"
               variant="outline"
               onClick={() => setConfirmFresh(true)}
-              disabled={start.isPending}
+              disabled={start.isPending || !scopeReady(scope)}
               title="Re-check every sheet and re-word every open finding, including ones you dismissed"
             >
               <RefreshCwIcon />
@@ -317,6 +354,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
                 <span className="text-muted-foreground text-xs">{scanSummary(scan.data)}</span>
               )}
             </div>
+            <p className="text-muted-foreground text-xs">Compared: {scopeLine(scan.data.scope)}</p>
             {scan.data.status === "completed" && scan.data.usage && (
               <ScanUsage
                 usage={scan.data.usage}
@@ -361,8 +399,25 @@ export function RfiReview({ projectId }: { projectId: string }) {
 
         {fullScanOffered && (scan.data || fullScan.data?.scans[0]) && (
           <div className="border-t pt-3">
-            <RfiFullScan projectId={projectId} onFinished={refreshAll} />
+            {scan.data?.scope && !scan.data.fullScanId && !scanning &&
+            scan.data.scope.checkIds.length === 0 && scan.data.scope.customQuestions.length === 0 ? (
+              <p className="text-muted-foreground text-xs">
+                <strong className="text-foreground">2 · AI sheet comparison</strong> — not prepared: this scan
+                asked no question of it.
+              </p>
+            ) : (
+              <RfiFullScan projectId={projectId} onFinished={refreshAll} scope={scopeToSend(scope)} />
+            )}
           </div>
+        )}
+        {wider && !scanning && (
+          <WiderScanOffer
+            reason={wider}
+            scope={scan.data?.scope ?? null}
+            notJudged={stepTwo?.summary ? (stepTwo.summary.areas.unclear ?? 0) + (stepTwo.summary.areas.misaligned ?? 0) + (stepTwo.summary.areas.unstated ?? 0) : 0}
+            busy={start.isPending}
+            onScan={scanEverything}
+          />
         )}
       </div>
       )}
@@ -472,6 +527,50 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A narrow comparison that found nothing: say what that does and does not
+ * mean, and offer the scan of everything — never run it unasked, since it
+ * costs more than the comparison did.
+ */
+function WiderScanOffer({
+  reason,
+  scope,
+  notJudged,
+  busy,
+  onScan,
+}: {
+  reason: "no_pairs" | "nothing_found";
+  scope: RfiScanScopeDto | null;
+  notJudged: number;
+  busy: boolean;
+  onScan: () => void;
+}) {
+  return (
+    <div className="bg-background flex flex-col gap-2 rounded-md border p-3 text-xs" role="status">
+      <p>
+        <strong>
+          {reason === "no_pairs"
+            ? "No sheet pair fits this comparison"
+            : "No RFIs found for this comparison"}
+        </strong>{" "}
+        ({scopeLine(scope)}).{" "}
+        {reason === "no_pairs"
+          ? "The AI had nothing to compare — the plan's notes say why each sheet was left out."
+          : "That does not prove the drawings agree" +
+            (notJudged > 0 ? `: ${notJudged} area${notJudged === 1 ? " was" : "s were"} not judged.` : ".")}
+      </p>
+      <p className="text-muted-foreground">
+        The full scan compares every discipline that should agree, on every question. Its AI step is priced
+        before anything is spent.
+      </p>
+      <Button size="sm" variant="outline" className="self-start" disabled={busy} onClick={onScan}>
+        {busy ? <Spinner /> : <ScanSearchIcon />}
+        Scan every discipline, every question
+      </Button>
+    </div>
   );
 }
 

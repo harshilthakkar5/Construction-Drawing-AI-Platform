@@ -6,6 +6,7 @@ import {
   type RfiCandidateStatus,
   type RfiConfidence,
   type RfiEvidenceDto,
+  type RfiScanScopeDto,
   type RfiUsageTotalsDto,
 } from "@cdip/shared";
 import { currentUser } from "../auth.js";
@@ -18,6 +19,8 @@ import type { RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
 import { maybeAutoStartForScan } from "../rfiAutoStart.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
+import { asksQuestions, describeScope } from "../rfiScanScope.js";
+import { projectDisciplines, scopeFromRequest } from "../rfiDisciplines.js";
 
 /**
  * Generated RFIs: scan the drawings, review what was found, keep what is real.
@@ -49,6 +52,10 @@ const scanBody = z.object({
   /** Rescan from scratch: re-word every open finding, reopen dismissed ones
    * and those whose RFI was voided. Never touches a live RFI. */
   fresh: z.boolean().default(false),
+  /** Which disciplines to compare and which questions to ask (scopeInput,
+   * checked in scopeFromRequest). Absent = all of them, which is what every
+   * scan before this did. */
+  scope: z.unknown().optional(),
 });
 const acceptAllBody = z.object({
   minConfidence: z.enum(RFI_CONFIDENCES as [RfiConfidence, ...RfiConfidence[]]).default("high"),
@@ -155,9 +162,19 @@ rfiGeneratedRouter.get("/usage", async (req, res) => {
  * (the upsert is idempotent) but a waste of the wording calls. A scan stuck
  * past STALE_SCAN_MS does not block: see scanIsActive.
  */
+/**
+ * The disciplines this project has sheets of, for the scan's two dropdowns —
+ * only pages RFI analysis may read (current revisions, processed, not an RFI
+ * document). `plans` stays null until a scan has read what each sheet is.
+ */
+rfiGeneratedRouter.get("/disciplines", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  res.json(await projectDisciplines(projectId));
+});
+
 rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
-  const { fresh } = scanBody.parse(req.body ?? {});
+  const { fresh, scope: scopeRequest } = scanBody.parse(req.body ?? {});
   const actor = currentUser(req);
 
   const documents = await prisma.document.count({
@@ -181,10 +198,15 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   // the worker lines the sheet pairs up once, compares them in code, and
   // writes the plan with every area the code could settle set aside. Still
   // no AI call — the person starts step 2, priced.
+  const checked = await scopeFromRequest(projectId, scopeRequest);
+  if ("error" in checked) return void res.status(400).json({ error: checked.error });
+  const { scope } = checked;
+
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { rfiAutoScanUsd: true } });
-  const fullScanId = await prepareStepTwo(projectId, actor.id, project.rfiAutoScanUsd);
+  // A scope with no question has nothing for the AI to ask: no step 2.
+  const fullScanId = asksQuestions(scope) ? await prepareStepTwo(projectId, actor.id, project.rfiAutoScanUsd, scope) : null;
   const scan = await prisma.rfiScan.create({
-    data: { projectId, requestedById: actor.id, fresh, fullScanId },
+    data: { projectId, requestedById: actor.id, fresh, fullScanId, ...(scope ? { scope: scope as object } : {}) },
   });
   const job = await rfiScanQueue.add("scan", { projectId, scanId: scan.id });
   const updated = await prisma.rfiScan.update({
@@ -192,7 +214,7 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
     data: { jobId: job.id ?? null },
   });
   console.log(
-    `[rfis] ${fresh ? "full rescan" : "scan"} ${scan.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)}`,
+    `[rfis] ${fresh ? "full rescan" : "scan"} ${scan.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)}: ${describeScope(scope)}`,
   );
   res.status(202).json(toScanDto(updated, estimateCostUsd));
 });
@@ -252,7 +274,12 @@ rfiGeneratedRouter.post("/scan/stop", async (req, res) => {
 /** A step-2 plan row for the scan to fill, or null when the AI comparison is
  * off or one is already being planned or run. An unstarted older plan is
  * cancelled: the new one is built from the current drawings and findings. */
-async function prepareStepTwo(projectId: string, userId: string, autoLimitUsd: number | null): Promise<string | null> {
+async function prepareStepTwo(
+  projectId: string,
+  userId: string,
+  autoLimitUsd: number | null,
+  scope: RfiScanScopeDto | null,
+): Promise<string | null> {
   if (fullScanAvailability() === "off") return null;
   const now = new Date();
   const latest = await prisma.rfiFullScan.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
@@ -285,6 +312,8 @@ async function prepareStepTwo(projectId: string, userId: string, autoLimitUsd: n
       heartbeatAt: now,
       // The limit as it stands when the button is pressed (rfiAutoStart.ts).
       ...(autoLimitUsd && autoLimitUsd > 0 ? { autoStart: { limitUsd: autoLimitUsd } } : {}),
+      // Which sheet pairs the worker builds and which questions the AI is asked.
+      ...(scope ? { scope: scope as object } : {}),
     },
   });
   return plan.id;

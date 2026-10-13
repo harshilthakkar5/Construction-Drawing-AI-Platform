@@ -847,7 +847,8 @@ def test_the_note_on_an_unclear_area_is_kept():
 
 
 class _StubRun:
-    per_discovery = 1000
+    per_call = 1000
+    allowed = None  # every catalogue question, as an unscoped scan
 
     def __init__(self, replies, room=10**9):
         self.replies, self.asked, self._room = list(replies), [], room
@@ -1035,3 +1036,62 @@ def test_a_height_claimed_from_a_plan_needs_printed_evidence():
 def test_both_looks_are_told_background_linework_is_not_design():
     for prompt in (fr.discovery_system(), fr.verify_system()):
         assert "BACKGROUND linework" in prompt and "moves in plan, not up" in prompt
+
+
+@needs_db
+def test_a_scoped_run_asks_only_its_questions_and_files_the_persons_own_as_custom(database, monkeypatch):
+    """The person chose C01 and typed one question of their own. The first
+    look is asked those and nothing else; a problem raised for the typed
+    question is saved as "custom", says which question it answers, and is
+    never above medium — no code check can confirm a question it was not
+    written for."""
+    seed = _seed(database)
+    own = "Do the slab openings on the two sheets line up?"
+    with database.connect() as conn:
+        conn.execute("UPDATE rfi_full_scans SET scope = %s WHERE id = %s",
+                     (json.dumps({"disciplineA": "structural", "disciplineB": "architectural", "checkIds": ["C01"],
+                                  "customQuestions": [own], "projectChecks": False}), seed["scan"]))
+    systems, verify_users = [], []
+
+    class Scoped(Stub):
+        def complete(self, system, user, **kw):
+            if "confirm or reject" in system:
+                verify_users.append(user)
+            else:
+                systems.append(system)
+            return super().complete(system, user, **kw)
+
+        def _issues(self, labels):
+            return [dict(i, checkId="Q1") for i in super()._issues(labels)]
+
+    stub = Scoped(issue_on=(1,))
+    real = Stub.complete
+
+    def complete(self, system, user, **kw):
+        reply = real(self, system, user, **kw)
+        if "confirm or reject" in system:
+            return reply
+        data = json.loads(reply.text)
+        data["answers"] = {"C01": "agree", "Q1": "agree", "G01": "agree"}
+        return llm.Reply(text=json.dumps(data), stop_reason="end_turn")
+
+    import llm
+
+    monkeypatch.setattr(Stub, "complete", complete)
+    _install(monkeypatch, stub)
+    fullscan.handle(seed["scan"], "run")
+
+    assert systems and all("- C01:" in s and "- G01:" not in s and own in s for s in systems)
+    assert verify_users and own in verify_users[0].split("<question>")[1].split("</question>")[0]
+    with database.connect() as conn:
+        check_type, confidence, reasoning = conn.execute(
+            'SELECT "checkType", confidence::text, reasoning FROM rfi_candidates WHERE "fullScanId" = %s',
+            (seed["scan"],)).fetchone()
+        summary, = conn.execute("SELECT summary FROM rfi_full_scans WHERE id = %s", (seed["scan"],)).fetchone()
+        answers = [r[0] for r in conn.execute(
+            'SELECT answers FROM rfi_full_scan_tiles WHERE "scanId" = %s ORDER BY "tileIndex"', (seed["scan"],))]
+    assert (check_type, confidence) == ("custom", "medium") and reasoning.startswith(f'Your question: "{own}" — ')
+    # G01 was not asked, so its answer is dropped; Q1 is "issues" only where one was shown.
+    assert answers == [{"C01": "agree", "Q1": "agree"}, {"C01": "agree", "Q1": "issues"}, {"C01": "agree", "Q1": "agree"}]
+    assert summary["byQuestion"]["Q1"] == {"issues": 1, "agree": 2, "notShown": 0, "unclear": 0, "findings": 1}
+    assert summary["byQuestion"]["C01"]["agree"] == 3 and "G01" not in summary["byQuestion"]

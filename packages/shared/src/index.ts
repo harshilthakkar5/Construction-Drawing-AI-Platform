@@ -986,6 +986,12 @@ export interface RfiScanDto {
   usage: RfiScanUsageDto | null;
   /** A "Rescan from scratch" rather than an ordinary scan. */
   fresh: boolean;
+  /** What was compared and asked; null = everything (every scan before
+   * scoped scans existed). */
+  scope: RfiScanScopeDto | null;
+  /** The step-2 plan this scan prepared, or null when it prepared none (the
+   * AI comparison is off, or the scope asked no question of it). */
+  fullScanId: string | null;
   error: string | null;
   /** Ended by a person's Stop (POST /scan/stop), not by a failure. */
   stopped?: boolean;
@@ -1720,6 +1726,9 @@ export interface RfiFullScanDto {
    * null when the plan was not made with one. `decision` null = not decided
    * yet (the plan is still being prepared). */
   autoStart: RfiFullScanAutoStartDto | null;
+  /** The disciplines and questions this comparison was planned for; null =
+   * everything. */
+  scope: RfiScanScopeDto | null;
   notes: string[];
   error: string | null;
   createdAt: string;
@@ -1761,6 +1770,170 @@ export interface RfiFullScanSummaryDto {
   areasTotal: number;
   pagesCompared: number;
   pagesRead: number | null;
+  /** Per question asked (catalogue ids and Q1..Q5). Absent on runs that
+   * predate scoped scans. */
+  byQuestion?: Record<string, RfiQuestionResultDto>;
+}
+
+// --- "Scan all drawings": which disciplines and which questions -------------------
+//
+// The scan used to be all or nothing: every sheet pair, the 16 questions as one
+// list. A person usually asks a narrower thing — "do Structural and
+// Architectural agree on grids and columns?" — so a scan carries a SCOPE: two
+// disciplines (each "all" for every one), the catalogue questions to ask, up
+// to five of their own, and whether the whole-project text checks (missing
+// sheets, schedule marks, TBDs, tag ratings) run too. Stored on rfi_scans and
+// copied onto the step-2 plan; null on either means everything, which is what
+// every scan before this was.
+
+/** One side of the comparison: a discipline, or every discipline. */
+export type RfiScanSide = Discipline | "all";
+
+export interface RfiScanScopeDto {
+  disciplineA: RfiScanSide;
+  disciplineB: RfiScanSide;
+  checkIds: RfiReviewCheckId[];
+  /** The person's own questions, verbatim. Asked of the AI comparison only —
+   * no code check can answer a question it was not written for — so every
+   * finding from one is AI-only and never above medium. */
+  customQuestions: string[];
+  /** Also run the text checks that read the whole project rather than a
+   * sheet pair: missing sheets, schedule marks, open notes, tag ratings,
+   * illegible schedules. */
+  projectChecks: boolean;
+}
+
+export const RFI_CUSTOM_QUESTION_MAX = 5;
+export const RFI_CUSTOM_QUESTION_CHARS = 300;
+/** The ids custom questions carry through the AI comparison, in order. */
+export const RFI_CUSTOM_QUESTION_IDS = ["Q1", "Q2", "Q3", "Q4", "Q5"] as const;
+
+/**
+ * The code checks that answer each catalogue question exactly (no AI): G01
+ * by the grid naming and spacing comparisons, C01 and C03 by the column
+ * overlay. A question with none here is answered by the AI comparison alone.
+ * The worker reads this (generated.py) to run only what was asked.
+ */
+export const RFI_QUESTION_CODE_CHECKS: Partial<Record<RfiReviewCheckId, readonly RfiCheckType[]>> = {
+  G01: ["grid_mismatch", "grid_spacing"],
+  C01: ["column_mismatch"],
+  C03: ["column_mismatch"],
+};
+
+/** The whole-project text checks — run when `projectChecks` is ticked. */
+export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
+  "dangling_reference",
+  "unscheduled_mark",
+  "open_item_note",
+  "tag_value_conflict",
+  "illegible_schedule",
+];
+
+/**
+ * Which disciplines DRAW what each question asks about. A question is worth
+ * asking of a pair only when both sides draw it: footings are on structural
+ * sheets and never on architectural ones, so "Structural vs Architectural,
+ * F01" can only ever answer "not shown". Absent = every discipline (grids
+ * and levels are on every plan). Used to pre-tick questions, never to refuse
+ * one: a person may still ask.
+ */
+export const RFI_QUESTION_DISCIPLINES: Partial<Record<RfiReviewCheckId, readonly Discipline[]>> = {
+  F01: ["structural", "civil"],
+  F02: ["structural", "civil"],
+  F03: ["structural", "civil"],
+  F04: ["structural", "civil"],
+  FL01: ["structural", "architectural"],
+  FL02: ["structural", "architectural"],
+  FL03: ["structural", "architectural"],
+  FL04: ["structural", "architectural"],
+  C01: ["structural", "architectural"],
+  C02: ["structural", "architectural"],
+  C03: ["structural"],
+  B01: ["structural"],
+  B02: ["structural"],
+  B03: ["structural"],
+};
+
+/** The questions both sides of a comparison draw — the ones pre-ticked. */
+export function recommendedChecks(a: RfiScanSide, b: RfiScanSide): RfiReviewCheckId[] {
+  const draws = (side: RfiScanSide, id: RfiReviewCheckId) => {
+    const who = RFI_QUESTION_DISCIPLINES[id];
+    return side === "all" || !who || who.includes(side);
+  };
+  return RFI_REVIEW_CHECK_IDS.filter((id) => draws(a, id) && draws(b, id));
+}
+
+/** Everything: what a scan with no scope did, and still does. */
+export function fullScope(): RfiScanScopeDto {
+  return {
+    disciplineA: "all",
+    disciplineB: "all",
+    checkIds: [...RFI_REVIEW_CHECK_IDS],
+    customQuestions: [],
+    projectChecks: true,
+  };
+}
+
+/** Whether a scope asks for less than everything. Pure. */
+export function isNarrowScope(scope: RfiScanScopeDto | null | undefined): boolean {
+  if (!scope) return false;
+  return (
+    scope.disciplineA !== "all" ||
+    scope.disciplineB !== "all" ||
+    scope.checkIds.length < RFI_REVIEW_CHECK_IDS.length ||
+    scope.customQuestions.length > 0 ||
+    !scope.projectChecks
+  );
+}
+
+/**
+ * Whether a finished NARROW scan should offer the full one: it found nothing
+ * new, so the next question is "what about everything else?". Pure; the
+ * screen shows the offer, never runs it by itself.
+ *
+ *   no_pairs       the AI comparison had no sheet pair to look at
+ *   nothing_found  the code checks and the AI comparison found nothing new
+ *
+ * A run stopped part way (budget, failure) is not "nothing found": it did
+ * not finish looking. A finding already on file, or one that confirmed a
+ * code finding, is something found.
+ */
+export function suggestWiderScan(
+  scan: Pick<RfiScanDto, "status" | "scope" | "findings" | "fullScanId"> | null | undefined,
+  full: Pick<RfiFullScanDto, "id" | "status" | "pairs" | "summary"> | null | undefined,
+): "no_pairs" | "nothing_found" | null {
+  if (!scan || scan.status !== "completed" || !isNarrowScope(scan.scope) || scan.findings > 0) return null;
+  if (!scan.fullScanId) return "nothing_found";
+  if (!full || full.id !== scan.fullScanId) return null;
+  if (full.status === "planned" && full.pairs.length === 0) return "no_pairs";
+  if (full.status !== "ready" || !full.summary) return null;
+  const s = full.summary;
+  return s.newFindings === 0 && s.foundAgain.length === 0 && (s.confirmsCode ?? []).length === 0 ? "nothing_found" : null;
+}
+
+/** A discipline present in the project, for the two dropdowns. */
+export interface RfiScanDisciplineDto {
+  discipline: Discipline;
+  label: string;
+  /** Live sheets of this discipline that RFI analysis may read. */
+  sheets: number;
+  /** Of those, the ones read as plans — what the AI comparison pairs. Null
+   * until a scan has read what each sheet is. */
+  plans: number | null;
+}
+
+/** How one question fared in a finished comparison (fullscan_run.scan_summary). */
+export interface RfiQuestionResultDto {
+  /** Areas where the AI saw a disagreement for this question. */
+  issues: number;
+  /** Areas where both sheets show it and they agree. */
+  agree: number;
+  /** Areas where neither or only one sheet draws what the question asks about. */
+  notShown: number;
+  /** Areas it could not judge. */
+  unclear: number;
+  /** Findings saved for this question by this run (new ones). */
+  findings: number;
 }
 
 /** RFI_FULL_SCAN on the API: `off` hides the feature, `beta` runs it with the
