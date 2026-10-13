@@ -865,6 +865,7 @@ export const RFI_CHECK_LABELS = {
   grid_mismatch: "Grid line named differently between drawings",
   tag_value_conflict: "Same equipment tag, different rating on two drawings",
   illegible_schedule: "Schedule pasted as a picture too coarse to read",
+  missing_plan_level: "Level missing from a series of plans",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -1827,6 +1828,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "open_item_note",
   "tag_value_conflict",
   "illegible_schedule",
+  "missing_plan_level",
 ];
 
 /**

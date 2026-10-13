@@ -420,7 +420,7 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
             "Grid check: " + ", ".join(sorted(several_views)[:6]) + " show the same grid label in two places "
             "(several views on one sheet), so their grids were not compared with other sheets."
         )
-    groups, singles = _merge_by_discipline(found, by_page)
+    groups, singles = _merge_by_discipline(found, by_page, line_aliases(systems, by_page))
     findings: list[Finding] = [_merged_finding(group, by_page) for group in groups]
     for fp, entry in singles.items():
         a, b, renamed = entry["a"], entry["b"], entry["renamed"]
@@ -485,7 +485,27 @@ def _discipline(page: Page) -> str:
     return (page.discipline or "unknown").replace("_", " ")
 
 
-def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page]) -> tuple[list[dict], dict[str, dict]]:
+def line_aliases(systems: list[GridSystem], pages: dict[str, Page]) -> dict[str, set[frozenset[str]]]:
+    """Per discipline, the pairs of names one drawn line carries (grid.shared_lines):
+    UT Law's structural sheets bubble one line "2.3" at one end and "2.4" at
+    the other, and "1.4"/"1.5" the same way. Only pairs — a group of three is
+    an enlarged plan whose bubbles were all pushed to one edge."""
+    from grid import shared_lines
+
+    out: dict[str, set[frozenset[str]]] = {}
+    for system in systems:
+        page = pages.get(system.page_id)
+        if page is None:
+            continue
+        for axis in (system.along_x, system.along_y):
+            for group in shared_lines(axis):
+                if len(group) == 2:
+                    out.setdefault(_discipline(page), set()).add(frozenset(group))
+    return out
+
+
+def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page],
+                         aliases: dict[str, set[frozenset[str]]] | None = None) -> tuple[list[dict], dict[str, dict]]:
     """One naming dispute between two disciplines is ONE RFI.
 
     Laid over each other sheet by sheet, the structural and architectural
@@ -510,6 +530,11 @@ def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page]) -> tupl
             continue
         by_pair.setdefault(tuple(sorted((da, db))), []).append((fp, entry))
 
+    aliases = aliases or {}
+
+    def same(side: str, x: str, y: str) -> bool:
+        return x == y or frozenset((x, y)) in aliases.get(side, set())
+
     groups = []
     for (left, right), members in by_pair.items():
         # Biggest disagreement first: it sets the mapping the others must match.
@@ -520,11 +545,15 @@ def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page]) -> tupl
         for fp, entry in members:
             flip = _discipline(pages[entry["a"].page_id]) != left
             oriented = [(y, x) if flip else (x, y) for x, y in entry["renamed"]]
-            if any(fwd.get(l, r) != r or back.get(r, l) != l for l, r in oriented):
+            # A line with two names agrees with either of them: one sheet reads
+            # the architect's 3.2 as structural 2.3, the next as 2.4, and both
+            # are the same drawn line.
+            if any(not same(right, fwd.get(l, r), r) or not same(left, back.get(r, l), l) for l, r in oriented):
                 singles[fp] = entry
                 continue
             for l, r in oriented:
-                fwd[l], back[r] = r, l
+                fwd.setdefault(l, r)
+                back.setdefault(r, l)
             merged.append((fp, entry))
         if len(merged) == 1:
             fp, entry = merged[0]

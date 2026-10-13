@@ -681,6 +681,219 @@
           ]
         }
       ]
+    },
+    {
+      "id": "utlaw-rfi-007",
+      "source": "BIM RFI 007 'PROVIDE THE FORMING PLAN AT LEVEL 6': 'Please provide the forming plan at level 6 as it is not included in the current issued drawing set.' (UT Law student housing, structural set: Forming Plans for Levels 2, 3-4, 5, 7-13, 14, Roof, Hi-Roof; PT Plan, slab-edge and framing series all have Level 6.)",
+      "pdf": "UT Law_Str_Combine Set.pdf",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [],
+      "expected": [
+        {
+          "what": "S2.106 Forming Plan - Level 6 is listed in the sheet index (A1.00, S0.000) but is not in the issued set, while the Forming Plan series covers Levels 2-5 and 7-14",
+          "checkTypes": [
+            "missing_plan_level"
+          ],
+          "sheets": [
+            "S2.105",
+            "S2.107",
+            "A1.00"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-002",
+      "source": "BIM RFI 002 'CONFIRM THE GRID LAYOUT', scored on the whole UT Law set (351 sheets) rather than the two-sheet extract rfi-002 uses.",
+      "pdf": "UT Law_Arch_Combine Set.pdf + UT Law_Str_Combine Set.pdf",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "G01"
+      ],
+      "expected": [
+        {
+          "what": "The same grid lines are named differently on the structural and the architectural plans",
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "S2.105",
+            "A3.01"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-false-findings",
+      "source": "Code-check scan of the whole UT Law set (351 sheets, Oct 2025 Issue for Permit / Pricing), each finding opened on the sheet. None of these is an RFI; each is a misreading the checks used to make.",
+      "pdf": "UT Law_Arch_Combine Set.pdf + UT Law_Str_Combine Set.pdf (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "Forming Plan - Level 4 missing",
+          "why": "S2.103's view title says Level 3, but the sheet index lists it as 'Forming Plan - Level 3-4' and it is in the set",
+          "checkTypes": [
+            "missing_plan_level"
+          ],
+          "sheets": [
+            "S2.103"
+          ],
+          "mentions": [
+            "Level 4"
+          ]
+        },
+        {
+          "what": "Sheet L000 referenced but missing",
+          "why": "'COVER SHEET L000' is the landscape cover sheet's entry in the drawing index, not a pointer",
+          "checkTypes": [
+            "dangling_reference"
+          ],
+          "sheets": [
+            "A1.00"
+          ],
+          "mentions": [
+            "L000"
+          ]
+        },
+        {
+          "what": "D900 missing from the door schedule",
+          "why": "'D900 Series designs in the UL Fire Resistance Directory' is a UL listing",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "A1.15",
+            "A1.16"
+          ],
+          "mentions": [
+            "D900"
+          ]
+        },
+        {
+          "what": "L501 missing from the lighting schedule",
+          "why": "'Design Nos. L501, G512 or U305' is a UL listing; the 'lighting schedule' was a sheet title in the drawing index",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "A1.09"
+          ],
+          "mentions": [
+            "L501"
+          ]
+        },
+        {
+          "what": "W400 / W415 missing from the wall schedule",
+          "why": "UL / ULC design numbers on the rated-assembly sheets",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "A1.13",
+            "A1.07"
+          ],
+          "mentions": [
+            "W400",
+            "W415"
+          ]
+        },
+        {
+          "what": "S1A, S1B, S1C, S3A missing from the storefront schedule",
+          "why": "Apartment unit types (the index lists 'UNIT PLAN & ELEV. - S1-S2A'); the 'storefront schedule' marks came from the drawing index",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "A3.01",
+            "A3.02",
+            "A3.03"
+          ],
+          "mentions": [
+            "S1A",
+            "S1B",
+            "S1C",
+            "S3A"
+          ]
+        },
+        {
+          "what": "C-12 missing from the Class B tension splice schedule",
+          "why": "C-12 is a column; a lap-splice table is not a column schedule",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S2.102",
+            "S2.105"
+          ],
+          "mentions": [
+            "C-12",
+            "C12"
+          ]
+        },
+        {
+          "what": "C578 / C955 missing from a schedule",
+          "why": "ASTM standards",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S0.101",
+            "S0.140"
+          ],
+          "mentions": [
+            "C578",
+            "C955"
+          ]
+        },
+        {
+          "what": "L2 missing from the level schedule",
+          "why": "'L2 1/4X2 1/4X1/4' is a steel angle size",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S3.101"
+          ],
+          "mentions": [
+            "L2"
+          ]
+        },
+        {
+          "what": "ERRC conduit 'to be confirmed'",
+          "why": "'TO BE CONFIRMED AT LATER DATE BY FIELD TESTING' — settled by a test on site",
+          "checkTypes": [
+            "open_item_note"
+          ],
+          "sheets": [
+            "A1.02"
+          ],
+          "mentions": [
+            "ERRC"
+          ]
+        },
+        {
+          "what": "Fireproofing cover width 'to be determined'",
+          "why": "'to be determined on the basis of protection thickness and column size' — the rule is given",
+          "checkTypes": [
+            "open_item_note"
+          ],
+          "sheets": [
+            "A1.09"
+          ],
+          "mentions": [
+            "Width to be determined"
+          ]
+        }
+      ]
     }
   ]
 }

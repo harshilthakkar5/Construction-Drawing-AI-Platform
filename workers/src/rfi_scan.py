@@ -131,7 +131,7 @@ def _finding_block(index: int, finding: Finding) -> str:
 
 
 # An identifier as the model might write one: S-501, PC4, A3.01, F12A.
-_IDENT = re.compile(r"(?<![A-Z0-9])[A-Z]{1,3}-?\d{1,4}(?:\.\d{1,2})?[A-Z]?(?![A-Z0-9])")
+_IDENT = re.compile(r"(?<![A-Z0-9])[A-Z]{1,3}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?(?![A-Z0-9])")
 # A standalone number: a dimension, a count, a date part, a value.
 _NUMBER = re.compile(r"(?<![A-Z0-9.])\d+(?:\.\d+)?(?![A-Z0-9])")
 # A page reference: the ONLY context in which a page number may appear.
@@ -1296,9 +1296,16 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
                        evidence = EXCLUDED.evidence,
                        -- Wording is replaced only by a full rescan that
                        -- actually re-worded this finding: a failed call must
-                       -- not swap a good AI question for the template.
-                       subject = CASE WHEN %s THEN EXCLUDED.subject ELSE rfi_candidates.subject END,
-                       question = CASE WHEN %s THEN EXCLUDED.question ELSE rfi_candidates.question END,
+                       -- not swap a good AI question for the template. A
+                       -- template question is always refreshed to the current
+                       -- template: UT Law's Level 6 finding kept wording that
+                       -- predated the sheet index naming S2.106.
+                       subject = CASE WHEN %s OR (rfi_candidates."questionSource" = 'template'
+                                                  AND EXCLUDED."questionSource" = 'template')
+                                      THEN EXCLUDED.subject ELSE rfi_candidates.subject END,
+                       question = CASE WHEN %s OR (rfi_candidates."questionSource" = 'template'
+                                                   AND EXCLUDED."questionSource" = 'template')
+                                       THEN EXCLUDED.question ELSE rfi_candidates.question END,
                        "questionSource" = CASE WHEN %s THEN EXCLUDED."questionSource"
                                                ELSE rfi_candidates."questionSource" END,
                        "updatedAt" = now()

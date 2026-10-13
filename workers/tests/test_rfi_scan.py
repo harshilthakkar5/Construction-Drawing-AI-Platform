@@ -603,6 +603,34 @@ def test_a_full_rescan_keeps_the_old_wording_when_the_model_fails(database, monk
 
 
 @needs_db
+def test_a_template_question_is_refreshed_to_the_current_template(database, monkeypatch):
+    """A re-scan by newer code refreshes a TEMPLATE question (UT Law's Level 6
+    finding kept wording older than the sheet index rule); an AI question it
+    did not re-word is left alone."""
+    monkeypatch.setattr(rfi_scan, "word", lambda findings, project_id, usage=None, progress=None: ({}, None))
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        first = conn.execute(
+            'SELECT id FROM rfi_candidates WHERE "projectId" = %s ORDER BY id LIMIT 1', (project,)).fetchone()[0]
+        conn.execute("UPDATE rfi_candidates SET subject = 'old template', question = 'old template' "
+                     'WHERE "projectId" = %s', (project,))
+        conn.execute("UPDATE rfi_candidates SET subject = 'AI subject', \"questionSource\" = 'model' WHERE id = %s",
+                     (first,))
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        rows = conn.execute(
+            'SELECT id, subject, question, "questionSource" FROM rfi_candidates WHERE "projectId" = %s', (project,)
+        ).fetchall()
+    assert len(rows) >= 2
+    for cid, subject, question, source in rows:
+        if cid == first:
+            assert (subject, source) == ("AI subject", "model")
+        else:
+            assert source == "template" and subject != "old template" and question != "old template"
+
+
+@needs_db
 def test_stop_while_wording_saves_nothing_and_keeps_who_stopped_it(database, monkeypatch):
     # A person presses Stop while the scan words its findings: nothing it
     # found is saved, and the row still says who stopped it.

@@ -606,6 +606,7 @@ RFI_PROJECT_CHECK_TYPES = [
     "open_item_note",
     "tag_value_conflict",
     "illegible_schedule",
+    "missing_plan_level",
 ]
 RFI_CUSTOM_QUESTION_IDS = [
     "Q1",
