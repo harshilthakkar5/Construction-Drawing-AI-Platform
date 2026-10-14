@@ -38,6 +38,8 @@ import {
   elementFamily,
   estimateReview,
   levelOf,
+  pageLevel,
+  rankCorrespondence,
   normalizeSheet,
   rankScope,
   referencedSheets,
@@ -176,6 +178,10 @@ interface PageRow {
   pdfWidth: number | null;
   pdfHeight: number | null;
   sheetRegionText: string | null;
+  /** The scan's own reading of the page's level (sheet_facts), or null. */
+  level: string | null;
+  gridSummary: unknown;
+  scales: unknown;
   revision: number;
 }
 
@@ -186,7 +192,7 @@ interface PageRow {
 async function analysablePages(projectId: string): Promise<PageRow[]> {
   return prisma.$queryRaw<PageRow[]>`
     SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber",
-           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", d.revision
+           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, d.revision
       FROM pages p JOIN documents d ON d.id = p."documentId"
      WHERE d."projectId" = ${projectId}
        AND d."supersededAt" IS NULL
@@ -299,7 +305,7 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
     }
     if (target.level) {
       const want = levelOf(`LEVEL ${target.level.replace(/^LEVEL\s*/i, "")}`);
-      const narrowed = pageIds.filter((id) => levelOf(byId.get(id)!.sheetRegionText) === want);
+      const narrowed = pageIds.filter((id) => pageLevel(byId.get(id)!) === want);
       if (!narrowed.length) throw new PlanError(`"${target.value}" is not on any sheet titled ${want}`, 404, { choices: choicesFor(pageIds, byId) });
       pageIds = narrowed;
     }
@@ -316,7 +322,7 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
         { choices: choicesFor(pageIds, byId) },
       );
     }
-    const levels = new Set(pageIds.map((id) => levelOf(byId.get(id)!.sheetRegionText) ?? "?"));
+    const levels = new Set(pageIds.map((id) => pageLevel(byId.get(id)!) ?? "?"));
     if (pageIds.length > 1) {
       ambiguous.push(target.value);
       notes.push(
@@ -365,7 +371,7 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
 function choicesFor(pageIds: string[], byId: Map<string, PageRow>) {
   return pageIds.map((id) => {
     const p = byId.get(id)!;
-    return { pageId: id, sheetNumber: p.sheetNumber, level: levelOf(p.sheetRegionText) };
+    return { pageId: id, sheetNumber: p.sheetNumber, level: pageLevel(p) };
   });
 }
 
@@ -437,18 +443,18 @@ export async function planReview(
   }
   if (request.target.type !== "compare") {
     const targetDisciplines = new Set(namedPages.map((p) => p.discipline));
-    const levels = new Set(namedPages.map((p) => levelOf(byId.get(p.pageId)?.sheetRegionText)).filter((l): l is string => !!l));
+    const levels = new Set(namedPages.map((p) => pageLevel(byId.get(p.pageId))).filter((l): l is string => !!l));
     const taken = new Set([...namedIds, ...forced.map((f) => f.page.pageId)]);
-    const matches = all.filter(
+    const matches = rankCorrespondence(byId.get(namedPages[0]?.pageId ?? ""), all.filter(
       (p) =>
         !taken.has(p.id) &&
         !excluded.has(p.id) &&
         p.discipline &&
         !targetDisciplines.has(p.discipline) &&
-        levels.has(levelOf(p.sheetRegionText) ?? ""),
-    );
+        levels.has(pageLevel(p) ?? ""),
+    ));
     matches.forEach((p, i) => {
-      const level = levelOf(p.sheetRegionText);
+      const level = pageLevel(p);
       if (i < caps.referencePages) {
         forced.push({ page: asPage(p), role: "correspondence", reason: `the same level (${level}) drawn by ${p.discipline}` });
       } else {

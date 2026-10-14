@@ -9,6 +9,9 @@ import {
   elementFamily,
   estimateReview,
   levelOf,
+  pageLevel,
+  rankCorrespondence,
+  drawsGrid,
   mentions,
   normalizeSheet,
   referencedSheets,
@@ -128,6 +131,42 @@ describe("elementFamily", () => {
     expect(elementFamily("B12")!.family).toBe("beam");
     expect(elementFamily("SR-4")).toBeNull();
     expect(elementFamily("DOOR")).toBeNull();
+  });
+});
+
+describe("pageLevel", () => {
+  it("prefers the title-block box, then the scan's reading of the page", () => {
+    expect(pageLevel({ sheetRegionText: "DRAWING NO. A3.04 LEVEL 5", level: "LEVEL 6" })).toBe("LEVEL 5");
+    // UT Law's structural box holds only the sheet number.
+    expect(pageLevel({ sheetRegionText: "Checked By S2.105 Checker", level: "LEVEL 5" })).toBe("LEVEL 5");
+    expect(pageLevel({ sheetRegionText: null, level: "GROUND" })).toBe("GROUND");
+    expect(pageLevel({ sheetRegionText: "Checked By S5.200 Checker", level: null })).toBeNull();
+    expect(pageLevel(undefined)).toBeNull();
+  });
+});
+
+describe("rankCorrespondence", () => {
+  const grid = { x: { A: 1, B: 2 }, y: { "1": 1, "2": 2 } };
+  const noGrid = { x: {}, y: {} };
+  it("puts a sheet that draws a grid first, then one at the target's scale, then page order", () => {
+    const target = { combinedPageNumber: 236, scales: [9] };
+    const pages = [
+      { id: "A1.42 exhibit", combinedPageNumber: 33, gridSummary: noGrid, scales: [9] },
+      { id: "A1.52 no scale", combinedPageNumber: 40, gridSummary: noGrid, scales: [] },
+      { id: "A3.20 corridor", combinedPageNumber: 108, gridSummary: grid, scales: [13.5] },
+      { id: "A3.04 floor plan", combinedPageNumber: 92, gridSummary: grid, scales: [9] },
+    ];
+    expect(rankCorrespondence(target, pages).map((p) => p.id)).toEqual([
+      "A3.04 floor plan",
+      "A3.20 corridor",
+      "A1.42 exhibit",
+      "A1.52 no scale",
+    ]);
+  });
+  it("needs both axes to call it a grid, and tolerates missing facts", () => {
+    expect(drawsGrid({ x: { A: 1, B: 2 }, y: {} })).toBe(false);
+    expect(drawsGrid(null)).toBe(false);
+    expect(rankCorrespondence(undefined, [{ combinedPageNumber: 2 }, { combinedPageNumber: 1 }]).map((p) => p.combinedPageNumber)).toEqual([1, 2]);
   });
 });
 

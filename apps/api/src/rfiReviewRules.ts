@@ -153,6 +153,46 @@ export function levelOf(text: string | null | undefined): string | null {
   return found ? `LEVEL ${(found[1] ?? "").replace(/^0+(?=\d)/, "")}` : null;
 }
 
+/** A page's level: what its title-block box says, else what the scan read off
+ * the whole page (`pages.level`). The box is often just the sheet number — UT
+ * Law's structural box reads "Checked By S2.105 Checker" — and without the
+ * fallback a Level 5 plan was never paired with the Level 5 architectural
+ * plan. Undefined pages (no row) have no level. */
+export function pageLevel(page: { sheetRegionText: string | null; level?: string | null } | undefined): string | null {
+  if (!page) return null;
+  return levelOf(page.sheetRegionText) ?? levelOf(page.level) ?? page.level ?? null;
+}
+
+export interface CorrespondencePage {
+  combinedPageNumber: number | null;
+  gridSummary?: unknown;
+  scales?: unknown;
+}
+
+export function drawsGrid(summary: unknown): boolean {
+  const axes = (summary ?? {}) as { x?: Record<string, unknown>; y?: Record<string, unknown> };
+  return Object.keys(axes.x ?? {}).length >= 2 && Object.keys(axes.y ?? {}).length >= 2;
+}
+
+/** Order the other discipline's same-level sheets a review is given: a sheet
+ * that DRAWS a grid first (it can be laid over the target), then one printing
+ * the target's scale, then page order. On UT Law, Level 5 matched seven
+ * architectural sheets and page order kept four exhibit and life-safety plans
+ * with no grid while the floor plan A3.04 fell past the cap. */
+export function rankCorrespondence<T extends CorrespondencePage>(target: CorrespondencePage | undefined, pages: T[]): T[] {
+  const targetScales = new Set(Array.isArray(target?.scales) ? (target!.scales as unknown[]) : []);
+  const key = (p: T) => [
+    drawsGrid(p.gridSummary) ? 0 : 1,
+    Array.isArray(p.scales) && (p.scales as unknown[]).some((s) => targetScales.has(s)) ? 0 : 1,
+    p.combinedPageNumber ?? Number.MAX_SAFE_INTEGER,
+  ];
+  return [...pages].sort((a, b) => {
+    const ka = key(a), kb = key(b);
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
+    return 0;
+  });
+}
+
 /** A sheet number's SHAPE: its letters and how many digits follow. "A3.35"
  * and "A3.27" share one; "C6" (a column mark) does not share S2.105's. */
 export function sheetShape(normalized: string): string | null {

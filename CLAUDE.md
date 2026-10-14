@@ -2733,6 +2733,21 @@ level read off each sheet's drawing titles by `sheet_level`; same-scale pairs ne
 name one level): the client rejected A3.03 Level 4 over A3.05 Level 6, whose setback columns were
 reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
 `packages/shared/fixtures/sheet-level.json`. So RFI 015 stays a known gap on purpose.
+Two same-scale sheets of ONE discipline are never overlaid either: on the full UT Law set, A3.04
+(Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
+plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
+disciplines; an enlarged plan over its overall plan is unaffected.
+
+The planner reads a page's level with `pageLevel` (`rfiReviewRules.ts`): the title-block box first,
+then the scan's own `pages.level`. A box drawn tight round the sheet number (UT Law's structural box
+reads "Checked By S2.105 Checker") names no level, so a structural plan was never given the same
+level's architectural plan — RFI 009 (C-30 and the grid naming on S2.105) went unanswered. The
+same-level sheets are then ranked by `rankCorrespondence` (draws a grid, then shares the target's
+scale, then page order), because page order filled the cap with exhibit plans and dropped A3.04.
+With both, the S2.105 review hits RFI 009 twice (grid naming vs A3.04, "Locate column C-30").
+Still missed on that set: RFI 001 (slope low points — FL04 read the S4.136 sections instead), RFI
+008 (untagged pile caps — reported only as a gap), and RFIs 005/006 (openings — no catalogue
+question asks about openings). RFI 005's form names S5.200; the marked sheet is S5.210.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
