@@ -202,3 +202,17 @@ def test_each_question_is_counted_over_the_areas_judged():
     assert out["C01"] == {"issues": 0, "agree": 1, "notShown": 1, "unclear": 0, "findings": 0}
     assert out["Q1"] == {"issues": 0, "agree": 0, "notShown": 0, "unclear": 0, "findings": 0}
     assert "byQuestion" not in fr.scan_summary([t[:4] for t in tiles], 1, 2, 4)
+
+
+def test_the_plan_says_which_questions_also_need_sheets_it_does_not_compare():
+    assert sc.views_note(sc.Scope(check_ids=("G01", "C03"))) is None
+    note = sc.views_note(sc.Scope(check_ids=("F04", "C01", "FL04", "O01")))
+    assert "schedules for F04, C01" in note and "sections for FL04" in note and "elevations for O01" in note
+
+
+def test_a_question_applies_to_a_pair_only_when_both_sheets_draw_it():
+    assert sc.drawn_on("O01", "architectural", "structural")
+    assert not sc.drawn_on("O01", "architectural", "electrical")
+    assert not sc.drawn_on("C03", "architectural", "structural")
+    assert sc.drawn_on("G01", "structural", "architectural") and not sc.drawn_on("G01", "electrical", "architectural")
+    assert sc.drawn_on("Q1", "electrical", "plumbing")

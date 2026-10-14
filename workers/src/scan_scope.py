@@ -27,6 +27,7 @@ from generated import (
     RFI_CUSTOM_QUESTION_IDS,
     RFI_PROJECT_CHECK_TYPES,
     RFI_QUESTION_CODE_CHECKS,
+    RFI_QUESTION_DISCIPLINES,
     RFI_REVIEW_CHECKS,
 )
 
@@ -180,6 +181,35 @@ def questions(scope: Scope) -> list[dict]:
     for qid, text in zip(RFI_CUSTOM_QUESTION_IDS, scope.custom):
         out.append({"id": qid, "label": text, "question": text, "rules": "", "custom": True})
     return out
+
+
+def drawn_on(question_id: str, da: str | None, db: str | None) -> bool:
+    """Whether a question is about something BOTH sheets of a pair draw — the
+    same rule that pre-ticks a scan's questions (recommendedChecks), applied
+    to one pair. A catalogue question with no discipline list (G01, G02) says
+    "compare with architecture" in its own words, so it is a structural /
+    architectural question. A person's own question applies everywhere: they
+    asked it of this comparison."""
+    if question_id not in CATALOGUE:
+        return True
+    who = RFI_QUESTION_DISCIPLINES.get(question_id) or ("structural", "architectural")
+    return da in who and db in who
+
+
+def views_note(scope: Scope) -> str | None:
+    """The full scan compares PLANS; a question whose answer is also printed on
+    schedules, sections or elevations (the catalogue's `views`) is only partly
+    answered by it, and the plan says so rather than letting "no finding" read
+    as "checked"."""
+    need: dict[str, list[str]] = {}
+    for check_id in scope.check_ids:
+        for kind in CATALOGUE[check_id].get("views") or ():
+            need.setdefault(kind, []).append(check_id)
+    if not need:
+        return None
+    parts = "; ".join(f"{kind}s for {', '.join(ids)}" for kind, ids in sorted(need.items()))
+    return ("This scan compares plans with plans. Some chosen questions are also answered on other sheets it "
+            f"does not read ({parts}): a targeted review of the sheet reads those too.")
 
 
 def prompt_extra_tokens(scope: Scope) -> int:

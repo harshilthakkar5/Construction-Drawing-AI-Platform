@@ -38,6 +38,7 @@ import {
   elementFamily,
   estimateReview,
   levelOf,
+  missingViews,
   pageLevel,
   rankCorrespondence,
   normalizeSheet,
@@ -46,10 +47,15 @@ import {
   reviewIsActive,
   scopeHash,
   selectRfiChecks,
+  titleMentions,
+  titlePattern,
+  titleReferences,
+  MAX_TITLE_REFERENCES,
   type Box,
   type CandidateChunk,
   type CandidatePage,
   type ReviewScope,
+  type TitleReference,
 } from "./rfiReviewRules.js";
 import { PRICING_VERSION, estimateCostUsd, pricingConfidence, withUsageContext } from "./usage.js";
 
@@ -182,6 +188,8 @@ interface PageRow {
   level: string | null;
   gridSummary: unknown;
   scales: unknown;
+  /** sheet_facts' kind (plan, section, schedule, …), or null before a scan read it. */
+  sheetKind: string | null;
   revision: number;
 }
 
@@ -192,7 +200,7 @@ interface PageRow {
 async function analysablePages(projectId: string): Promise<PageRow[]> {
   return prisma.$queryRaw<PageRow[]>`
     SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber",
-           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, d.revision
+           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, p."sheetKind", d.revision
       FROM pages p JOIN documents d ON d.id = p."documentId"
      WHERE d."projectId" = ${projectId}
        AND d."supersededAt" IS NULL
@@ -377,6 +385,50 @@ function choicesFor(pageIds: string[], byId: Map<string, PageRow>) {
 
 // --- Plan --------------------------------------------------------------------------
 
+type EvidenceGap = NonNullable<RfiReviewCoverageDto["evidenceGaps"]>[number];
+
+/** Where a drawing named by title is: the page carrying that title (same level
+ * as the target first), else the sheet a sheet index lists for it — or the
+ * exact reason it is not in front of the review. */
+async function resolveTitle(
+  ref: TitleReference,
+  all: PageRow[],
+  excluded: Set<string>,
+  level: string | null,
+): Promise<{ page: PageRow } | { reason: string }> {
+  const live = all.filter((p) => !excluded.has(p.id));
+  const rows = live.length
+    ? await prisma.$queryRaw<{ pageId: string; text: string }[]>`
+        SELECT c."pageId", c.text FROM chunks c
+         WHERE c.kind = 'text' AND c."pageId" = ANY(${live.map((p) => p.id)}::text[])
+           AND c.text ~* ${titlePattern(ref.title)}`
+    : [];
+  const byId = new Map(live.map((p) => [p.id, p]));
+  const plan = /PLANS?$/.test(ref.title);
+  const titled: PageRow[] = [];
+  const listed = new Set<string>();
+  for (const row of rows) {
+    const page = byId.get(row.pageId)!;
+    for (const mention of titleMentions(row.text, ref.title)) {
+      if (mention.kind === "index") listed.add(mention.sheet);
+      else if (
+        mention.kind === "title" &&
+        (!ref.discipline || page.discipline === ref.discipline) &&
+        (!plan || !page.sheetKind || page.sheetKind === "plan" || page.sheetKind === "enlarged_plan")
+      ) titled.push(page);
+    }
+  }
+  const sameLevel = titled.filter((p) => level && pageLevel(p) === level);
+  const best = sameLevel[0] ?? titled[0];
+  if (best) return { page: best };
+  for (const sheet of listed) {
+    const page = live.find((p) => p.sheetNumber && normalizeSheet(p.sheetNumber) === normalizeSheet(sheet));
+    if (page) return { page };
+  }
+  if (listed.size) return { reason: `the sheet index lists it as ${[...listed].join(", ")}, which is not in this project` };
+  return { reason: "no sheet in this project carries that title, and no sheet index lists it" };
+}
+
 export async function planReview(
   projectId: string,
   userId: string,
@@ -504,6 +556,69 @@ export async function planReview(
     if (!byId.has(r.pageId) || excluded.has(r.pageId)) continue;
     chunks.set(r.id, toCandidateChunk(r));
   }
+  // What each question needs besides the target: drawings the notes defer to
+  // BY TITLE, then the sheet kinds the catalogue says carry its answer
+  // (`views`). Found → forced in; not found → an evidence gap saying why, so
+  // "the drawings never showed it" cannot read as "no issue".
+  const evidenceGaps: EvidenceGap[] = [];
+  const inPlan = new Set([...namedIds, ...forced.map((f) => f.page.pageId)]);
+  const targetLevel = pageLevel(byId.get(namedPages[0]?.pageId ?? ""));
+  const titleRefs = new Map<string, { ref: TitleReference; from: string }>();
+  for (const c of [...targetChunks, ...chunks.values()]) {
+    if (c.kind !== "text") continue;
+    for (const ref of titleReferences(c.text)) {
+      const key = `${ref.discipline}|${ref.title}`;
+      if (!titleRefs.has(key) && titleRefs.size < MAX_TITLE_REFERENCES) {
+        titleRefs.set(key, { ref, from: byId.get(c.pageId)?.sheetNumber ?? "a sheet" });
+      }
+    }
+  }
+  let titleForced = 0;
+  for (const { ref, from } of titleRefs.values()) {
+    const label = `${ref.discipline ? `${ref.discipline} ` : ""}${ref.title.toLowerCase()}`;
+    const found = await resolveTitle(ref, all, excluded, targetLevel);
+    if ("reason" in found) {
+      evidenceGaps.push({ checkId: null, need: label, reason: `${from} refers to it; ${found.reason}` });
+      notes.push(`${from} refers to the ${label}: ${found.reason}.`);
+    } else if (!inPlan.has(found.page.id)) {
+      if (titleForced < caps.referencePages) {
+        forced.push({ page: asPage(found.page), role: "reference", reason: `${from} refers to the ${label} by title` });
+        inPlan.add(found.page.id);
+        titleForced += 1;
+      } else {
+        omittedForced.push({ sheetNumber: found.page.sheetNumber, reason: `the ${label}, referred to by title, beyond the ${caps.referencePages} sheets of this depth` });
+      }
+    }
+  }
+  if (!all.some((p) => p.sheetKind)) {
+    notes.push(
+      "Sheet kinds have not been read for this project yet (a Find RFIs scan reads them), so the plan could not check that each question has the schedules, sections or elevations it needs.",
+    );
+  } else {
+    const haveKinds = new Set([...inPlan].map((id) => byId.get(id)?.sheetKind).filter((k): k is string => !!k));
+    const targetText = targetChunks.filter((c) => c.kind === "text").map((c) => c.text).join("\n");
+    for (const { checkId, kind } of missingViews(selection.checkIds, haveKinds, targetText)) {
+      const hits = (hitLists[selection.checkIds.indexOf(checkId as RfiReviewCheckId)] ?? []).map((id) => chunks.get(id)?.pageId);
+      const referred = refs.resolved.flatMap((r) => r.pageIds);
+      const page = [...referred, ...hits]
+        .map((id) => (id ? byId.get(id) : undefined))
+        .find((p): p is PageRow => !!p && !excluded.has(p.id) && p.sheetKind === kind);
+      if (page && !inPlan.has(page.id)) {
+        forced.push({ page: asPage(page), role: "reference", reason: `${checkId} needs a ${kind}: ${referred.includes(page.id) ? "the target refers to it" : `found by the search for ${checkId}`}` });
+        inPlan.add(page.id);
+      } else if (!page) {
+        const any = all.some((p) => !excluded.has(p.id) && p.sheetKind === kind);
+        evidenceGaps.push({
+          checkId,
+          need: kind,
+          reason: any
+            ? `no ${kind} sheet was referred to by the target or found by the search for ${checkId}`
+            : `the project has no ${kind} sheet`,
+        });
+      }
+    }
+  }
+
   // Forced pages' own words come too, so the model can see WHAT on the
   // reference answers the target.
   for (const c of await chunksOf(forced.map((f) => f.page.pageId))) chunks.set(c.chunkId, c);
@@ -540,6 +655,7 @@ export async function planReview(
     unresolvedReferences: refs.unresolved,
     searchLog,
     omissions: [],
+    evidenceGaps,
   };
 
   // A new plan replaces this person's earlier unstarted plans for the project:
@@ -706,6 +822,7 @@ export function toReviewDto(row: RunRow, candidates: number, now = new Date()): 
     unresolvedReferences: storedCoverage?.unresolvedReferences ?? [],
     searchLog: storedCoverage?.searchLog ?? [],
     omissions: storedCoverage?.omissions ?? [],
+    evidenceGaps: storedCoverage?.evidenceGaps ?? [],
   };
   const checkMode: RfiReviewCheckMode =
     row.checkMode === "custom" || row.checkMode === "all_original" ? row.checkMode : "auto";

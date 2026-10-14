@@ -222,6 +222,9 @@ def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progres
     kept_out = plan_rules.kept_out_note(excluded, len(facts), off)
     if kept_out:
         notes.append(kept_out)
+    views = scan_scope.views_note(scope)
+    if views:
+        notes.append(views)
     unopened = unopened_note(open_errors, _filenames(project_id, list(open_errors)))
     if unopened:
         notes.append(unopened)
@@ -251,6 +254,7 @@ def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
         conn.execute("DELETE FROM rfi_full_scan_tiles WHERE \"scanId\" = %s", (scan_id,))
         written = 0
         set_aside = 0
+        partly = 0
         pair_json = []
         for index, pair in enumerate(kept):
             pair_tiles = pair.tiles()
@@ -261,6 +265,7 @@ def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
                 why = reasons.get((index, t_index))
                 if (index, t_index) in hints:
                     tile = {**tile, **hints[(index, t_index)]}
+                    partly += 1 if not why and "settled" in tile else 0
                 # A tile the code already settled is stored done, with the
                 # reason, so the run never pays for it and the screen can say
                 # why it was not shown to the AI.
@@ -291,6 +296,11 @@ def write_plan(scan_id: str, project_id: str, result: PlanResult, triage=None,
             f"The code settled {set_aside} of {written + set_aside} area(s) itself, so they are not sent to the AI "
             "(blank on one sheet, or every line both sheets draw lines up exactly). "
             f"{written} area(s) are left for the AI to compare."
+        )
+    if partly:
+        notes.append(
+            f"In {partly} area(s) the walls on both sheets line up exactly, but they are still sent to the AI: "
+            "matching walls do not show that openings, columns, marks, notes or levels agree."
         )
     estimate = plan_rules.estimate(written, scan_scope.prompt_extra_tokens(result.scope))
     _set(
@@ -326,7 +336,8 @@ def _plan(scan_id: str, project_id: str, scope: scan_scope.Scope = scan_scope.EV
                             scope=scope)
         import geometry_checks
 
-        triage = geometry_checks.triage_tiles(result.kept, open_page, result.cache) if result.kept else None
+        triage = geometry_checks.triage_tiles(result.kept, open_page, result.cache,
+                                              question_ids=[q["id"] for q in scan_scope.questions(scope)]) if result.kept else None
     log.info("full scan %s: catalogue of %d page(s), %d read now: %s", scan_id[:8], len(result.facts), result.read,
              result.catalogue["byKind"])
     out = write_plan(scan_id, project_id, result, triage)

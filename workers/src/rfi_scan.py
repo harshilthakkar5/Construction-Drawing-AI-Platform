@@ -788,7 +788,8 @@ def save_ai_plan(full_scan_id: str, project_id: str, plan, open_page, findings, 
     progress("plan", detail="Choosing which areas still need the AI (step 2)")
     try:
         fullscan._check_cancel(full_scan_id)
-        triage = geometry_checks.triage_tiles(plan.kept, open_page, plan.cache, findings) if plan.kept else None
+        triage = geometry_checks.triage_tiles(plan.kept, open_page, plan.cache, findings,
+                                              question_ids=[q["id"] for q in scan_scope.questions(plan.scope)]) if plan.kept else None
         out = fullscan.write_plan(full_scan_id, project_id, plan, triage)
         notes.append(
             f"Step 2 is ready: {out['tiles']} area(s) of {out['pairs']} sheet pair(s) left for the AI to compare"

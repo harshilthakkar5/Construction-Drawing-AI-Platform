@@ -616,10 +616,11 @@ function Outcomes({ run }: { run: RfiReviewRunDto }) {
 
 function Coverage({ run }: { run: RfiReviewRunDto }) {
   const c = run.coverage;
-  const total = c.omittedPages.length + c.unresolvedReferences.length + c.omissions.length + c.searchLog.length;
+  const gaps = c.evidenceGaps ?? [];
+  const total = c.omittedPages.length + c.unresolvedReferences.length + c.omissions.length + c.searchLog.length + gaps.length;
   if (!total) return null;
   return (
-    <Section title="What was and was not looked at" open={c.omissions.length > 0}>
+    <Section title="What was and was not looked at" open={c.omissions.length > 0 || gaps.length > 0}>
       <div className="text-muted-foreground flex flex-col gap-1.5 text-xs">
         {c.omissions.map((o) => (
           <p key={o} className="text-warning">
@@ -640,6 +641,18 @@ function Coverage({ run }: { run: RfiReviewRunDto }) {
         )}
         {c.unresolvedReferences.length > 0 && (
           <p>Referred to but not in this project: {c.unresolvedReferences.join(", ")}</p>
+        )}
+        {gaps.length > 0 && (
+          <div>
+            <p className="text-warning">Needed but not in the review</p>
+            <ul className="list-disc pl-4">
+              {gaps.map((g, i) => (
+                <li key={i}>
+                  {g.checkId ? `${g.checkId} — a ${g.need} sheet` : `The ${g.need}`}: {g.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {c.searchLog.length > 0 && (
           <div>
