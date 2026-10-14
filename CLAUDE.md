@@ -213,6 +213,8 @@ picture stored so the report shows what the model saw. Chat and summaries stay t
   "description was 0 chars" which reads like a refusal. `_complete_claude` therefore also logs
   what a textless reply was MADE of (`1x thinking`), because a model that said nothing and a
   model that spent the budget before it could speak are the same empty string to every caller.
+  Sonnet 5.5 rejects `disabled` outright and turns thinking off with `between_tools`
+  (`llm._claude_off`), because omitting the field there is adaptive thinking at high effort.
   A model that rejects the field (older tiers take `budget_tokens`) is retried once without it
   and latched, mirroring the Gemini path, which learns the opposite lesson the same way.
   And then learned it AGAIN, from the other vendor: from Gemini 3 on, `thinking_budget` is not

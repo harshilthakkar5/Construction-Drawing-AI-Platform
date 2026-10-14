@@ -1318,3 +1318,20 @@ def test_on_is_not_sent_to_a_single_call(monkeypatch):
     llm.complete("s", "u", provider="claude", claude_model="claude-sonnet-5", gemini_model="g",
                  max_tokens=100, kind="rfi", thinking="on")
     assert seen["setting"] is None
+
+
+class TestClaudeThinkingOff:
+    """Sonnet 5.5 rejects thinking "disabled" (400); off is "between_tools".
+    Falling back to omitting the field would mean adaptive thinking at high
+    effort, so the transport must send the right shape up front."""
+
+    @pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-sonnet-6"])
+    def test_sonnet_5_5_and_later_turn_thinking_off_between_tools(self, model):
+        assert llm._claude_off(model) == {"type": "between_tools"}
+        assert llm._claude_stage_thinking(model, "off") == ({"type": "between_tools"}, None, 0)
+
+    @pytest.mark.parametrize(
+        "model", ["claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-20250514", "claude-opus-5", "claude-haiku-4-5"]
+    )
+    def test_everything_else_keeps_disabled(self, model):
+        assert llm._claude_off(model) == {"type": "disabled"}

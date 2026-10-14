@@ -1,6 +1,7 @@
 {
   "_comment": "Whether a model honours a NUMERIC thinking budget (true) or takes an effort/level instead (false). Read by reviewThinkingCapability in @cdip/shared and by workers/src/llm.py's version sniffs (_claude_takes_effort, _takes_thinking_level), so the review dialog never offers a control the transport would re-map.",
   "cases": [
+    { "provider": "claude", "model": "claude-sonnet-5-5", "budget": false },
     { "provider": "claude", "model": "claude-sonnet-5", "budget": false },
     { "provider": "claude", "model": "claude-opus-5-5", "budget": false },
     { "provider": "claude", "model": "claude-sonnet-4-6", "budget": false },
