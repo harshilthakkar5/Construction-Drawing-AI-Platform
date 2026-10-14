@@ -185,6 +185,48 @@ def test_triage_settles_a_copy_and_says_why():
     assert list(out.reasons) == [(0, 0)] and "copies the other" in out.reasons[(0, 0)]
 
 
+def _struct_arch_pair():
+    pair = _pair()
+    pair.b.discipline = "structural"
+    return pair
+
+
+def test_matching_walls_do_not_settle_an_area_for_questions_the_walls_cannot_answer():
+    # The two sheets draw identical walls, but an architectural/structural
+    # pair is asked about openings: the area must reach the AI.
+    doc = _two_page_pdf(lambda p: [p.draw_line((50, 100 + 20 * i), (400, 100 + 20 * i)) for i in range(30)])
+    out = gc.triage_tiles([_struct_arch_pair()], lambda d, n: doc[n - 1], question_ids=["C02", "O01"])
+    assert out.reasons == {}
+    settled = out.hints[(0, 0)]["settled"]
+    assert "copies the other" in settled["why"]
+    assert settled["questions"] == ["C02"] and settled["open"] == ["O01"]
+    # Only wall questions asked: the walls agreeing answers all of them.
+    out = gc.triage_tiles([_struct_arch_pair()], lambda d, n: doc[n - 1], question_ids=["C02", "FL01"])
+    assert list(out.reasons) == [(0, 0)]
+    # The whole catalogue (an unscoped scan) leaves openings, columns… open.
+    out = gc.triage_tiles([_struct_arch_pair()], lambda d, n: doc[n - 1])
+    assert out.reasons == {} and "O01" in out.hints[(0, 0)]["settled"]["open"]
+    # A person's own question is never settled by walls.
+    out = gc.triage_tiles([_pair()], lambda d, n: doc[n - 1], question_ids=["Q1"])
+    assert out.reasons == {} and out.hints[(0, 0)]["settled"]["open"] == ["Q1"]
+
+
+def test_a_blank_side_settles_every_question():
+    doc = _two_page_pdf(lambda p: None)
+    out = gc.triage_tiles([_struct_arch_pair()], lambda d, n: doc[n - 1], question_ids=["O01", "Q1"])
+    assert out.reasons == {(0, 0): "sheet B draws nothing in this area"}
+
+
+def test_the_ai_is_told_which_questions_the_code_settled():
+    import fullscan_run
+    pair = {"reason": "same level", "a": {"sheetNumber": "A1"}, "b": {"sheetNumber": "S1"}}
+    tile = {"tile": 0, "windows": {"settled": {"why": "sheet B copies the other here", "questions": ["C02"],
+                                                "open": ["O01"]}}}
+    user, _ = fullscan_run.tile_prompt(pair, tile, "", "")
+    assert "<settled_by_code>sheet B copies the other here. Settled: C02.</settled_by_code>" in user
+    assert "<settled_by_code>" not in fullscan_run.tile_prompt(pair, {"tile": 0, "windows": {}}, "", "")[0]
+
+
 def test_triage_sends_a_blank_sheet_away_and_a_known_finding_back_to_the_ai():
     doc = _two_page_pdf(lambda p: None)
     out = gc.triage_tiles([_pair()], lambda d, n: doc[n - 1])

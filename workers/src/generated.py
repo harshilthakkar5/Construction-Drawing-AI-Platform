@@ -112,6 +112,7 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs the same grid pair dimensioned differently, or one grid line named differently, on two localized sources.",
         "deterministic": "grid_mismatch",
         "geometryAids": [],
+        "views": [],
     },
     {
         "id": "G02",
@@ -135,6 +136,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one level given two different elevations on the same datum by two localized sources.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "section",
+        ],
     },
     {
         "id": "F01",
@@ -163,6 +167,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a mark with no schedule row, a schedule size contradicted elsewhere, or an instance with no locating information after plans, schedules and details were searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "F02",
@@ -193,6 +200,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a segment whose size, location or elevation conflicts between sources, or cannot be located after the relevant sections were searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "F03",
@@ -219,6 +229,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a mat on one source that the other contradicts or omits.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "F04",
@@ -248,6 +261,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a pile or pile cap whose size or location conflicts between sources, or cannot be located.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "FL01",
@@ -276,6 +292,7 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one edge located differently by two sources, or an edge with no locating dimension after enlarged plans and details were searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [],
     },
     {
         "id": "FL02",
@@ -306,6 +323,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one zone given two different elevations or thicknesses by two sources on the same datum.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "section",
+        ],
     },
     {
         "id": "FL03",
@@ -334,6 +354,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a step whose elevations disagree between plan and section, or a step with no elevations anywhere searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "section",
+        ],
     },
     {
         "id": "FL04",
@@ -363,6 +386,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a slope whose direction, run or rate conflicts between sources, or a sloped zone with no rate anywhere searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "section",
+        ],
     },
     {
         "id": "C01",
@@ -393,6 +419,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a column shown at a different place or size on two sources for the same level, or with no base/top elevation after the schedule and sections were searched.",
         "deterministic": "column_mismatch",
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "C02",
@@ -422,6 +451,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a wall at a different place or thickness on two sources, or with no locating dimension after sections were searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "C03",
@@ -452,6 +484,7 @@ RFI_REVIEW_CHECKS = [
         "geometryAids": [
             "column_grid_offsets",
         ],
+        "views": [],
     },
     {
         "id": "B01",
@@ -480,6 +513,7 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs a beam whose ends are located differently by two sources, or cannot be located after framing details were searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [],
     },
     {
         "id": "B02",
@@ -507,6 +541,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one beam given two sizes by two sources, or a tagged beam with no size anywhere searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "schedule",
+        ],
     },
     {
         "id": "B03",
@@ -535,6 +572,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one beam at two elevations on the same reference by two sources, or no elevation anywhere searched.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "section",
+        ],
     },
     {
         "id": "O01",
@@ -565,6 +605,9 @@ RFI_REVIEW_CHECKS = [
         "candidateRules": "A candidate needs one opening sized or located differently by two sources, or an opening drawn with no size, no locating dimension, or (in a wall) no sill height after plans, elevations and details were searched. Unreadable is insufficient evidence, not a candidate.",
         "deterministic": None,
         "geometryAids": [],
+        "views": [
+            "elevation",
+        ],
     },
 ]
 
@@ -604,7 +647,7 @@ RFI_REVIEW_DEPTHS = {
     },
 }
 
-RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.1"
+RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.2"
 RFI_REVIEW_INPUT_LIMITS = {
     "min": 20000,
     "max": 400000,
@@ -628,6 +671,64 @@ RFI_QUESTION_CODE_CHECKS = {
     ],
     "C03": [
         "column_mismatch",
+    ],
+}
+RFI_QUESTION_DISCIPLINES = {
+    "F01": [
+        "structural",
+        "civil",
+    ],
+    "F02": [
+        "structural",
+        "civil",
+    ],
+    "F03": [
+        "structural",
+        "civil",
+    ],
+    "F04": [
+        "structural",
+        "civil",
+    ],
+    "FL01": [
+        "structural",
+        "architectural",
+    ],
+    "FL02": [
+        "structural",
+        "architectural",
+    ],
+    "FL03": [
+        "structural",
+        "architectural",
+    ],
+    "FL04": [
+        "structural",
+        "architectural",
+    ],
+    "C01": [
+        "structural",
+        "architectural",
+    ],
+    "C02": [
+        "structural",
+        "architectural",
+    ],
+    "C03": [
+        "structural",
+    ],
+    "B01": [
+        "structural",
+    ],
+    "B02": [
+        "structural",
+    ],
+    "B03": [
+        "structural",
+    ],
+    "O01": [
+        "structural",
+        "architectural",
     ],
 }
 RFI_PROJECT_CHECK_TYPES = [

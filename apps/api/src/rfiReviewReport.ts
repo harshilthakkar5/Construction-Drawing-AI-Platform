@@ -74,6 +74,7 @@ export interface ReviewReport {
     pages: { sheetNumber: string | null; pageNumber: number; role: string; reason: string; rendered: boolean }[];
     omittedPages: { sheetNumber: string | null; reason: string }[];
     unresolvedReferences: string[];
+    evidenceGaps: string[];
     omissions: string[];
     searchLog: { query: string; found: number; stage: string }[];
   };
@@ -174,6 +175,9 @@ export function buildReviewReport(
       pages: run.pages.map((p) => ({ sheetNumber: p.sheetNumber, pageNumber: p.combinedPageNumber ?? p.pageNumber, role: p.role, reason: p.reason, rendered: p.visual })),
       omittedPages: run.coverage.omittedPages,
       unresolvedReferences: run.coverage.unresolvedReferences,
+      evidenceGaps: (run.coverage.evidenceGaps ?? []).map((g) =>
+        `${g.checkId ? `${g.checkId} — a ${g.need} sheet` : `the ${g.need}`}: ${g.reason}`,
+      ),
       omissions: run.coverage.omissions,
       searchLog: run.coverage.searchLog,
     },
@@ -369,6 +373,7 @@ export async function renderReviewReportPdf(
     for (const p of report.scope.omittedPages) w.text(`${p.sheetNumber ?? "?"}: ${p.reason}`, 8.5, w.font, 12);
   }
   if (report.scope.unresolvedReferences.length) w.text(`Referenced but not in the project: ${report.scope.unresolvedReferences.join(", ")}`, 8.5);
+  for (const g of report.scope.evidenceGaps) w.text(`Needed but not reviewed: ${g}`, 8.5);
   for (const o of report.scope.omissions) w.text(`Not completed: ${o}`, 8.5);
   if (report.notes.length) {
     w.heading("Notes");

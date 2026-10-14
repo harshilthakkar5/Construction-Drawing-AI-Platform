@@ -28,6 +28,7 @@ import {
   RFI_CUSTOM_QUESTION_IDS,
   RFI_PROJECT_CHECK_TYPES,
   RFI_QUESTION_CODE_CHECKS,
+  RFI_QUESTION_DISCIPLINES,
 } from "./dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -124,6 +125,7 @@ function render() {
   lines.push("");
   lines.push("", "# --- Scoped scans: questions answered by code, custom question ids ---", "");
   lines.push(`RFI_QUESTION_CODE_CHECKS = ${py(RFI_QUESTION_CODE_CHECKS)}`);
+  lines.push(`RFI_QUESTION_DISCIPLINES = ${py(RFI_QUESTION_DISCIPLINES)}`);
   lines.push(`RFI_PROJECT_CHECK_TYPES = ${py(RFI_PROJECT_CHECK_TYPES)}`);
   lines.push(`RFI_CUSTOM_QUESTION_IDS = ${py(RFI_CUSTOM_QUESTION_IDS)}`);
   lines.push(`RFI_CUSTOM_QUESTION_CHARS = ${py(RFI_CUSTOM_QUESTION_CHARS)}`);

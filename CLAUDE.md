@@ -2330,7 +2330,11 @@ step 2's plan (`fullscan.write_plan`) with the areas the code settled stored `sk
 `settled_by_code` (one sheet blank, or one an exact copy of the other — ≥85% of ITS wall lines land,
 one-sided because the architect's sheet carries furniture the copy omits — with no wall line drawn
 3 in–2 ft off) and the rest carrying `known`/`measured` hints into the AI's prompt
-(`<already_reported>`, `<measured_by_code>`). The API creates that plan row with the scan
+(`<already_reported>`, `<measured_by_code>`). A blank side settles every question; a COPY settles
+only those whose answer is the wall lines (`geometry_checks.WALLS_SETTLE`: FL01, C02) — when the
+scan asks anything else both sheets draw (`scan_scope.drawn_on`: O01, C01, a person's own
+question…) the area still goes to the AI, with `<settled_by_code>` naming what the walls answered,
+so a copied area costs money again on an architectural/structural pair. The API creates that plan row with the scan
 (`rfi_scans.fullScanId`, `prepareStepTwo`, `canPlanAgain`); the UI no longer queues a plan job.
 JETRIGHT: one download, 40 AI areas → 22. A grid name that lands on ANOTHER line of the other sheet is
 a naming dispute and never a spacing finding (RFI 002's G = F.7 read as "21'-1" vs 28'-10""). A check
@@ -2741,6 +2745,17 @@ Two same-scale sheets of ONE discipline are never overlaid either: on the full U
 (Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
 plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
 disciplines; an enlarged plan over its overall plan is unaffected.
+
+Each question also says which sheet KINDS besides plans carry its answer (`views` in the catalogue:
+F04 a schedule, FL04 a section, O01 an elevation). The planner forces in one the review would
+otherwise lack (referred to by the target, else found by that question's search) or writes an
+`evidenceGaps` entry naming it, which the worker turns into a gap: that question ends
+`insufficient_evidence`, never `complete_no_issue`. Notes that defer to a drawing by TITLE
+("REFER TO ARCHITECTURAL SLAB DIMENSIONAL CONTROL PLAN FOR ALL … OPENING DIMENSIONS" — the RFI 006
+miss) are followed too (`titleReferences`): the page carrying that title, same level first, else the
+sheet a sheet index lists for it, else a gap saying exactly why, which reasoning may raise as a
+`missing` problem. The full scan compares plans only and its plan says which chosen questions need
+other kinds (`scan_scope.views_note`).
 
 The planner reads a page's level with `pageLevel` (`rfiReviewRules.ts`): the title-block box first,
 then the scan's own `pages.level`. A box drawn tight round the sheet number (UT Law's structural box

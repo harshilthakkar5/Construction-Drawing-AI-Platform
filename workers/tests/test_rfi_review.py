@@ -780,3 +780,27 @@ def test_a_review_lays_an_enlarged_plan_over_its_overall_plan(database, monkeypa
     assert "A3.35 shows a 2'-0\" x 2'-0\" column" in rows[0][3]
     assert {e["sheetNumber"] for e in rows[0][4]} == {"A3.35", "A3.27"}
     assert any("line up, 1 differ" in n for n in notes)
+
+
+def test_a_question_the_plan_could_not_show_its_sheet_kind_is_never_no_issue():
+    # rfiReviewPlanner records what it could not put in front of the review;
+    # F04 with no schedule in view ends insufficient, and a drawing named by
+    # title reaches reasoning without deciding any one question's outcome.
+    planned = {"evidenceGaps": [
+        {"checkId": "F04", "need": "schedule", "reason": "the project has no schedule sheet"},
+        {"checkId": None, "need": "architectural slab dimensional control plan",
+         "reason": "S2.102 refers to it; no sheet in this project carries that title"},
+        "junk",
+    ]}
+    gaps = rfi_review.planned_gaps(planned)
+    assert gaps == [
+        {"checkId": "F04", "field": "schedule sheet", "reason": "the project has no schedule sheet", "source": "plan"},
+        {"checkId": None, "field": "architectural slab dimensional control plan",
+         "reason": "S2.102 refers to it; no sheet in this project carries that title", "source": "plan"},
+    ]
+    obs = [{"checkId": "F04", "evidenceIds": ["ev1"]}, {"checkId": "O01", "evidenceIds": ["ev1"]}]
+    results = rfi_review.check_results(["F04", "O01"], ["F04", "O01"], {}, obs, gaps, [], {})
+    assert results["F04"]["outcome"] == "insufficient_evidence"
+    assert results["F04"]["gaps"] == ["schedule sheet: the project has no schedule sheet"]
+    assert results["O01"]["outcome"] == "complete_no_issue"
+    assert "source: plan" in rfi_review.reasoning_system(["O01"])

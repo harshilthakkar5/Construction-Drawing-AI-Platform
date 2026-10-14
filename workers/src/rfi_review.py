@@ -455,6 +455,10 @@ def reasoning_system(check_ids: list[str]) -> str:
         "- Cite only evidence ids that appear in the observations.\n"
         "- `derivation` says how the problem follows from the observations; `impact` what goes wrong on "
         "site if it is not asked; `unresolvedReason` why the given evidence cannot settle it.\n"
+        "- A gap from the plan (`source: plan`) names what the review could not be shown. When the "
+        "notes defer a needed value to a drawing that is not in the project (\"REFER TO … PLAN FOR ALL "
+        "OPENING DIMENSIONS\") and an observed element needs that value, the documents cannot answer it: "
+        "that is a `missing` problem, citing the note and the element.\n"
         f"- At most {MAX_CANDIDATES} problems; none is a valid answer.\n"
         'Respond with ONLY JSON: {"candidates": [{"checkId": "C01", "kind": "conflict|missing|'
         'inconsistency|ambiguity", "disposition": "rfi|needs_evidence", "searchFor": "", "element": "...", '
@@ -1720,6 +1724,20 @@ def resolving_search(project_id: str, query: str, exclude: set[str], limit: int 
     return [dict(zip(keys, r)) for r in rows]
 
 
+def planned_gaps(planned: dict) -> list[dict]:
+    """The plan's evidence gaps as discovery-shaped gaps. Pure. One about a
+    drawing named by title belongs to no single question (checkId None): it
+    reaches reasoning, never one question's outcome."""
+    out = []
+    for g in planned.get("evidenceGaps") or []:
+        if not isinstance(g, dict) or not g.get("need"):
+            continue
+        field = f"{g['need']} sheet" if g.get("checkId") else str(g["need"])
+        out.append({"checkId": g.get("checkId"), "field": field, "reason": str(g.get("reason") or ""),
+                    "source": "plan"})
+    return out
+
+
 def check_results(
     all_ids: list[str],
     selected: list[str],
@@ -2132,7 +2150,10 @@ def _run(run: dict) -> dict:
 
     observations: list[dict] = []
     inventory: list[dict] = []
-    gaps: list[dict] = []
+    # What the plan could not put in front of the review (rfiReviewPlanner:
+    # a sheet kind a question needs, a drawing the notes defer to by title).
+    # A question with one cannot end "no issue", and reasoning is told.
+    gaps: list[dict] = planned_gaps(planned)
     not_applicable: list[dict] = []
     candidates: list[dict] = []
     kept: list[tuple[dict, dict, OccurrenceVerdict]] = []
@@ -2367,6 +2388,7 @@ def _run(run: dict) -> dict:
     coverage = {
         "omittedPages": planned.get("omittedPages") or [],
         "unresolvedReferences": planned.get("unresolvedReferences") or [],
+        "evidenceGaps": planned.get("evidenceGaps") or [],
         "searchLog": search_log,
         "omissions": omissions,
     }

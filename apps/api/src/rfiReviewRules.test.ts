@@ -9,7 +9,10 @@ import {
   elementFamily,
   estimateReview,
   levelOf,
+  missingViews,
   pageLevel,
+  titleMentions,
+  titleReferences,
   rankCorrespondence,
   drawsGrid,
   mentions,
@@ -537,5 +540,55 @@ describe("reviewIsActive", () => {
 
   it("is never active once finished", () => {
     expect(reviewIsActive(run("ready", 0), now)).toBe(false);
+  });
+});
+
+describe("titleReferences", () => {
+  it("reads a drawing the notes defer to by title, with the discipline named before it", () => {
+    const note = "2. REFER TO ARCHITECTURAL SLAB DIMENSIONAL CONTROL PLAN FOR ALL SLAB\nEDGE AND OPENING DIMENSIONS NOT SHOWN, TYPICAL.";
+    expect(titleReferences(note)).toEqual([{ title: "SLAB DIMENSIONAL CONTROL PLAN", discipline: "architectural" }]);
+    expect(titleReferences("SEE FOUNDATION PLAN; refer to pile cap schedule")).toEqual([
+      { title: "FOUNDATION PLAN", discipline: null },
+      { title: "PILE CAP SCHEDULE", discipline: null },
+    ]);
+  });
+
+  it("ignores a pointer that names no drawing", () => {
+    for (const text of [
+      "TOP OF CONCRETE = SEE PLAN",
+      "SEE KEY PLAN",
+      "REFER TO ARCHITECTURAL DRAWINGS AND DETAILS FOR DIMENSIONAL CONTROL OF MASONRY",
+      "SEE STRUCTURAL GENERAL NOTES",
+      "SEE 5/S-501",
+    ]) {
+      expect(titleReferences(text), text).toEqual([]);
+    }
+  });
+});
+
+describe("titleMentions", () => {
+  const title = "SLAB DIMENSIONAL CONTROL PLAN";
+  it("tells a pointer, a sheet-index line and the drawing's own title apart", () => {
+    expect(titleMentions("REFER TO ARCHITECTURAL SLAB DIMENSIONAL CONTROL PLAN FOR ALL", title)).toEqual([{ kind: "reference" }]);
+    expect(titleMentions("A2.10 SLAB DIMENSIONAL CONTROL PLAN - LEVEL 2", title)).toEqual([{ kind: "index", sheet: "A2.10" }]);
+    expect(titleMentions("Slab Dimensional\nControl Plan - Level 2 Sheet Title", title)).toEqual([{ kind: "title" }]);
+  });
+});
+
+describe("missingViews", () => {
+  it("names the sheet kind a question needs and the plan lacks", () => {
+    expect(missingViews(["F04", "C03"], new Set(["plan"]), "")).toEqual([{ checkId: "F04", kind: "schedule" }]);
+    expect(missingViews(["F04"], new Set(["plan", "schedule"]), "")).toEqual([]);
+  });
+
+  it("counts a schedule the plan prints, never one it only points at", () => {
+    expect(missingViews(["F04"], new Set(["plan"]), "FDN-PIER SCHEDULE\nMARK SIZE")).toEqual([]);
+    expect(missingViews(["F04"], new Set(["plan"]), "FOR PILE CAPS SEE SCHEDULE ON S3.100")).toEqual([
+      { checkId: "F04", kind: "schedule" },
+    ]);
+  });
+
+  it("asks nothing of a question answered on plans alone", () => {
+    expect(missingViews(["G01", "C03", "B01", "FL01"], new Set(), "")).toEqual([]);
   });
 });

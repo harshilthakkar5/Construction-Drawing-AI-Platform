@@ -1090,8 +1090,13 @@ export interface RfiUsageTotalsDto {
  *                         G01 the scan's grid comparison, C01 the column overlay
  *   geometryAids          exact measurements handed to the model as evidence
  *                         (never as findings): C03's column-to-grid offsets
+ *   views                 the sheet kinds (SHEET_KINDS) besides plans that carry
+ *                         this question's answer: the planner loads one of each
+ *                         the review would otherwise lack, or records an evidence
+ *                         gap naming it — a pile question with no schedule in view
+ *                         is "insufficient evidence", never "no issue"
  */
-export const RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.1";
+export const RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.2";
 
 export const RFI_REVIEW_CHECKS = [
   {
@@ -1110,6 +1115,7 @@ export const RFI_REVIEW_CHECKS = [
       "A candidate needs the same grid pair dimensioned differently, or one grid line named differently, on two localized sources.",
     deterministic: "grid_mismatch",
     geometryAids: [],
+    views: [],
   },
   {
     id: "G02",
@@ -1126,6 +1132,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs one level given two different elevations on the same datum by two localized sources.",
     deterministic: null,
     geometryAids: [],
+    views: ["section"],
   },
   {
     id: "F01",
@@ -1143,6 +1150,7 @@ export const RFI_REVIEW_CHECKS = [
       "A candidate needs a mark with no schedule row, a schedule size contradicted elsewhere, or an instance with no locating information after plans, schedules and details were searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "F02",
@@ -1158,6 +1166,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a segment whose size, location or elevation conflicts between sources, or cannot be located after the relevant sections were searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "F03",
@@ -1172,6 +1181,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a mat on one source that the other contradicts or omits.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "F04",
@@ -1186,6 +1196,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a pile or pile cap whose size or location conflicts between sources, or cannot be located.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "FL01",
@@ -1200,6 +1211,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs one edge located differently by two sources, or an edge with no locating dimension after enlarged plans and details were searched.",
     deterministic: null,
     geometryAids: [],
+    views: [],
   },
   {
     id: "FL02",
@@ -1214,6 +1226,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs one zone given two different elevations or thicknesses by two sources on the same datum.",
     deterministic: null,
     geometryAids: [],
+    views: ["section"],
   },
   {
     id: "FL03",
@@ -1228,6 +1241,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a step whose elevations disagree between plan and section, or a step with no elevations anywhere searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["section"],
   },
   {
     id: "FL04",
@@ -1242,6 +1256,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a slope whose direction, run or rate conflicts between sources, or a sloped zone with no rate anywhere searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["section"],
   },
   {
     id: "C01",
@@ -1257,6 +1272,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a column shown at a different place or size on two sources for the same level, or with no base/top elevation after the schedule and sections were searched.",
     deterministic: "column_mismatch",
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "C02",
@@ -1272,6 +1288,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a wall at a different place or thickness on two sources, or with no locating dimension after sections were searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "C03",
@@ -1289,6 +1306,7 @@ export const RFI_REVIEW_CHECKS = [
       "A candidate needs an off-grid column with no locating dimension after dimension chains, notes, enlarged details and schedules were searched. Unreadable is insufficient evidence, not a candidate.",
     deterministic: null,
     geometryAids: ["column_grid_offsets"],
+    views: [],
   },
   {
     id: "B01",
@@ -1303,6 +1321,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs a beam whose ends are located differently by two sources, or cannot be located after framing details were searched.",
     deterministic: null,
     geometryAids: [],
+    views: [],
   },
   {
     id: "B02",
@@ -1317,6 +1336,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs one beam given two sizes by two sources, or a tagged beam with no size anywhere searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["schedule"],
   },
   {
     id: "B03",
@@ -1331,6 +1351,7 @@ export const RFI_REVIEW_CHECKS = [
     candidateRules: "A candidate needs one beam at two elevations on the same reference by two sources, or no elevation anywhere searched.",
     deterministic: null,
     geometryAids: [],
+    views: ["section"],
   },
   {
     id: "O01",
@@ -1348,6 +1369,7 @@ export const RFI_REVIEW_CHECKS = [
       "A candidate needs one opening sized or located differently by two sources, or an opening drawn with no size, no locating dimension, or (in a wall) no sill height after plans, elevations and details were searched. Unreadable is insufficient evidence, not a candidate.",
     deterministic: null,
     geometryAids: [],
+    views: ["elevation"],
   },
 ] as const;
 export type RfiReviewCheckId = (typeof RFI_REVIEW_CHECKS)[number]["id"];
@@ -1558,6 +1580,10 @@ export interface RfiReviewCoverageDto {
   searchLog: { query: string; found: number; stage: string }[];
   /** Evidence the run could not look at (batches beyond the cap, a failed batch). */
   omissions: string[];
+  /** What a question needs that the plan could not put in front of it: a sheet
+   * kind (`views` in the catalogue) or a drawing the notes defer to by title.
+   * Absent on runs planned before it existed. */
+  evidenceGaps?: { checkId: string | null; need: string; reason: string }[];
 }
 
 export interface RfiReviewModelOptionDto {

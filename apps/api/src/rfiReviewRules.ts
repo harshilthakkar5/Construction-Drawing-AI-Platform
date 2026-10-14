@@ -224,6 +224,104 @@ export function referencedSheets(
   return { resolved, unresolved: unresolved.sort() };
 }
 
+// --- What a question needs besides the target ---------------------------------------
+
+/** A drawing the notes send the reader to by TITLE rather than sheet number:
+ * "REFER TO ARCHITECTURAL SLAB DIMENSIONAL CONTROL PLAN FOR ALL SLAB EDGE AND
+ * OPENING DIMENSIONS" on every UT Law forming plan. `referencedSheets` only
+ * follows sheet numbers, so the openings review never saw that drawing and
+ * never said it was missing (RFI 006). */
+export interface TitleReference {
+  /** The title as printed, words single-spaced: "SLAB DIMENSIONAL CONTROL PLAN". */
+  title: string;
+  /** The discipline the note names before it ("ARCHITECTURAL …"), or null. */
+  discipline: string | null;
+}
+
+const NAMED_DISCIPLINES: Record<string, string> = {
+  ARCHITECTURAL: "architectural",
+  STRUCTURAL: "structural",
+  CIVIL: "civil",
+  MECHANICAL: "mechanical",
+  ELECTRICAL: "electrical",
+  PLUMBING: "plumbing",
+  LANDSCAPE: "landscape",
+};
+// Words a title never runs through: a note continues past them ("… PLAN FOR
+// ALL …"), and "SEE STRUCTURAL GENERAL NOTES" names no drawing.
+const TITLE_STOP = String.raw`(?:FOR|OF|AT|TO|ON|AND|WITH|IN|BY|FROM|THE|ALL|EACH|THIS|THESE|ANY|OR|NOTES?|DETAILS?|DRAWINGS?|SECTIONS?|SHEETS?|PLANS?|SCHEDULES?)`;
+const TITLE_REFERENCE = new RegExp(
+  String.raw`\b(?:REFER(?:ENCE)?\s+TO|SEE|PER)\s+(?:THE\s+)?(?:(${Object.keys(NAMED_DISCIPLINES).join("|")})\s+)?` +
+    String.raw`((?:(?!${TITLE_STOP}\b)[A-Z][A-Z&/-]*\s+){1,5}(?:PLANS?|SCHEDULES?))\b`,
+  "g",
+);
+// "SEE KEY PLAN" points at the thumbnail every sheet carries.
+const GENERIC_TITLE_WORDS = new Set(["KEY", "TYPICAL"]);
+export const MAX_TITLE_REFERENCES = 5;
+
+export function titleReferences(text: string): TitleReference[] {
+  const upper = text.toUpperCase().replace(/\s+/g, " ");
+  const out = new Map<string, TitleReference>();
+  for (const m of upper.matchAll(TITLE_REFERENCE)) {
+    const title = m[2]!.trim();
+    const words = title.split(" ");
+    if (words.slice(0, -1).every((w) => GENERIC_TITLE_WORDS.has(w))) continue;
+    const discipline = m[1] ? NAMED_DISCIPLINES[m[1]]! : null;
+    const key = `${discipline}|${title}`;
+    if (!out.has(key) && out.size < MAX_TITLE_REFERENCES) out.set(key, { title, discipline });
+  }
+  return [...out.values()];
+}
+
+/** The title's words, matched across any whitespace and case. */
+export function titlePattern(title: string): string {
+  return title.split(" ").map((w) => w.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&")).join(String.raw`\s+`);
+}
+
+export type TitleMention = { kind: "reference" } | { kind: "title" } | { kind: "index"; sheet: string };
+
+/** How each occurrence of a title in one chunk reads: another note pointing
+ * at it ("SEE … PLAN"), a sheet-index line naming its sheet ("A2.10 SLAB …
+ * PLAN"), or the drawing's own title. */
+export function titleMentions(text: string, title: string): TitleMention[] {
+  const out: TitleMention[] = [];
+  const re = new RegExp(titlePattern(title), "gi");
+  for (const m of text.matchAll(re)) {
+    const before = text.slice(Math.max(0, m.index! - 48), m.index!).toUpperCase();
+    if (/\b(?:REFER(?:ENCE)?\s+TO|SEE|PER)\s+(?:THE\s+)?(?:[A-Z]+\s+)?$/.test(before)) {
+      out.push({ kind: "reference" });
+      continue;
+    }
+    const sheet = /\b([A-Z]{1,3}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?)\s*[-–:|]?\s*$/.exec(before);
+    out.push(sheet ? { kind: "index", sheet: sheet[1]! } : { kind: "title" });
+  }
+  return out;
+}
+
+const CHECK_VIEWS = new Map<string, readonly string[]>(RFI_REVIEW_CHECKS.map((c) => [c.id, c.views]));
+const KIND_WORDS: Record<string, string> = { schedule: "SCHEDULES?", section: "SECTIONS?", elevation: "ELEVATIONS?" };
+
+/** The sheet kinds each selected question needs (the catalogue's `views`)
+ * that no page already in the plan is. A plan that PRINTS its own schedule —
+ * "FDN-PIER SCHEDULE" on a foundation plan — has one; a schedule it only
+ * points at ("SEE SCHEDULE") does not. */
+export function missingViews(
+  checkIds: readonly string[],
+  haveKinds: ReadonlySet<string>,
+  targetText: string,
+): { checkId: string; kind: string }[] {
+  const out: { checkId: string; kind: string }[] = [];
+  for (const checkId of checkIds) {
+    for (const kind of CHECK_VIEWS.get(checkId) ?? []) {
+      if (haveKinds.has(kind)) continue;
+      const word = KIND_WORDS[kind];
+      if (kind === "schedule" && word && new RegExp(String.raw`(?<!\b(?:SEE|TO|PER)\s+(?:[A-Z-]+\s+){0,3})\b${word}\b`, "i").test(targetText)) continue;
+      out.push({ checkId, kind });
+    }
+  }
+  return out;
+}
+
 // --- Scope ------------------------------------------------------------------------
 
 /** What may enter a review, in trust order (the plan's evidence hierarchy):

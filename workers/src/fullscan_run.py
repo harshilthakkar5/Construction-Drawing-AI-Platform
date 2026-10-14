@@ -120,7 +120,10 @@ _UNTRUSTED = (
     "<already_reported> lists problems the system's code checks already raised in this area: never report "
     "them again. <measured_by_code> lists wall lines the code measured as drawn between 3 inches and 2 feet apart "
     "on the two sheets: look at each and report it only if the images show the same element in two places "
-    "(not a wall's other face, a different element, or pale background linework).\n"
+    "(not a wall's other face, a different element, or pale background linework). "
+    "<settled_by_code> says the code measured every wall line here as drawn in the same place on both sheets: "
+    "answer the questions it names as agree and do not report a wall or floor edge as moved here; still compare "
+    "everything else (openings, columns, marks, notes, levels) as usual.\n"
 )
 
 # The first real full scan (423 client pages) produced eight AI findings and
@@ -796,6 +799,10 @@ def tile_prompt(pair: dict, tile: dict, words_a: str, words_b: str) -> tuple[str
         user += "\n<already_reported>" + "\n".join(f"- {k}" for k in known) + "</already_reported>"
     if measured:
         user += "\n<measured_by_code>" + "\n".join(f"- {m}" for m in measured) + "</measured_by_code>"
+    settled = windows.get("settled") or {}
+    if settled.get("why"):
+        names = ", ".join(str(q) for q in settled.get("questions") or []) or "none of the questions asked"
+        user += f"\n<settled_by_code>{settled['why']}. Settled: {names}.</settled_by_code>"
     labels = [
         f"Image A — {pair['a'].get('sheetNumber') or 'sheet A'}, window {tile['tile'] + 1}",
         f"Image B — {pair['b'].get('sheetNumber') or 'sheet B'}, the same area",

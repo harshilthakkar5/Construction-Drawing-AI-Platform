@@ -18,7 +18,8 @@ mistakes. This module makes them do the work first:
   * TRIAGE (`triage_tiles`). A window the code can settle is not sent to the
     AI: one side draws nothing there, or every wall line both sheets draw lines
     up exactly and no line has a parallel twin 3 in to 2 ft off (the shape of a
-    wall that moved). Every other window goes to the AI with what the code
+    wall that moved) — the second only when no asked question that both sheets
+    draw needs more than the walls (WALLS_SETTLE). Every other window goes to the AI with what the code
     already knows about it — findings already reported there, and lines it
     measured as slightly offset — so it neither re-reports nor misses them.
 
@@ -316,6 +317,10 @@ DEFAULT_PT_PER_FT = 9.0  # 1/8" = 1'-0", when no scale is known
 # carries furniture, finishes and text boxes the copy leaves out (33-45%).
 SETTLE_MIN_MATCHED = 25
 SETTLE_MIN_SHARE = 0.85
+# What a wall copy settles: the questions whose answer IS the wall lines. Matching
+# walls say nothing about an opening, a column mark, a note or an elevation, so a
+# copied area stays open for every other question both sheets draw.
+WALLS_SETTLE = frozenset({"FL01", "C02"})
 MAX_HINTS = 6
 
 
@@ -344,6 +349,11 @@ class TileView:
         copy, share = ("B", share_b) if share_b >= share_a else ("A", share_a)
         return (f"sheet {copy} copies the other here: {round(100 * share)}% of its wall lines land exactly on the "
                 f"other sheet's, and no wall line of either is drawn 3 in to 2 ft off")
+
+    def settles_all(self) -> bool:
+        """A blank side settles every question (there is nothing on it to compare);
+        a copy settles only WALLS_SETTLE."""
+        return bool(self.blank)
 
     def as_json(self) -> dict:
         return {"pair": self.pair, "tile": self.tile, "blank": self.blank, "linesA": self.lines_a,
@@ -462,11 +472,19 @@ def _known_in(findings, pair, wa: list[float], wb: list[float], pages_display) -
     return out[:MAX_HINTS]
 
 
-def triage_tiles(pairs, open_page, cache: dict | None = None, findings=()) -> Triage:
+def triage_tiles(pairs, open_page, cache: dict | None = None, findings=(), question_ids=None) -> Triage:
     """Which windows the code settles itself, and what it tells the AI about
     the rest. Indices are (pair index in `pairs`, window index), as the plan
-    writes its tiles."""
+    writes its tiles.
+
+    Settling is per QUESTION (`question_ids`, the scan's; None = the whole
+    catalogue): a copied area is set aside only when no asked question that
+    both sheets draw is left open by the walls agreeing. Otherwise it goes to
+    the AI with `settled` saying which questions the code answered and why."""
     import wall_match
+    import scan_scope
+
+    asked = list(scan_scope.CATALOGUE_IDS if question_ids is None else question_ids)
 
     cache = {} if cache is None else cache
     walls = cache.setdefault("walls", {})
@@ -500,10 +518,13 @@ def triage_tiles(pairs, open_page, cache: dict | None = None, findings=()) -> Tr
                  view.near_misses) = compare_lines(walls[key_a], walls[key_b], wa, wb, t.scale, t.tx, t.ty, ptft)
             out.views.append(view)
             why = view.settled()
-            if why:
-                # One sheet copies the other here (or one is blank): there is
-                # no disagreement between drawings for the AI to find, whatever
-                # the text checks already reported in this area.
+            open_questions = [] if not why or view.settles_all() else [
+                q for q in asked
+                if q not in WALLS_SETTLE and scan_scope.drawn_on(q, pair.a.discipline, pair.b.discipline)
+            ]
+            if why and not open_questions:
+                # One side is blank, or one copies the other and every asked
+                # question that applies is answered by the walls agreeing.
                 out.reasons[(i, j)] = why
                 continue
             known = _known_in(findings, pair, wa, wb, to_display)
@@ -517,6 +538,10 @@ def triage_tiles(pairs, open_page, cache: dict | None = None, findings=()) -> Tr
                     # Where, on sheet B, so a problem the AI raises there can
                     # be recognised as the same one (fullscan_run.settle).
                     measured_at.append({"rect": near_miss_rect(n), "note": line, "ptPerFt": ptft})
-            if known or measured:
-                out.hints[(i, j)] = {"known": known, "measured": measured, "measuredAt": measured_at}
+            hint = {"known": known, "measured": measured, "measuredAt": measured_at} if known or measured else {}
+            if why:
+                hint["settled"] = {"why": why, "questions": [q for q in asked if q in WALLS_SETTLE],
+                                   "open": open_questions}
+            if hint:
+                out.hints[(i, j)] = hint
     return out
