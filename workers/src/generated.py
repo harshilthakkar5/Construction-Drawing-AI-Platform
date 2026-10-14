@@ -536,6 +536,36 @@ RFI_REVIEW_CHECKS = [
         "deterministic": None,
         "geometryAids": [],
     },
+    {
+        "id": "O01",
+        "sourceSection": "Openings",
+        "sourceQuestionNumber": 1,
+        "originalQuestion": "Find all the openings in the floors and walls (slab openings, shafts, shear wall openings), find their sizes, location from Grids and sill height, if any opening is not dimensioned isolate and highlight.",
+        "label": "Floor and wall openings",
+        "requiredObservations": [
+            "opening (floor/slab or wall, and its mark if any)",
+            "size",
+            "location from grids or a wall end",
+            "sill height for a wall opening",
+            "the view that shows it",
+        ],
+        "query": "opening slab opening floor opening shaft penetration wall opening sill height dimension",
+        "applicability": {
+            "always": False,
+            "keywords": [
+                "OPENING",
+                "OPENINGS",
+                "SHAFT",
+                "PENETRATION",
+                "SLEEVE",
+                "SILL",
+            ],
+        },
+        "comparisonRules": "Compare the same opening on corresponding architectural and structural plans or elevations of one level. An opening only one discipline draws (a duct or pipe sleeve) is not a conflict by itself.",
+        "candidateRules": "A candidate needs one opening sized or located differently by two sources, or an opening drawn with no size, no locating dimension, or (in a wall) no sill height after plans, elevations and details were searched. Unreadable is insufficient evidence, not a candidate.",
+        "deterministic": None,
+        "geometryAids": [],
+    },
 ]
 
 RFI_REVIEW_DEPTHS = {
@@ -574,7 +604,7 @@ RFI_REVIEW_DEPTHS = {
     },
 }
 
-RFI_REVIEW_CATALOGUE_VERSION = "2026-09-30.1"
+RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.1"
 RFI_REVIEW_INPUT_LIMITS = {
     "min": 20000,
     "max": 400000,

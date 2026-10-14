@@ -1020,7 +1020,7 @@
     },
     {
       "id": "utlaw-rfi-006",
-      "source": "BIM RFI 006 'FLOOR OPENING SIZES AND LOCATIONS' on S0.302 (Level 2), compared with A3.01. The 16-question catalogue asks no question about floor openings, so a targeted review cannot raise this; FL01 (floor edges) is the nearest.",
+      "source": "BIM RFI 006 'FLOOR OPENING SIZES AND LOCATIONS' on S0.302 (Level 2), compared with A3.01. Answered by O01 (floor and wall openings), added to the catalogue because none of the 16 original questions asks about openings.",
       "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
       "target": {
         "type": "compare",
@@ -1030,13 +1030,13 @@
         ]
       },
       "checks": [
-        "FL01"
+        "O01"
       ],
       "expected": [
         {
           "what": "Floor opening sizes and locations on S0.302 are not dimensioned",
           "checkTypes": [
-            "FL01",
+            "O01",
             "custom"
           ],
           "sheets": [
@@ -1050,20 +1050,20 @@
     },
     {
       "id": "utlaw-rfi-005",
-      "source": "BIM RFI 005 'SHEAR WALL OPENING SIZES AND LOCATIONS': 'confirm the shear wall opening dimensions and sill height'. The form names S5.200 but the marked-up sheet is S5.210 (CIP Concrete Shearwall Elevations); S5.200 in this issue refers only to S5.201-S5.204. Scored on a targeted review of S5.210.",
+      "source": "BIM RFI 005 'SHEAR WALL OPENING SIZES AND LOCATIONS': 'confirm the shear wall opening dimensions and sill height'. The form names S5.200 but the marked-up sheet is S5.210 (CIP Concrete Shearwall Elevations); S5.200 in this issue refers only to S5.201-S5.204. Scored on a targeted review of S5.210. Answered by O01 (floor and wall openings).",
       "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
       "target": {
         "type": "sheet",
         "value": "S5.210"
       },
       "checks": [
-        "C02"
+        "O01"
       ],
       "expected": [
         {
           "what": "Opening sizes and sill heights in the SW-1.1 elevations are not dimensioned",
           "checkTypes": [
-            "C02"
+            "O01"
           ],
           "sheets": [
             "S5.210"

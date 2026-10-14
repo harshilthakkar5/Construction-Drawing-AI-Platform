@@ -920,8 +920,8 @@ The one place that says what the RFI features are and are not. Design: `docs/rfi
 | **Find RFIs in drawings** — one button, one review list: step 1 code checks, step 2 optional priced AI comparison (plan prepared free by the same click) | built | UI orchestrates the two existing jobs; screenshot-checked |
 | Step 1 code checks (`rfi-scan`: dangling reference, unscheduled mark, open-item note, grid mismatch, tag value conflict, illegible schedule picture, level missing from a plan series) | built | worker tests against real SQL; RFI 002 found on the client's S2.105/A3.01; on JETRIGHT, 3 of a reviewer's 6 RFIs (F6.0, RTU-3, grid U = T) |
 | Targeted review — targets: one sheet, one element (mark, level, area), 2–4 sheets compared | built | planner tests against a real database |
-| The 16 original questions, verbatim, one catalogue for routing, prompts and UI; version stored per run | built | golden fixture read by both test suites |
-| Question modes: Choose for me / All 16 / I will choose; an outcome for all 16 in every run | built | unit + worker tests |
+| The 16 original questions, verbatim, plus O01 (openings, added), one catalogue for routing, prompts and UI; version stored per run | built | golden fixture read by both test suites |
+| Question modes: Choose for me / All 17 / I will choose; an outcome for every question in every run | built | unit + worker tests |
 | Depth presets, per-run provider and model, input and thinking token limits, effort | built | options/plan/estimate tests; capability fixture shared with the worker |
 | Cost: estimated range before Start, planning cost already spent, pricing version, actual cost after, comparison between runs with caveats | built | unit + route tests; unknown prices stay "unknown" |
 | Idempotent Start, cancel, stale-plan refusal (revision, exclusion, re-ingest), revoked access, token ceiling → `partial` | built | route and worker tests against a real database |

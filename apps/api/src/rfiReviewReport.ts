@@ -321,7 +321,7 @@ export async function renderReviewReportPdf(
   const c = report.cost;
   w.text(`Cost: estimated ${money(c.estimatedLowUsd)} to ${money(c.estimatedHighUsd)}; actual ${money(c.actualUsd)}${c.actualTokens !== null ? ` (${c.actualTokens.toLocaleString()} tokens)` : ""}; planning ${money(c.planningUsd)}. Prices: ${c.pricingVersion ?? "unknown"}.`);
 
-  w.heading("The 16 original questions");
+  w.heading(`The ${RFI_REVIEW_CHECKS.length} review questions`);
   for (const check of report.checks) {
     w.text(`${check.id} (${check.section} Q${check.number}) — ${check.outcome.replace(/_/g, " ")}${check.candidates ? `, ${check.candidates} candidate(s)` : ""}`, 9.5, w.bold);
     w.text(check.originalQuestion, 8.5, w.font, 12, rgb(0.35, 0.35, 0.35));

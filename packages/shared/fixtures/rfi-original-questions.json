@@ -1,5 +1,5 @@
 {
-  "_comment": "The 16 original RFI review questions, transcribed VERBATIM (spelling included) from the user's 'Question for RFI's.txt'. This file is the golden copy: RFI_REVIEW_CHECKS in src/index.ts must carry exactly these ids, positions and strings, and tests in apps/api and workers read this file to fail on any drift. IDs are implementation identifiers, not from the source file.",
+  "_comment": "The 16 original RFI review questions, transcribed VERBATIM (spelling included) from the user's 'Question for RFI's.txt'. This file is the golden copy: RFI_REVIEW_CHECKS in src/index.ts must carry exactly these ids, positions and strings, and tests in apps/api and workers read this file to fail on any drift. IDs are implementation identifiers, not from the source file. O01 (section Openings) is NOT from that file: it was added on 2026-10-14 at the user's request, because the client's RFIs 005 and 006 ask about openings and none of the 16 does.",
   "questions": [
     { "id": "G01", "section": "General", "number": 1, "question": "what are the Grid to Grid Dimensions, compare the grids with architecture if there is any mismatch isolate and highlight" },
     { "id": "G02", "section": "General", "number": 2, "question": "Find all the Level and there elevation from the drawings set, compare the Levels with architecture if there is any mismatch isolate and highlight" },
@@ -16,6 +16,7 @@
     { "id": "C03", "section": "Columns & Shear walls", "number": 3, "question": "if any column is centered to grid, most probably it is not dimensioned from grid, but if any column is off from the grids and not dimensioned from grid isolate and highlight." },
     { "id": "B01", "section": "Beams", "number": 1, "question": "what is the start and end of the beams with reference to grids" },
     { "id": "B02", "section": "Beams", "number": 2, "question": "what is the size of the beam." },
-    { "id": "B03", "section": "Beams", "number": 3, "question": "what is the elevation of the beams." }
+    { "id": "B03", "section": "Beams", "number": 3, "question": "what is the elevation of the beams." },
+    { "id": "O01", "section": "Openings", "number": 1, "question": "Find all the openings in the floors and walls (slab openings, shafts, shear wall openings), find their sizes, location from Grids and sill height, if any opening is not dimensioned isolate and highlight.", "added": "2026-10-14, at the user's request" }
   ]
 }

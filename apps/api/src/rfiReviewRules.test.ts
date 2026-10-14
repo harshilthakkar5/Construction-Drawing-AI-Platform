@@ -102,12 +102,12 @@ describe("selectRfiChecks", () => {
     expect(() => selectRfiChecks("", "custom", [])).toThrow(/at least one/);
   });
 
-  it("all_original runs all 16 and still reports applicability", () => {
+  it("all_original runs all 17 and still reports applicability", () => {
     const { checkIds, plan } = selectRfiChecks("BEAM FRAMING", "all_original");
     expect(checkIds).toEqual(RFI_REVIEW_CHECK_IDS);
     expect(plan.B01!.applicability).toBe("applicable");
     expect(plan.F03!.applicability).toBe("unknown");
-    expect(Object.keys(plan)).toHaveLength(16);
+    expect(Object.keys(plan)).toHaveLength(17);
   });
 });
 

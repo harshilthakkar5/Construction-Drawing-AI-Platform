@@ -57,7 +57,7 @@ const THINKING_HINT: Record<RfiReviewThinking, string> = {
 
 const CHECK_MODES: { value: RfiReviewCheckMode; label: string; hint: string }[] = [
   { value: "auto", label: "Choose for me", hint: "Runs the questions the target points at; every other question says why it was left out." },
-  { value: "all_original", label: "All 16", hint: "Runs every original question. Costs more; each one still reports if it does not apply." },
+  { value: "all_original", label: `All ${RFI_REVIEW_CHECKS.length}`, hint: "Runs every question. Costs more; each one still reports if it does not apply." },
   { value: "custom", label: "I will choose", hint: "Runs exactly the questions you tick." },
 ];
 
@@ -577,7 +577,7 @@ function headline(run: RfiReviewRunDto): string {
   }
   const again = Object.values(run.checkResults ?? {}).filter((r) => r.outcome === "candidate_found").length;
   if (again > 0) {
-    return "Nothing new: what this run found was already found before. “The 16 questions” below says where each one is — the RFI log, Needs your review, or Dismissed.";
+    return "Nothing new: what this run found was already found before. “The questions” below says where each one is — the RFI log, Needs your review, or Dismissed.";
   }
   return "No problems were confirmed on these pages.";
 }
@@ -585,7 +585,7 @@ function headline(run: RfiReviewRunDto): string {
 function Outcomes({ run }: { run: RfiReviewRunDto }) {
   if (!run.checkResults) return null;
   return (
-    <Section title="The 16 questions" count={16} open>
+    <Section title="The questions" count={RFI_REVIEW_CHECKS.length} open>
       <ul className="flex flex-col gap-1.5 text-xs">
         {RFI_REVIEW_CHECKS.map((check) => {
           const result = run.checkResults![check.id];

@@ -1064,8 +1064,10 @@ export interface RfiUsageTotalsDto {
 // --- Targeted RFI review (docs/rfi-targeted-review.md) ---
 
 /**
- * The review catalogue: the 16 ORIGINAL questions (fixtures/rfi-original-
- * questions.json holds the verbatim golden copy; tests on both sides of the
+ * The review catalogue: the 16 ORIGINAL questions plus O01 (openings), added
+ * at the user's request after the UT Law RFIs 005 and 006 asked about openings
+ * and no original question did (fixtures/rfi-original-questions.json holds the
+ * verbatim golden copy and marks O01 as added; tests on both sides of the
  * process boundary fail when this drifts from it). These are REVIEW
  * OBJECTIVES, not sixteen instructions to manufacture RFIs: a review inventories
  * what each asks for and proposes a candidate only for a supported conflict or
@@ -1089,7 +1091,7 @@ export interface RfiUsageTotalsDto {
  *   geometryAids          exact measurements handed to the model as evidence
  *                         (never as findings): C03's column-to-grid offsets
  */
-export const RFI_REVIEW_CATALOGUE_VERSION = "2026-09-30.1";
+export const RFI_REVIEW_CATALOGUE_VERSION = "2026-10-14.1";
 
 export const RFI_REVIEW_CHECKS = [
   {
@@ -1327,6 +1329,23 @@ export const RFI_REVIEW_CHECKS = [
     applicability: { always: false, keywords: ["BEAM", "FRAMING", "GIRDER", "T.O.B", "TOB"] },
     comparisonRules: "Distinguish top, bottom and centerline; account for documented slopes and steps.",
     candidateRules: "A candidate needs one beam at two elevations on the same reference by two sources, or no elevation anywhere searched.",
+    deterministic: null,
+    geometryAids: [],
+  },
+  {
+    id: "O01",
+    sourceSection: "Openings",
+    sourceQuestionNumber: 1,
+    originalQuestion:
+      "Find all the openings in the floors and walls (slab openings, shafts, shear wall openings), find their sizes, location from Grids and sill height, if any opening is not dimensioned isolate and highlight.",
+    label: "Floor and wall openings",
+    requiredObservations: ["opening (floor/slab or wall, and its mark if any)", "size", "location from grids or a wall end", "sill height for a wall opening", "the view that shows it"],
+    query: "opening slab opening floor opening shaft penetration wall opening sill height dimension",
+    applicability: { always: false, keywords: ["OPENING", "OPENINGS", "SHAFT", "PENETRATION", "SLEEVE", "SILL"] },
+    comparisonRules:
+      "Compare the same opening on corresponding architectural and structural plans or elevations of one level. An opening only one discipline draws (a duct or pipe sleeve) is not a conflict by itself.",
+    candidateRules:
+      "A candidate needs one opening sized or located differently by two sources, or an opening drawn with no size, no locating dimension, or (in a wall) no sill height after plans, elevations and details were searched. Unreadable is insufficient evidence, not a candidate.",
     deterministic: null,
     geometryAids: [],
   },
@@ -1854,6 +1873,7 @@ export const RFI_QUESTION_DISCIPLINES: Partial<Record<RfiReviewCheckId, readonly
   B01: ["structural"],
   B02: ["structural"],
   B03: ["structural"],
+  O01: ["structural", "architectural"],
 };
 
 /** The questions both sides of a comparison draw — the ones pre-ticked. */

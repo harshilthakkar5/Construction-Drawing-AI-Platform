@@ -118,7 +118,7 @@ def test_every_question_gets_an_outcome_and_none_is_a_silent_pass():
         not_applicable=[{"checkId": "B01", "reason": "no beams here", "evidenceIds": ["ev1"]}],
         found={"C01": 2},
     )
-    assert len(got) == 16
+    assert len(got) == 17
     assert got["C01"]["outcome"] == "candidate_found" and got["C01"]["candidates"] == 2
     assert got["C02"]["outcome"] == "complete_no_issue"
     assert got["B01"]["outcome"] == "not_applicable" and got["B01"]["reason"] == "no beams here"

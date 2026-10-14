@@ -91,7 +91,7 @@ describe.skipIf(!url)("review routes against a real database", () => {
 
   it("offers the catalogue and the models with what each accepts", async () => {
     const body = (await (await fetch(`${base}/options`)).json()) as { checks: unknown[]; options: { model: string; capability: { budget: boolean } }[] };
-    expect(body.checks).toHaveLength(16);
+    expect(body.checks).toHaveLength(17);
     expect(body.options.find((o) => o.model === "claude-sonnet-5")!.capability.budget).toBe(false);
     expect(body.options.find((o) => o.model === "claude-haiku-4-5")!.capability.budget).toBe(true);
   });
@@ -138,7 +138,7 @@ describe.skipIf(!url)("review routes against a real database", () => {
     const run = await plan();
     const json = (await (await fetch(`${base}/${run.id}/report.json?kind=draft`)).json()) as { kind: string; checks: unknown[]; disclaimer: string[] };
     expect(json.kind).toBe("draft");
-    expect(json.checks).toHaveLength(16);
+    expect(json.checks).toHaveLength(17);
     expect(json.disclaimer[0]).toMatch(/DRAFT/);
     const pdf = await fetch(`${base}/${run.id}/report.pdf?kind=accepted`);
     expect(pdf.headers.get("content-type")).toBe("application/pdf");

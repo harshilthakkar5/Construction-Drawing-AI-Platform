@@ -24,8 +24,8 @@ describe("the RFI review catalogue", () => {
     question: string;
   }[];
 
-  it("carries exactly the 16 original questions, in order, verbatim", () => {
-    expect(golden).toHaveLength(16);
+  it("carries exactly the 16 original questions plus the added O01, in order, verbatim", () => {
+    expect(golden).toHaveLength(17);
     expect(RFI_REVIEW_CHECKS.map((c) => c.id)).toEqual(golden.map((q) => q.id));
     for (const [i, check] of RFI_REVIEW_CHECKS.entries()) {
       expect(check.originalQuestion).toBe(golden[i]!.question);
@@ -34,11 +34,11 @@ describe("the RFI review catalogue", () => {
     }
   });
 
-  it("has unique ids and 2 + 4 + 4 + 3 + 3 objectives by section", () => {
-    expect(new Set(RFI_REVIEW_CHECK_IDS).size).toBe(16);
+  it("has unique ids and 2 + 4 + 4 + 3 + 3 + 1 objectives by section", () => {
+    expect(new Set(RFI_REVIEW_CHECK_IDS).size).toBe(17);
     const bySection: Record<string, number> = {};
     for (const c of RFI_REVIEW_CHECKS) bySection[c.sourceSection] = (bySection[c.sourceSection] ?? 0) + 1;
-    expect(bySection).toEqual({ General: 2, Foundations: 4, Floor: 4, "Columns & Shear walls": 3, Beams: 3 });
+    expect(bySection).toEqual({ General: 2, Foundations: 4, Floor: 4, "Columns & Shear walls": 3, Beams: 3, Openings: 1 });
   });
 
   it("gives every objective what routing, prompts and the UI need", () => {

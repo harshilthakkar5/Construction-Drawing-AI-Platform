@@ -12,10 +12,12 @@
 Both write to the same `rfi_candidates` table and the same "Needs your review" list. A candidate
 is never an issued RFI: it gets a number only when a person accepts it.
 
-## The 16 questions — one catalogue
+## The 17 questions — one catalogue
 
 `RFI_REVIEW_CHECKS` in `@cdip/shared` holds the 16 original questions VERBATIM (G01–G02 general,
-F01–F04 foundations, FL01–FL04 floors, C01–C03 columns, B01–B03 beams), each with its section and
+F01–F04 foundations, FL01–FL04 floors, C01–C03 columns, B01–B03 beams) plus O01, floor and wall
+openings — NOT one of the client's originals, added because their RFIs 005 and 006 ask about
+openings and none of the 16 does (the fixture marks it `added`). Each with its section and
 number, a short label, the observations it needs recorded, its comparison rules, what makes a
 candidate, and whether an exact check backs it (`grid_mismatch` for G01, `column_mismatch` for C01)
 or a measured aid (`column_grid_offsets` for C03). Routing, every prompt and the UI read that one

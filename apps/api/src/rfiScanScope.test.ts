@@ -71,7 +71,7 @@ describe("a scan's scope", () => {
 
 describe("recommended questions for a pair", () => {
   it("asks Structural and Architectural only what both draw", () => {
-    expect(recommendedChecks("structural", "architectural")).toEqual(["G01", "G02", "FL01", "FL02", "FL03", "FL04", "C01", "C02"]);
+    expect(recommendedChecks("structural", "architectural")).toEqual(["G01", "G02", "FL01", "FL02", "FL03", "FL04", "C01", "C02", "O01"]);
   });
 
   it("asks a discipline compared with itself everything it draws", () => {
