@@ -126,12 +126,12 @@ describe.skipIf(!url)("review routes against a real database", () => {
 
   it("re-estimates a planned scope on another model without storing anything", async () => {
     const run = await plan();
-    const res = await post(`/${run.id}/estimate`, { provider: "gemini", model: "gemini-2.5-flash", thinking: "low" });
+    const res = await post(`/${run.id}/estimate`, { provider: "gemini", model: "models/gemini-3.1-pro-preview", thinking: "low" });
     const est = (await res.json()) as { model: string; costLowUsd: number };
-    expect(est.model).toBe("gemini-2.5-flash");
+    expect(est.model).toBe("models/gemini-3.1-pro-preview");
     expect(est.costLowUsd).toBeGreaterThan(0);
     const stored = await prisma.rfiReviewRun.findUniqueOrThrow({ where: { id: run.id } });
-    expect(stored.model).not.toBe("gemini-2.5-flash");
+    expect(stored.model).not.toBe("models/gemini-3.1-pro-preview");
   });
 
   it("builds the report from stored rows, as JSON and as a PDF", async () => {

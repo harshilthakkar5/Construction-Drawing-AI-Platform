@@ -99,6 +99,7 @@ const RATES: Record<string, { input: number; output: number }> = {
   // claude-sonnet-5 was $3/$15 here, which is Sonnet 4.6's price. Sonnet 5
   // costs $2/$10, so every chat answer, summary and drawing description this
   // dashboard had ever priced was overstated by half.
+  "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-sonnet-5": { input: 2, output: 10 },
   "claude-opus-5": { input: 5, output: 25 },
   "claude-haiku-4-5": { input: 1, output: 5 },

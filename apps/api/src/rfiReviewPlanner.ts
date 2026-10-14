@@ -103,8 +103,8 @@ export interface PlanDeps {
  * has run and priced. A model name the person types is not accepted — a
  * typo would plan fine and fail at the first call. */
 const CANDIDATE_MODELS: Record<RfiReviewProvider, string[]> = {
-  claude: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
-  gemini: ["gemini-3.6-flash", "models/gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
+  claude: ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
+  gemini: ["gemini-3.8-flash", "models/gemini-3.1-pro-preview"],
 };
 
 function configuredModel(provider: RfiReviewProvider): string {

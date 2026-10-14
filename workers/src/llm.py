@@ -268,6 +268,19 @@ def _claude_thinking(model: str) -> dict | None:
     """The `thinking` field for this model, or None to omit it entirely."""
     if model in _no_thinking_param or _CLAUDE_THINKING not in ("off", "false", "0"):
         return None
+    return _claude_off(model)
+
+
+def _claude_off(model: str) -> dict:
+    """What "thinking off" is sent as. Sonnet 5.5 rejects `disabled` with a 400
+    and turns thinking off with `between_tools` instead — and the refusal
+    fallback below OMITS the field, which on Sonnet 5.5 is adaptive thinking at
+    high effort: the cost and truncation `CLAUDE_THINKING=off` exists to stop."""
+    found = re.match(r"^claude-sonnet-(\d+)(?:-(\d{1,2}))?(?!\d)", model or "")
+    if found:
+        major, minor = int(found.group(1)), int(found.group(2) or 0)
+        if major > 5 or (major == 5 and minor >= 5):
+            return {"type": "between_tools"}
     return {"type": "disabled"}
 
 
@@ -304,7 +317,7 @@ def _claude_stage_thinking(model: str, setting: str) -> tuple[dict, dict | None,
     thinking on would truncate the very reply it was meant to improve.
     """
     if setting == "off":
-        return {"type": "disabled"}, None, 0
+        return _claude_off(model), None, 0
     budget = thinking_budget(setting)
     if budget is not None:
         if _claude_takes_effort(model):
