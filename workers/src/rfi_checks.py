@@ -54,7 +54,7 @@ from classify import PREFIX_TO_DISCIPLINE
 # @cdip/shared, and test_rfi_checks reads that file to fail on a drift — a
 # check the UI has no label for renders as its raw key.
 CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict",
-               "illegible_schedule",
+               "illegible_schedule", "missing_plan_level",
                # geometry_checks.py, on the sheet pairs the scan lines up:
                "grid_spacing", "column_mismatch")
 # The two above that compare a PAIR of sheets the scan lined up
@@ -246,7 +246,7 @@ def _where(evidence: list[dict]) -> str:
 
 # --- Check 1: dangling sheet references --------------------------------------
 
-_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,2})?[A-Z]?)"
+_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?)"
 
 # "5/S-501", "A/S501": a detail callout. The lookbehind requires the callout
 # number to stand on its own. Without it a material grade reads as a callout:
@@ -254,9 +254,12 @@ _SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,2})?[A-Z]?)"
 # prefix — and becomes "sheet A572 referenced but not in the set".
 _DETAIL_CALLOUT = re.compile(r"(?<![A-Z0-9/.])(\d{1,2}|[A-Z]\d?)\s*/\s*" + _SHEET_TOKEN + r"(?![A-Z0-9/])")
 
-# "SEE S-501", "REFER TO SHEET A-301", "SEE DETAIL 4 ON S-501".
+# "SEE S-501", "REFER TO SHEET A-301", "SEE DETAIL 4 ON S-501". "COVER SHEET
+# L000" and "TITLE SHEET G001" are a sheet's NAME followed by its number — the
+# UT Law drawing index lists "COVER SHEET L000", which read as a pointer to a
+# missing sheet.
 _KEYWORD_REF = re.compile(
-    r"\b(?:SEE|REFER\s+TO|REF\.?|REFERENCE|ON|SHEET|SHT\.?|DWG\.?|DRAWING)\s+"
+    r"(?<!COVER\s)(?<!TITLE\s)(?<!KEY\s)\b(?:SEE|REFER\s+TO|REF\.?|REFERENCE|ON|SHEET|SHT\.?|DWG\.?|DRAWING)\s+"
     r"(?:(?:SHEET|SHT\.?|DWG\.?|DRAWING)\s+)?"
     r"(?:(?:DETAIL|DET\.?|SECTION|SECT\.?)\s+[A-Z0-9]{1,3}\s+(?:ON\s+)?(?:SHEET\s+)?)?"
     + _SHEET_TOKEN
@@ -288,12 +291,46 @@ def sheet_references(text: str) -> list[tuple[str, int, int]]:
 # A drawing list / sheet index heading. The index is the ISSUED SET: a sheet it
 # lists exists whether or not it was uploaded here.
 _INDEX_HEADING = re.compile(
-    r"\b(?:SHEET|DRAWING)S?\s+(?:INDEX|LIST)\b|\bINDEX\s+OF\s+(?:DRAWINGS|SHEETS)\b|\bLIST\s+OF\s+(?:DRAWINGS|SHEETS)\b"
+    r"\b(?:SHEET|DRAWING)S?\s+(?:INDEX|LIST)\b|\bINDEX\s+(?:OF|TO)\s+(?:DRAWINGS|SHEETS)\b|\bLIST\s+OF\s+(?:DRAWINGS|SHEETS)\b"
 )
 _BARE_SHEET = re.compile(r"(?<![A-Z0-9/.-])" + _SHEET_TOKEN + r"(?![A-Z0-9/])")
 # Sheet numbers a page must list before it counts as the index rather than a
 # note that mentions one.
 MIN_INDEX_ENTRIES = 5
+
+
+def index_page_ids(chunks: list[Chunk]) -> set[str]:
+    """Pages carrying the project's sheet index: an index heading and at least
+    MIN_INDEX_ENTRIES sheet numbers on the page."""
+    by_page: dict[str, list[Chunk]] = {}
+    for chunk in chunks:
+        by_page.setdefault(chunk.page_id, []).append(chunk)
+    out = set()
+    for page_id, page_chunks in by_page.items():
+        text = "\n".join(c.text.upper() for c in page_chunks)
+        if _INDEX_HEADING.search(text) and len(set(_BARE_SHEET.findall(text))) >= MIN_INDEX_ENTRIES:
+            out.add(page_id)
+    return out
+
+
+_INDEX_ENTRY = re.compile(r"^\s*\|?\s*" + _SHEET_TOKEN + r"(?:\s|\||$)")
+
+
+def without_index_entries(text: str) -> str:
+    """The text with the drawing index's entries removed: a line starting with
+    a sheet number ("A1.26 STOREFRONT SCHEDULE", "| A1.26 | STOREFRONT
+    SCHEDULE |") and the title line under a bare sheet number. What is left —
+    a heading printed beside the index — still counts."""
+    lines = text.splitlines()
+    keep = []
+    for i, line in enumerate(lines):
+        upper = line.upper()
+        if _INDEX_ENTRY.match(upper):
+            continue
+        if i and _BARE_SHEET.fullmatch(lines[i - 1].strip().upper()):
+            continue
+        keep.append(line)
+    return "\n".join(keep)
 
 
 def sheet_index(pages: list[Page], chunks: list[Chunk]) -> set[str] | None:
@@ -576,7 +613,30 @@ _FASTENER_AFTER = re.compile(
     # ...or an insulation rating: "R-13 MIN.", "R-30 BATT INSULATION" sat
     # beside a railing schedule of R1..R6 and read as railings missing from it.
     r"|^\W{0,3}(?:MIN\b|MINIMUM|(?:[A-Z]+\s+){0,2}INSUL|BATT|C\.?I\.?\b|RIGID|CONTINUOUS\s+INSUL|THERMAL)"
+    # ...or a steel section size: "L2 1/4X2 1/4X1/4" is an angle, "C12X20" a
+    # channel, and neither is a mark in a schedule.
+    r"|^(?:\s*\d+)?(?:\s*\d+/\d+)?\s*X\s*\d"
 )
+
+# A mark-shaped token in a FIRE-RATING LISTING is a listing number, not a drawn
+# element: UT Law's rated-assembly sheets reprint UL text — "individual D900
+# Series designs in the UL Fire Resistance Directory", "Design Nos. L501, G512
+# or U305", "ULC Design W415" — and each read as a door, a light fixture or a
+# wall type missing from its schedule. The list part lets "U300, U400, V400 or
+# W400 Series" reach the word SERIES from any member.
+_LISTED_ITEM = r"(?:[A-Z]{1,2}-?\d{2,4},?\s*(?:OR\s+|AND\s+|&\s*)?)"
+_LISTING_BEFORE = re.compile(
+    r"\bDESIGNS?\s*(?:NOS?\.?|NUMBERS?|#)?\s*" + _LISTED_ITEM + r"*$"
+    # ...or a published standard: "ASTM C578", "ASTM C955".
+    r"|\b(?:ASTM|ANSI|AASHTO|CSA)\s*" + _LISTED_ITEM + r"*$"
+)
+_LISTING_AFTER = re.compile(r"^\W{0,3}(?:(?:OR|AND|&)\s+)?" + _LISTED_ITEM + r"*SERIES\b")
+
+
+def in_listing(upper: str, start: int, end: int) -> bool:
+    """Whether the token at upper[start:end] is a fire-rating listing number."""
+    return bool(_LISTING_BEFORE.search(upper[max(0, start - 60) : start])
+                or _LISTING_AFTER.match(upper[end : end + 60]))
 
 
 def schedule_titles(text: str) -> list[str]:
@@ -610,6 +670,16 @@ def title_names_family(title: str, family: str) -> bool:
     """
     words = [w.strip(".,:()") for w in title.upper().split()]
     words = [w for w in words if w and w not in _TITLE_FILLER]
+    if not words:
+        return False
+    if len(family) == 1:
+        # One letter is the initial of too many words: "CLASS B TENSION SPLICE
+        # SCHEDULE" named the C family through CLASS, and UT Law's columns
+        # C-12 were reported missing from a lap-splice table. A one-letter
+        # family must be the schedule's HEAD NOUN, the word before SCHEDULE —
+        # and a word, not an abbreviation: a CMU SCHEDULE is not a schedule of
+        # C (column) marks.
+        return words[-1][0] == family and len(words[-1]) >= 4
     initials = "".join(w[0] for w in words)
     if family in initials:
         return True
@@ -652,10 +722,17 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
     on_page: dict[str, list[Chunk]] = {}
     for chunk in chunks:
         on_page.setdefault(chunk.page_id, []).append(chunk)
+    # The drawing index lists sheet TITLES — "A1.26 STOREFRONT SCHEDULE",
+    # "UNIT PLAN & ELEV. - S1-S2A" — so read as a schedule it made UT Law's
+    # unit types S2A, S4A, S4B "storefront marks", and S1A on the floor plans
+    # a storefront missing from its schedule. It is neither schedule nor plan.
+    # Only its ENTRIES are dropped: a cover sheet may carry a real schedule
+    # beside its index, and that heading still counts.
+    indexes = index_page_ids(chunks)
     for chunk in chunks:
         if not _SCHEDULE_WORD.search(chunk.text):
             continue
-        titles = schedule_titles(chunk.text)
+        titles = schedule_titles(without_index_entries(chunk.text) if chunk.page_id in indexes else chunk.text)
         if not titles:
             continue
         # The heading's own chunk, plus the rows printed under it when the
@@ -701,6 +778,10 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
             if chunk.page_id in schedule_pages[family]:
                 # OCR-read schedule rows count: they can only SUPPRESS a finding.
                 scheduled.setdefault(family, set()).update(marks)
+            elif chunk.page_id in indexes:
+                # An index lists sheet titles ("UNIT PLAN - S1-S2A"); a mark in
+                # one is nobody's drawn element.
+                continue
             elif chunk.ocr:
                 # ...but a mark READ by OCR on a plan is never the finding: a
                 # misread is a mark nobody drew.
@@ -766,7 +847,9 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     continue
                 upper = chunk.text.upper()
                 hit = next(
-                    (h for h in pattern.finditer(upper) if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])),
+                    (h for h in pattern.finditer(upper)
+                     if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])
+                     and not in_listing(upper, h.start(), h.end())),
                     None,
                 )
                 if hit is None:
@@ -845,7 +928,16 @@ _OPEN_ITEM_PATTERNS: list[tuple[re.Pattern, str, str]] = [
 # CONTRACTOR".
 _OTHER_PARTY = re.compile(
     r"\b(?:CONTRACTOR|SUB-?CONTRACTOR|G\.?C\.?|FABRICATOR|SUPPLIER|MANUFACTURER|VENDOR|INSTALLER|"
-    r"SUBMITTALS?|SHOP\s+DRAWINGS?|DELEGATED|BY\s+OTHERS|IN\s+FIELD|ON\s+SITE)\b"
+    r"SUBMITTALS?|SHOP\s+DRAWINGS?|DELEGATED|BY\s+OTHERS|IN\s+FIELD|ON\s+SITE|"
+    # UT Law A1.02: "TO BE CONFIRMED AT LATER DATE BY FIELD TESTING IF FULL
+    # ERRC SYSTEM IS REQUIRED" — settled by a test on site, not by a designer.
+    r"FIELD\s+TEST(?:S|ING)?)\b"
+)
+# A marker followed by the rule that decides it is not open: UT Law A1.09
+# reprints UL text, "Width to be determined on the basis of protection
+# thickness and column size".
+_RULE_GIVEN = re.compile(
+    r"^\W{0,3}(?:ON\s+THE\s+BASIS\s+OF|BASED\s+(?:ON|UPON)|ACCORDING\s+TO|IN\s+ACCORDANCE\s+WITH)\b"
 )
 _RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -874,6 +966,7 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
     # notes of forty sheets is one open item seen forty times.
     grouped: dict[str, dict] = {}
     handed_off = 0
+    ruled = 0
     for chunk in chunks:
         page = by_page.get(chunk.page_id)
         if page is None:
@@ -881,6 +974,9 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
         for start, end, confidence, meaning in open_items(chunk.text):
             if _OTHER_PARTY.search(_sentence(chunk.text, start, end).upper()):
                 handed_off += 1
+                continue
+            if _RULE_GIVEN.match(chunk.text[end : end + 60].upper()):
+                ruled += 1
                 continue
             quote = _quote(chunk.text, start, end)
             key = normalize(quote)
@@ -940,6 +1036,11 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
             f"Open-item check: {handed_off} open-item note(s) assign the item to the contractor, a supplier "
             "or a submittal (\"… BY CONTRACTOR\", \"VERIFY IN FIELD\"); that is their work, not a question for "
             "the designer, so none was proposed as an RFI."
+        )
+    if ruled:
+        notes.append(
+            f"Open-item check: {ruled} note(s) say how the value is decided (\"… to be determined on the "
+            "basis of …\"), so none was proposed as an RFI."
         )
     return _cap("open_item_note", findings, notes), notes
 
@@ -1161,6 +1262,12 @@ def run_all(
             notes.extend(said)
     if wanted("illegible_schedule"):
         findings.extend(illegible_schedules(pages))
+    if wanted("missing_plan_level"):
+        import plan_series
+
+        found, said = plan_series.missing_plan_levels(pages, chunks)
+        findings.extend(found)
+        notes.extend(said)
     for finding in findings:
         mark_ocr(finding)
     return findings, notes

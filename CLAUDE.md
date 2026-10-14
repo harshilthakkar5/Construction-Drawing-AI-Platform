@@ -2439,7 +2439,7 @@ model only WORDS each finding as a question. A model asked "what is missing from
 writes a fluent, confident list with nothing to tell the real items from the invented ones, and
 an RFI that is not real costs an engineer an afternoon.
 
-Six checks, each built for precision before recall — a missed gap is found the normal way, a
+Seven checks, each built for precision before recall — a missed gap is found the normal way, a
 false one is a question someone has to answer:
 
   * `dangling_reference` — "SEE 5/S-501", "REFER TO SHEET A-301", with no S-501 in the set. Only
@@ -2503,6 +2503,15 @@ false one is a question someone has to answer:
     the item to another party (`_OTHER_PARTY`, read on the note's own sentence: BY CONTRACTOR,
     FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD…) — that is settled through their
     channel. Both are counted in the scan's notes.
+  * `missing_plan_level` (`workers/src/plan_series.py`) — a level missing from a series of plans,
+    the client's RFI 007 ("provide the forming plan at level 6"). A series is a whole title line
+    "<…> PLAN - LEVEL n[-m]" (never ENLARGED/PARTIAL/qualified), needs three levels and two sheets,
+    and only a level strictly inside its range can be missing. The SHEET INDEX is read as entries
+    ("S2.103 Forming Plan - Level 3-4", line pairs or `| S2.106 | … |` table rows) and never as
+    drawings: an entry for a sheet IN the set covers its levels (S2.103's own view title says only
+    "Level 3"); an entry for the one sheet of the series the set lacks is the finding, naming it
+    ("S2.106 … is in the sheet index but not in the set"); several missing is a partial upload and
+    a note. With no index entry, another series of the discipline must show the level.
   * `grid_mismatch` (`workers/src/rfi_grid.py`) — one grid line named differently by two
     drawings: the structural sheet's row 6 is the architectural sheet's row 9. Built from a real
     client RFI ("CONFIRM THE GRID LAYOUT", S2.105 against A3.01) that the three text checks
@@ -2549,6 +2558,24 @@ false one is a question someone has to answer:
     keeping the best: one median over all three was pulled off a true offset sitting just past a
     bin edge (A1.01 against S2.01 at -27.3pt landed at -22.8, matched 2 lines instead of 17) and
     JETRIGHT's whole lettered axis, renamed one step (U = T, T = S …), went unreported.
+
+**The whole UT Law set (351 sheets, Oct 2025 issue) against the client's 17 RFIs.** Seven of the
+17 cite sheets this issue does not contain (A3.27–A3.35, issued later) and RFI 010 quotes a later
+column schedule; of the rest, code can only reach 002 (grid naming) and 007 (Level 6 forming plan)
+— the others are geometry (slopes, openings, a column moved) for the AI comparison or a person.
+The first scan found both, as 3 + 2 findings, beside 11 false ones; the scan now returns exactly
+TWO findings, both real. Each false one is a rule and a `rejected` entry in `utlaw-false-findings`:
+the drawing INDEX is not a schedule ("A1.26 STOREFRONT SCHEDULE" made unit types S1A… storefronts;
+`without_index_entries`, index-sheet marks are never drawn marks); UL/ULC design numbers and ASTM
+standards are not marks (`in_listing`: "D900 Series", "Design Nos. L501", "ASTM C578"); a mark
+followed by a size is a steel section ("L2 1/4X2 1/4"); a ONE-letter family must be the schedule's
+head noun, spelled out ("CLASS B TENSION SPLICE" is not a Column schedule, nor is CMU); "COVER
+SHEET L000" is a name, not a pointer; "BY FIELD TESTING" and "to be determined on the basis of …"
+are not open items; sheet numbers may carry THREE decimals (S2.106 — the old two-digit pattern
+made every UT Law structural sheet invisible to the index and to references, and let the wording
+guard pass an invented one); "INDEX TO DRAWINGS" is an index heading; and a line with two names
+(structural 2.3/2.4) agrees with either in the grid merge (`rfi_grid.line_aliases`), which had
+split RFI 002 into three. A template question is refreshed to the current template on re-scan.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100

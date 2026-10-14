@@ -555,3 +555,26 @@ def test_a_line_bubbled_with_two_names_matches_the_one_the_other_sheet_uses():
     b = {"D": 2100.0, "F": 2270.4, "G": 2450.0, "H": 2630.0, "J": 2810.0}
     found = align(a, b)
     assert found is not None and rfi_grid._renamed(found) == []
+
+
+def test_a_line_with_two_names_does_not_split_the_dispute():
+    """UT Law: S2.105 bubbles one drawn line "2" at one end and "2.4" at the
+    other; another structural sheet labels it "2.4" only. The architect's 3 is
+    that line on both, so it is one dispute — the merge reported three RFIs
+    because "3 = 2" and "3 = 2.4" looked like a contradiction."""
+    pages = [
+        page("s1", "S2.105", "structural", 1),
+        page("a", "A3.01", "architectural", 2),
+        page("s2", "S0.302", "structural", 3),
+    ]
+    two_names = dict(STRUCT_ROWS, **{"2.4": STRUCT_ROWS["2"]})
+    renamed = {("2.4" if k == "2" else k): v for k, v in STRUCT_ROWS.items()}
+    systems = [
+        GridSystem("s1", "blue 27pt", {}, two_names),
+        GridSystem("a", "grey 18pt", {}, shifted(ARCH_ROWS, -30)),
+        GridSystem("s2", "blue 27pt", {}, shifted(renamed, 12)),
+    ]
+    assert rfi_grid.line_aliases(systems, {p.id: p for p in pages}) == {"structural": {frozenset({"2", "2.4"})}}
+    findings, _ = grid_mismatches(pages, systems)
+    assert len(findings) == 1, [f.question for f in findings]
+    assert set(findings[0].facts["sheets"]) == {"S2.105", "A3.01", "S0.302"}

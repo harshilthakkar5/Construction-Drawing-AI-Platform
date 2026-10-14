@@ -459,7 +459,12 @@ def test_schedule_titles_are_headings_not_pointers():
         ("COLUMN SCHEDULE", "C", True),
         ("LEVEL SCHEDULE", "SR", False),
         ("DOOR SCHEDULE", "S", False),
-        ("PILE CAP SCHEDULE", "C", True),  # CAP: a cap schedule of C marks is plausible
+        # One letter must be the head noun, spelled out: CAP is three letters,
+        # and a one-letter family is the initial of too many words otherwise.
+        ("PILE CAP SCHEDULE", "C", False),
+        ("CIP CONCRETE COLUMN SCHEDULE", "C", True),
+        ("CLASS B TENSION SPLICE SCHEDULE", "C", False),  # UT Law: columns C-12 "missing" from it
+        ("CMU SCHEDULE", "C", False),
         ("FOOTING SCHEDULE", "PC", False),
     ],
 )
@@ -563,8 +568,13 @@ def test_run_all_runs_every_check():
     from rfi_grid import GridSystem
 
     pages, chunks = mark_project([("p1", "PC4 AT 7/D. SEE 5/S-509. PILE TIP TBD. EF-1 400 CFM", ["PC4"])])
-    chunks.append(index(sheets=("S-101", "S-102", "S-501", "S-502", "S-503")))
+    # The index is a cover sheet of its own; an index page is neither plan nor schedule.
+    pages.append(page("p0", "G-001"))
+    chunks.append(index(pid="p0", sheets=("G-001", "S-101", "S-102", "S-501", "S-502", "S-503")))
     chunks.append(chunk("fan", "p2", "EF-1 450 CFM"))
+    # A forming-plan series with Level 3 missing, which the PT series shows.
+    chunks.append(chunk("fp", "p2", "FORMING PLAN - LEVEL 2\nPT PLAN - LEVEL 2-5"))
+    chunks.append(chunk("fp4", "p5", "FORMING PLAN - LEVEL 4\nFORMING PLAN - LEVEL 5"))
     rows = {"1": 100.0, "2": 330.0, "3": 470.0, "4": 800.0}
     grids = [
         GridSystem(pages[0].id, "blue 27pt", {}, rows),
@@ -784,3 +794,69 @@ def test_an_ocr_read_mark_on_a_plan_is_never_unscheduled_but_an_ocr_schedule_sup
     ocr_row = _ocr("o2", "p1", "PC4 24x24", ["PC4"])
     plan = chunk("pl", "p2", "PC4 AT 4/B", ["PC4"])
     assert unscheduled_marks(pages, [schedule, ocr_row, plan])[0] == []
+
+
+def test_three_digit_sheet_numbers_are_sheet_numbers():
+    """UT Law numbers its sheets S2.105, S0.302: two digits after the dot was
+    the old limit, and every one of them was invisible to the index and to
+    references ("SEE S2.106" read nothing)."""
+    assert sorted(t for t, _, _ in rfi_checks.sheet_references("SEE S2.106; 4/S5.101")) == ["S2.106", "S5.101"]
+    listed = rfi_checks.sheet_index(
+        [page("i", "S0.000")],
+        [chunk("idx", "i", "SHEET LIST\n" + "\n".join(f"| S2.10{n} | Forming Plan |" for n in range(2, 8)))])
+    assert listed == {f"S210{n}" for n in range(2, 8)}
+
+
+def test_a_cover_sheet_title_is_not_a_reference():
+    """The UT Law index lists "COVER SHEET L000" — the landscape cover sheet's
+    name and number, not a pointer to a missing sheet."""
+    assert rfi_checks.sheet_references("COVER SHEET L000") == []
+    assert rfi_checks.sheet_references("TITLE SHEET G001") == []
+    assert [t for t, _, _ in rfi_checks.sheet_references("SEE SHEET L000")] == ["L000"]
+
+
+def test_listing_numbers_and_sizes_are_not_marks():
+    """UT Law: UL designs (D900 Series, Design Nos. L501, ULC Design W415, W400
+    Series), ASTM standards (C578) and a steel angle (L2 1/4X2 1/4X1/4) were
+    each reported as a mark missing from a schedule."""
+    for text, mark in (("INDIVIDUAL D900 SERIES DESIGNS IN THE UL FIRE RESISTANCE DIRECTORY", "D900"),
+                       ("ELIGIBLE FOR USE IN DESIGN NOS. L501, G512 OR U305", "L501"),
+                       ("ULC DESIGN W415)", "W415"),
+                       ("U300, U400, V400 OR W400 SERIES WALL", "V400"),
+                       ("CONFORMING TO ASTM C578, TABLE 1", "C578")):
+        i = text.index(mark)
+        assert rfi_checks.in_listing(text, i, i + len(mark)), text
+    for text, mark in (("PC4 AT GRID 7/D", "PC4"), ("SEE DOOR D900 IN PLAN", "D900")):
+        i = text.index(mark)
+        assert not rfi_checks.in_listing(text, i, i + len(mark)), text
+    assert rfi_checks._FASTENER_AFTER.match(" 1/4X2 1/4X1/4 W/ 1/2\"")
+    assert not rfi_checks._FASTENER_AFTER.match(" AT GRID 7/D")
+
+
+def test_the_sheet_index_is_never_a_schedule():
+    """UT Law's index lists "A1.26 STOREFRONT SCHEDULE" beside "UNIT PLAN &
+    ELEV. - S1-S2A"; read as a schedule it made the unit type S1A on the
+    floor plans a storefront missing from its schedule."""
+    pages = [page("i", "A1.00"), page("a", "A3.01"), page("b", "A3.02")]
+    listing = "INDEX TO DRAWINGS\n" + "\n".join(
+        f"{n}\n{t}" for n, t in (("A1.26", "STOREFRONT SCHEDULE"), ("A2.01", "UNIT PLAN & ELEV. - S1-S2A"),
+                                  ("A2.02", "UNIT PLAN & ELEV. - S3-S4A"), ("A3.01", "BUILDING PLAN"),
+                                  ("A3.02", "BUILDING PLAN")))
+    chunks = [chunk("idx", "i", listing, ["A126", "A201", "A202", "A301", "A302", "S1", "S2A", "S3", "S4A"]),
+              chunk("p1", "a", "UNIT S1A", ["S1A"]), chunk("p2", "b", "UNIT S1A", ["S1A"])]
+    assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_an_item_settled_by_field_testing_or_a_given_rule_is_not_open():
+    """UT Law A1.02 and A1.09: decided by a test on site, or by the rule the
+    note itself states — neither is a question for the designer."""
+    pages = [page("p1", "A1.02"), page("p2", "A1.09"), page("p3", "S-101")]
+    chunks = [
+        chunk("a", "p1", "CONDUIT FOR ERRC SYSTEMS TO BE INSTALLED BY CONTRACTOR ON DAY ONE. TO BE CONFIRMED "
+                         "AT LATER DATE BY FIELD TESTING IF FULL ERRC SYSTEM IS REQUIRED."),
+        chunk("b", "p2", "Width to be determined on the basis of protection thickness and column size."),
+        chunk("c", "p3", "PILE TIP ELEVATION TO BE DETERMINED."),
+    ]
+    found, notes = rfi_checks.open_item_notes(pages, chunks)
+    assert [f.evidence[0]["sheetNumber"] for f in found] == ["S-101"]
+    assert any("on the basis of" in n for n in notes)
