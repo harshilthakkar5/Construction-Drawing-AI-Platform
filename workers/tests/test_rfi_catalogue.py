@@ -16,9 +16,9 @@ from generated import RFI_REVIEW_CATALOGUE_VERSION, RFI_REVIEW_CHECKS, RFI_REVIE
 FIXTURES = Path(__file__).resolve().parents[2] / "packages" / "shared" / "fixtures"
 
 
-def test_the_generated_catalogue_is_the_16_original_questions_verbatim():
+def test_the_generated_catalogue_is_the_16_original_questions_plus_o01_verbatim():
     golden = json.loads((FIXTURES / "rfi-original-questions.json").read_text())["questions"]
-    assert len(golden) == 16
+    assert len(golden) == 17
     assert [c["id"] for c in RFI_REVIEW_CHECKS] == [q["id"] for q in golden]
     for check, q in zip(RFI_REVIEW_CHECKS, golden):
         assert check["originalQuestion"] == q["question"]

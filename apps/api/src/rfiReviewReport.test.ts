@@ -54,11 +54,11 @@ const candidate = (over: Partial<ReportCandidate> = {}): ReportCandidate => ({
 });
 
 describe("buildReviewReport", () => {
-  it("a draft lists every candidate as NOT issued, and all 16 questions", () => {
+  it("a draft lists every candidate as NOT issued, and all 17 questions", () => {
     const r = buildReviewReport(run(), [candidate(), candidate({ id: "c2", status: "dismissed" })], [], "draft");
     expect(r.disclaimer[0]).toMatch(/Nothing in this report is an issued RFI/);
     expect(r.candidates.map((c) => c.state)).toEqual(["Draft candidate — not reviewed", "Dismissed by a person"]);
-    expect(r.checks).toHaveLength(16);
+    expect(r.checks).toHaveLength(17);
     expect(r.checks.find((c) => c.id === "G01")).toMatchObject({ outcome: "candidate_found", candidates: 1 });
     expect(r.checks.find((c) => c.id === "C01")!.outcome).toBe("failed");
     expect(r.checks.find((c) => c.id === "F04")!.outcome).toBe("not_selected");

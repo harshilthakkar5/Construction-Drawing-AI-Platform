@@ -241,13 +241,26 @@ def comparable_alignments(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) ->
         floors, and nothing else on the page says which;
       * an enlarged plan over an overall plan (ratio below 1) is compared
         unless their levels are known to differ: an enlarged plan rarely
-        repeats its level in a title the reader finds.
+        repeats its level in a title the reader finds;
+      * two same-scale plans of ONE discipline are never compared: UT Law's
+        A3.04 floor plan over the A1.42 life-safety and A3.20 ceiling plans of
+        the same level reported planters and light fixtures as 17 columns
+        "missing". Same scale needs two disciplines (an architectural plan and
+        a structural one).
     """
     if a.level and b.level and a.level != b.level:
         return [], (
             f"Column comparison: {a.label} ({a.level.title()}) and {b.label} ({b.level.title()}) show different "
             "levels, so their columns were not compared — columns stop, move and change size between floors "
             "by design."
+        )
+    same_discipline = bool(a.page.discipline) and a.page.discipline == b.page.discipline
+    if same_discipline and any(abs(al.scale - 1) <= 1e-6 for al in alignments):
+        kept = [al for al in alignments if abs(al.scale - 1) > 1e-6]
+        return kept, (
+            f"Column comparison: {a.label} and {b.label} are both {a.page.discipline} sheets at the same scale, so "
+            "they were not compared — when one discipline draws an area twice at one scale (a floor plan beside a "
+            "life-safety, ceiling or exhibit plan), each leaves out what the other shows by design."
         )
     kept = [al for al in alignments if abs(al.scale - 1) > 1e-6 or (a.level and a.level == b.level)]
     if len(kept) < len(alignments):

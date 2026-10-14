@@ -139,7 +139,7 @@ describe.skipIf(!url)("planReview against a real database", () => {
     expect(dto.checkIds).toEqual(expect.arrayContaining(["G01", "G02", "C01", "C03"]));
     expect(dto.checkIds).not.toContain("F04");
     expect(dto.checkPlan.F04).toMatchObject({ selected: false, applicability: "unknown" });
-    expect(Object.keys(dto.checkPlan)).toHaveLength(16);
+    expect(Object.keys(dto.checkPlan)).toHaveLength(17);
     expect(dto.catalogueVersion).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
     expect(dto.estimate?.modelCalls).toBe(3);
     expect(dto.pages.every((p) => p.reason.length > 0)).toBe(true);

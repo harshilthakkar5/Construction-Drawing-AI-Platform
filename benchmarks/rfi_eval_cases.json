@@ -892,6 +892,185 @@
           "mentions": [
             "Width to be determined"
           ]
+        },
+        {
+          "what": "Columns 'missing' between A3.04 (Level 5 floor plan) and A1.42",
+          "why": "A1.42 is the Level 5 life-safety plan: one discipline, one level, one scale, two kinds of drawing. Planters and light fixtures were read as 17 columns. Fixed by never comparing two same-scale sheets of one discipline (rfi_columns.comparable_alignments).",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "A3.04",
+            "A1.42"
+          ]
+        },
+        {
+          "what": "Columns 'missing' between A3.04 (Level 5 floor plan) and A1.52",
+          "why": "A1.52 is the Level 5 exhibit plan: one discipline, one level, one scale, two kinds of drawing. Planters and light fixtures were read as 17 columns. Fixed by never comparing two same-scale sheets of one discipline (rfi_columns.comparable_alignments).",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "A3.04",
+            "A1.52"
+          ]
+        },
+        {
+          "what": "Columns 'missing' between A3.04 (Level 5 floor plan) and A3.20",
+          "why": "A3.20 is the Level 5 reflected ceiling plan: one discipline, one level, one scale, two kinds of drawing. Planters and light fixtures were read as 17 columns. Fixed by never comparing two same-scale sheets of one discipline (rfi_columns.comparable_alignments).",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "A3.04",
+            "A3.20"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-009",
+      "source": "BIM RFI 009 'Clarification on Column location': C-30 at Level 5 cannot be located from the given input; the markup on S2.105 reads 'Architectural and structural grid numbering mismatch. Please confirm correct grid reference.' Scored on a targeted review of S2.105.",
+      "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S2.105"
+      },
+      "checks": [
+        "G01",
+        "C03"
+      ],
+      "expected": [
+        {
+          "what": "The grid lines of the Level 5 forming plan are named differently on the Level 5 architectural plan",
+          "checkTypes": [
+            "grid_mismatch",
+            "G01"
+          ],
+          "sheets": [
+            "S2.105",
+            "A3.04"
+          ]
+        },
+        {
+          "what": "Column C-30 near H/3.4 stands off grid with no dimension locating it",
+          "checkTypes": [
+            "C03"
+          ],
+          "sheets": [
+            "S2.105"
+          ],
+          "mentions": [
+            "C-30"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-001",
+      "source": "BIM RFI 001 'CONFIRM SLOPE LOCATIONS': 'Please confirm the lowest slope point locations within the marked area' (the Level 5 plaza / pool deck on S2.105). Scored on a targeted review of S2.105.",
+      "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S2.105"
+      },
+      "checks": [
+        "FL04"
+      ],
+      "expected": [
+        {
+          "what": "Low points of the sloped plaza deck on S2.105 are not located from the grid",
+          "checkTypes": [
+            "FL04"
+          ],
+          "sheets": [
+            "S2.105"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-008",
+      "source": "BIM RFI 008 'CONFIRMATION OF PILE CAP DETAILS': on S1.101 'Pile Cap dimensions and Tag are missing' for the caps under piers such as P-36 (C-13), which only point to section 3/S3.100. Scored on a targeted review of S1.101.",
+      "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S1.101"
+      },
+      "checks": [
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Pile caps drawn on S1.101 with no tag and no size",
+          "checkTypes": [
+            "F04"
+          ],
+          "sheets": [
+            "S1.101"
+          ],
+          "mentions": [
+            "pile cap"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-006",
+      "source": "BIM RFI 006 'FLOOR OPENING SIZES AND LOCATIONS' on S0.302 (Level 2), compared with A3.01. Answered by O01 (floor and wall openings), added to the catalogue because none of the 16 original questions asks about openings.",
+      "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S0.302",
+          "A3.01"
+        ]
+      },
+      "checks": [
+        "O01"
+      ],
+      "expected": [
+        {
+          "what": "Floor opening sizes and locations on S0.302 are not dimensioned",
+          "checkTypes": [
+            "O01",
+            "custom"
+          ],
+          "sheets": [
+            "S0.302"
+          ],
+          "mentions": [
+            "opening"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utlaw-rfi-005",
+      "source": "BIM RFI 005 'SHEAR WALL OPENING SIZES AND LOCATIONS': 'confirm the shear wall opening dimensions and sill height'. The form names S5.200 but the marked-up sheet is S5.210 (CIP Concrete Shearwall Elevations); S5.200 in this issue refers only to S5.201-S5.204. Scored on a targeted review of S5.210. Answered by O01 (floor and wall openings).",
+      "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S5.210"
+      },
+      "checks": [
+        "O01"
+      ],
+      "expected": [
+        {
+          "what": "Opening sizes and sill heights in the SW-1.1 elevations are not dimensioned",
+          "checkTypes": [
+            "O01"
+          ],
+          "sheets": [
+            "S5.210"
+          ],
+          "mentions": [
+            "opening"
+          ]
         }
       ]
     }

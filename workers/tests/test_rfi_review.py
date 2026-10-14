@@ -69,7 +69,7 @@ def test_statuses_match_the_enum():
 
 
 def test_every_check_the_catalogue_has_is_known_to_the_worker():
-    assert len(rfi_review.CHECKS) == 16
+    assert len(rfi_review.CHECKS) == 17
     assert {"G01", "G02", "F04", "C01", "C03", "B03"} <= set(rfi_review.CHECKS)
 
 

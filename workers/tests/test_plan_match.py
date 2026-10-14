@@ -307,7 +307,7 @@ def test_a_sheets_level_comes_from_its_titles_not_its_level_schedule():
     assert rc.sheet_level(["GENERAL NOTES"]) is None
 
 
-def same_scale_pair(title_a: str, title_b: str, columns_b=COLUMNS):
+def same_scale_pair(title_a: str, title_b: str, columns_b=COLUMNS, disciplines=("architectural", "structural")):
     """Two building plans at 1/8", like A3.03 and A3.05: B is missing the wing
     A has, as a floor above a setback is."""
     doc = fitz.open()
@@ -315,8 +315,8 @@ def same_scale_pair(title_a: str, title_b: str, columns_b=COLUMNS):
         page = doc.new_page(width=1728, height=1152)
         plan(page, 300, 200, OVERALL, cols)
         title(page, 300, 1000, "1", title_text, '1/8" = 1\'-0"')
-    a = rc.Sheet.read(Page("a", "d", 1, 1, "A3.03", None, "architectural"), doc[0])
-    b = rc.Sheet.read(Page("b", "d", 2, 2, "A3.05", None, "architectural"), doc[1])
+    a = rc.Sheet.read(Page("a", "d", 1, 1, "A3.03", None, disciplines[0]), doc[0])
+    b = rc.Sheet.read(Page("b", "d", 2, 2, "A3.05", None, disciplines[1]), doc[1])
     return a, b, pm.align_sheets(a.geometry, b.geometry)
 
 
@@ -338,6 +338,19 @@ def test_one_level_drawn_twice_at_one_scale_is_still_compared():
     assert kept == alignments and note is None
     findings, _ = rc.column_mismatches(a, b, kept)
     assert len(findings) == 1
+
+
+def test_two_same_scale_plans_of_one_discipline_are_not_compared():
+    """UT Law's A3.04 floor plan over its A1.42 life-safety plan and A3.20
+    ceiling plan: one level, one scale, one discipline — planters and light
+    fixtures came back as 17 columns "missing"."""
+    a, b, alignments = same_scale_pair(
+        "LEVEL 5 BUILDING PLAN", "LEVEL 5 LIFE SAFETY PLAN", COLUMNS[:-1], ("architectural", "architectural")
+    )
+    assert alignments and (a.level, b.level) == ("LEVEL 5", "LEVEL 5")
+    kept, note = rc.comparable_alignments(a, b, alignments)
+    assert kept == []
+    assert "both architectural sheets at the same scale" in note
 
 
 def test_two_same_scale_plans_naming_no_level_are_not_compared():
