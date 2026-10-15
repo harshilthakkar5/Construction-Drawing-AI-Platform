@@ -1229,7 +1229,7 @@ class TestStageThinking:
         sent = self._gemini(monkeypatch, lambda c: self._gemini_ok())
         reply = self._call_gemini("gemini-3.6-flash", "medium", max_tokens=1000)
         assert sent[0]["thinking_config"] == {"thinking_level": "medium"}
-        assert sent[0]["max_output_tokens"] == 5096
+        assert sent[0]["max_output_tokens"] == 1000 + llm._GEMINI_LEVEL_HEADROOM["medium"]
         # Same arithmetic as the usage_events row: cache reads out of input,
         # thinking into output, and the thinking share reported on its own.
         assert (reply.input_tokens, reply.output_tokens, reply.thinking_tokens) == (800, 850, 600)
@@ -1335,3 +1335,13 @@ class TestClaudeThinkingOff:
     )
     def test_everything_else_keeps_disabled(self, model):
         assert llm._claude_off(model) == {"type": "disabled"}
+
+
+def test_a_gemini_3_thinking_level_gets_the_room_it_actually_spends():
+    # gemini-3.8-flash at `medium` spent up to 11,499 thinking tokens per review
+    # call; the old 4,096 headroom left a reasoning reply 281 tokens.
+    assert llm._gemini_headroom("medium", "gemini-3.8-flash") > 11_499
+    assert llm._gemini_headroom("off", "gemini-3.8-flash") > 0  # "off" is `minimal`, which still thinks
+    # A 2.5 budget IS a cap, so its headroom stays the budget.
+    assert llm._gemini_headroom("medium", "gemini-2.5-flash") == 4096
+    assert llm._gemini_headroom("budget:3000", "gemini-3.8-flash") == 3000

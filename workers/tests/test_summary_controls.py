@@ -412,7 +412,7 @@ def test_a_gemini_batch_takes_the_stage_setting_and_its_headroom(monkeypatch):
         thinking="low",
     )
     assert seen["thinking"] == {"thinking_level": "low"}
-    assert seen["max_tokens"] == 2000 + llm._GEMINI_STAGE_HEADROOM["low"]
+    assert seen["max_tokens"] == 2000 + llm._GEMINI_LEVEL_HEADROOM["low"]
 
 
 # --- sheet reading (classify.py) -------------------------------------------------------
