@@ -98,7 +98,7 @@ CROP_MIN_PT = 260.0
 
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256.
-PROMPT_VERSION = "review-2026-10-15"
+PROMPT_VERSION = "review-2026-10-15.2"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
@@ -494,10 +494,25 @@ def verification_system() -> str:
         "- priority: low | normal | high | critical; confidence: high | medium | low.\n"
         "Use only identifiers, numbers and sheet names that appear in the cited evidence or the "
         "problem as given. Ask; do not propose an answer or a design.\n"
+        "Every rejection names its `basis`: not_visible | different_condition | answered_elsewhere | other. "
+        "answered_elsewhere means another drawing gives the missing value. Then `answeredBy` MUST list the "
+        "evidence id shown to you that gives it; if the drawing that would give it is not among the evidence "
+        "shown, leave `answeredBy` empty and put in `lookFor` the sheet number or the few words to search the "
+        "project for. A guess about where a value usually lives is not evidence: the server checks it.\n"
         'Respond with ONLY JSON: {"decisions": [{"index": 0, "decision": "keep|reject", "reason": '
-        '"...", "subject": "...", "question": "...", "why": "...", "priority": "normal", '
-        '"confidence": "medium"}]} — one per problem, echoing its index.'
+        '"...", "basis": "", "answeredBy": [], "lookFor": "", "subject": "...", "question": "...", '
+        '"why": "...", "priority": "normal", "confidence": "medium"}]} — one per problem, echoing its index.'
     )
+
+
+# The second look at a rejection that said "another drawing gives this" without
+# pointing at it. Its own block so the first call's prompt stays cacheable.
+RECHECK = (
+    "<recheck>Each problem below was rejected because another drawing was said to give the missing value, "
+    "without evidence that shows it. The server searched the project; what it found is listed under "
+    "`searched`. Reject only if evidence shown here GIVES the missing value (cite it in `answeredBy`); "
+    "otherwise keep. Write `subject` and `question` for every problem, kept or not.</recheck>"
+)
 
 
 # --- Parsing (pure; tested) ---------------------------------------------------------
@@ -668,6 +683,50 @@ def parse_candidates(raw: str | None, known: set[str], checks: set[str]) -> tupl
     return out[:MAX_CANDIDATES], dropped
 
 
+REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
+# At most this many "it is on another drawing" rejections are re-checked per
+# review: each costs a project search and a share of one more call.
+MAX_ELSEWHERE_CHECKS = 3
+# How a rejection reads when it says a value lives elsewhere without saying so
+# in `basis` ("belong to forming plans", "documented in building elevations").
+_ELSEWHERE = re.compile(
+    r"\b(?:belongs?\s+(?:to|on|in)|(?<!not\s)(?:shown|provided|documented|given|detailed|governed|defined|located)"
+    r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet)\b",
+    re.I,
+)
+
+
+def contested(decision: dict | None, shown: set[str]) -> bool:
+    """A rejection that says another drawing gives the value but cites no
+    evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
+    twice this way ("dimensions belong to forming plans (such as S2.102)") on a
+    set where nothing gives them. A rejection citing real evidence, or one
+    saying the problem is not visible, stands."""
+    if not decision or decision.get("decision") != "reject":
+        return False
+    if set(decision.get("answeredBy") or []) & shown:
+        return False
+    basis = decision.get("basis") or "other"
+    if basis == "answered_elsewhere":
+        return True
+    return basis == "other" and bool(_ELSEWHERE.search(decision.get("reason") or ""))
+
+
+def overruled(candidate: dict, decision: dict) -> dict:
+    """The decision a contested rejection becomes when the claim could not be
+    shown: kept, at most medium confidence, and saying why. Pure."""
+    subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
+    question = decision.get("question") or (
+        f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
+    )
+    why = (
+        f"{decision.get('why') or candidate.get('why') or ''} Verification said another drawing gives this, but "
+        "could not point to evidence that shows it, and searching the project did not settle it."
+    ).strip()
+    return dict(decision, decision="keep", subject=subject, question=question, why=why,
+                confidence="low" if decision.get("confidence") == "low" else "medium", priority="normal")
+
+
 def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
     """index -> decision. An index outside the batch is dropped, and one
     answered TWICE drops both: two verdicts for one problem means neither can
@@ -697,6 +756,10 @@ def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
             "why": _text(item.get("why"), 300),
             "priority": _choice(item.get("priority"), PRIORITIES, "normal"),
             "confidence": _choice(item.get("confidence"), CONFIDENCES, "medium"),
+            "basis": _choice(item.get("basis"), REJECT_BASES, "other"),
+            "answeredBy": [str(e) for e in item.get("answeredBy") or [] if isinstance(e, str)][:5]
+            if isinstance(item.get("answeredBy"), list) else [],
+            "lookFor": _text(item.get("lookFor"), 120),
         }
     for index in twice:
         seen.pop(index, None)
@@ -2256,6 +2319,31 @@ def _run(run: dict) -> dict:
                 continue
             to_verify.append(candidate)
 
+        def accept(candidate: dict, decision: dict) -> None:
+            """A kept verdict still has to pass the code's own rules."""
+            label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
+            why_not = guard(candidate, decision, evidence, observations)
+            if why_not:
+                rejected.append(f"{label}: {why_not}")
+                diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                  reason=why_not, rule="guard")
+                return
+            verdict = occurrence_check(candidate, decision, measured, evidence)
+            if verdict.rejected:
+                rejected.append(f"{label}: {verdict.reason}")
+                diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                  reason=verdict.reason, rule="occurrence_check (measured column positions)")
+                return
+            if verdict.unresolved_only:
+                covered.update((p.page["documentId"], p.page["pageNumber"], o.ident) for p, o in verdict.unknown)
+                unsettled.extend(occurrence_gaps(verdict.unknown) or [
+                    {"checkId": "C03", "field": f"location of {candidate['element'] or 'the column named'}",
+                     "reason": f"needs manual verification: {verdict.reason}"}
+                ])
+                rejected.append(f"{label}: not verified by measurement, recorded for a person to check")
+                return
+            kept.append((candidate, decision, verdict))
+
         # 5. Verification — only the evidence each problem cites (and found).
         if to_verify:
             cited = sorted({e for c in to_verify for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
@@ -2270,6 +2358,8 @@ def _run(run: dict) -> dict:
                 f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}",
                 lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
+            shown = set(cited)
+            recheck: list[tuple[dict, dict]] = []
             for i, candidate in enumerate(to_verify):
                 label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
                 decision = decisions.get(i)
@@ -2278,31 +2368,63 @@ def _run(run: dict) -> dict:
                     diagnostics.event("rejected_after_verification", candidate=candidate, reason="no verdict", rule="model")
                     continue
                 if decision["decision"] != "keep":
+                    if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown):
+                        recheck.append((candidate, decision))
+                        diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
+                                          rule="a value said to be on another drawing must be shown")
+                        continue
                     rejected.append(f"{label}: {decision['reason'] or 'rejected'}")
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
                     continue
-                why_not = guard(candidate, decision, evidence, observations)
-                if why_not:
-                    rejected.append(f"{label}: {why_not}")
-                    diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
-                                      reason=why_not, rule="guard")
-                    continue
-                verdict = occurrence_check(candidate, decision, measured, evidence)
-                if verdict.rejected:
-                    rejected.append(f"{label}: {verdict.reason}")
-                    diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
-                                      reason=verdict.reason, rule="occurrence_check (measured column positions)")
-                    continue
-                if verdict.unresolved_only:
-                    covered.update((p.page["documentId"], p.page["pageNumber"], o.ident) for p, o in verdict.unknown)
-                    unsettled += occurrence_gaps(verdict.unknown) or [
-                        {"checkId": "C03", "field": f"location of {candidate['element'] or 'the column named'}",
-                         "reason": f"needs manual verification: {verdict.reason}"}
-                    ]
-                    rejected.append(f"{label}: not verified by measurement, recorded for a person to check")
-                    continue
-                kept.append((candidate, decision, verdict))
+                accept(candidate, decision)
+
+            # 5b. "Another drawing gives this" must be shown, not assumed:
+            # search the project for it, look once more with what was found,
+            # and keep the problem if the claim still points at nothing.
+            if recheck:
+                for candidate, first in recheck:
+                    query = first["lookFor"] or first["reason"]
+                    hits = resolving_search(project_id, query, in_scope)
+                    search_log.append({"query": f"{candidate['checkId']} recheck: {query}", "found": len(hits), "stage": "verification"})
+                    for hit in hits:
+                        ev = Evidence(
+                            id=f"ev{next_id}", kind="text", document_id=hit["documentId"], page_number=hit["pageNumber"],
+                            combined_page_number=hit["combinedPageNumber"], sheet_number=hit["sheetNumber"], side=None,
+                            bbox=hit["bbox"], chunk_id=hit["chunkId"], text=hit["text"] or "",
+                        )
+                        next_id += 1
+                        evidence[ev.id] = ev
+                        in_scope.add(hit["chunkId"])
+                        candidate["searched"].append(ev.id)
+                again = [c for c, _ in recheck]
+                cited2 = sorted({e for c in again for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
+                problems2 = json.dumps(
+                    [{"index": i, **{k: c[k] for k in ("checkId", "kind", "element", "location", "issue", "why", "evidenceIds", "searched")},
+                      "rejectedBecause": d["reason"]} for i, (c, d) in enumerate(recheck)],
+                    ensure_ascii=False,
+                )
+                second = _ask(
+                    "verification", verification_system(),
+                    "\n".join(_evidence_block(evidence[e]) for e in cited2)
+                    + f"\n\n{RECHECK}\n\n<problems>\n{problems2}\n</problems>{not_in_project_block(planned)}",
+                    lambda raw: parse_decisions(raw, len(recheck)), run=run, usage=usage,
+                    images=[evidence[e] for e in cited2 if evidence[e].visual],
+                )
+                for i, (candidate, first) in enumerate(recheck):
+                    label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
+                    decision = second.get(i)
+                    if decision is not None and decision["decision"] == "keep":
+                        accept(candidate, decision)
+                    elif decision is not None and not contested(decision, set(cited2)):
+                        rejected.append(f"{label}: {decision['reason'] or 'rejected'} (re-checked)")
+                        diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                          reason=decision["reason"] or "rejected", rule="model, re-checked with the project searched")
+                    else:
+                        notes.append(f"Kept {label}: verification said another drawing gives it, and could not show where.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=first, second=decision,
+                                          rule="a value said to be on another drawing must be shown")
+                        accept(candidate, overruled(candidate, decision or first))
         notes.append(f"Verification kept {len(kept)} of {len(candidates)} proposed issue(s).")
         if rejected:
             notes.append("Rejected: " + "; ".join(rejected[:10]) + ("…" if len(rejected) > 10 else ""))
