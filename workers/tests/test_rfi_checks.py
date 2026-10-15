@@ -584,8 +584,10 @@ def test_run_all_runs_every_check():
 
     pages[0] = dataclasses.replace(pages[0], illegible_pictures=(COARSE,))
     findings, _ = run_all(pages, chunks, grids)
-    # The pair checks need sheets the scan lined up (test_geometry_checks).
-    assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES) - set(rfi_checks.PAIR_CHECK_TYPES)
+    # The pair checks need sheets the scan lined up (test_geometry_checks), the
+    # PDF checks a sheet's drawing (test_element_marks).
+    assert {f.check_type for f in findings} == (
+        set(rfi_checks.CHECK_TYPES) - set(rfi_checks.PAIR_CHECK_TYPES) - set(rfi_checks.PDF_CHECK_TYPES))
 
 
 def test_run_all_says_when_the_grid_check_could_not_look():
@@ -860,3 +862,24 @@ def test_an_item_settled_by_field_testing_or_a_given_rule_is_not_open():
     found, notes = rfi_checks.open_item_notes(pages, chunks)
     assert [f.evidence[0]["sheetNumber"] for f in found] == ["S-101"]
     assert any("on the basis of" in n for n in notes)
+
+
+def test_a_mark_that_is_a_grid_line_name_is_not_a_schedule_mark():
+    from rfi_grid import GridSystem
+
+    grids = [GridSystem("p1", "black 36pt", {"A7": 10.0, "A8": 20.0}, {"BA": 5.0})]
+    mark = Finding("unscheduled_mark", "fp-a8", "high", "Kicker brace angle mark A8 missing", "q", [], facts={"mark": "A8"})
+    real = Finding("unscheduled_mark", "fp-pc4", "high", "PC4 missing", "q", [], facts={"mark": "PC4"})
+    other = Finding("open_item_note", "fp-tbd", "high", "TBD", "q", [])
+    kept, dropped = rfi_checks.without_grid_names([mark, real, other], grids)
+    assert [f.fingerprint for f in kept] == ["fp-pc4", "fp-tbd"] and dropped == {"A8"}
+
+
+def test_a_room_number_or_a_detail_callout_is_not_a_mark():
+    text = "ELEV. 1 100-EL1 UNIT B8.1  B6/A2.75 D6/A2.75 XS4  ELEVATION EL1 SEE SCHEDULE"
+    room = text.index("EL1")
+    assert rfi_checks.part_of_other_label(text, room, room + 3)          # 100-EL1
+    detail = text.index("D6")
+    assert rfi_checks.part_of_other_label(text, detail, detail + 2)      # D6/A2.75
+    bare = text.rindex("EL1")
+    assert not rfi_checks.part_of_other_label(text, bare, bare + 3)      # a real mark

@@ -866,6 +866,8 @@ export const RFI_CHECK_LABELS = {
   tag_value_conflict: "Same equipment tag, different rating on two drawings",
   illegible_schedule: "Schedule pasted as a picture too coarse to read",
   missing_plan_level: "Level missing from a series of plans",
+  // workers/src/element_marks.py: reads the PDF, learns each mark's symbol.
+  unmarked_element: "Element drawn with no type mark",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -1862,6 +1864,7 @@ export const RFI_CUSTOM_QUESTION_IDS = ["Q1", "Q2", "Q3", "Q4", "Q5"] as const;
  */
 export const RFI_QUESTION_CODE_CHECKS: Partial<Record<RfiReviewCheckId, readonly RfiCheckType[]>> = {
   G01: ["grid_mismatch", "grid_spacing"],
+  F04: ["unmarked_element"],
   C01: ["column_mismatch"],
   C03: ["column_mismatch"],
 };
@@ -1874,6 +1877,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "tag_value_conflict",
   "illegible_schedule",
   "missing_plan_level",
+  "unmarked_element",
 ];
 
 /**

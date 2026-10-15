@@ -1073,6 +1073,246 @@
           ]
         }
       ]
+    },
+    {
+      "id": "leland-rfi-001",
+      "source": "BIM RFI 001 'Confirm the type mark of the pile' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.30-B"
+      },
+      "checks": [
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Pile at grid A1 / BK on S2.30-B carries no type mark",
+          "checkTypes": [
+            "F04"
+          ],
+          "sheets": [
+            "S2.30-B"
+          ],
+          "mentions": [
+            "pile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-002",
+      "source": "BIM RFI 002 'Confirm the center of the pile' on S2.31-A (Leland South Congress). Scored on a targeted review of S2.31-A.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.31-A"
+      },
+      "checks": [
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Pile under the wall on S2.31-A is not located (its centre is not dimensioned)",
+          "checkTypes": [
+            "F04"
+          ],
+          "sheets": [
+            "S2.31-A"
+          ],
+          "mentions": [
+            "pile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-003",
+      "source": "BIM RFI 003 'Confirm the type mark of the pile' on S2.31-A (Leland South Congress). Scored on a targeted review of S2.31-A.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.31-A"
+      },
+      "checks": [
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Pile near grid XA on S2.31-A has no location, type mark or elevation",
+          "checkTypes": [
+            "F04"
+          ],
+          "sheets": [
+            "S2.31-A"
+          ],
+          "mentions": [
+            "pile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-004",
+      "source": "BIM RFI 004 'Confirm the type mark of the pile (pier caps)' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.30-B"
+      },
+      "checks": [
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Pier cap sizes where the typical detail on S0.03 does not apply are not given",
+          "checkTypes": [
+            "F04"
+          ],
+          "sheets": [
+            "S2.30-B"
+          ],
+          "mentions": [
+            "cap"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-005",
+      "source": "BIM RFI 005 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.30-B"
+      },
+      "checks": [
+        "C01"
+      ],
+      "expected": [
+        {
+          "what": "Columns at B6/B7 x BA/BB on S2.30-B have no tag in the column schedule",
+          "checkTypes": [
+            "C01"
+          ],
+          "sheets": [
+            "S2.30-B"
+          ],
+          "mentions": [
+            "column"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-006",
+      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.30-B"
+      },
+      "checks": [
+        "C01"
+      ],
+      "expected": [
+        {
+          "what": "Columns along grid A5 on S2.30-B have no size in the column schedule",
+          "checkTypes": [
+            "C01"
+          ],
+          "sheets": [
+            "S2.30-B"
+          ],
+          "mentions": [
+            "column"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-007",
+      "source": "BIM RFI 007 'Clarification on Section Detail' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.30-B"
+      },
+      "checks": [
+        "FL02",
+        "F03"
+      ],
+      "expected": [
+        {
+          "what": "Elevator pit sections 3/S4.00 (8 in slab) and 4/S4.00 (1'-4\" slab) from one callout disagree at BH-B7",
+          "checkTypes": [
+            "FL02",
+            "F03"
+          ],
+          "sheets": [
+            "S4.00"
+          ],
+          "mentions": [
+            "pit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-008",
+      "source": "BIM RFI 008 'Clarification on Retaining Wall and Dimensions' on S2.31-A (Leland South Congress). Scored on a targeted review of S2.31-A.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.31-A"
+      },
+      "checks": [
+        "F02",
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Retaining wall width and drilled pier size/location/top not given in plan (only section 13/S4.10)",
+          "checkTypes": [
+            "F02",
+            "F04"
+          ],
+          "sheets": [
+            "S2.31-A"
+          ],
+          "mentions": [
+            "wall"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leland-rfi-009",
+      "source": "BIM RFI 009 'Clarification on Callout Reference' on S2.31-A (Leland South Congress). Scored on a targeted review of S2.31-A.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "sheet",
+        "value": "S2.31-A"
+      },
+      "checks": [
+        "FL02",
+        "G02"
+      ],
+      "expected": [
+        {
+          "what": "Area of callout 10/S4.10 has no wall top/bottom or slab elevations",
+          "checkTypes": [
+            "FL02",
+            "G02"
+          ],
+          "sheets": [
+            "S2.31-A"
+          ],
+          "mentions": [
+            "elevation"
+          ]
+        }
+      ]
     }
   ]
 }

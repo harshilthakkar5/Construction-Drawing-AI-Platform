@@ -10,6 +10,7 @@ nothing in this file may be quoted as an accuracy figure.
 """
 
 import json
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -463,3 +464,186 @@ def test_c03_hands_discovery_the_measured_offsets_as_an_aid(database, monkeypatc
     with database.connect() as conn:
         notes = conn.execute("SELECT notes FROM rfi_review_runs WHERE id = %s", (seeded["run"],)).fetchone()[0]
     assert any(n.startswith("C03 aid:") for n in notes)
+
+
+# --- "another drawing gives it" must be shown, not assumed ---------------------------
+
+
+def test_a_rejection_saying_elsewhere_without_evidence_is_contested():
+    shown = {"ev1", "ev2"}
+    # RFI 006's actual rejection, in free text with no basis given.
+    free = {"decision": "reject", "basis": "other", "answeredBy": [],
+            "reason": "Slab penetration dimensions and offsets belong to forming plans (such as S2.102)."}
+    assert rfi_review.contested(free, shown)
+    assert rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "answeredBy": []}, shown)
+    # Pointing at evidence that was shown: the rejection stands.
+    assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev2"]}, shown)
+    # ...or naming it in the reason, as models often do.
+    assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere",
+                                     "reason": "S1.110 (ev2) gives the cap sizes"}, shown)
+    assert rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere",
+                                 "reason": "S1.110 (ev9) gives the cap sizes"}, shown)  # never shown
+    # Not visible / a different condition is not a claim about another drawing.
+    assert not rfi_review.contested({"decision": "reject", "basis": "not_visible", "reason": "not shown on S0.302"}, shown)
+    assert not rfi_review.contested({"decision": "reject", "basis": "other", "reason": "the opening is not shown on S0.302"}, shown)
+    assert not rfi_review.contested({"decision": "keep"}, shown)
+
+
+def test_an_overruled_rejection_is_kept_at_medium_and_says_why():
+    candidate = {"element": "Level 2 slab openings", "issue": "Shaft openings have no sizes or grid dimensions.", "why": "plans show no sizes"}
+    kept = rfi_review.overruled(candidate, {"decision": "reject", "confidence": "high", "subject": "", "question": ""})
+    assert kept["decision"] == "keep" and kept["confidence"] == "medium" and kept["priority"] == "normal"
+    assert kept["subject"] == "Level 2 slab openings"
+    assert kept["question"].startswith("Shaft openings have no sizes or grid dimensions. Please provide it")
+    assert kept["why"].startswith("plans show no sizes") and "could not point to evidence" in kept["why"]
+
+
+def test_decisions_carry_the_basis_and_what_to_look_for():
+    raw = json.dumps({"decisions": [{"index": 0, "decision": "reject", "basis": "answered_elsewhere",
+                                     "answeredBy": ["ev3", 7], "lookFor": "S2.102 slab openings"},
+                                    {"index": 1, "decision": "reject", "basis": "nonsense"}]})
+    parsed = rfi_review.parse_decisions(raw, 2)
+    assert parsed[0]["basis"] == "answered_elsewhere" and parsed[0]["answeredBy"] == ["ev3"]
+    assert parsed[0]["lookFor"] == "S2.102 slab openings"
+    assert parsed[1]["basis"] == "other" and parsed[1]["answeredBy"] == []
+
+
+def _elsewhere_model(second_reject_cites_search: bool):
+    """Verification rejects problem 0 as "on another drawing" with nothing
+    cited; the re-check either still cannot show it, or cites what the
+    project search found."""
+    import llm
+
+    model = FakeModel()
+    original = model.__call__
+    model.verification_users = []
+
+    def answer(system, user, **kw):
+        reply = original(system, user, **kw)
+        if "REASONING" in system or "DISCOVERY" in system:
+            return reply
+        model.verification_users.append(user)
+        if "<recheck>" not in user:
+            body = json.loads(reply.text)
+            body["decisions"][0] = {"index": 0, "decision": "reject", "basis": "answered_elsewhere",
+                                    "answeredBy": [], "lookFor": "column schedule C-6",
+                                    "reason": "the size is given on the column schedule"}
+            return llm.Reply(text=json.dumps(body), stop_reason="end_turn", model="stub", input_tokens=100, output_tokens=50)
+        searched = re.findall(r'"searched": \["(ev\d+)"', user)
+        decision = {"index": 0, "decision": "reject", "basis": "answered_elsewhere",
+                    "answeredBy": searched[:1] if second_reject_cites_search else [],
+                    "reason": "the schedule gives it", "confidence": "high", "subject": "Column C-6 on S2.105 but not A3.01",
+                    "question": model.keep_question}
+        return llm.Reply(text=json.dumps({"decisions": [decision]}), stop_reason="end_turn", model="stub",
+                         input_tokens=100, output_tokens=50)
+
+    return model, answer
+
+
+def _schedule_elsewhere(database, project):
+    with database.connect() as conn:
+        doc, page, chunk = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        conn.execute('INSERT INTO documents (id, "projectId", filename, "spacesKey", pages, status) '
+                     "VALUES (%s, %s, 's6.pdf', 'k', 1, 'completed')", (doc, project))
+        conn.execute('INSERT INTO pages (id, "documentId", "pageNumber", "combinedPageNumber", "sheetNumber") '
+                     "VALUES (%s, %s, 1, 3, 'S6.01')", (page, doc))
+        conn.execute('INSERT INTO chunks (id, "pageId", text, bbox, "tokenCount", kind) VALUES (%s, %s, %s, %s, 10, \'text\')',
+                     (chunk, page, "COLUMN SCHEDULE: MARK C-6 SIZE 14 X 30 CONCRETE", json.dumps({"x": 1, "y": 1, "width": 9, "height": 9})))
+        conn.execute('INSERT INTO chunk_identifiers ("chunkId", identifier) SELECT %s, unnest(cdip_identifiers(%s))', (chunk, "COLUMN SCHEDULE: MARK C-6"))
+
+
+@needs_db
+def test_an_unproven_elsewhere_rejection_is_searched_rechecked_and_kept(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    _schedule_elsewhere(database, seeded["project"])
+    model, answer = _elsewhere_model(second_reject_cites_search=False)
+    monkeypatch.setattr(llm, "complete", answer)
+    rfi_review.run(seeded["run"])
+    assert len(model.verification_users) == 2
+    with database.connect() as conn:
+        confidence = conn.execute("SELECT confidence::text FROM rfi_candidates WHERE \"projectId\" = %s AND \"checkType\" = 'C01'",
+                                  (seeded["project"],)).fetchone()[0]
+    assert confidence == "medium"  # the stub said high; a pushed-back keep is never more than medium
+    recheck = model.verification_users[1]
+    assert "<recheck>" in recheck and "COLUMN SCHEDULE: MARK C-6" in recheck
+    saved = [r for r in _candidates(database, seeded["project"]) if r[0] == "C01"]
+    assert len(saved) == 1
+    _, _, _, *_rest = _row(database, seeded["run"])
+    notes = _row(database, seeded["run"])[4]
+    assert any(n.startswith("Kept C01 column C-6: verification said another drawing gives it") for n in notes)
+
+
+@needs_db
+def test_an_elsewhere_rejection_that_cites_what_the_search_found_stands(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    _schedule_elsewhere(database, seeded["project"])
+    model, answer = _elsewhere_model(second_reject_cites_search=True)
+    monkeypatch.setattr(llm, "complete", answer)
+    rfi_review.run(seeded["run"])
+    assert len(model.verification_users) == 2
+    assert [r for r in _candidates(database, seeded["project"]) if r[0] == "C01"] == []
+    notes = _row(database, seeded["run"])[4]
+    assert any("(re-checked)" in n for n in notes)
+
+
+@needs_db
+def test_a_not_visible_rejection_costs_no_second_call(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    model = FakeModel()
+    original = model.__call__
+    seen = []
+
+    def answer(system, user, **kw):
+        reply = original(system, user, **kw)
+        if "VERIFICATION" in system:
+            seen.append(user)
+            return llm.Reply(text=json.dumps({"decisions": [
+                {"index": 0, "decision": "reject", "basis": "not_visible", "reason": "no column is shown on S2.105"},
+                {"index": 1, "decision": "reject", "basis": "different_condition", "reason": "other level"}]}),
+                stop_reason="end_turn", model="stub", input_tokens=100, output_tokens=50)
+        return reply
+
+    monkeypatch.setattr(llm, "complete", answer)
+    rfi_review.run(seeded["run"])
+    assert len(seen) == 1
+
+
+def test_a_named_sheet_is_found_in_any_numbering_style_and_only_if_the_project_has_it():
+    sheets = {"A507": "A5.07", "S501": "S-501", "FP101": "FP101", "M21": "M 2.1"}
+    reason = ("Sill heights are on stair section A5.07 and the S 501 details (see FP-101, M2.1); "
+              "the window schedule A1.25 and grid C-30 are not in this project.")
+    assert rfi_review.named_sheets(reason, sheets) == ["A5.07", "S-501", "FP101", "M 2.1"]
+    assert rfi_review.named_sheets("shown on building elevations", sheets) == []
+    assert rfi_review.named_sheets("", sheets) == []
+
+
+@needs_db
+def test_the_recheck_loads_the_sheet_a_rejection_names(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    _schedule_elsewhere(database, seeded["project"])
+    model, answer = _elsewhere_model(second_reject_cites_search=True)
+    original = answer
+
+    def naming_s601(system, user, **kw):
+        reply = original(system, user, **kw)
+        if "VERIFICATION" in system and "<recheck>" not in user:
+            body = json.loads(reply.text)
+            body["decisions"][0].update(lookFor="", reason="the size is on schedule sheet S-6.01")
+            return llm.Reply(text=json.dumps(body), stop_reason="end_turn", model="stub", input_tokens=100, output_tokens=50)
+        return reply
+
+    monkeypatch.setattr(llm, "complete", naming_s601)
+    rfi_review.run(seeded["run"])
+    recheck = model.verification_users[1]
+    assert "COLUMN SCHEDULE: MARK C-6" in recheck  # S6.01's own text, loaded by name
+    with database.connect() as conn:
+        log_ = conn.execute("SELECT coverage FROM rfi_review_runs WHERE id = %s", (seeded["run"],)).fetchone()[0]["searchLog"]
+    assert any(q["query"] == "C01 recheck: sheet S6.01" and q["found"] == 1 for q in log_)

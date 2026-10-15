@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("worker.sheet_facts")
 
-FACTS_VERSION = 4  # 2: kinked leaders; 3: floors named as words; 4: short labels never set the title size, bubbles drawn as segment rings
+FACTS_VERSION = 5  # 2: kinked leaders; 3: floors named as words; 4: short labels never set the title size, bubbles drawn as segment rings; 5: letter+number grid labels (A2, B7)
 
 # Mirrors SHEET_KINDS in @cdip/shared; test_sheet_facts reads the TypeScript.
 SHEET_KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", "notes", "cover", "other")

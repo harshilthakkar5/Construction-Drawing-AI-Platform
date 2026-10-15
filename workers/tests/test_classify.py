@@ -378,3 +378,18 @@ class TestRegionCache:
 
     def test_blank_region_never_reaches_the_model(self):
         assert classify.extract_sheet_from_region("   ", None, None) is None
+
+
+def test_an_area_suffix_is_part_of_the_sheet_number():
+    # Leland South Congress splits each floor into S2.30-A and S2.30-B; read
+    # without the suffix both were "S2.30" and a review of one mixed in the other.
+    assert classify.confident_sheet_from_region(
+        "SHEET NUMBER SHEET TITLE S2.30-B BASEMENT 2 - FOUNDATION PLAN - AREA B") == ("S2.30-B", "structural")
+    assert [m.group(0) for m in classify.SHEET_TOKEN.finditer("S101P A-101 E1.1 S2.106")] == ["S101P", "A-101", "E1.1", "S2.106"]
+    # A second dotted group is one sheet each.
+    assert [m.group(0) for m in classify.SHEET_TOKEN.finditer("A2.81.01 A2.81.02")] == ["A2.81.01", "A2.81.02"]
+    # ...and may be chained: that half's post-tensioning and reinforcing plans.
+    assert classify.confident_sheet_from_region(
+        "SHEET NUMBER SHEET TITLE S2.33-B-PT LEVEL 2 - POST-TENSIONING PLAN - AREA B") == ("S2.33-B-PT", "structural")
+    # A word starting after the number is not a suffix.
+    assert [m.group(0) for m in classify.SHEET_TOKEN.finditer("S2.30-AREA")] == ["S2.30"]

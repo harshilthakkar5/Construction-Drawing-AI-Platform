@@ -241,11 +241,20 @@ def _renamed(alignment: Alignment | None) -> list[tuple[str, str]]:
     return [(x, y) for x, y in alignment.pairs if x != y]
 
 
+PLAN_KINDS = ("plan", "enlarged_plan")
+
+
 def _comparable(a: GridSystem, b: GridSystem, pages: dict[str, Page]) -> bool:
     if a.page_id == b.page_id:
         return a.style != b.style
     da, db = pages[a.page_id].discipline, pages[b.page_id].discipline
     if not (da is None or db is None or da != db):
+        return False
+    # An elevation or section bubbles the lines of ONE face, positioned along
+    # that face: laid over a plan by position it renames lines by coincidence
+    # (Leland's exterior elevation A3.10 "named" plan line A7 as AL). A sheet
+    # whose kind was not read yet compares as before.
+    if any(pages[s.page_id].sheet_kind not in (None, *PLAN_KINDS) for s in (a, b)):
         return False
     return share_a_scale(a.scales, b.scales) and not a.repeats_a_label() and not b.repeats_a_label()
 

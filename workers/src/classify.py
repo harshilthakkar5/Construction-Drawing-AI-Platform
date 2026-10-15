@@ -95,14 +95,19 @@ DISCIPLINE_NAMES: dict[str, str] = {
 # false hits. Two-letter prefixes are listed first so they win. The number is
 # captured in two groups so we can tell a formal sheet number from a weak
 # content token (see _is_strong).
+# A suffix is part of the number, and may be chained: "S2.30-A" / "S2.30-B"
+# (one floor drawn in halves), "S2.33-B-PT" / "S2.33-B-R" (that half's
+# post-tensioning and reinforcing plans), "S101P"; and the number may carry a
+# second group ("A2.81.01", "A2.81.02": one sheet each). Without it every one of
+# those read as "S2.30" and a review of one sheet got the others mixed in.
 SHEET_TOKEN = re.compile(
-    r"\b(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?(\d{1,4})((?:[.-]\d{1,3})?)\b"
+    r"\b(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?(\d{1,4})((?:[.-]\d{1,3}){0,2})((?:-?[A-Z]{1,3})?(?:-[A-Z]{1,3})*)\b"
 )
 
 # The sheet number that leads a filename: 'A17-11 EQUIPMENT PLANS.pdf',
 # 'A00-01 - GENERAL NOTES.pdf'. Leading separators/spaces/underscores allowed.
 FILENAME_SHEET = re.compile(
-    r"^[\s_\-]*(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?\d{1,4}(?:[.-]\d{1,3})?\b"
+    r"^[\s_\-]*(FP|FA|IT|AV|[GASCLIMHPEFTX])[-. ]?\d{1,4}(?:[.-]\d{1,3}){0,2}(?:-?[A-Z]{1,3})?(?:-[A-Z]{1,3})*\b"
 )
 
 

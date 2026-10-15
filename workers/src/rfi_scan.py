@@ -76,7 +76,7 @@ GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # scales (an enlarged detail and an overall plan) are never compared.
 # 5: a bubble on a kinked leader is placed on the line its leader runs to,
 # not where it is printed (grid.leader_target).
-GRID_CACHE_VERSION = 6  # 6: grid bubbles drawn as rings of short segments
+GRID_CACHE_VERSION = 7  # 6: grid bubbles drawn as rings of short segments; 7: letter+number labels (A2, B7)
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
@@ -399,7 +399,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
                    -- Only a reading by the CURRENT OCR rules: an older one may call a
                    -- picture illegible by a rule since tightened (OCR_VERSION 2 added
                    -- "1-bit"), and a worker with no engine never re-reads it.
-                   CASE WHEN p."ocrVersion" = %s THEN p.ocr -> 'pictures' END
+                   CASE WHEN p."ocrVersion" = %s THEN p.ocr -> 'pictures' END,
+                   p."sheetKind"
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
@@ -423,7 +424,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
         ).fetchall()
     pages = [
         Page(r[0], r[1], r[2], r[3], r[4], r[5], r[6],
-             illegible_pictures=tuple(p for p in (r[7] or []) if isinstance(p, dict) and p.get("illegible")))
+             illegible_pictures=tuple(p for p in (r[7] or []) if isinstance(p, dict) and p.get("illegible")),
+             sheet_kind=r[8])
         for r in page_rows
     ]
     chunks = [
@@ -1224,6 +1226,18 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             not_run |= failed
         else:
             not_run |= set(GEOMETRY_TYPES)
+        if "unmarked_element" in ran:
+            import element_marks
+
+            progress("geometry", detail="Looking for elements drawn with no type mark")
+            try:
+                found, more = element_marks.findings(pages, chunks, open_page)
+                findings += in_scope(found, scope, pages)
+                notes += more
+            except Exception as exc:  # one check failing is a note, not a failed scan
+                log.exception("rfi scan: unmarked-element check failed")
+                notes.append(f"The unmarked-element check did not run ({exc}).")
+                not_run.add("unmarked_element")
         progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
         pinpoint_evidence(project_id, findings, open_page)
         if plan is not None and full_scan_id:

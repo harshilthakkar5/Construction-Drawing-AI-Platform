@@ -578,3 +578,19 @@ def test_a_line_with_two_names_does_not_split_the_dispute():
     findings, _ = grid_mismatches(pages, systems)
     assert len(findings) == 1, [f.question for f in findings]
     assert set(findings[0].facts["sheets"]) == {"S2.105", "A3.01", "S0.302"}
+
+
+def test_an_elevation_is_never_compared_with_a_plan():
+    # Leland: exterior elevation A3.10 "named" plan grid line A7 as AL.
+    from rfi_checks import Page
+    from rfi_grid import GridSystem, _comparable
+
+    plan = Page("p1", "d", 1, 1, "S2.34-B", discipline="structural", sheet_kind="plan")
+    elev = Page("p2", "d", 2, 2, "A3.10", discipline="architectural", sheet_kind="elevation")
+    unknown = Page("p3", "d", 3, 3, "A2.34-B", discipline="architectural", sheet_kind=None)
+    a = GridSystem("p1", "black 36pt", {"A7": 10.0, "A8": 20.0, "A9": 30.0}, {}, scales=(8.0,))
+    b = GridSystem("p2", "black 36pt", {"AL": 10.0, "AM": 20.0, "AN": 30.0}, {}, scales=(8.0,))
+    c = GridSystem("p3", "black 36pt", {"AL": 10.0, "AM": 20.0, "AN": 30.0}, {}, scales=(8.0,))
+    pages = {p.id: p for p in (plan, elev, unknown)}
+    assert not _comparable(a, b, pages)
+    assert _comparable(a, c, pages)  # kind not read yet: compared as before

@@ -55,11 +55,15 @@ from classify import PREFIX_TO_DISCIPLINE
 # check the UI has no label for renders as its raw key.
 CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict",
                "illegible_schedule", "missing_plan_level",
+               # element_marks.py, read off the PDF by rfi_scan.unmarked_elements:
+               "unmarked_element",
                # geometry_checks.py, on the sheet pairs the scan lines up:
                "grid_spacing", "column_mismatch")
 # The two above that compare a PAIR of sheets the scan lined up
 # (geometry_checks.py) rather than the text run_all reads.
 PAIR_CHECK_TYPES = ("grid_spacing", "column_mismatch")
+# Read off one sheet's PDF by rfi_scan (element_marks.py), not by run_all.
+PDF_CHECK_TYPES = ("unmarked_element",)
 # Written only by the targeted review. Empty since the scan lines up sheet
 # pairs itself (column_mismatch used to need a review's two named sheets).
 REVIEW_CHECK_TYPES: tuple[str, ...] = ()
@@ -96,6 +100,9 @@ class Page:
     # page_ocr.py's pictures on this page that are too coarse to read:
     # ({"b": [x0, y0, x1, y1] unrotated, "dpi": ..., "lines": ..., "readable": ...}, ...)
     illegible_pictures: tuple = ()
+    # sheet_facts' kind (plan, section, elevation …), or None before a scan
+    # read it. Grids are compared across sheets only between PLANS.
+    sheet_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -246,7 +253,9 @@ def _where(evidence: list[dict]) -> str:
 
 # --- Check 1: dangling sheet references --------------------------------------
 
-_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?)"
+# The area suffix ("S2.30-B", "S101P") is part of the number; a suffix the
+# next word starts ("S2.30-AREA") is not.
+_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,3}){0,2}(?:-?[A-Z]{1,3}(?![A-Z]))?(?:-[A-Z]{1,3}(?![A-Z]))*)"
 
 # "5/S-501", "A/S501": a detail callout. The lookbehind requires the callout
 # number to stand on its own. Without it a material grade reads as a callout:
@@ -633,6 +642,20 @@ _LISTING_BEFORE = re.compile(
 _LISTING_AFTER = re.compile(r"^\W{0,3}(?:(?:OR|AND|&)\s+)?" + _LISTED_ITEM + r"*SERIES\b")
 
 
+# A mark printed as part of a larger label is not a drawn mark: "100-EL1" is
+# room 100-EL1 (Elevator 1), "D6/A2.75" is detail D6 on sheet A2.75. Both read
+# as marks missing from a schedule on Leland.
+_ROOM_PREFIX = re.compile(r"\d[A-Z]?-$")
+_DETAIL_ON_SHEET = re.compile(r"^\s*/\s*[A-Z]{1,2}-?\d")
+
+
+def part_of_other_label(upper: str, start: int, end: int) -> bool:
+    """Whether the token at upper[start:end] is the tail of a room number or
+    the detail half of a detail/sheet callout. Pure."""
+    return bool(_ROOM_PREFIX.search(upper[max(0, start - 6) : start])
+                or _DETAIL_ON_SHEET.match(upper[end : end + 12]))
+
+
 def in_listing(upper: str, start: int, end: int) -> bool:
     """Whether the token at upper[start:end] is a fire-rating listing number."""
     return bool(_LISTING_BEFORE.search(upper[max(0, start - 60) : start])
@@ -849,7 +872,8 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                 hit = next(
                     (h for h in pattern.finditer(upper)
                      if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])
-                     and not in_listing(upper, h.start(), h.end())),
+                     and not in_listing(upper, h.start(), h.end())
+                     and not part_of_other_label(upper, h.start(), h.end())),
                     None,
                 )
                 if hit is None:
@@ -1268,9 +1292,31 @@ def run_all(
         found, said = plan_series.missing_plan_levels(pages, chunks)
         findings.extend(found)
         notes.extend(said)
+    if grids:
+        findings, dropped = without_grid_names(findings, grids)
+        if dropped:
+            notes.append(f"{len(dropped)} mark(s) left out because the project names a grid line the same "
+                         f"({', '.join(sorted(dropped)[:6])}): a grid bubble in a section is not a schedule mark.")
     for finding in findings:
         mark_ocr(finding)
     return findings, notes
+
+
+def without_grid_names(findings: list[Finding], grids) -> tuple[list[Finding], set[str]]:
+    """Unscheduled-mark findings whose mark is one of THIS project's grid
+    line names, removed. Pure. Leland names its lines A1 .. A8 and BA .. BK, so
+    a section's grid bubble "A8" read as kicker-brace mark A8 "missing from the
+    KICKER BRACE ANGLE SCHEDULE". The names come from the grids read off the
+    project's own sheets, so this holds for any set."""
+    names = {normalize(label) for g in grids for label in (*g.along_x, *g.along_y)}
+    kept, dropped = [], set()
+    for f in findings:
+        mark = (f.facts or {}).get("mark") if f.check_type == "unscheduled_mark" else None
+        if mark and normalize(mark) in names:
+            dropped.add(mark)
+        else:
+            kept.append(f)
+    return kept, dropped
 
 
 # --- OCR-read findings ------------------------------------------------------------
