@@ -92,7 +92,7 @@ class Transform:
 
 @dataclass
 class Pair:
-    kind: str  # same_level | enlarged
+    kind: str  # same_level | enlarged | sections (section_pairs.py: two cuts of one element)
     a: PageFacts
     b: PageFacts
     reason: str
@@ -103,12 +103,16 @@ class Pair:
     # plan_match alignments (enlarged pairs) and the wall shift (no grid).
     alignments: list = field(default_factory=list)
     wall_shift: object = None
+    # What images A and B show when they are not one area of two sheets
+    # ("section 3/S4.00"); None for a plan pair.
+    labels: tuple[str, str] | None = None
 
     def tiles(self) -> list[dict]:
         return [
             {
                 "a": {"documentId": self.a.document_id, "pageNumber": self.a.page_number, "rect": [round(v, 2) for v in wa]},
                 "b": {"documentId": self.b.document_id, "pageNumber": self.b.page_number, "rect": [round(v, 2) for v in wb]},
+                **({"labels": list(self.labels)} if self.labels else {}),
             }
             for wa, wb in self.windows
         ]
