@@ -246,7 +246,9 @@ def _where(evidence: list[dict]) -> str:
 
 # --- Check 1: dangling sheet references --------------------------------------
 
-_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?)"
+# The area suffix ("S2.30-B", "S101P") is part of the number; a suffix the
+# next word starts ("S2.30-AREA") is not.
+_SHEET_TOKEN = r"([A-Z]{1,2}-?\d{1,4}(?:\.\d{1,3})?(?:-?[A-Z]{1,2}(?![A-Z]))?)"
 
 # "5/S-501", "A/S501": a detail callout. The lookbehind requires the callout
 # number to stand on its own. Without it a material grade reads as a callout:
