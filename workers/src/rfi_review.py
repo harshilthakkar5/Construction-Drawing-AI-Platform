@@ -704,7 +704,10 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
     saying the problem is not visible, stands."""
     if not decision or decision.get("decision") != "reject":
         return False
-    if set(decision.get("answeredBy") or []) & shown:
+    # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
+    # citation too — models often cite in prose instead of the field.
+    cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
+    if cited & shown:
         return False
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":

@@ -478,6 +478,11 @@ def test_a_rejection_saying_elsewhere_without_evidence_is_contested():
     assert rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "answeredBy": []}, shown)
     # Pointing at evidence that was shown: the rejection stands.
     assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev2"]}, shown)
+    # ...or naming it in the reason, as models often do.
+    assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere",
+                                     "reason": "S1.110 (ev2) gives the cap sizes"}, shown)
+    assert rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere",
+                                 "reason": "S1.110 (ev9) gives the cap sizes"}, shown)  # never shown
     # Not visible / a different condition is not a claim about another drawing.
     assert not rfi_review.contested({"decision": "reject", "basis": "not_visible", "reason": "not shown on S0.302"}, shown)
     assert not rfi_review.contested({"decision": "reject", "basis": "other", "reason": "the opening is not shown on S0.302"}, shown)
