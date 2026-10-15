@@ -386,5 +386,8 @@ def test_an_area_suffix_is_part_of_the_sheet_number():
     assert classify.confident_sheet_from_region(
         "SHEET NUMBER SHEET TITLE S2.30-B BASEMENT 2 - FOUNDATION PLAN - AREA B") == ("S2.30-B", "structural")
     assert [m.group(0) for m in classify.SHEET_TOKEN.finditer("S101P A-101 E1.1 S2.106")] == ["S101P", "A-101", "E1.1", "S2.106"]
+    # ...and may be chained: that half's post-tensioning and reinforcing plans.
+    assert classify.confident_sheet_from_region(
+        "SHEET NUMBER SHEET TITLE S2.33-B-PT LEVEL 2 - POST-TENSIONING PLAN - AREA B") == ("S2.33-B-PT", "structural")
     # A word starting after the number is not a suffix.
     assert [m.group(0) for m in classify.SHEET_TOKEN.finditer("S2.30-AREA")] == ["S2.30"]
