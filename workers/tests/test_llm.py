@@ -1338,9 +1338,9 @@ class TestClaudeThinkingOff:
 
 
 def test_a_gemini_3_thinking_level_gets_the_room_it_actually_spends():
-    # gemini-3.8-flash at `medium` spent 5,572-6,808 thinking tokens per review
+    # gemini-3.8-flash at `medium` spent up to 11,499 thinking tokens per review
     # call; the old 4,096 headroom left a reasoning reply 281 tokens.
-    assert llm._gemini_headroom("medium", "gemini-3.8-flash") == 8192
+    assert llm._gemini_headroom("medium", "gemini-3.8-flash") > 11_499
     assert llm._gemini_headroom("off", "gemini-3.8-flash") > 0  # "off" is `minimal`, which still thinks
     # A 2.5 budget IS a cap, so its headroom stays the budget.
     assert llm._gemini_headroom("medium", "gemini-2.5-flash") == 4096

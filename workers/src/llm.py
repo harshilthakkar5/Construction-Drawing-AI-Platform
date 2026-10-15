@@ -645,9 +645,10 @@ _GEMINI_STAGE_BUDGETS = {"off": 0, "minimal": 512, "low": 1024, "medium": 4096, 
 _GEMINI_STAGE_HEADROOM = {"off": 0, "minimal": 0, "low": 1024, "medium": 4096, "high": 8192}
 # A Gemini 3 LEVEL is not a budget: nothing caps it, so its headroom must cover
 # what the model actually spends. Measured on gemini-3.8-flash at `medium`
-# (a targeted RFI review): 5,572-6,808 thinking tokens per call — over the
+# (a targeted RFI review): 2,642-11,499 thinking tokens per call — over the
 # 4,096 above, which left a reasoning reply 281 tokens and failed the review.
-_GEMINI_LEVEL_HEADROOM = {"off": 1024, "minimal": 1024, "low": 4096, "medium": 8192, "high": 16384}
+# Unused room costs nothing; a cut-off costs the whole stage.
+_GEMINI_LEVEL_HEADROOM = {"off": 2048, "minimal": 2048, "low": 8192, "medium": 16384, "high": 32768}
 
 # What a model accepted for a given STAGE setting, keyed (model, setting). Kept
 # apart from _thinking_latched on purpose: one stage asking for `high` and
