@@ -1270,9 +1270,31 @@ def run_all(
         found, said = plan_series.missing_plan_levels(pages, chunks)
         findings.extend(found)
         notes.extend(said)
+    if grids:
+        findings, dropped = without_grid_names(findings, grids)
+        if dropped:
+            notes.append(f"{len(dropped)} mark(s) left out because the project names a grid line the same "
+                         f"({', '.join(sorted(dropped)[:6])}): a grid bubble in a section is not a schedule mark.")
     for finding in findings:
         mark_ocr(finding)
     return findings, notes
+
+
+def without_grid_names(findings: list[Finding], grids) -> tuple[list[Finding], set[str]]:
+    """Unscheduled-mark findings whose mark is one of THIS project's grid
+    line names, removed. Pure. Leland names its lines A1 .. A8 and BA .. BK, so
+    a section's grid bubble "A8" read as kicker-brace mark A8 "missing from the
+    KICKER BRACE ANGLE SCHEDULE". The names come from the grids read off the
+    project's own sheets, so this holds for any set."""
+    names = {normalize(label) for g in grids for label in (*g.along_x, *g.along_y)}
+    kept, dropped = [], set()
+    for f in findings:
+        mark = (f.facts or {}).get("mark") if f.check_type == "unscheduled_mark" else None
+        if mark and normalize(mark) in names:
+            dropped.add(mark)
+        else:
+            kept.append(f)
+    return kept, dropped
 
 
 # --- OCR-read findings ------------------------------------------------------------

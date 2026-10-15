@@ -150,3 +150,12 @@ def test_the_check_runs_with_the_project_checks():
     found, _ = rfi_checks.run_all(pages, chunks, grids=None, only={"missing_plan_level"})
     assert [f.check_type for f in found] == ["missing_plan_level"]
     assert "missing_plan_level" in rfi_checks.CHECK_TYPES
+
+
+def test_a_title_listing_several_levels_covers_each_of_them():
+    # Leland's A0.36 "LIFE SAFETY PLAN - LEVELS 4,5 AND 6": read as level 4
+    # alone, levels 5 and 6 were reported missing.
+    assert ps.read_title("LIFE SAFETY PLAN - LEVELS 4,5 AND 6")[1] == [4, 5, 6]
+    assert ps.read_title("PT PLAN - LEVELS 7-9 & 11")[1] == [7, 8, 9, 11]
+    assert ps.read_title("FORMING PLAN - LEVEL 7-13")[1] == list(range(7, 14))
+    assert ps.read_title("FORMING PLAN - LEVEL 5")[1] == [5]

@@ -304,3 +304,12 @@ def test_clutter_around_a_letter_is_not_a_ring():
     assert grid.ring_around(cx, cy, busy) is None  # something drawn inside
     off_centre = [(x + 9, y, c, l) for x, y, c, l in clean]
     assert grid.ring_around(cx, cy, off_centre) is None  # the letter is not in the middle
+
+
+def test_a_letter_and_number_grid_label_is_a_label():
+    # Leland names its main lines A1 .. A8 and B1 .. B7: "A4.4" was accepted
+    # and "A2" refused, so every main line was dropped.
+    for label in ("A2", "B7", "A4.4", "AF.1", "BA", "6", "2.3", "F.7"):
+        assert grid.STYLED_LABEL.fullmatch(label), label
+    for word in ("A-2", "ABC", "PLAN"):
+        assert not grid.STYLED_LABEL.fullmatch(word), word

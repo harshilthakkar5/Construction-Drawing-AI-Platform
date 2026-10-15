@@ -860,3 +860,14 @@ def test_an_item_settled_by_field_testing_or_a_given_rule_is_not_open():
     found, notes = rfi_checks.open_item_notes(pages, chunks)
     assert [f.evidence[0]["sheetNumber"] for f in found] == ["S-101"]
     assert any("on the basis of" in n for n in notes)
+
+
+def test_a_mark_that_is_a_grid_line_name_is_not_a_schedule_mark():
+    from rfi_grid import GridSystem
+
+    grids = [GridSystem("p1", "black 36pt", {"A7": 10.0, "A8": 20.0}, {"BA": 5.0})]
+    mark = Finding("unscheduled_mark", "fp-a8", "high", "Kicker brace angle mark A8 missing", "q", [], facts={"mark": "A8"})
+    real = Finding("unscheduled_mark", "fp-pc4", "high", "PC4 missing", "q", [], facts={"mark": "PC4"})
+    other = Finding("open_item_note", "fp-tbd", "high", "TBD", "q", [])
+    kept, dropped = rfi_checks.without_grid_names([mark, real, other], grids)
+    assert [f.fingerprint for f in kept] == ["fp-pc4", "fp-tbd"] and dropped == {"A8"}

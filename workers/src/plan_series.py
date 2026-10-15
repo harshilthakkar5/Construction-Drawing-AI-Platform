@@ -45,10 +45,15 @@ from dataclasses import dataclass, field
 MIN_LEVELS = 3
 TITLE_MAX = 60
 
-# "FORMING PLAN - LEVEL 5", "PT PLAN – LEVELS 7-13", "FLOOR PLAN: LEVEL 2".
+# "FORMING PLAN - LEVEL 5", "PT PLAN – LEVELS 7-13", "FLOOR PLAN: LEVEL 2",
+# and a LIST: "LIFE SAFETY PLAN - LEVELS 4,5 AND 6" is one sheet for three
+# levels — read as only its first number, levels 4-6 looked missing.
+_RANGE = r"\d{1,3}(?:\s*(?:-|–|TO|THRU)\s*\d{1,3})?"
 _TITLE = re.compile(
-    r"^(?P<series>[A-Z][A-Z0-9 &/.]*?\bPLANS?)\s*[-–:]\s*LEVELS?\s*(?P<lo>\d{1,3})(?:\s*(?:-|–|TO|THRU)\s*(?P<hi>\d{1,3}))?$"
+    r"^(?P<series>[A-Z][A-Z0-9 &/.]*?\bPLANS?)\s*[-–:]\s*LEVELS?\s*"
+    r"(?P<levels>" + _RANGE + r"(?:\s*(?:,|&|AND)\s*" + _RANGE + r")*)$"
 )
+_ONE_RANGE = re.compile(r"(\d{1,3})(?:\s*(?:-|–|TO|THRU)\s*(\d{1,3}))?")
 _NOT_A_SERIES = re.compile(r"^(?:ENLARGED|PARTIAL|KEY|TYPICAL|SITE)\b")
 
 
@@ -88,11 +93,13 @@ def read_title(line: str) -> tuple[str, list[int], str] | None:
     series = re.sub(r"\bPLANS\b", "PLAN", " ".join(m.group("series").split()))
     if _NOT_A_SERIES.match(series) or " - " in series:
         return None
-    lo = int(m.group("lo"))
-    hi = int(m.group("hi")) if m.group("hi") else lo
-    if hi < lo or hi - lo > 60:
-        return None
-    return series, list(range(lo, hi + 1)), text
+    levels: list[int] = []
+    for lo_s, hi_s in _ONE_RANGE.findall(m.group("levels")):
+        lo, hi = int(lo_s), int(hi_s or lo_s)
+        if hi < lo or hi - lo > 60:
+            return None
+        levels += [n for n in range(lo, hi + 1) if n not in levels]
+    return series, sorted(levels), text
 
 
 def _sheet_line():

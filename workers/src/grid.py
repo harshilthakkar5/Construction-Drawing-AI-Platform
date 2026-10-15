@@ -229,7 +229,10 @@ SIZE_TOL_PT = 2.0
 # ones ("C.1", "F.7", "B1.5"). `bubbles` refuses those on purpose — its callers
 # ask about intersections of primary lines — but a secondary line sitting
 # where the other drawing puts a primary one is exactly a naming mismatch.
-STYLED_LABEL = re.compile(r"\d+(?:\.\d+)?|[A-Z]{1,2}(?:\d*\.\d+)?")
+# A letter-and-number name is a line too: Leland South Congress names its main
+# lines A1 .. A8 and B1 .. B7 (secondaries A4.4, B1.5) against AA .. BK — the
+# old pattern took "A4.4" and refused "A2", so every main line was dropped.
+STYLED_LABEL = re.compile(r"\d+(?:\.\d+)?|[A-Z]{1,2}\d*(?:\.\d+)?")
 
 
 def _colour_name(rgb) -> str:
