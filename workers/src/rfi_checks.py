@@ -638,6 +638,20 @@ _LISTING_BEFORE = re.compile(
 _LISTING_AFTER = re.compile(r"^\W{0,3}(?:(?:OR|AND|&)\s+)?" + _LISTED_ITEM + r"*SERIES\b")
 
 
+# A mark printed as part of a larger label is not a drawn mark: "100-EL1" is
+# room 100-EL1 (Elevator 1), "D6/A2.75" is detail D6 on sheet A2.75. Both read
+# as marks missing from a schedule on Leland.
+_ROOM_PREFIX = re.compile(r"\d[A-Z]?-$")
+_DETAIL_ON_SHEET = re.compile(r"^\s*/\s*[A-Z]{1,2}-?\d")
+
+
+def part_of_other_label(upper: str, start: int, end: int) -> bool:
+    """Whether the token at upper[start:end] is the tail of a room number or
+    the detail half of a detail/sheet callout. Pure."""
+    return bool(_ROOM_PREFIX.search(upper[max(0, start - 6) : start])
+                or _DETAIL_ON_SHEET.match(upper[end : end + 12]))
+
+
 def in_listing(upper: str, start: int, end: int) -> bool:
     """Whether the token at upper[start:end] is a fire-rating listing number."""
     return bool(_LISTING_BEFORE.search(upper[max(0, start - 60) : start])
@@ -854,7 +868,8 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                 hit = next(
                     (h for h in pattern.finditer(upper)
                      if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])
-                     and not in_listing(upper, h.start(), h.end())),
+                     and not in_listing(upper, h.start(), h.end())
+                     and not part_of_other_label(upper, h.start(), h.end())),
                     None,
                 )
                 if hit is None:

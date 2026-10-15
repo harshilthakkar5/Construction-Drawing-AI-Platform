@@ -871,3 +871,13 @@ def test_a_mark_that_is_a_grid_line_name_is_not_a_schedule_mark():
     other = Finding("open_item_note", "fp-tbd", "high", "TBD", "q", [])
     kept, dropped = rfi_checks.without_grid_names([mark, real, other], grids)
     assert [f.fingerprint for f in kept] == ["fp-pc4", "fp-tbd"] and dropped == {"A8"}
+
+
+def test_a_room_number_or_a_detail_callout_is_not_a_mark():
+    text = "ELEV. 1 100-EL1 UNIT B8.1  B6/A2.75 D6/A2.75 XS4  ELEVATION EL1 SEE SCHEDULE"
+    room = text.index("EL1")
+    assert rfi_checks.part_of_other_label(text, room, room + 3)          # 100-EL1
+    detail = text.index("D6")
+    assert rfi_checks.part_of_other_label(text, detail, detail + 2)      # D6/A2.75
+    bare = text.rindex("EL1")
+    assert not rfi_checks.part_of_other_label(text, bare, bare + 3)      # a real mark
