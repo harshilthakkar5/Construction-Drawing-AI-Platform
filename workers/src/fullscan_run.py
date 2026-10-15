@@ -250,11 +250,14 @@ _SECTIONS = (
 )
 _SECTION_RULES = (
     "Report a disagreement ONLY when both images PRINT a value for the same property of the same part of that "
-    "element and the values differ: a thickness, depth, width, elevation, bar size or spacing, material. NOT a "
-    "problem: a part one section shows and the other does not (another cut shows other things); a value one "
-    "section leaves to \"SEE PLAN\" or a schedule; reinforcement on a different face or in a different "
-    "direction; a different wall, footing or slab that only one cut passes through; drafting style. Name each "
-    "part as its label or note does."
+    "element and the values differ: a thickness, depth, width, elevation, bar size or spacing, material. The "
+    "parts BOTH cuts pass through (the slab, the pit floor, a wall they share) are one element: a different "
+    "thickness, elevation or reinforcement printed for it in the two cuts IS a disagreement unless a note says it "
+    "changes there (a thickened edge, a step, a haunch). That the two cuts are taken at different conditions — "
+    "one at a column, one at a wall — does not excuse it. NOT a problem: a part only ONE cut passes through (a "
+    "column in one, a wall in the other); a value one section leaves to \"SEE PLAN\" or a schedule; "
+    "reinforcement on a different face or in a different direction; drafting style. Name each part as its label "
+    "or note does."
 )
 
 
