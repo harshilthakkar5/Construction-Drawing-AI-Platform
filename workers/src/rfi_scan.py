@@ -399,7 +399,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
                    -- Only a reading by the CURRENT OCR rules: an older one may call a
                    -- picture illegible by a rule since tightened (OCR_VERSION 2 added
                    -- "1-bit"), and a worker with no engine never re-reads it.
-                   CASE WHEN p."ocrVersion" = %s THEN p.ocr -> 'pictures' END
+                   CASE WHEN p."ocrVersion" = %s THEN p.ocr -> 'pictures' END,
+                   p."sheetKind"
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
@@ -423,7 +424,8 @@ def load(project_id: str) -> tuple[list[Page], list[Chunk]]:
         ).fetchall()
     pages = [
         Page(r[0], r[1], r[2], r[3], r[4], r[5], r[6],
-             illegible_pictures=tuple(p for p in (r[7] or []) if isinstance(p, dict) and p.get("illegible")))
+             illegible_pictures=tuple(p for p in (r[7] or []) if isinstance(p, dict) and p.get("illegible")),
+             sheet_kind=r[8])
         for r in page_rows
     ]
     chunks = [

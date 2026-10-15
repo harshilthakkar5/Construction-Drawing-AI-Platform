@@ -96,6 +96,9 @@ class Page:
     # page_ocr.py's pictures on this page that are too coarse to read:
     # ({"b": [x0, y0, x1, y1] unrotated, "dpi": ..., "lines": ..., "readable": ...}, ...)
     illegible_pictures: tuple = ()
+    # sheet_facts' kind (plan, section, elevation …), or None before a scan
+    # read it. Grids are compared across sheets only between PLANS.
+    sheet_kind: str | None = None
 
 
 @dataclass(frozen=True)
