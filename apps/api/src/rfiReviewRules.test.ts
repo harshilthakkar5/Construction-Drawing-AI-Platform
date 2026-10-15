@@ -592,3 +592,16 @@ describe("missingViews", () => {
     expect(missingViews(["G01", "C03", "B01", "FL01"], new Set(), "")).toEqual([]);
   });
 });
+
+describe("titleReferences on a second set", () => {
+  it("does not read two notes run together as a title, nor a one-letter word", () => {
+    expect(titleReferences("CIVIL WALL SEE PLAN")).toEqual([]);
+    expect(titleReferences("CIVIL B SEE PLAN")).toEqual([]);
+    expect(titleReferences("ARCH SEE PLAN")).toEqual([]);
+  });
+
+  it("matches an abbreviated title against the sheet's full one", () => {
+    expect(titleReferences("SEE COL SCHEDULE")).toEqual([{ title: "COL SCHEDULE", discipline: null }]);
+    expect(titleMentions("COLUMN SCHEDULE", "COL SCHEDULE")).toEqual([{ kind: "title" }]);
+  });
+});

@@ -249,10 +249,11 @@ const NAMED_DISCIPLINES: Record<string, string> = {
 };
 // Words a title never runs through: a note continues past them ("… PLAN FOR
 // ALL …"), and "SEE STRUCTURAL GENERAL NOTES" names no drawing.
-const TITLE_STOP = String.raw`(?:FOR|OF|AT|TO|ON|AND|WITH|IN|BY|FROM|THE|ALL|EACH|THIS|THESE|ANY|OR|NOTES?|DETAILS?|DRAWINGS?|SECTIONS?|SHEETS?|PLANS?|SCHEDULES?)`;
+// SEE/REFER/PER stop it too: "CIVIL WALL SEE PLAN" is two notes run together.
+const TITLE_STOP = String.raw`(?:FOR|OF|AT|TO|ON|AND|WITH|IN|BY|FROM|THE|ALL|EACH|THIS|THESE|ANY|OR|SEE|REFER|REF|PER|NOTES?|DETAILS?|DRAWINGS?|SECTIONS?|SHEETS?|PLANS?|SCHEDULES?)`;
 const TITLE_REFERENCE = new RegExp(
   String.raw`\b(?:REFER(?:ENCE)?\s+TO|SEE|PER)\s+(?:THE\s+)?(?:(${Object.keys(NAMED_DISCIPLINES).join("|")})\s+)?` +
-    String.raw`((?:(?!${TITLE_STOP}\b)[A-Z][A-Z&/-]*\s+){1,5}(?:PLANS?|SCHEDULES?))\b`,
+    String.raw`((?:(?!${TITLE_STOP}\b)[A-Z][A-Z&/-]+\s+){1,5}(?:PLANS?|SCHEDULES?))\b`,
   "g",
 );
 // "SEE KEY PLAN" points at the thumbnail every sheet carries.
@@ -273,9 +274,14 @@ export function titleReferences(text: string): TitleReference[] {
   return [...out.values()];
 }
 
-/** The title's words, matched across any whitespace and case. */
+/** The title's words, matched across any whitespace and case. A note's word
+ * may be an abbreviation of the title's ("COL SCHEDULE" for COLUMN SCHEDULE,
+ * "ARCH" for ARCHITECTURAL), so each word matches a word it begins. */
 export function titlePattern(title: string): string {
-  return title.split(" ").map((w) => w.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&")).join(String.raw`\s+`);
+  return title
+    .split(" ")
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&") + String.raw`[A-Z]*`)
+    .join(String.raw`\s+`);
 }
 
 export type TitleMention = { kind: "reference" } | { kind: "title" } | { kind: "index"; sheet: string };
