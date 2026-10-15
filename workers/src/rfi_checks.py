@@ -55,11 +55,15 @@ from classify import PREFIX_TO_DISCIPLINE
 # check the UI has no label for renders as its raw key.
 CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid_mismatch", "tag_value_conflict",
                "illegible_schedule", "missing_plan_level",
+               # element_marks.py, read off the PDF by rfi_scan.unmarked_elements:
+               "unmarked_element",
                # geometry_checks.py, on the sheet pairs the scan lines up:
                "grid_spacing", "column_mismatch")
 # The two above that compare a PAIR of sheets the scan lined up
 # (geometry_checks.py) rather than the text run_all reads.
 PAIR_CHECK_TYPES = ("grid_spacing", "column_mismatch")
+# Read off one sheet's PDF by rfi_scan (element_marks.py), not by run_all.
+PDF_CHECK_TYPES = ("unmarked_element",)
 # Written only by the targeted review. Empty since the scan lines up sheet
 # pairs itself (column_mismatch used to need a review's two named sheets).
 REVIEW_CHECK_TYPES: tuple[str, ...] = ()

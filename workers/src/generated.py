@@ -666,6 +666,9 @@ RFI_QUESTION_CODE_CHECKS = {
         "grid_mismatch",
         "grid_spacing",
     ],
+    "F04": [
+        "unmarked_element",
+    ],
     "C01": [
         "column_mismatch",
     ],
@@ -738,6 +741,7 @@ RFI_PROJECT_CHECK_TYPES = [
     "tag_value_conflict",
     "illegible_schedule",
     "missing_plan_level",
+    "unmarked_element",
 ]
 RFI_CUSTOM_QUESTION_IDS = [
     "Q1",

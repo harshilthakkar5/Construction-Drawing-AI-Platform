@@ -584,8 +584,10 @@ def test_run_all_runs_every_check():
 
     pages[0] = dataclasses.replace(pages[0], illegible_pictures=(COARSE,))
     findings, _ = run_all(pages, chunks, grids)
-    # The pair checks need sheets the scan lined up (test_geometry_checks).
-    assert {f.check_type for f in findings} == set(rfi_checks.CHECK_TYPES) - set(rfi_checks.PAIR_CHECK_TYPES)
+    # The pair checks need sheets the scan lined up (test_geometry_checks), the
+    # PDF checks a sheet's drawing (test_element_marks).
+    assert {f.check_type for f in findings} == (
+        set(rfi_checks.CHECK_TYPES) - set(rfi_checks.PAIR_CHECK_TYPES) - set(rfi_checks.PDF_CHECK_TYPES))
 
 
 def test_run_all_says_when_the_grid_check_could_not_look():
