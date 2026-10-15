@@ -239,6 +239,65 @@ def discovery_system(questions: list[dict] | None = None) -> str:
     )
 
 
+# Two sections the code paired because one plan cuts both through the same
+# element (section_pairs.py, Leland RFI 007: one elevator pit, an 8" slab in
+# one cut and 1'-4" in the other). Not one area of two sheets, so the plan
+# prompts' "same area" and "misaligned" do not apply.
+_SECTIONS = (
+    "Image A and image B are two SECTIONS of one detail sheet that the drawings say show ONE element: a plan "
+    "cuts both through the same element at the same place, and both carry the same title. They are different "
+    "cuts, so their layout differs and one may show parts the other does not. "
+)
+_SECTION_RULES = (
+    "Report a disagreement ONLY when both images PRINT a value for the same property of the same part of that "
+    "element and the values differ: a thickness, depth, width, elevation, bar size or spacing, material. NOT a "
+    "problem: a part one section shows and the other does not (another cut shows other things); a value one "
+    "section leaves to \"SEE PLAN\" or a schedule; reinforcement on a different face or in a different "
+    "direction; a different wall, footing or slab that only one cut passes through; drafting style. Name each "
+    "part as its label or note does."
+)
+
+
+def section_discovery_system(questions: list[dict] | None = None) -> str:
+    return (
+        "You coordinate construction drawings. " + _SECTIONS + "The words printed inside each image, taken from "
+        "the PDF, are listed after the images.\n" + _UNTRUSTED + _SECTION_RULES + "\n"
+        "Say which is true with status: \"agree\" (every value both print agrees), \"issues\" (you list a "
+        "disagreement you can read on BOTH images) or \"unclear\" (too small or cut off; give a short note). "
+        "Unsure is \"unclear\", never an issue.\n"
+        + question_block(questions)
+        + "Each issue: checkId (the id of the question it answers, from the list above), kind (conflict), "
+        "element (the part, as labelled), whatA and whatB (the value each image prints), boxA and boxB (each "
+        "{\"left\": .., \"top\": .., \"right\": .., \"bottom\": ..}: the box around that value as fractions 0-1 "
+        "of its own image), confidence (high | medium | low). Name an identifier or number only if it is in the "
+        "words.\nAlso answer every question listed, in \"answers\": agree, issues, not_shown or unclear.\n"
+        'Respond with ONLY JSON: {"status": "agree" | "issues" | "unclear", "note": "...", '
+        '"answers": {"<question id>": "agree" | "issues" | "not_shown" | "unclear", ...}, '
+        '"issues": [ ... ]} — at most four issues; "issues" is [] unless status is "issues".'
+    )
+
+
+def section_verify_system() -> str:
+    return (
+        "You confirm or reject ONE possible disagreement between two sections, and if it is real you write it as "
+        "an RFI. " + _SECTIONS + "Image A and image B are close-ups of the value each one prints. The words "
+        "printed in each close-up are listed.\n" + _UNTRUSTED
+        + "The <question> it was raised for is given; reject it when it does not answer that question.\n"
+        + _SECTION_RULES + "\nKeep it ONLY if both close-ups clearly print the two values for the same part. If "
+        "you cannot decide (too small, cut off), answer \"unclear\".\n"
+        "If you keep it, write the RFI for a reviewer who has never seen the drawings: subject (the part and the "
+        "two sections, at most 90 characters) and question (what each section shows, naming each by the label "
+        "given, then ONE direct question: which governs). Use only identifiers and numbers that appear in the "
+        "words or the labels.\n"
+        'Respond with ONLY JSON: {"decision": "keep" | "reject" | "unclear", "reason": "...", "subject": "...", '
+        '"question": "...", "confidence": "high" | "medium" | "low", "priority": "low" | "normal" | "high" | "critical"}'
+    )
+
+
+def is_sections(pair: dict | None) -> bool:
+    return bool(pair) and pair.get("kind") == "sections"
+
+
 def verify_system() -> str:
     return (
         "You confirm or reject ONE possible coordination problem between two construction drawings, and if it "
@@ -803,6 +862,8 @@ def tile_prompt(pair: dict, tile: dict, words_a: str, words_b: str) -> tuple[str
     if settled.get("why"):
         names = ", ".join(str(q) for q in settled.get("questions") or []) or "none of the questions asked"
         user += f"\n<settled_by_code>{settled['why']}. Settled: {names}.</settled_by_code>"
+    if windows.get("labels"):
+        return user, [f"Image A — {windows['labels'][0]}", f"Image B — {windows['labels'][1]}"]
     labels = [
         f"Image A — {pair['a'].get('sheetNumber') or 'sheet A'}, window {tile['tile'] + 1}",
         f"Image B — {pair['b'].get('sheetNumber') or 'sheet B'}, the same area",
@@ -817,10 +878,13 @@ def first_look(run: Run, sheets: Sheets) -> None:
     if not tiles:
         return
     log.info("full scan %s: first look at %d tile(s) (%s)", run.id[:8], len(tiles), "batch" if run.use_batch else "direct")
-    if run.use_batch:
-        _first_look_batch(run, sheets, tiles, total)
-    else:
-        _first_look_direct(run, sheets, tiles, total)
+    look = _first_look_batch if run.use_batch else _first_look_direct
+    plans = [t for t in tiles if not is_sections(run.pairs.get(t["pair"]))]
+    sections = [t for t in tiles if is_sections(run.pairs.get(t["pair"]))]
+    if plans:
+        look(run, sheets, plans, total, discovery_system(run.questions))
+    if sections:
+        look(run, sheets, sections, total, section_discovery_system(run.questions))
 
 
 def _prepare(run: Run, sheets: Sheets, tile: dict):
@@ -881,10 +945,9 @@ def repair_boxes(run: Run, system: str, user: str, images, labels, look: dict, t
     return {**again, "dropped": earlier + again["dropped"]}
 
 
-def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) -> None:
+def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int, system: str) -> None:
     import concurrent.futures as cf
 
-    system = discovery_system(run.questions)
     in_flight: dict = {}
 
     def call(user, images, labels, trace=None):
@@ -933,12 +996,11 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int) 
             drain(block=False)
 
 
-def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int) -> None:
+def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int, system: str) -> None:
     """Waves through the provider's batch API (half price, minutes rather than
     seconds). Each wave is sized to the ceiling BEFORE it is submitted: a batch
     cannot be stopped half way, so the only honest stop is not sending it. An
     entry the batch did not return, or returned unusable, gets one direct call."""
-    system = discovery_system(run.questions)
     position = 0
     while position < len(tiles):
         run.guard()
@@ -1035,11 +1097,10 @@ def close_look(run: Run, sheets: Sheets) -> None:
     if not pending:
         return
     log.info("full scan %s: close look at %d possible problem(s)", run.id[:8], len(pending))
-    system = verify_system()
     in_flight: dict = {}
     done_count = [0]
 
-    def call(user, images, labels, trace=None):
+    def call(user, images, labels, trace=None, system=verify_system()):
         reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, verify_thinking(), trace)
         verdict = parse_verdict(reply.text if reply else None)
         if verdict is None and reply is not None:
@@ -1078,9 +1139,12 @@ def close_look(run: Run, sheets: Sheets) -> None:
                     continue
                 wa, wb = item["windows"]["a"], item["windows"]["b"]
                 facts = (run.facts.get(pair["a"].get("pageId")), run.facts.get(pair["b"].get("pageId")))
+                sections = is_sections(pair)
                 # Code first: two boxes at two places, or a column that does
                 # not move when measured, is rejected before a call is paid for.
-                early = boxes_apart(item["issue"], item["windows"], _pt_per_ft(facts[1])) or column_position_agrees(
+                # Two sections are two drawings: their boxes sit where each
+                # prints its value, never at one place.
+                early = None if sections else boxes_apart(item["issue"], item["windows"], _pt_per_ft(facts[1])) or column_position_agrees(
                     sheets, item["issue"], {**item["windows"], "a": {**wa, "sheetNumber": pair["a"].get("sheetNumber")}}, facts
                 )
                 if early:
@@ -1089,8 +1153,11 @@ def close_look(run: Run, sheets: Sheets) -> None:
                                       issue=item["issue"], reason=early, firstLookCalls=_first_calls(item["tileId"]),
                                       rule="boxes_apart" if "boxes on the two images" in early else "column_position_agrees")
                     continue
-                both = shared_box(item["issue"])
-                ra, rb = close_rect(wa, both), close_rect(wb, both)
+                if sections:
+                    ra, rb = close_rect(wa, item["issue"]["boxA"]), close_rect(wb, item["issue"]["boxB"])
+                else:
+                    both = shared_box(item["issue"])
+                    ra, rb = close_rect(wa, both), close_rect(wb, both)
                 img_a, img_b = sheets.render(wa, ra), sheets.render(wb, rb)
                 if img_a is None or img_b is None:
                     _record_verdict(item["tileId"], item["n"], {"decision": "reject", "reason": "the close-up could not be rendered"})
@@ -1104,15 +1171,20 @@ def close_look(run: Run, sheets: Sheets) -> None:
                     f"<possible_problem>{json.dumps({k: issue[k] for k in ('checkId', 'kind', 'element', 'whatA', 'whatB')}, ensure_ascii=False)}</possible_problem>\n"
                     f"<words_a>{words_a}</words_a>\n<words_b>{words_b}</words_b>"
                 )
-                labels = [f"Image A — close-up of {pair['a'].get('sheetNumber') or 'sheet A'}",
-                          f"Image B — the same area of {pair['b'].get('sheetNumber') or 'sheet B'}"]
+                if sections and item["windows"].get("labels"):
+                    labels = [f"Image A — close-up of {item['windows']['labels'][0]}",
+                              f"Image B — close-up of {item['windows']['labels'][1]}"]
+                else:
+                    labels = [f"Image A — close-up of {pair['a'].get('sheetNumber') or 'sheet A'}",
+                              f"Image B — the same area of {pair['b'].get('sheetNumber') or 'sheet B'}"]
                 trace = None
                 if diagnostics.current() is not None:
                     trace = {"tileId": item["tileId"], "issueIndex": item["n"], "issue": issue,
                              "images": [image_source(pair, "a", wa, ra, labels[0]), image_source(pair, "b", wb, rb, labels[1])],
                              "words": words_record(sheets, {"a": wa, "b": wb}, (ra, rb))}
                 ctx = {"pair": pair, "ra": ra, "rb": rb, "words": (words_a, words_b), "images": (img_a, img_b), "trace": trace}
-                in_flight[executor.submit(fs.run_in_context(call), user, [img_a, img_b], labels, trace)] = (item, ctx)
+                system = section_verify_system() if sections else verify_system()
+                in_flight[executor.submit(fs.run_in_context(call), user, [img_a, img_b], labels, trace, system)] = (item, ctx)
         finally:
             drain(block=False)
 
@@ -1421,6 +1493,9 @@ def rule_out(pair: dict, verdict: dict | None, material: str, facts: tuple[dict 
 def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None) -> None:
     pair = ctx["pair"]
     material = material_for(pair, ctx["words"])
+    if is_sections(pair):
+        # The code named the two sections and the plan that cuts them: an RFI may cite them.
+        material += "\n" + " ".join(item["windows"].get("labels") or []) + "\n" + pair["reason"]
     why_not = rule_out(pair, verdict, material, (run.facts.get(pair["a"].get("pageId")), run.facts.get(pair["b"].get("pageId"))))
     record = dict(verdict or {"decision": "reject"})
     links = {"firstLookCalls": _first_calls(item["tileId"]), "closeLookCalls": (ctx.get("trace") or {}).get("calls", [])}

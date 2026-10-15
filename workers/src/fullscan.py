@@ -45,6 +45,7 @@ import db
 import fullscan_plan as plan_rules
 import rfi_checks
 import scan_scope
+import section_pairs
 import sheet_facts
 from rfi_review import grounded
 
@@ -217,6 +218,8 @@ def build_plan(project_id: str, open_page, *, check_cancel=lambda: None, progres
     kept = _line_up(project_id, pairs, skipped, open_errors, open_page=open_page, check_cancel=check_cancel, cache=cache,
                     tick=lambda done, work: report(0.62 + 0.35 * done / max(work, 1),
                                                    f"Lining up sheet pairs: {done} of {work}"))
+    report(0.97, "Finding sections cut through one element")
+    kept += section_pairs.find(in_scope, _page_texts([f.page_id for f in in_scope]), open_page)
     notes = []
     off = sheet_facts.excluded_documents(project_id) if excluded.get("excludedFromRfi") else []
     kept_out = plan_rules.kept_out_note(excluded, len(facts), off)
@@ -362,6 +365,18 @@ def unopened_note(errors: dict[str, str], names: dict[str, str]) -> str | None:
         "the drawings: check the worker can reach the object store (STORAGE_BACKEND and its keys in the "
         "worker's .env) and plan again."
     )
+
+
+def _page_texts(page_ids: list[str]) -> dict[str, str]:
+    """Each page's indexed words, so section_pairs opens only the pages that can matter."""
+    if not page_ids:
+        return {}
+    with db.connect() as conn:
+        return dict(conn.execute(
+            'SELECT "pageId", string_agg(text, \' \') FROM chunks '
+            'WHERE "pageId" = ANY(%s::text[]) AND kind = \'text\' GROUP BY "pageId"',
+            (page_ids,),
+        ).fetchall())
 
 
 def _filenames(project_id: str, document_ids: list[str]) -> dict[str, str]:

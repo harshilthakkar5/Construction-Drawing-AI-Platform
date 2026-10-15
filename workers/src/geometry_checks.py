@@ -238,6 +238,8 @@ COLUMN_DISCIPLINES = {"architectural", "structural", "interiors"}
 
 def _column_pair(pair) -> bool:
     a, b = pair.a.discipline, pair.b.discipline
+    if pair.kind == "sections":
+        return False  # two details on one sheet: nothing to overlay
     if pair.kind == "enlarged":
         return a == b or (a in COLUMN_DISCIPLINES and b in COLUMN_DISCIPLINES)
     return a in COLUMN_DISCIPLINES and b in COLUMN_DISCIPLINES

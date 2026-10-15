@@ -1691,8 +1691,9 @@ export type RfiFullScanStatus =
   | "stale";
 
 /** Why two sheets were paired: the same level drawn by two disciplines at one
- * scale, or an enlarged plan laid over the plan it enlarges. */
-export type RfiFullScanPairKind = "same_level" | "enlarged";
+ * scale, an enlarged plan laid over the plan it enlarges, or two sections one
+ * plan cuts through the same element (workers/src/section_pairs.py). */
+export type RfiFullScanPairKind = "same_level" | "enlarged" | "sections";
 
 export interface RfiFullScanSheetRef {
   pageId: string;
