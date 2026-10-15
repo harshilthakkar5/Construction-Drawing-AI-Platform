@@ -107,7 +107,11 @@ MAX_CANDIDATES = 12
 # provider failed a whole review and threw away the stages already paid for.
 CALL_RETRY_DELAYS = (5.0, 20.0)
 HEARTBEAT_SECONDS = float(os.environ.get("RFI_REVIEW_HEARTBEAT_SECONDS", "10"))
-TOKENS = {"discovery": 6000, "reasoning": 3000, "verification": 4000}
+# Room for the ANSWER (a thinking setting adds its own headroom in llm.py).
+# Sized to what the prompts allow: 40 observations ran to 6,859 tokens and
+# twelve fully-worded candidates need about 3,600, so 6000/3000 cut off a
+# real gemini-3.8-flash review at both stages.
+TOKENS = {"discovery": 9000, "reasoning": 5000, "verification": 4000}
 # What one image costs in input tokens, for splitting discovery into calls —
 # the same figure the API prices a plan with (rfiReviewRules.IMAGE_TOKENS).
 IMAGE_TOKENS = 1600
@@ -1153,7 +1157,10 @@ def _ask(
             return parsed
         if attempt == 0:
             if reply.stop_reason == "max_tokens":
-                log.warning("rfi review %s: %s reply cut off at %d tokens — retrying with more room", run["id"][:8], stage, budget)
+                spent = (f" ({reply.thinking_tokens} on thinking, {reply.output_tokens - reply.thinking_tokens} on the answer)"
+                         if reply.thinking_tokens is not None else "")
+                log.warning("rfi review %s: %s reply cut off at the output cap%s — retrying with more room",
+                            run["id"][:8], stage, spent)
                 budget *= 2
             else:
                 log.warning("rfi review %s: %s reply was not the JSON asked for — retrying once", run["id"][:8], stage)

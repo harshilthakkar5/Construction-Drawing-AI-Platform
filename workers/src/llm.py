@@ -148,9 +148,12 @@ def _nearest_effort(budget: int) -> str:
     return "low" if budget <= 2048 else "medium" if budget <= 6000 else "high"
 
 
-def _gemini_headroom(setting: str) -> int:
+def _gemini_headroom(setting: str, model: str = "") -> int:
     budget = thinking_budget(setting)
-    return budget if budget is not None else _GEMINI_STAGE_HEADROOM[setting]
+    if budget is not None:
+        return budget
+    table = _GEMINI_LEVEL_HEADROOM if _takes_thinking_level(model) else _GEMINI_STAGE_HEADROOM
+    return table[setting]
 
 
 def stage_thinking(env_var: str) -> str | None:
@@ -640,6 +643,11 @@ _GEMINI_STAGE_BUDGETS = {"off": 0, "minimal": 512, "low": 1024, "medium": 4096, 
 # from max_output_tokens BEFORE the answer: a caller sizes max_tokens for its
 # JSON, and asking for more thinking inside the same cap truncates the JSON.
 _GEMINI_STAGE_HEADROOM = {"off": 0, "minimal": 0, "low": 1024, "medium": 4096, "high": 8192}
+# A Gemini 3 LEVEL is not a budget: nothing caps it, so its headroom must cover
+# what the model actually spends. Measured on gemini-3.8-flash at `medium`
+# (a targeted RFI review): 5,572-6,808 thinking tokens per call — over the
+# 4,096 above, which left a reasoning reply 281 tokens and failed the review.
+_GEMINI_LEVEL_HEADROOM = {"off": 1024, "minimal": 1024, "low": 4096, "medium": 8192, "high": 16384}
 
 # What a model accepted for a given STAGE setting, keyed (model, setting). Kept
 # apart from _thinking_latched on purpose: one stage asking for `high` and
@@ -983,7 +991,7 @@ def _complete_gemini(
     if client is None:
         return Reply(text="", stop_reason="unavailable")
     if thinking_setting is not None:
-        max_tokens += _gemini_headroom(thinking_setting)
+        max_tokens += _gemini_headroom(thinking_setting, model)
 
     def send(thinking: bool | dict, *, media_model: str):
         request = dict(
@@ -1293,7 +1301,7 @@ def _batch_gemini(
     if thinking_setting is not None:
         # The same headroom a single call gets: thinking is spent from the
         # output cap before the JSON is written.
-        max_tokens += _gemini_headroom(thinking_setting)
+        max_tokens += _gemini_headroom(thinking_setting, model)
         first: bool | dict = ladder[0] if ladder[0] is not None else False
     else:
         first = True
