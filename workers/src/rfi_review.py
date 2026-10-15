@@ -98,7 +98,7 @@ CROP_MIN_PT = 260.0
 
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256.
-PROMPT_VERSION = "review-2026-10-05"
+PROMPT_VERSION = "review-2026-10-15"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
@@ -480,6 +480,9 @@ def verification_system() -> str:
         "Some problems carry evidence the server FOUND by searching the project for what would settle "
         "them (listed under `searched`). If that evidence settles the problem, reject it and say which "
         "evidence settles it; if it does not, the problem stands.\n"
+        "`<not_in_project>` lists drawings the notes refer to that the plan looked for and could not find "
+        "in this project. Never reject a problem because its value is deferred to one of them: that "
+        "deferral is what makes it a missing-information RFI.\n"
         "Reject when: the problem is not visible in the cited evidence; the sources are about different "
         "levels, elements or conditions; another cited source resolves it; it rests on an assumption "
         "the evidence does not state; or it would need a fact the evidence does not contain.\n"
@@ -1745,6 +1748,15 @@ def planned_gaps(planned: dict) -> list[dict]:
     return out
 
 
+def not_in_project_block(planned: dict) -> str:
+    """The drawings the plan could not find, for verification. Pure. Without
+    it verification rejected RFI 006's real finding (openings with no sizes)
+    because the notes defer sizes to a slab control plan the set does not
+    contain — the plan knew, and only reasoning was told."""
+    lines = [f"- {g['field']}: {g['reason']}" for g in planned_gaps(planned) if g["checkId"] is None]
+    return "\n\n<not_in_project>\n" + "\n".join(lines) + "\n</not_in_project>" if lines else ""
+
+
 def check_results(
     all_ids: list[str],
     selected: list[str],
@@ -2255,7 +2267,7 @@ def _run(run: dict) -> dict:
             )
             decisions = _ask(
                 "verification", verification_system(),
-                f"{body}\n\n<problems>\n{problems}\n</problems>",
+                f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}",
                 lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
             for i, candidate in enumerate(to_verify):

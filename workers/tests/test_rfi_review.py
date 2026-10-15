@@ -804,3 +804,18 @@ def test_a_question_the_plan_could_not_show_its_sheet_kind_is_never_no_issue():
     assert results["F04"]["gaps"] == ["schedule sheet: the project has no schedule sheet"]
     assert results["O01"]["outcome"] == "complete_no_issue"
     assert "source: plan" in rfi_review.reasoning_system(["O01"])
+
+
+def test_verification_is_told_which_referenced_drawings_are_not_in_the_project():
+    # RFI 006: verification rejected "openings with no sizes" because the notes
+    # defer sizes to a slab control plan the plan had already found missing.
+    planned = {"evidenceGaps": [
+        {"checkId": None, "need": "architectural slab dimensional control plan",
+         "reason": "S2.107 refers to it; no sheet in this project carries that title"},
+        {"checkId": "O01", "need": "elevation", "reason": "no elevation sheet was found"},
+    ]}
+    block = rfi_review.not_in_project_block(planned)
+    assert "architectural slab dimensional control plan: S2.107 refers to it" in block
+    assert "elevation" not in block  # a sheet-kind gap is a question's gap, not a missing drawing
+    assert rfi_review.not_in_project_block({}) == ""
+    assert "<not_in_project>" in rfi_review.verification_system()
