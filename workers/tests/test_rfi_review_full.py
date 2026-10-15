@@ -612,3 +612,38 @@ def test_a_not_visible_rejection_costs_no_second_call(database, monkeypatch):
     monkeypatch.setattr(llm, "complete", answer)
     rfi_review.run(seeded["run"])
     assert len(seen) == 1
+
+
+def test_a_named_sheet_is_found_in_any_numbering_style_and_only_if_the_project_has_it():
+    sheets = {"A507": "A5.07", "S501": "S-501", "FP101": "FP101", "M21": "M 2.1"}
+    reason = ("Sill heights are on stair section A5.07 and the S 501 details (see FP-101, M2.1); "
+              "the window schedule A1.25 and grid C-30 are not in this project.")
+    assert rfi_review.named_sheets(reason, sheets) == ["A5.07", "S-501", "FP101", "M 2.1"]
+    assert rfi_review.named_sheets("shown on building elevations", sheets) == []
+    assert rfi_review.named_sheets("", sheets) == []
+
+
+@needs_db
+def test_the_recheck_loads_the_sheet_a_rejection_names(database, monkeypatch):
+    import llm
+
+    seeded = _seed(database, checks=("C01",))
+    _schedule_elsewhere(database, seeded["project"])
+    model, answer = _elsewhere_model(second_reject_cites_search=True)
+    original = answer
+
+    def naming_s601(system, user, **kw):
+        reply = original(system, user, **kw)
+        if "VERIFICATION" in system and "<recheck>" not in user:
+            body = json.loads(reply.text)
+            body["decisions"][0].update(lookFor="", reason="the size is on schedule sheet S-6.01")
+            return llm.Reply(text=json.dumps(body), stop_reason="end_turn", model="stub", input_tokens=100, output_tokens=50)
+        return reply
+
+    monkeypatch.setattr(llm, "complete", naming_s601)
+    rfi_review.run(seeded["run"])
+    recheck = model.verification_users[1]
+    assert "COLUMN SCHEDULE: MARK C-6" in recheck  # S6.01's own text, loaded by name
+    with database.connect() as conn:
+        log_ = conn.execute("SELECT coverage FROM rfi_review_runs WHERE id = %s", (seeded["run"],)).fetchone()[0]["searchLog"]
+    assert any(q["query"] == "C01 recheck: sheet S6.01" and q["found"] == 1 for q in log_)

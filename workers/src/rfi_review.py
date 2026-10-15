@@ -1800,6 +1800,56 @@ def resolving_search(project_id: str, query: str, exclude: set[str], limit: int 
     return [dict(zip(keys, r)) for r in rows]
 
 
+# A token that could be a sheet number in ANY numbering style: "A5.07",
+# "S-501", "FP101", "M 2.1". Only tokens matching a sheet THIS project has are
+# used, so the pattern may be loose.
+_SHEET_TOKEN = re.compile(r"\b[A-Za-z]{1,4}[-\s]?\d[\w.\-]*")
+MAX_NAMED_SHEETS = 2
+NAMED_SHEET_CHUNKS = 12
+
+
+def named_sheets(text: str, sheets: dict[str, str]) -> list[str]:
+    """The sheets of this project a piece of text names, as printed in the
+    project, in order. Pure. `sheets` maps the normalised number (the same
+    rfi_checks.normalize every sheet lookup uses) to the number as printed."""
+    out: list[str] = []
+    for token in _SHEET_TOKEN.findall(text or ""):
+        printed = sheets.get(rfi_checks.normalize(token.rstrip(".-")))
+        if printed and printed not in out:
+            out.append(printed)
+    return out
+
+
+def project_sheets(project_id: str) -> dict[str, str]:
+    """Normalised sheet number -> as printed, over this project's analysable pages."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT p."sheetNumber" FROM pages p JOIN documents d ON d.id = p."documentId"
+                WHERE d."projectId" = %s AND d."supersededAt" IS NULL AND d."includeInRfiAnalysis"
+                  AND d.status = 'completed' AND p."sheetNumber" IS NOT NULL""",
+            (project_id,),
+        ).fetchall()
+    return {rfi_checks.normalize(r[0]): r[0] for r in rows if rfi_checks.normalize(r[0])}
+
+
+def sheet_chunks(project_id: str, sheet: str, exclude: set[str], limit: int = NAMED_SHEET_CHUNKS) -> list[dict]:
+    """The text a named sheet carries (OCR'd lines included, since they are
+    text chunks), in the shape resolving_search returns. A schedule pasted as a
+    picture with no text and no OCR reading stays unreadable here."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.text, c.bbox, p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber"
+                 FROM chunks c JOIN pages p ON p.id = c."pageId" JOIN documents d ON d.id = p."documentId"
+                WHERE d."projectId" = %s AND d."supersededAt" IS NULL AND d."includeInRfiAnalysis"
+                  AND d.status = 'completed' AND c.kind = 'text' AND p."sheetNumber" = %s
+                  AND NOT (c.id = ANY(%s::text[]))
+                ORDER BY c."tokenCount" DESC, c.id LIMIT %s""",
+            (project_id, sheet, sorted(exclude), limit),
+        ).fetchall()
+    keys = ("chunkId", "text", "bbox", "documentId", "pageNumber", "combinedPageNumber", "sheetNumber")
+    return [dict(zip(keys, r)) for r in rows]
+
+
 def planned_gaps(planned: dict) -> list[dict]:
     """The plan's evidence gaps as discovery-shaped gaps. Pure. One about a
     drawing named by title belongs to no single question (checkId None): it
@@ -2386,9 +2436,23 @@ def _run(run: dict) -> dict:
             # search the project for it, look once more with what was found,
             # and keep the problem if the claim still points at nothing.
             if recheck:
+                sheets = project_sheets(project_id)
                 for candidate, first in recheck:
-                    query = first["lookFor"] or first["reason"]
-                    hits = resolving_search(project_id, query, in_scope)
+                    # A sheet the rejection NAMES that this project has is
+                    # loaded itself — a keyword search found three loose
+                    # matches and never the window schedule it was told about.
+                    named = named_sheets(f"{first['reason']} {first['lookFor']}", sheets)[:MAX_NAMED_SHEETS]
+                    if named:
+                        hits = [h for s in named for h in sheet_chunks(project_id, s, in_scope)]
+                        query = f"sheet {', '.join(named)}"
+                        # Evidence from those sheets the review already holds.
+                        candidate["searched"] += [
+                            ev.id for ev in evidence.values()
+                            if ev.sheet_number in named and ev.id not in candidate["evidenceIds"] + candidate["searched"]
+                        ]
+                    else:
+                        query = first["lookFor"] or first["reason"]
+                        hits = resolving_search(project_id, query, in_scope)
                     search_log.append({"query": f"{candidate['checkId']} recheck: {query}", "found": len(hits), "stage": "verification"})
                     for hit in hits:
                         ev = Evidence(
