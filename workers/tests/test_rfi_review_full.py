@@ -532,7 +532,7 @@ def _elsewhere_model(second_reject_cites_search: bool):
         searched = re.findall(r'"searched": \["(ev\d+)"', user)
         decision = {"index": 0, "decision": "reject", "basis": "answered_elsewhere",
                     "answeredBy": searched[:1] if second_reject_cites_search else [],
-                    "reason": "the schedule gives it", "subject": "Column C-6 on S2.105 but not A3.01",
+                    "reason": "the schedule gives it", "confidence": "high", "subject": "Column C-6 on S2.105 but not A3.01",
                     "question": model.keep_question}
         return llm.Reply(text=json.dumps({"decisions": [decision]}), stop_reason="end_turn", model="stub",
                          input_tokens=100, output_tokens=50)
@@ -562,6 +562,10 @@ def test_an_unproven_elsewhere_rejection_is_searched_rechecked_and_kept(database
     monkeypatch.setattr(llm, "complete", answer)
     rfi_review.run(seeded["run"])
     assert len(model.verification_users) == 2
+    with database.connect() as conn:
+        confidence = conn.execute("SELECT confidence::text FROM rfi_candidates WHERE \"projectId\" = %s AND \"checkType\" = 'C01'",
+                                  (seeded["project"],)).fetchone()[0]
+    assert confidence == "medium"  # the stub said high; a pushed-back keep is never more than medium
     recheck = model.verification_users[1]
     assert "<recheck>" in recheck and "COLUMN SCHEDULE: MARK C-6" in recheck
     saved = [r for r in _candidates(database, seeded["project"]) if r[0] == "C01"]

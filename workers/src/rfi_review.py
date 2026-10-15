@@ -2418,7 +2418,9 @@ def _run(run: dict) -> dict:
                     label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
                     decision = second.get(i)
                     if decision is not None and decision["decision"] == "keep":
-                        accept(candidate, decision)
+                        # Kept only because the system pushed back on the first
+                        # rejection: never more than medium.
+                        accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
                     elif decision is not None and not contested(decision, set(cited2)):
                         rejected.append(f"{label}: {decision['reason'] or 'rejected'} (re-checked)")
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
