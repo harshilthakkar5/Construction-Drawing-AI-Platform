@@ -656,6 +656,35 @@ def part_of_other_label(upper: str, start: int, end: int) -> bool:
                 or _DETAIL_ON_SHEET.match(upper[end : end + 12]))
 
 
+# "KICKER -SEE S1.3-6" points at something; it is not a use of mark S1.3.
+_REFERENCE_BEFORE = re.compile(r"\b(?:SEE|REFER(?:\s+TO)?|REF\.?|PER)\s*[-:]?\s*$")
+
+
+def referenced(upper: str, start: int) -> bool:
+    """Whether the token starting at `start` follows SEE / REFER TO / PER. Pure."""
+    return bool(_REFERENCE_BEFORE.search(upper[max(0, start - 16) : start]))
+
+
+# A detail or drawing NUMBER: "D6/A3.11", or a sheet number beside it
+# ("A2.87 D6", "D6 A2.91" — the two halves of a callout bubble). Leland's
+# architect numbers every drawing by its zone on the sheet (A1..E6), so "D6"
+# on forty sheets was reported as a door the door schedule (D1-D5) lacks.
+_CALLOUT_SHEET = r"[A-Z]{1,2}-?\d{1,2}\.\d{2,3}(?:\.\d{2})?(?:-[A-Z]{1,2})?"
+_DETAIL_ID = re.compile(
+    rf"(?<![\w./-])([A-Z]\d{{1,2}})(?:\s*/\s*{_CALLOUT_SHEET}|\s+{_CALLOUT_SHEET}(?![\w.]))"
+    rf"|(?<![\w./-]){_CALLOUT_SHEET}\s+([A-Z]\d{{1,2}})(?![\w./])"
+)
+
+
+def detail_ids(texts) -> set[str]:
+    """Every token the project uses as a detail number somewhere. Pure."""
+    out: set[str] = set()
+    for text in texts:
+        for m in _DETAIL_ID.finditer(text.upper()):
+            out.add(m.group(1) or m.group(2))
+    return out
+
+
 def in_listing(upper: str, start: int, end: int) -> bool:
     """Whether the token at upper[start:end] is a fire-rating listing number."""
     return bool(_LISTING_BEFORE.search(upper[max(0, start - 60) : start])
@@ -719,6 +748,8 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
     notes: list[str] = []
     by_page = {p.id: p for p in pages}
     sheet_keys = {normalize(p.sheet_number) for p in pages if p.sheet_number}
+    sheet_numbers = {p.sheet_number.upper() for p in pages if p.sheet_number}
+    callout_ids = detail_ids(c.text for c in chunks)
 
     def marks_of(chunk: Chunk) -> dict[str, set[str]]:
         families: dict[str, set[str]] = {}
@@ -856,7 +887,7 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
         listed = [shown(m, schedule_text.get(family, [])) for m in sorted(in_schedule, key=lambda m: (len(m), m))]
 
         for mark, places in sorted(on_plans[family].items()):
-            if mark in in_schedule or _mark_parts(mark)[1:] not in shapes:
+            if mark in in_schedule or _mark_parts(mark)[1:] not in shapes or mark in callout_ids:
                 continue
             pattern = _mark_pattern(mark, dotted.get(family, False))
             evidence: list[dict] = []
@@ -873,7 +904,10 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                     (h for h in pattern.finditer(upper)
                      if not _FASTENER_AFTER.match(upper[h.end() : h.end() + 60])
                      and not in_listing(upper, h.start(), h.end())
-                     and not part_of_other_label(upper, h.start(), h.end())),
+                     and not part_of_other_label(upper, h.start(), h.end())
+                     and not referenced(upper, h.start())
+                     # "WIND LOADS ON S0.0": the start of sheet S0.01, cut off.
+                     and not ("." in h.group(0) and any(s.startswith(h.group(0)) for s in sheet_numbers))),
                     None,
                 )
                 if hit is None:

@@ -883,3 +883,31 @@ def test_a_room_number_or_a_detail_callout_is_not_a_mark():
     assert rfi_checks.part_of_other_label(text, detail, detail + 2)      # D6/A2.75
     bare = text.rindex("EL1")
     assert not rfi_checks.part_of_other_label(text, bare, bare + 3)      # a real mark
+
+
+def test_a_mark_the_project_uses_as_a_detail_number_is_not_a_mark():
+    # Leland's architect numbers drawings by sheet zone (A1..E6): "D6" was a
+    # door missing from the door schedule on forty sheets.
+    door = "DOOR SCHEDULE\nMARK TYPE\nD1 HM\nD2 HM\nD3 WD"
+
+    def project(plan_text):
+        pages = [page("p1", "A-101"), page("p5", "A-601")]
+        return pages, [chunk("sched", "p5", door, ("D1", "D2", "D3")), chunk("plan", "p1", plan_text, ("D4",))]
+
+    assert [f.facts["mark"] for f in unscheduled_marks(*project("D4 AT CORRIDOR 104"))[0]] == ["D4"]
+    assert unscheduled_marks(*project("D4 AT CORRIDOR 104. SECTION D4/A3.11"))[0] == []
+    assert unscheduled_marks(*project("D4 AT CORRIDOR 104. A2.87 D4 TYP"))[0] == []
+    assert rfi_checks.detail_ids(["D6/A3.11", "A2.87 D6", "D6 A2.91 ____", "F6.0 AT S2.01"]) == {"D6"}
+
+
+def test_a_mark_after_see_is_a_reference_not_a_use():
+    pages, chunks = mark_project([("p1", "KICKER -SEE PC4", ["PC4"])])
+    assert unscheduled_marks(pages, chunks)[0] == []
+    assert rfi_checks.referenced("KICKER -SEE S1.3-6", len("KICKER -SEE "))
+    assert not rfi_checks.referenced("PC4 AT 7/D", 0)
+
+
+def test_a_cut_off_sheet_number_is_not_a_mark():
+    pages, chunks = mark_project([("p1", "WIND LOADS ON PC4.0", ["PC40"])], schedule_ids=("PC1", "PC2", "PC3"))
+    pages.append(page("p9", "PC4.01"))
+    assert unscheduled_marks(pages, chunks)[0] == []
