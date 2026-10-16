@@ -63,6 +63,7 @@ export async function toPackageDto(row: PackageRow, now = new Date()): Promise<R
       status === "ready" && row.key
         ? await presignGetObject(row.key, 3600, `rfi-package-${row.id.slice(0, 8)}.pdf`)
         : null,
+    previewUrl: status === "ready" && row.key ? await presignGetObject(row.key, 3600) : null,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,
   };

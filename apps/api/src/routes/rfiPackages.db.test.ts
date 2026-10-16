@@ -87,12 +87,12 @@ describe.skipIf(!url)("rfi package routes against a real database", () => {
     const res = await post({ items: [{ type: "rfi", id: rfiId }] });
     expect(res.status).toBe(202);
     const dto = (await res.json()) as { id: string; status: string; downloadUrl: string | null };
-    expect(dto).toMatchObject({ status: "queued", downloadUrl: null });
+    expect(dto).toMatchObject({ status: "queued", downloadUrl: null, previewUrl: null });
     expect(added.at(-1)).toEqual({ packageId: dto.id });
 
     await prisma.rfiPackage.update({ where: { id: dto.id }, data: { status: "ready", key: "k/p.pdf", pages: 3 } });
     const ready = (await (await fetch(`${base}/${dto.id}`)).json()) as { downloadUrl: string; pages: number };
-    expect(ready).toMatchObject({ downloadUrl: "https://files.test/k/p.pdf", pages: 3 });
+    expect(ready).toMatchObject({ downloadUrl: "https://files.test/k/p.pdf", previewUrl: "https://files.test/k/p.pdf", pages: 3 });
   });
 
   it("refuses an RFI from another project before queueing anything", async () => {

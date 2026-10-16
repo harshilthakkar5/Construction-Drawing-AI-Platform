@@ -1659,6 +1659,9 @@ export interface RfiPackageDto {
   error: string | null;
   /** Presigned, short-lived; present only when ready. */
   downloadUrl: string | null;
+  /** The same file served inline, for the preview dialog: downloadUrl is
+   * `attachment`, so a frame given it downloads instead of showing it. */
+  previewUrl: string | null;
   createdAt: string;
   finishedAt: string | null;
 }
