@@ -675,6 +675,7 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
                 continue
             sheets.insert_pdf(src, from_page=page_no - 1, to_page=page_no - 1, annots=False)
             page = sheets[-1]
+            detach_contents(sheets, page)
             marks = by_page[(doc_id, page_no)]
             clouds, callout, flags = mark_sheet(page, item, marks, taken_by_page.setdefault(len(sheets) - 1, []))
             missing += flags
@@ -692,6 +693,24 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
         sheets.close()
         notes += missing
     return out, notes
+
+
+# What a page's content stream dictionary may hold (ISO 32000 7.3.8.2).
+_STREAM_KEYS = {"Length", "Filter", "DecodeParms", "F", "FFilter", "FDecodeParms", "DL"}
+
+
+def detach_contents(doc: fitz.Document, page: fitz.Page) -> None:
+    """Drop every non-standard key from the page's content streams. Bluebeam
+    "melts" markup into the page content and leaves an /Annots entry in the
+    stream's dictionary; those annotations point back (/P) at the original
+    page, and through its /Parent at the whole source page tree. One copied
+    Leland structural sheet therefore carried all 100 sheets, 344 images and
+    1,621 links — 56 MB for a 3-page package. Unreferenced, they are removed
+    by the save's garbage collection."""
+    for xref in page.get_contents():
+        for key in doc.xref_get_keys(xref):
+            if key not in _STREAM_KEYS:
+                doc.xref_set_key(xref, key, "null")
 
 
 # --- loading -------------------------------------------------------------------------
