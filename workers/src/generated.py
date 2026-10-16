@@ -671,6 +671,7 @@ RFI_QUESTION_CODE_CHECKS = {
     ],
     "C01": [
         "column_mismatch",
+        "unsized_column",
     ],
     "C03": [
         "column_mismatch",
@@ -742,6 +743,7 @@ RFI_PROJECT_CHECK_TYPES = [
     "illegible_schedule",
     "missing_plan_level",
     "unmarked_element",
+    "unsized_column",
 ]
 RFI_CUSTOM_QUESTION_IDS = [
     "Q1",

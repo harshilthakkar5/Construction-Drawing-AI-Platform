@@ -1226,18 +1226,24 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             not_run |= failed
         else:
             not_run |= set(GEOMETRY_TYPES)
-        if "unmarked_element" in ran:
-            import element_marks
+        import column_schedule
+        import element_marks
 
-            progress("geometry", detail="Looking for elements drawn with no type mark")
+        for check_type, module, what in (
+            ("unmarked_element", element_marks, "elements drawn with no type mark"),
+            ("unsized_column", column_schedule, "schedule columns with no size"),
+        ):
+            if check_type not in ran:
+                continue
+            progress("geometry", detail=f"Looking for {what}")
             try:
-                found, more = element_marks.findings(pages, chunks, open_page)
+                found, more = module.findings(pages, chunks, open_page)
                 findings += in_scope(found, scope, pages)
                 notes += more
             except Exception as exc:  # one check failing is a note, not a failed scan
-                log.exception("rfi scan: unmarked-element check failed")
-                notes.append(f"The unmarked-element check did not run ({exc}).")
-                not_run.add("unmarked_element")
+                log.exception("rfi scan: %s check failed", check_type)
+                notes.append(f"The check for {what} did not run ({exc}).")
+                not_run.add(check_type)
         progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
         pinpoint_evidence(project_id, findings, open_page)
         if plan is not None and full_scan_id:

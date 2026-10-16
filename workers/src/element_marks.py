@@ -44,7 +44,9 @@ MIN_MARKS = 8            # marks of one family before a sheet can teach its symb
 SYMBOL_MAX_PT = 40.0     # one path larger than this is linework, not part of a symbol
 NEAR_PT = 45.0           # a stroke this close to a mark counts as drawn beside it
 GAP_PT = 3.0             # strokes this close belong to one symbol (wider chains dashes)
-MIN_STYLE_SHARE = 0.7    # of the style's strokes that sit beside a mark
+# Of the style's strokes that sit beside a mark. S2.31-A's pier style is 67%:
+# a sheet whose unmarked piles run along a wall has more bare copies than most.
+MIN_STYLE_SHARE = 0.6
 MIN_SYMBOL_STROKES = 4   # fewer is a tick or a dash, never an element
 MIN_SYMBOL_PT = 6.0      # a marked symbol smaller than this is a tick
 MIN_SHAPE_SHARE = 0.75   # of the symbols in the learned range that are marked
@@ -223,12 +225,21 @@ def find_unmarked(marks: list[tuple[str, Rect]], strokes: list[tuple[tuple, Rect
             if word_centres(cx, cy, min(x1 - x0, y1 - y0) / 2):
                 continue
             candidates.append(Unmarked(fam, s[0], tuple(sorted({t for t, _ in members}))[:4], len(alike) - len(bare)))
+        # One element can be several symbols (a pile's circle cut in two by
+        # the wall line over it): pieces closer than one symbol are one element.
+        candidates = _merge(candidates, span[3])
         if len(candidates) > MAX_UNMARKED:
             notes.append(f"{len(candidates)} symbols look like the {fam} elements but carry no mark — "
                          "too many to be omissions, so none is reported.")
             continue
         found += candidates
     return found, notes
+
+
+def _merge(found: list[Unmarked], within: float) -> list[Unmarked]:
+    """Pieces whose boxes are closer than `within` merged into one. Pure."""
+    groups = [s[0] for s in symbols([u.box for u in found], within)]
+    return [Unmarked(found[0].family, g, found[0].examples, found[0].marked) for g in groups] if found else []
 
 
 def unmarked_on_page(page) -> tuple[list[Unmarked], list[str]]:
@@ -255,6 +266,11 @@ def unmarked_on_page(page) -> tuple[list[Unmarked], list[str]]:
 # --- The scan ---------------------------------------------------------------------
 
 GRID_NAME_PT = 30.0  # a grid line this close to the symbol names where it is
+# Type marks name ELEMENTS (piles, piers, footings, columns) on these sheets.
+# An architectural sheet's repeated marks are tags (wall types, doors), and on
+# Leland's A-sheets a wall drawn in the tag's line style read as two unmarked
+# "W-###" elements. None: a sheet whose number was never read.
+DISCIPLINES = {"structural", "civil", None}
 
 
 def candidate_page_ids(pages, chunks) -> set[str]:
@@ -293,13 +309,13 @@ def _grid_names(page, box: Rect) -> str:
 
 def findings(pages, chunks, open_page) -> tuple[list, list[str]]:
     """unmarked_element findings for the project: (findings, notes)."""
-    from rfi_checks import Finding, fingerprint, page_label
+    from rfi_checks import MAX_EVIDENCE, Finding, fingerprint, page_label
 
     wanted = candidate_page_ids(pages, chunks)
     out, notes = [], []
     opened = 0
     for row in pages:
-        if row.id not in wanted:
+        if row.id not in wanted or row.discipline not in DISCIPLINES:
             continue
         page = open_page(row.document_id, row.page_number)
         if page is None:
@@ -308,32 +324,44 @@ def findings(pages, chunks, open_page) -> tuple[list, list[str]]:
         found, more = unmarked_on_page(page)
         label = page_label(row)
         notes += [f"Unmarked elements on {label}: {n}" for n in more]
+        by_family: dict[str, list[Unmarked]] = defaultdict(list)
         for u in found:
-            where = _grid_names(page, u.box)
-            at = f" at {where}" if where else ""
-            examples = ", ".join(u.examples)
-            x0, y0, x1, y1 = u.box
+            by_family[u.family].append(u)
+        for fam, items in by_family.items():
+            # One issue per sheet and family: piles left unmarked along one
+            # wall are one RFI, as the team wrote Leland RFI 003.
+            wheres = [_grid_names(page, u.box) for u in items]
+            places = sorted({w for w in wheres if w})
+            at = f" at {', '.join(places)}" if places else ""
+            examples = ", ".join(items[0].examples)
+            n = len(items)
+            what = "an element is" if n == 1 else f"{n} elements are"
             out.append(Finding(
                 check_type="unmarked_element",
-                fingerprint=fingerprint("unmarked_element", row.document_id, str(row.page_number), u.family,
-                                        f"{round(centre(u.box)[0] / 10)},{round(centre(u.box)[1] / 10)}"),
+                fingerprint=fingerprint("unmarked_element", row.document_id, str(row.page_number), fam,
+                                        *sorted(f"{round(centre(u.box)[0] / 10)},{round(centre(u.box)[1] / 10)}" for u in items)),
                 # Learned from the sheet's own symbols, never read: medium at most.
                 confidence="medium",
-                subject=f"Element with no type mark on {label}{at}",
-                question=(f"On {label}{at}, an element is drawn the same way as the {u.marked} elements marked "
-                          f"{examples} on this sheet, but carries no mark. Please confirm its type mark."),
+                subject=(f"Element with no type mark on {label}{at}" if n == 1
+                         else f"{n} elements with no type mark on {label}{at}")[:120],
+                question=(f"On {label}{at}, {what} drawn the same way as the {items[0].marked} elements marked "
+                          f"{examples} on this sheet, but {'carries' if n == 1 else 'carry'} no mark. "
+                          f"Please confirm {'its' if n == 1 else 'their'} type mark."),
                 evidence=[{
                     "documentId": row.document_id,
                     "pageNumber": row.page_number,
                     "combinedPageNumber": row.combined_page_number,
                     "sheetNumber": row.sheet_number,
-                    "bbox": {"x": round(x0, 2), "y": round(y0, 2), "width": round(x1 - x0, 2), "height": round(y1 - y0, 2)},
+                    "bbox": {"x": round(u.box[0], 2), "y": round(u.box[1], 2),
+                             "width": round(u.box[2] - u.box[0], 2), "height": round(u.box[3] - u.box[1], 2)},
                     "chunkId": None,
-                    "quote": f"Symbol drawn like the {u.family} marks ({examples}), with no mark beside it",
+                    # The marks themselves, never the family pattern: the wording
+                    # model echoed "P##-## symbol format" into the RFI.
+                    "quote": f"Drawn like the elements marked {examples}, with no mark beside it",
                     "role": "finding",
-                }],
-                facts={"sheet": label, "where": where, "family": u.family, "examples": list(u.examples),
-                       "markedLikeIt": u.marked},
+                } for u in items[:MAX_EVIDENCE]],
+                facts={"sheet": label, "where": places, "examples": list(items[0].examples),
+                       "markedLikeIt": items[0].marked, "count": n},
             ))
     notes.append(f"Unmarked elements: read {opened} sheet(s) whose marks repeat often enough to learn their symbol.")
     return out, notes
