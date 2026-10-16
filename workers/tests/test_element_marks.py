@@ -121,3 +121,29 @@ def test_scan_findings_cite_the_symbol(tmp_path):
     assert abs(box["x"] + box["width"] / 2 - 1450) < 2 and abs(box["y"] + box["height"] / 2 - 850) < 2
     # Same drawing, same fingerprint: a re-scan does not propose it again.
     assert em.findings([row], chunks, lambda d, n: page)[0][0].fingerprint == f.fingerprint
+
+
+def test_pieces_of_one_element_count_once():
+    # Leland S2.31-A: a pile's circle is cut in two by the wall line over it, so
+    # each unmarked pile was two symbols and three piles were "6, too many".
+    found = em._merge([em.Unmarked("P##-##", (100, 100, 103, 111), ("P30-12",), 9),
+                       em.Unmarked("P##-##", (111, 100, 114, 111), ("P30-12",), 9),
+                       em.Unmarked("P##-##", (400, 100, 403, 111), ("P30-12",), 9)], within=20)
+    assert sorted(round(u.box[0]) for u in found) == [100, 400]
+    assert em._merge([], within=20) == []
+
+
+def test_unmarked_elements_on_one_sheet_are_one_finding_with_a_box_each():
+    page = sheet(14, [(1450, 750), (1450, 850)])
+    row = Page("p", "doc", 1, 7, "S2.31-A")
+    found, _ = em.findings([row], [Chunk("c", "p", page.get_text(), None)], lambda d, n: page)
+    assert len(found) == 1
+    assert found[0].facts["count"] == 2 and len(found[0].evidence) == 2
+    assert "2 elements" in found[0].subject and "their type mark" in found[0].question
+
+
+def test_an_architectural_sheet_is_not_read():
+    # Its repeated marks are tags (wall types, doors), not element type marks.
+    page = sheet(12, [(1450, 850)])
+    row = Page("p", "doc", 1, 7, "A2.30", discipline="architectural")
+    assert em.findings([row], [Chunk("c", "p", page.get_text(), None)], lambda d, n: page)[0] == []

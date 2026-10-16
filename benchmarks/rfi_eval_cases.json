@@ -1089,13 +1089,14 @@
         {
           "what": "Pile at grid A1 / BK on S2.30-B carries no type mark",
           "checkTypes": [
-            "F04"
+            "F04",
+            "unmarked_element"
           ],
           "sheets": [
             "S2.30-B"
           ],
           "mentions": [
-            "pile"
+            "type mark"
           ]
         }
       ]
@@ -1141,13 +1142,14 @@
         {
           "what": "Pile near grid XA on S2.31-A has no location, type mark or elevation",
           "checkTypes": [
-            "F04"
+            "F04",
+            "unmarked_element"
           ],
           "sheets": [
             "S2.31-A"
           ],
           "mentions": [
-            "pile"
+            "type mark"
           ]
         }
       ]
@@ -1191,12 +1193,13 @@
       ],
       "expected": [
         {
-          "what": "Columns at B6/B7 x BA/BB on S2.30-B have no tag in the column schedule",
+          "what": "Column schedule on S8.02 lists B6-BA, B6-BB, B7-BA, B7-BB with no size at any level",
           "checkTypes": [
-            "C01"
+            "C01",
+            "unsized_column"
           ],
           "sheets": [
-            "S2.30-B"
+            "S8.02"
           ],
           "mentions": [
             "column"
@@ -1206,7 +1209,7 @@
     },
     {
       "id": "leland-rfi-006",
-      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B.",
+      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B. NOTE: S8.02 schedules A5-BA/BB, A5-BC.1 and A5-BD/BE/BF at 18\" X 24\" down to Level B2, so the drawings answer this RFI; a scan should raise nothing here.",
       "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
       "target": {
         "type": "sheet",
