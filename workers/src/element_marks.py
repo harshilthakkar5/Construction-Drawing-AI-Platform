@@ -355,10 +355,12 @@ def findings(pages, chunks, open_page) -> tuple[list, list[str]]:
                     "bbox": {"x": round(u.box[0], 2), "y": round(u.box[1], 2),
                              "width": round(u.box[2] - u.box[0], 2), "height": round(u.box[3] - u.box[1], 2)},
                     "chunkId": None,
-                    "quote": f"Symbol drawn like the {fam} marks ({examples}), with no mark beside it",
+                    # The marks themselves, never the family pattern: the wording
+                    # model echoed "P##-## symbol format" into the RFI.
+                    "quote": f"Drawn like the elements marked {examples}, with no mark beside it",
                     "role": "finding",
                 } for u in items[:MAX_EVIDENCE]],
-                facts={"sheet": label, "where": places, "family": fam, "examples": list(items[0].examples),
+                facts={"sheet": label, "where": places, "examples": list(items[0].examples),
                        "markedLikeIt": items[0].marked, "count": n},
             ))
     notes.append(f"Unmarked elements: read {opened} sheet(s) whose marks repeat often enough to learn their symbol.")
