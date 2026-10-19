@@ -75,19 +75,23 @@ Rules:
 
 ### R2 — Element library and question bank
 
-- Import the workbook into the database: packages → elements → categories → questions,
-  plus the universal questions (expanded per element, with `{element}` filled in).
+- **Users never load the Excel.** A developer imports the workbook once
+  (`npx tsx apps/api/src/rfiLibraryImport.ts <file.xlsx>`) into
+  `packages/shared/data/rfi-library.json`, which ships with the app. Every project sees
+  the same built-in questions. Users only pick questions, and add their own if they want.
+- Packages → elements → questions, plus the universal questions (expanded per element,
+  with `{element}` filled in).
 - Keep the client's IDs (`CE-04-01`, `CE-04-01-Q03`, `U-02`) as stable keys. Results,
   RFIs and reports cite them.
 - Each element keeps "compare across", "attributes to verify" and "typical RFI
   triggers". The AI receives them as context, and sheet suggestions use them.
-- **Any depth:** each question can have child questions (`parentId`). The workbook is 4
-  levels today; the client can add follow-ups under a question later with no schema change.
-- **Re-import:** uploading a new version of the workbook updates questions by ID, adds new
-  ones and retires removed ones. History is kept, because old runs cite them. The import
-  shows a preview of what changes before saving.
-- **Custom questions:** users add their own at project level (saved, reusable) or for one
-  run only. They are marked "custom" and are AI-only, so never above medium confidence.
+- **Any depth:** any question, built-in or custom, can have follow-up questions under it,
+  and those can have their own.
+- **New version from the client:** the developer runs the importer again and commits the
+  file. Questions update by ID; red rows go off. A link to an ID the new workbook dropped
+  stops the import.
+- **Custom questions:** users add their own, saved in the project (`rfi_custom_questions`),
+  under an element or as a follow-up under any question of that element. They are marked "custom" and are AI-only, so never above medium confidence.
 - **Existing questions:** today's 17 questions (G01…O01) map onto library elements, e.g.
   G01 → CE-01-01, G02 → CE-01-02, F01 → CE-04-01, F04 → CE-03-0x, C01/C03 → CE-07-01,
   C02 → CE-07-03, B01–B03 → CE-08-03, O01 → CE-08-10 / CE-07-05. The 7 code checks keep
@@ -168,7 +172,7 @@ library questions on hand-picked pages, and chat → review.
 | # | Phase | Delivers | Effort |
 |---|---|---|---|
 | 1 | **Project Settings tab** | New tab. Move model, careful, depth, token limits, auto-start $, whole-project checks out of the RFIs tab. Per-project storage plus the RFI form fields. The RFIs tab shows one summary line | 3–4 days |
-| 2 | **Library + import** | Tables for packages / elements / questions (parentId, active flag, client IDs), workbook import with preview, universal-question expansion, map the 17 existing questions and the code checks, project on/off + saved custom questions in Settings | 4–5 days |
+| 2 | **Built-in library** ✅ built | Workbook imported once into the app (developer step, not a user upload), red rows off, universal questions expanded per element, the 17 existing questions and code checks linked, saved custom questions with follow-ups to any depth (API: `GET/POST/PATCH/DELETE /projects/:id/rfis/library`) | done |
 | 3 | **Structured review UI** | Package → element → questions → pages → plan → run → results flow, sheet picker with thumbnails and suggested sheets, "next element", missing-document warnings | 5–6 days |
 | 4 | **Engine** | Run selected library questions on the chosen pages only. Prompt carries the element's attributes and triggers. Per-question answers. Code checks where a question has one. Results tagged by question ID, shown in "Needs your review" | 5–7 days |
 | 5 | **Chat → review** | RFI flag in the chat answer, "Send to review" button, candidate from cited chunks (origin `chat`), auto mode with undo, dedup | 3–4 days |

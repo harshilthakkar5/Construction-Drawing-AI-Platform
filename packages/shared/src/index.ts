@@ -1863,6 +1863,76 @@ export const RFI_CUSTOM_QUESTION_CHARS = 300;
 export const RFI_CUSTOM_QUESTION_IDS = ["Q1", "Q2", "Q3", "Q4", "Q5"] as const;
 
 /**
+ * The question library: the client's "Concrete Scope Element Library"
+ * workbook, imported once by a developer into packages/shared/data/
+ * rfi-library.json (apps/api/src/rfiLibraryImport.ts) and shipped with the
+ * app. Package → element → question; ids are the client's own. `catalogue`
+ * links a library item to the original 17 questions, `codeChecks` to the
+ * code checks that answer it without AI.
+ */
+export interface RfiLibraryFile {
+  source: string;
+  packages: { id: string; name: string; active: boolean }[];
+  elements: {
+    id: string;
+    seq: number;
+    packageId: string;
+    name: string;
+    variants: string;
+    compareAcross: string[];
+    attributes: string;
+    triggers: string;
+    active: boolean;
+    catalogue: RfiReviewCheckId[];
+  }[];
+  questions: {
+    id: string;
+    elementId: string;
+    parentId: string | null;
+    category: string;
+    text: string;
+    whereToLook: string[];
+    active: boolean;
+    catalogue: RfiReviewCheckId[];
+    codeChecks: RfiCheckType[];
+  }[];
+  /** U-01..: asked of every element, `{element}` filled with its name. */
+  universal: { id: string; category: string; template: string; codeChecks: RfiCheckType[] }[];
+}
+
+/** A question as a project sees it: the library's, a universal one expanded
+ * for this element (id `<element>-U-01`), or one the project added. Any
+ * question can carry follow-up questions, to any depth. */
+export interface RfiLibraryQuestionDto {
+  id: string;
+  source: "library" | "universal" | "custom";
+  category: string | null;
+  text: string;
+  whereToLook: string[];
+  catalogue: RfiReviewCheckId[];
+  codeChecks: RfiCheckType[];
+  children: RfiLibraryQuestionDto[];
+}
+export interface RfiLibraryElementDto {
+  id: string;
+  name: string;
+  variants: string;
+  compareAcross: string[];
+  attributes: string;
+  triggers: string;
+  catalogue: RfiReviewCheckId[];
+  questions: RfiLibraryQuestionDto[];
+}
+/** GET /projects/:id/rfis/library — active items only, in review order. */
+export interface RfiLibraryDto {
+  /** Changes whenever the shipped library does; a run records it. */
+  version: string;
+  packages: { id: string; name: string; elements: RfiLibraryElementDto[] }[];
+}
+/** The most saved questions one project may add to the library. */
+export const RFI_LIBRARY_CUSTOM_MAX = 500;
+
+/**
  * The code checks that answer each catalogue question exactly (no AI): G01
  * by the grid naming and spacing comparisons, C01 and C03 by the column
  * overlay. A question with none here is answered by the AI comparison alone.

@@ -2807,6 +2807,18 @@ keys on the user id, so they were one counter: loading a project spent the 30-an
 tier, and a user who had never pressed a button got "too many summary runs" from the first
 summary, scan or review.
 
+**The question library** (docs/rfi-structured-review-requirements.md, Phase 2). The client's
+"Concrete Scope Element Library" workbook is imported ONCE by a developer —
+`npx tsx apps/api/src/rfiLibraryImport.ts <file.xlsx>` writes `packages/shared/data/rfi-library.json`,
+which ships with the app; users never upload it. Package → element → question, the client's ids
+kept (`CE-04-01-Q03`), a red-filled element row is `active: false` and its questions with it,
+universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
+not the client's) ties items to the original 17 questions and to code checks, and an import that
+drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
+element or as follow-ups under any question of it, to any depth (`GET/POST/PATCH/DELETE
+/projects/:id/rfis/library`, `apps/api/src/rfiLibrary.ts` builds the tree). Nothing runs these
+questions yet — that is Phases 3–4.
+
 ## Full AI scan — code pairs and lines up, the model only compares
 
 Step 2 of "Find RFIs in drawings" (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:
