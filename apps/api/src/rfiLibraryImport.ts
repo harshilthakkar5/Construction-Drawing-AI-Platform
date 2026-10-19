@@ -48,6 +48,7 @@ export const LINKS: Record<string, Link> = {
   "CE-03-01": { catalogue: ["F04"] },
   "CE-03-03": { catalogue: ["F04"] },
   "CE-03-04": { catalogue: ["F04"] },
+  "CE-03-01-Q01": { codeChecks: ["unscheduled_mark", "unmarked_element"] },
   "CE-03-05-Q01": { codeChecks: ["unscheduled_mark", "unmarked_element"] },
   "CE-04-01": { catalogue: ["F01"] },
   "CE-04-01-Q01": { codeChecks: ["unscheduled_mark", "unmarked_element"] },

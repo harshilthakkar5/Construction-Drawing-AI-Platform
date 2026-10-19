@@ -73,7 +73,7 @@ import rfi_scan
 import review_aids
 import storage
 import usage as usage_ledger
-from generated import RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, review_evidence_key
+from generated import RFI_QUESTION_CODE_CHECKS, RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, review_evidence_key
 
 log = logutil.get("rfi_review")
 
@@ -392,13 +392,84 @@ _TRUST_RULES = (
 )
 
 
-def _checks_block(check_ids: list[str], *, rules: bool = False) -> str:
+# Code checks a review can run on its own pages (rfi_checks text checks over the
+# project, filtered to the review's sheets; element_marks / column_schedule on
+# the sheets themselves). Grid naming and the column overlay run as G01 / C01.
+TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", "tag_value_conflict", "missing_plan_level")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
+
+
+def library_checks(scope: dict) -> dict[str, dict]:
+    """A "By element" review's library questions as review questions, in the
+    client's own words, with the element's attributes as what to record and
+    its typical RFI triggers as what makes a candidate."""
+    lib = scope.get("library") or {}
+    element = lib.get("element") or {}
+    record = [a.strip() for a in re.split(r"[,;]", element.get("attributes") or "") if a.strip()]
+    out = {}
+    for q in lib.get("questions") or []:
+        out[q["id"]] = {
+            "label": f"{element.get('name') or 'Element'} — {q.get('category') or 'your question'}",
+            "originalQuestion": q["text"],
+            "requiredObservations": record or ["what the question asks about, as printed"],
+            "comparisonRules": "Compare the same element across the sheets given (plan, schedule, section, detail); "
+                               "the same element drawn on two sheets must agree.",
+            "candidateRules": "A candidate when the sheets given do not answer the question, or answer it two "
+                              "different ways." + (f" Typical problems for this element: {element['triggers']}." if element.get("triggers") else ""),
+            "codeChecks": q.get("codeChecks") or [],
+            "source": q.get("source"),
+        }
+    return out
+
+
+def code_checks_for(check_ids: list[str], library: dict[str, dict]) -> dict[str, list[str]]:
+    """check type → the asked questions it answers exactly (catalogue links and library links)."""
+    out: dict[str, list[str]] = {}
+    for cid in check_ids:
+        for t in RFI_QUESTION_CODE_CHECKS.get(cid, []) if cid in CHECKS else library.get(cid, {}).get("codeChecks", []):
+            out.setdefault(t, []).append(cid)
+    return out
+
+
+def library_code_findings(project_id: str, scope: dict, check_types: set[str], open_page) -> tuple[list, list[str]]:
+    """The code checks a review's questions link to, on the review's sheets
+    only. Text checks read the whole project (a mark's schedule is usually on
+    another sheet) and keep only findings standing on a reviewed page."""
+    wanted = check_types & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)
+    if not wanted:
+        return [], []
+    pages, chunks = rfi_scan.load(project_id)
+    mine = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+    on_mine = lambda f: any((e.get("documentId"), e.get("pageNumber")) in mine for e in f.evidence if e.get("role", "finding") == "finding")
+    findings, notes = [], []
+    text = wanted & set(TEXT_CODE_CHECKS)
+    if text:
+        found, more = rfi_checks.run_all(pages, chunks, None, only=text)
+        findings += [f for f in found if on_mine(f)]
+        notes += more
+    reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
+    import column_schedule
+    import element_marks
+    for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule)):
+        if check_type in wanted:
+            try:
+                found, more = module.findings(reviewed, chunks, open_page)
+                findings += found
+                notes += more
+            except Exception as exc:  # a check failing is a note, never a failed review
+                log.exception("rfi review: %s check failed", check_type)
+                notes.append(f"The {check_type} code check did not run ({exc}).")
+    rfi_scan.pinpoint_evidence(project_id, findings, open_page)
+    return findings, notes
+
+
+def _checks_block(check_ids: list[str], *, rules: bool = False, catalogue: dict | None = None) -> str:
     """The catalogue's own words for each check: the ORIGINAL question, what
     it needs recorded, and — for reasoning — when two sources may be compared
     and what makes a candidate. One catalogue drives routing, prompts and UI."""
     lines = []
     for cid in check_ids:
-        c = CHECKS[cid]
+        c = (catalogue or CHECKS)[cid]
         lines.append(f'- {cid} {c["label"]}: "{c["originalQuestion"]}"')
         lines.append(f'  Record: {"; ".join(c["requiredObservations"])}')
         if rules:
@@ -407,11 +478,11 @@ def _checks_block(check_ids: list[str], *, rules: bool = False) -> str:
     return "\n".join(lines)
 
 
-def discovery_system(check_ids: list[str]) -> str:
+def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str:
     return (
         "You review construction drawings for coordination problems. This is step 1 of 3: "
         "DISCOVERY. Record what the evidence SHOWS. Do not decide yet whether anything is wrong.\n\n"
-        f"Questions to answer (only these):\n{_checks_block(check_ids)}\n\n"
+        f"Questions to answer (only these):\n{_checks_block(check_ids, catalogue=catalogue)}\n\n"
         f"{_TRUST_RULES}\n"
         "Rules:\n"
         "- Every observation names its check and cites the ids of the evidence it comes from, and ONLY "
@@ -436,12 +507,12 @@ def discovery_system(check_ids: list[str]) -> str:
     )
 
 
-def reasoning_system(check_ids: list[str]) -> str:
+def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str:
     return (
         "You review construction drawings for coordination problems. This is step 2 of 3: "
         "REASONING. You are given observations already made from the evidence, with the ids of the "
         "evidence behind each. Decide which of them show a problem that needs an RFI.\n\n"
-        f"Questions in scope:\n{_checks_block(check_ids, rules=True)}\n\n"
+        f"Questions in scope:\n{_checks_block(check_ids, rules=True, catalogue=catalogue)}\n\n"
         "A problem is one of:\n"
         "- conflict: two sources show the same element differently (place, size, mark, name);\n"
         "- missing: a value needed to locate or build the element is in none of the sources given;\n"
@@ -2190,6 +2261,11 @@ def _failed_results(run: dict, stage: str) -> dict:
 def _run(run: dict) -> dict:
     run_id, project_id, scope = run["id"], run["projectId"], run["scope"]
     check_ids = [c for c in (run["checkIds"] or []) if c in CHECKS]
+    # "By element": the library questions are asked too, in their own words.
+    library = library_checks(scope)
+    asked = check_ids + list(library)
+    catalogue = {**CHECKS, **library}
+    linked = code_checks_for(asked, library)
     notes: list[str] = []
     planned = run.get("coverage") or {}
     search_log: list[dict] = list(planned.get("searchLog") or [])
@@ -2226,7 +2302,14 @@ def _run(run: dict) -> dict:
     index_aids: list[Evidence] = []
     # C03: every column-mark occurrence on each rendered page, measured.
     measured: dict[tuple[str, int], OccurrencePage] = {}
-    with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", []) if p.get("visual")})) as open_page:
+    code_docs = {p["documentId"] for p in scope.get("pages", [])} if set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS) else set()
+    code_found: list = []
+    with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", []) if p.get("visual")} | code_docs)) as open_page:
+        # 1b. The code checks the asked questions link to, on these sheets.
+        code_found, code_notes = library_code_findings(project_id, scope, set(linked), open_page)
+        notes += code_notes
+        if code_docs:
+            notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
@@ -2276,13 +2359,19 @@ def _run(run: dict) -> dict:
         run_id[:8], len(texts), len(all_images), len(aids) + len(index_aids), len(batches), len(unread), stored, check_ids,
     )
 
-    exact = grid_found + overlay.findings
+    exact = grid_found + overlay.findings + code_found
     already = ""
     if exact:
         already = "<already_found>\nFound by exact comparison of the drawings — do not report these again:\n" + "\n".join(
             f"- {f.subject}" for f in exact
         ) + "\n</already_found>\n\n"
 
+    lib_element = (scope.get("library") or {}).get("element") or {}
+    element_block = (
+        f"<element>Reviewing {lib_element.get('name')}"
+        + (f" ({lib_element['variants']})" if lib_element.get("variants") else "")
+        + ". Answer each question about this element only.</element>\n\n"
+    ) if library else ""
     observations: list[dict] = []
     inventory: list[dict] = []
     # What the plan could not put in front of the review (rfiReviewPlanner:
@@ -2305,8 +2394,8 @@ def _run(run: dict) -> dict:
             images = [ev for ev in batch if ev.visual]
             header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
             found = _ask(
-                "discovery", discovery_system(check_ids), header + already + "\n".join(_evidence_block(ev) for ev in batch),
-                lambda raw, known=known: parse_discovery(raw, known, set(check_ids)), run=run, usage=usage, images=images,
+                "discovery", discovery_system(asked, catalogue), header + already + element_block + "\n".join(_evidence_block(ev) for ev in batch),
+                lambda raw, known=known: parse_discovery(raw, known, set(asked)), run=run, usage=usage, images=images,
             )
             observations += found["observations"]
             inventory += found["inventory"]
@@ -2325,10 +2414,10 @@ def _run(run: dict) -> dict:
             raise _NothingObserved()
         index = "\n".join(f"{ev.id}: {ev.kind} on {ev.where}" + (f" (side {ev.side})" if ev.side else "") for ev in sent)
         candidates, dropped = _ask(
-            "reasoning", reasoning_system(check_ids),
+            "reasoning", reasoning_system(asked, catalogue),
             f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
             + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else ""),
-            lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(check_ids)),
+            lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
             run=run, usage=usage,
         )
         _set(run_id, reasoningOutput=json.dumps(candidates))
@@ -2520,7 +2609,9 @@ def _run(run: dict) -> dict:
     with db.connect() as conn:
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
             saved += wrote
-            tally("G01" if f.check_type == rfi_grid.CHECK_TYPE else "C01", f.fingerprint, wrote, f.subject)
+            # Credit every asked question the check answers; the overlay is C01's.
+            for cid in linked.get(f.check_type) or (["G01"] if f.check_type == rfi_grid.CHECK_TYPE else ["C01"]):
+                tally(cid, f.fingerprint, wrote, f.subject)
         by_ev: dict[str, list[str]] = {}
         for obs in observations:
             for e in obs["evidenceIds"]:
@@ -2565,7 +2656,12 @@ def _run(run: dict) -> dict:
                     reasoning = f"{reasoning} Possible impact (the review's reading, not verified): {candidate['impact']}"
             if candidate["kind"] == "missing":
                 reasoning = f"{reasoning} Sheets read in this review ({len(searched)}): {', '.join(searched)}.".strip()
-            wrote = _save_candidate(conn, run, fp, candidate, decision, items, reasoning, question_source=source) > 0
+            if candidate["checkId"] in library:
+                # The model alone answered a library question: never above
+                # medium, and a project's own question files as "custom".
+                decision = dict(decision, confidence="medium" if decision["confidence"] == "high" else decision["confidence"])
+            saved_as = dict(candidate, checkId="custom") if library.get(candidate["checkId"], {}).get("source") == "custom" else candidate
+            wrote = _save_candidate(conn, run, fp, saved_as, decision, items, reasoning, question_source=source) > 0
             diagnostics.event(
                 "finding_saved" if wrote else "finding_found_again", fingerprint=fp, candidate=candidate,
                 decision=decision, questionSource=source, evidence=items, reasoning=reasoning,
@@ -2586,7 +2682,7 @@ def _run(run: dict) -> dict:
     if unsettled:
         notes.append(f"C03: {len(unsettled)} column occurrence(s) need a person to confirm their location (see the C03 gaps).")
     results = check_results(
-        list(CHECKS), check_ids, run.get("checkPlan") or {}, observations, gaps + unsettled, not_applicable, found_by_check,
+        list(CHECKS) + list(library), asked, run.get("checkPlan") or {}, observations, gaps + unsettled, not_applicable, found_by_check,
         omitted=bool(unread), stopped=stopped, known=known,
     )
     if "C03" in results and measured:

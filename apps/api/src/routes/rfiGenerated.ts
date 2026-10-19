@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -15,7 +16,7 @@ import { rfiScanQueue } from "../queues.js";
 import { summaryLimiter } from "../rateLimit.js";
 import { meetsConfidence, queuePlace, scanIsActive, STOPPED_BY, toScanDto } from "../rfiScanRules.js";
 import { canPlanAgain, fullScanAvailability } from "../rfiFullScanRules.js";
-import type { RfiScanQueueDto } from "@cdip/shared";
+import type { ChatSourceDto, RfiScanQueueDto } from "@cdip/shared";
 import { estimateCostUsd } from "../usage.js";
 import { maybeAutoStartForScan } from "../rfiAutoStart.js";
 import { createRfi, recordEvent, resolvePins, toCandidateDto, toDto } from "../rfiStore.js";
@@ -393,6 +394,81 @@ async function accept(projectId: string, candidateId: string, actorId: string) {
   });
   return rfi;
 }
+
+const fromChatBody = z.object({
+  messageId: z.string().uuid(),
+  subject: z.string().trim().min(1).max(200),
+  question: z.string().trim().min(1).max(2000),
+});
+
+/**
+ * Chat → "Needs your review" (Phase 5). A person sends an answer that found a
+ * problem; the finding is pinned to the sheets the answer CITED — never to
+ * anything the browser names — so an answer with no citation, or citing only
+ * documents kept out of RFI analysis (historical RFIs), has nothing to pin to
+ * and is refused. AI-written, so medium at most, like every AI-only finding.
+ */
+rfiGeneratedRouter.post("/from-chat", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const body = fromChatBody.parse(req.body ?? {});
+  const message = await prisma.message.findFirst({
+    where: { id: body.messageId, role: "assistant", session: { projectId } },
+  });
+  if (!message) return void res.status(404).json({ error: "that chat answer is not in this project" });
+  const cited = (Array.isArray(message.sources) ? message.sources : []) as unknown as ChatSourceDto[];
+  const allowed = new Set(
+    (
+      await prisma.document.findMany({
+        where: { projectId, id: { in: cited.map((s) => s.documentId) }, includeInRfiAnalysis: true },
+        select: { id: true },
+      })
+    ).map((d) => d.id),
+  );
+  const sources = cited.filter((s) => allowed.has(s.documentId)).slice(0, 5);
+  if (!sources.length) {
+    return void res.status(400).json({
+      error: "this answer cites no drawing that can carry an RFI, so there is nothing on the sheets to pin it to",
+    });
+  }
+  const texts = new Map(
+    (await prisma.chunk.findMany({ where: { id: { in: sources.map((s) => s.chunkId) } }, select: { id: true, text: true } })).map(
+      (c) => [c.id, c.text],
+    ),
+  );
+  const suggestion = (message.content as { rfiSuggestion?: string | null } | null)?.rfiSuggestion ?? null;
+  try {
+    const row = await prisma.rfiCandidate.create({
+      data: {
+        projectId,
+        origin: "chat",
+        chatMessageId: message.id,
+        // One finding per answer: sending it twice is "already on file".
+        fingerprint: `chat:${message.id}`,
+        checkType: "chat",
+        confidence: "medium",
+        subject: body.subject,
+        question: body.question,
+        questionSource: body.question === suggestion ? "model" : "person",
+        evidence: sources.map((s) => ({
+          documentId: s.documentId,
+          pageNumber: s.pageNumber,
+          combinedPageNumber: s.combinedPageNumber,
+          sheetNumber: s.sheetNumber ?? null,
+          bbox: s.bbox,
+          chunkId: s.chunkId,
+          quote: (texts.get(s.chunkId) ?? "").slice(0, 300),
+          role: "finding",
+        })) as unknown as Prisma.InputJsonValue,
+      },
+    });
+    res.status(201).json(toCandidateDto(row));
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return void res.status(409).json({ error: "this answer is already in Needs your review (or was decided there)" });
+    }
+    throw err;
+  }
+});
 
 rfiGeneratedRouter.post("/accept-all", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);

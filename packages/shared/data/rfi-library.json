@@ -3186,7 +3186,10 @@
    ],
    "active": true,
    "catalogue": [],
-   "codeChecks": []
+   "codeChecks": [
+    "unscheduled_mark",
+    "unmarked_element"
+   ]
   },
   {
    "id": "CE-03-01-Q02",

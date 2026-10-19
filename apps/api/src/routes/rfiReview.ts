@@ -67,6 +67,9 @@ const planBody = z.object({
     .default("standard"),
   ...modelSettings,
   excludePageIds: z.array(z.string().uuid()).max(50).default([]),
+  library: z
+    .object({ elementId: z.string().min(1).max(40), questionIds: z.array(z.string().min(1).max(60)).min(1).max(60) })
+    .optional(),
 });
 const estimateBody = z.object(modelSettings);
 const reportQuery = z.object({ kind: z.enum(["draft", "accepted"]).default("draft") });

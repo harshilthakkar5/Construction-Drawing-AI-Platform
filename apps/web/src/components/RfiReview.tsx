@@ -81,6 +81,7 @@ const CONFIDENCE: Record<
 
 /** Which part of the scan found it — one list, so every finding says. */
 const ORIGIN: Record<string, { label: string; hint: string }> = {
+  chat: { label: "From chat", hint: "Sent from a chat answer, pinned to the sheets it cited — AI-worded, check it on the sheet" },
   deterministic_scan: {
     label: "Code check",
     hint: "Found by step 1, the code checks: from the drawings' own text and geometry, no AI judgement.",
@@ -93,10 +94,10 @@ const ORIGIN: Record<string, { label: string; hint: string }> = {
 };
 
 const checkLabel = (checkType: string) =>
-  (checkType === "custom" ? "Your own question" : null) ??
+  (checkType === "custom" ? "Your own question" : checkType === "chat" ? "Found in chat" : null) ??
   (RFI_CHECK_LABELS as Record<string, string>)[checkType] ??
   RFI_REVIEW_CHECKS.find((c) => c.id === checkType)?.label ??
-  checkType;
+  (/^CE-\d/.test(checkType) ? `Library question ${checkType}` : checkType);
 
 function evidenceLabel(e: RfiEvidenceDto): string {
   const page = e.combinedPageNumber ?? e.pageNumber;

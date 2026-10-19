@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightIcon, CornerDownRightIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  RFI_CHECK_LABELS,
   RFI_CUSTOM_QUESTION_CHARS,
   RFI_LIBRARY_MAX_SHEETS,
   libraryCatalogueIds,
@@ -51,7 +52,7 @@ const flat = (qs: RfiLibraryQuestionDto[]): RfiLibraryQuestionDto[] => qs.flatMa
 export function choiceSummary(element: RfiLibraryElementDto | undefined, choice: LibraryChoice) {
   const chosen = element ? flat(element.questions).filter((q) => choice.questionIds.includes(q.id)) : [];
   const checkIds: RfiReviewCheckId[] = element ? libraryCatalogueIds(element, chosen) : [];
-  return { chosen, checkIds, ready: !!element && chosen.length > 0 && checkIds.length > 0 && choice.sheets.length > 0 };
+  return { chosen, checkIds, ready: !!element && chosen.length > 0 && choice.sheets.length > 0 };
 }
 
 /**
@@ -106,6 +107,7 @@ export function LibraryPicker({
   if (library.error) return <Notice tone="error">{(library.error as Error).message}</Notice>;
   const nextElement = element ? elements[elements.indexOf(element) + 1] : undefined;
   const { chosen, checkIds } = choiceSummary(element, value);
+  const codeChecks = [...new Set(chosen.flatMap((q) => q.codeChecks))].map((t) => (RFI_CHECK_LABELS as Record<string, string>)[t] ?? t);
 
   return (
     <div className="flex flex-col gap-4">
@@ -183,15 +185,10 @@ export function LibraryPicker({
 
       {element && chosen.length > 0 && (
         <p className="text-muted-foreground text-[11px] leading-relaxed">
-          {checkIds.length
-            ? `The review asks ${chosen.length} chosen question${chosen.length === 1 ? "" : "s"} through ${checkIds.join(", ")}. `
-            : ""}
-          {checkIds.length === 0 && (
-            <span className="text-destructive">
-              The review cannot ask these questions yet: none is linked to a review question. They are saved with your
-              choice and run once library questions are supported.
-            </span>
-          )}
+          The review asks your {chosen.length} chosen question{chosen.length === 1 ? "" : "s"} in these words
+          {checkIds.length ? `, with the original question${checkIds.length === 1 ? "" : "s"} ${checkIds.join(", ")} for their measured checks` : ""}
+          {codeChecks.length ? `. Code checks run first, free: ${codeChecks.join(", ")}` : ""}. An answer from the AI alone is never
+          above medium confidence.
         </p>
       )}
     </div>

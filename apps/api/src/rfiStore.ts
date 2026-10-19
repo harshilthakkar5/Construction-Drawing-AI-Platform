@@ -95,7 +95,7 @@ export function toCandidateDto(row: CandidateRow): RfiCandidateDto {
     status: row.status as RfiCandidateStatus,
     rfiId: row.rfiId,
     createdAt: row.createdAt.toISOString(),
-    origin: row.origin === "targeted_review" || row.origin === "full_scan" ? row.origin : "deterministic_scan",
+    origin: row.origin === "targeted_review" || row.origin === "full_scan" || row.origin === "chat" ? row.origin : "deterministic_scan",
     reviewRunId: row.reviewRunId ?? null,
     fullScanId: row.fullScanId ?? null,
     reasoning: row.reasoning ?? null,

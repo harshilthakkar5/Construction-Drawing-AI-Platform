@@ -76,6 +76,8 @@ export function selectRfiChecks(
   mode: RfiReviewCheckMode,
   custom: readonly string[] = [],
   element: string | null = null,
+  /** A "By element" review asks its library questions even when none links to a catalogue question. */
+  allowNone = false,
 ): CheckSelection {
   const text = targetText.toUpperCase();
   const family = element ? elementFamily(element) : null;
@@ -90,7 +92,7 @@ export function selectRfiChecks(
   if (mode === "custom") {
     const unknown = custom.filter((id) => !(RFI_REVIEW_CHECK_IDS as readonly string[]).includes(id));
     if (unknown.length) throw new Error(`unknown check id(s): ${unknown.join(", ")}`);
-    if (!custom.length) throw new Error("choose at least one check");
+    if (!custom.length && !allowNone) throw new Error("choose at least one check");
   }
 
   const anyFamily = RFI_REVIEW_CHECKS.some((c) => !c.applicability.always && signal(c.id));
@@ -378,6 +380,11 @@ export interface ReviewScope {
   chunks: ScopeChunk[];
   /** Pages that qualified but were left out by a cap. */
   omitted: { sheetNumber: string | null; reason: string }[];
+  /** "By element": the library element and questions asked, in their words. */
+  library?: {
+    element: { id: string; name: string; variants: string; attributes: string; triggers: string };
+    questions: { id: string; text: string; category: string | null; source: string; codeChecks: string[] }[];
+  };
 }
 
 export type CandidateChunk = Omit<ScopeChunk, "score">;
@@ -552,6 +559,8 @@ export function scopeHash(scope: ReviewScope, checkIds: readonly string[], depth
     pages: scope.pages.map((p) => `${p.documentId}:${p.pageNumber}:${p.role}:${p.visual ? 1 : 0}`).sort(),
     crops: scope.pages.flatMap((p) => p.crops.map((c) => c.chunkId)).sort(),
     chunks: scope.chunks.map((c) => c.chunkId).sort(),
+    // Only when present, so a plan made before library questions keeps its hash.
+    ...(scope.library ? { library: canonical(scope.library) } : {}),
   });
   return createHash("sha256").update(body).digest("hex");
 }

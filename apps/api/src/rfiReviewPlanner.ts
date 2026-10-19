@@ -27,6 +27,7 @@ import {
   type RfiScanUsageDto,
 } from "@cdip/shared";
 import { prisma } from "./db.js";
+import { library, resolveLibraryChoice, type LibraryScope } from "./rfiLibrary.js";
 import { DEFAULT_RFI_REVIEW_GEMINI_MODEL, DEFAULT_RFI_REVIEW_MODEL, keyFor, rfiReviewModel, rfiReviewProvider } from "./llm.js";
 import { retrieveChunkIds, type RetrievalResult } from "./retrieval.js";
 import { scanUsage, type CostOf } from "./rfiScanRules.js";
@@ -96,6 +97,8 @@ export interface PlanRequest {
   /** Pages the person removed from an earlier plan — related sheets that are
    * obviously unrelated, or the wrong one of two pages claiming a sheet. */
   excludePageIds: string[];
+  /** "By element": a library element and the questions chosen from it. */
+  library?: { elementId: string; questionIds: string[] };
 }
 
 export interface PlanDeps {
@@ -459,8 +462,16 @@ export async function planReview(
   ).join("\n");
 
   let selection;
+  let libraryScope: LibraryScope | undefined;
   try {
-    selection = selectRfiChecks(routingText, request.checkMode, request.checkIds, target.element);
+    selection = selectRfiChecks(routingText, request.checkMode, request.checkIds, target.element, !!request.library);
+    if (request.library) {
+      const customs = await prisma.rfiCustomQuestion.findMany({
+        where: { projectId },
+        select: { id: true, elementId: true, parentId: true, category: true, text: true },
+      });
+      libraryScope = resolveLibraryChoice(library().file, customs, request.library.elementId, request.library.questionIds);
+    }
   } catch (err) {
     throw new PlanError((err as Error).message, 400);
   }
@@ -645,8 +656,11 @@ export async function planReview(
     ? null
     : planningRows.reduce((sum, r) => sum + estimateCostUsd(r), 0);
 
+  if (libraryScope) scope.library = libraryScope;
   const hash = scopeHash(scope, selection.checkIds, request.depth, { provider: settings.provider, model: settings.model, limits: settings.limits });
-  const estimate = estimateFor(scope, settings, request.depth, selection.checkIds.length, { tokens: planningTokens, costUsd: planningCostUsd });
+  // Library questions are asked alongside the catalogue ones, roughly three to a check's prompt weight.
+  const asked = selection.checkIds.length + Math.ceil((libraryScope?.questions.length ?? 0) / 3);
+  const estimate = estimateFor(scope, settings, request.depth, asked, { tokens: planningTokens, costUsd: planningCostUsd });
 
   const docIds = [...new Set(scope.pages.map((p) => p.documentId))];
   const sourceRevisions = Object.fromEntries(docIds.map((id) => [id, all.find((p) => p.documentId === id)!.revision]));
@@ -849,6 +863,7 @@ export function toReviewDto(row: RunRow, candidates: number, now = new Date()): 
     thinkingSent: strings(row.thinkingSent),
     pages,
     ambiguous: strings(scope.ambiguous),
+    library: scope.library ?? null,
     chunkCount: (scope.chunks ?? []).length,
     scopeHash: row.scopeHash,
     estimate: (row.estimate as unknown as RfiReviewRunDto["estimate"]) ?? null,

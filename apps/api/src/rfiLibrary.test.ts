@@ -12,7 +12,7 @@ import {
   type LibrarySheet,
   type RfiLibraryQuestionDto,
 } from "@cdip/shared";
-import { buildLibrary, library, questionIdsOf, type CustomQuestionRow } from "./rfiLibrary.js";
+import { buildLibrary, library, questionIdsOf, resolveLibraryChoice, type CustomQuestionRow } from "./rfiLibrary.js";
 import { readLibrary } from "./rfiLibraryImport.js";
 
 const { file, version } = library();
@@ -194,5 +194,26 @@ describe("sheet suggestions for an element", () => {
   it("every active element of the shipped library maps to at least one drawing discipline", () => {
     const none = file.elements.filter((e) => e.active && compareAcrossNeeds(e.compareAcross).needs.length === 0);
     expect(none.map((e) => e.id)).toEqual([]);
+  });
+});
+
+describe("resolveLibraryChoice (what a By element review is asked)", () => {
+  const customs: CustomQuestionRow[] = [
+    { id: "c1", elementId: "CE-03-01", parentId: "CE-03-01-Q01", category: null, text: "Which mark is the pier at A1/BK?" },
+  ];
+
+  it("resolves the element's own words, a follow-up with its parent's, and the linked code checks", () => {
+    const s = resolveLibraryChoice(file, customs, "CE-03-01", ["CE-03-01-Q01", "c1", "CE-03-01-U-01"]);
+    expect(s.element.name).toBe("Drilled piers / caissons / drilled shafts");
+    expect(s.questions.map((q) => q.id)).toEqual(["CE-03-01-Q01", "c1", "CE-03-01-U-01"]);
+    expect(s.questions[1]!.text).toBe(`${s.questions[0]!.text} → Which mark is the pier at A1/BK?`);
+    expect(s.questions[1]!.source).toBe("custom");
+    expect(s.questions[2]!.codeChecks).toEqual(["unscheduled_mark", "unmarked_element"]);
+  });
+
+  it("refuses another element's question, an element that is off, and an unknown id", () => {
+    expect(() => resolveLibraryChoice(file, customs, "CE-03-01", ["CE-01-01-Q01"])).toThrow(/not questions of/);
+    expect(() => resolveLibraryChoice(file, customs, "CE-01-04", ["CE-01-04-Q01"])).toThrow(/not in the library/);
+    expect(() => resolveLibraryChoice(file, customs, "CE-03-01", ["nope"])).toThrow(/nope/);
   });
 });

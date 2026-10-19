@@ -85,6 +85,8 @@ export interface RfiReviewPlanRequest {
   maxInputTokens?: number;
   maxThinkingTokens?: number | null;
   excludePageIds: string[];
+  /** "By element": the library element and the questions chosen from it. */
+  library?: { elementId: string; questionIds: string[] };
 }
 
 export interface RfiFullScanList {
@@ -358,6 +360,8 @@ export const api = {
   chunkLocation: (projectId: string, chunkId: string) =>
     request<ChunkLocationDto>(`/projects/${projectId}/chunks/${chunkId}/location`),
 
+  sendChatToReview: (projectId: string, body: { messageId: string; subject: string; question: string }) =>
+    request<RfiCandidateDto>(`/projects/${projectId}/rfis/generated/from-chat`, { method: "POST", body: JSON.stringify(body) }),
   ask: (projectId: string, body: { question: string; sessionId?: string; portionId?: string }) =>
     request<ChatResponseDto>(`/projects/${projectId}/chat`, {
       method: "POST",
