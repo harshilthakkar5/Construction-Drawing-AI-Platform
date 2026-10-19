@@ -2825,7 +2825,20 @@ anything naming no discipline — Geotech, Specs, vendors — is reported as not
 a plan that names a level and keeping one level; the manifest now carries `sheetKind`/`level` for it.
 Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
 asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
-chosen question has none — so an element with no link (pits, joints…) cannot be planned and says so.
+chosen question has none. Phase 4 (`rfi_review.library_checks`): the plan request carries
+`library: {elementId, questionIds}`, the planner resolves the words server-side
+(`rfiLibrary.resolveLibraryChoice`, follow-ups with their parents' words) into `scope.library` (in
+`scopeHash` only when present), and the worker asks each as a review question beside the linked
+catalogue ones, then runs the code checks the asked questions link to on the reviewed sheets
+(`library_code_findings`: text checks project-wide kept only on reviewed pages, `element_marks` /
+`column_schedule` on the pages) and credits each finding to every question it answers
+(`code_checks_for`). Catalogue questions get their `RFI_QUESTION_CODE_CHECKS` the same way, so a
+targeted review of S2.30-B with F04 now runs the type-mark check. AI-only library answers cap at
+medium; a project's own question saves as checkType `custom`. Phase 5: chat → review. SHARED_RULES
+asks for one final `RFI: …` line when the cited chunks show a problem; `takeRfiSuggestion` takes it
+off the displayed answer into `messages.content.rfiSuggestion`, and `POST /rfis/generated/from-chat`
+files a medium candidate (`origin = chat`, `chatMessageId`, fingerprint `chat:<message id>`) pinned
+to the answer's own cited sources in documents still in RFI analysis.
 
 ## Full AI scan — code pairs and lines up, the model only compares
 

@@ -1,8 +1,9 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChatHistoryWindow, ChatMessageDto, ChatSourceDto } from "@cdip/shared";
 import { gridLabelKind } from "@cdip/shared";
 import {
+  FlagIcon,
   HistoryIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -31,6 +32,9 @@ interface ChatTurn {
   text: string;
   at: Date;
   sources?: ChatSourceDto[];
+  /** The stored assistant message, and the RFI question its answer proposed. */
+  messageId?: string;
+  rfiSuggestion?: string | null;
   /** Assistant turn that came back as an error — styled as a failure, not an answer. */
   failed?: boolean;
 }
@@ -100,6 +104,8 @@ function toTurn(message: ChatMessageDto, id: number): ChatTurn | null {
     text,
     at: new Date(message.createdAt),
     sources: message.sources ?? undefined,
+    messageId: message.role === "assistant" ? message.id : undefined,
+    rfiSuggestion: typeof content.rfiSuggestion === "string" ? content.rfiSuggestion : null,
   };
 }
 
@@ -204,6 +210,8 @@ export function ChatPanel({
           text: res.answer,
           at: new Date(),
           sources: res.sources,
+          messageId: res.messageId,
+          rfiSuggestion: res.rfiSuggestion,
         },
       ]);
       toBottom();
@@ -398,6 +406,15 @@ export function ChatPanel({
                       </button>
                     ))}
                   </div>
+                )}
+
+                {turn.messageId && turn.sources && turn.sources.length > 0 && (
+                  <SendToReview
+                    projectId={projectId}
+                    messageId={turn.messageId}
+                    suggestion={turn.rfiSuggestion ?? null}
+                    asked={turns[turns.indexOf(turn) - 1]?.text ?? ""}
+                  />
                 )}
 
                 <div className="mt-2 flex items-center gap-1">
@@ -751,6 +768,72 @@ function HistoryList({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Chat → "Needs your review": an answer that found a problem becomes a
+ * finding pinned to the sheets it cited. The model proposes the question (its
+ * "RFI:" line) when it saw one; a person can send any cited answer and word it
+ * themselves. Nothing is issued — it waits in the review list like any finding.
+ */
+function SendToReview({
+  projectId,
+  messageId,
+  suggestion,
+  asked,
+}: {
+  projectId: string;
+  messageId: string;
+  suggestion: string | null;
+  asked: string;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [question, setQuestion] = useState(suggestion ?? asked);
+  const [subject, setSubject] = useState((suggestion ?? asked).slice(0, 80));
+  const send = useMutation({
+    mutationFn: () => api.sendChatToReview(projectId, { messageId, subject: subject.trim(), question: question.trim() }),
+    onSuccess: () => {
+      setOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+    },
+  });
+  const done = send.isSuccess || /already/i.test((send.error as Error | null)?.message ?? "");
+  if (done) {
+    return <p className="mt-2 text-xs text-muted-foreground">In “Needs your review” on the RFIs tab.</p>;
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      {suggestion && !open && <p className="text-xs text-muted-foreground">Possible RFI: {suggestion}</p>}
+      {!open ? (
+        <Button size="sm" variant="outline" className="h-7 self-start text-xs" onClick={() => setOpen(true)}>
+          <FlagIcon />
+          Send to review
+        </Button>
+      ) : (
+        <div className="flex flex-col gap-1.5 rounded-md border p-2">
+          <Input className="h-7 text-xs" value={subject} maxLength={200} aria-label="RFI subject" onChange={(e) => setSubject(e.target.value)} />
+          <textarea
+            className="min-h-16 rounded-md border bg-transparent px-2 py-1 text-xs"
+            value={question}
+            maxLength={2000}
+            aria-label="RFI question"
+            onChange={(e) => setQuestion(e.target.value)}
+          />
+          <div className="flex gap-1.5">
+            <Button size="sm" className="h-7 text-xs" disabled={!subject.trim() || !question.trim() || send.isPending} onClick={() => send.mutate()}>
+              Add to Needs your review
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Pinned to the sheets this answer cites. Medium confidence — check it on the sheet.</p>
+          {send.error && <p className="text-xs text-destructive">{(send.error as Error).message}</p>}
+        </div>
+      )}
     </div>
   );
 }

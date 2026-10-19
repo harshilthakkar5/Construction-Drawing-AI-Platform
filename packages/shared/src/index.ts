@@ -394,9 +394,13 @@ export interface ProjectMemberDto extends UserDto {
 
 export interface ChatResponseDto {
   sessionId: string;
+  /** The assistant message, so a person can send it to "Needs your review". */
+  messageId: string;
   /** Answer text with [n] citation markers matching sources[].index. */
   answer: string;
   sources: ChatSourceDto[];
+  /** The one RFI question the answer proposed (its "RFI:" line), if any. */
+  rfiSuggestion: string | null;
 }
 
 /** One past conversation in a project's chat history picker. */
@@ -981,7 +985,7 @@ export interface RfiCorroborationDto {
   fullScanId?: string;
 }
 
-export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review" | "full_scan";
+export type RfiCandidateOrigin = "deterministic_scan" | "targeted_review" | "full_scan" | "chat";
 
 export interface RfiScanDto {
   id: string;
@@ -1660,6 +1664,12 @@ export interface RfiReviewRunDto {
   /** Target values matched more than once — all are included and the plan
    * screen asks the user to remove the wrong ones. */
   ambiguous: string[];
+  /** "By element" runs: the library element and the questions asked, in their
+   * words; their outcomes sit in `checkResults` under the question ids. */
+  library?: {
+    element: { id: string; name: string; variants: string; attributes: string; triggers: string };
+    questions: { id: string; text: string; category: string | null; source: string; codeChecks: string[] }[];
+  } | null;
   chunkCount: number;
   scopeHash: string;
   estimate: RfiReviewEstimateDto | null;

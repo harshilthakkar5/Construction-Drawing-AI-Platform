@@ -241,6 +241,7 @@ export function RfiTargetedReview({
     ...(inputNumber !== undefined ? { maxInputTokens: inputNumber } : {}),
     ...(thinkingNumber !== undefined ? { maxThinkingTokens: thinkingNumber } : {}),
     excludePageIds,
+    ...(mode === "library" && choice.elementId ? { library: { elementId: choice.elementId, questionIds: fromLibrary.chosen.map((q) => q.id) } } : {}),
   });
 
   const current = runId ? run.data : undefined;
@@ -448,6 +449,7 @@ function requestFromRun(run: RfiReviewRunDto): RfiReviewPlanRequest {
     maxInputTokens: run.limits.maxInputTokens,
     maxThinkingTokens: run.limits.maxThinkingTokens,
     excludePageIds: [],
+    ...(run.library ? { library: { elementId: run.library.element.id, questionIds: run.library.questions.map((q) => q.id) } } : {}),
   };
 }
 
@@ -466,13 +468,40 @@ function Section({ title, count, children, open = false }: { title: string; coun
   );
 }
 
+/** A "By element" run: its library questions first, in the client's words. */
+function LibraryQuestions({ run, results = false }: { run: RfiReviewRunDto; results?: boolean }) {
+  if (!run.library) return null;
+  return (
+    <li className="flex flex-col gap-1.5">
+      <span className="font-medium">{run.library.element.name}</span>
+      {run.library.questions.map((q) => {
+        const result = run.checkResults?.[q.id];
+        const outcome = OUTCOME[result?.outcome ?? "not_selected"];
+        return (
+          <div key={q.id} className="flex items-start gap-2 pl-2">
+            {results && <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", outcome.tone)}>{outcome.label}</span>}
+            <span>
+              {q.text}
+              {q.codeChecks.length > 0 && <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">code check</Badge>}
+              {results && result?.reason && <span className="text-muted-foreground block">{result.reason}</span>}
+            </span>
+          </div>
+        );
+      })}
+    </li>
+  );
+}
+
 function PlannedQuestions({ run }: { run: RfiReviewRunDto }) {
   const ids = RFI_REVIEW_CHECKS.map((c) => c.id);
   const selected = ids.filter((id) => run.checkPlan[id]?.selected);
+  // A library run asks its own questions; the original 17 it did not link to are noise there.
+  const shown = run.library ? selected : [...selected, ...ids.filter((id) => !run.checkPlan[id]?.selected)];
   return (
-    <Section title="Questions" count={selected.length} open>
+    <Section title="Questions" count={selected.length + (run.library?.questions.length ?? 0)} open>
       <ul className="flex flex-col gap-1 text-xs">
-        {[...selected, ...ids.filter((id) => !run.checkPlan[id]?.selected)].map((id) => {
+        <LibraryQuestions run={run} />
+        {shown.map((id) => {
           const plan = run.checkPlan[id];
           return (
             <li key={id} className={cn(!plan?.selected && "text-muted-foreground")}>
@@ -506,9 +535,10 @@ function headline(run: RfiReviewRunDto): string {
 function Outcomes({ run }: { run: RfiReviewRunDto }) {
   if (!run.checkResults) return null;
   return (
-    <Section title="The questions" count={RFI_REVIEW_CHECKS.length} open>
+    <Section title="The questions" count={(run.library ? run.checkIds.length : RFI_REVIEW_CHECKS.length) + (run.library?.questions.length ?? 0)} open>
       <ul className="flex flex-col gap-1.5 text-xs">
-        {RFI_REVIEW_CHECKS.map((check) => {
+        <LibraryQuestions run={run} results />
+        {RFI_REVIEW_CHECKS.filter((c) => !run.library || run.checkIds.includes(c.id)).map((check) => {
           const result = run.checkResults![check.id];
           const outcome = OUTCOME[result?.outcome ?? "not_selected"];
           return (

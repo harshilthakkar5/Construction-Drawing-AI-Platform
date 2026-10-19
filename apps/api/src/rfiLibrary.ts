@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { RfiLibraryDto, RfiLibraryElementDto, RfiLibraryFile, RfiLibraryQuestionDto } from "@cdip/shared";
+import type { RfiCheckType, RfiLibraryDto, RfiLibraryElementDto, RfiLibraryFile, RfiLibraryQuestionDto } from "@cdip/shared";
 
 /**
  * The question library the app ships (packages/shared/data/rfi-library.json,
@@ -104,5 +104,42 @@ export function buildLibrary(file: RfiLibraryFile, version: string, customs: Cus
         name: p.name,
         elements: file.elements.filter((e) => e.packageId === p.id && elements.has(e.id)).map((e) => elements.get(e.id)!),
       })),
+  };
+}
+
+/** What a review is asked from the library: the element and the chosen
+ * questions in its words, resolved here from the shipped file and the
+ * project's own rows — never from text the browser sent. A follow-up carries
+ * its parents' words, since "If not, what is the offset?" means nothing alone. */
+export interface LibraryScope {
+  element: { id: string; name: string; variants: string; attributes: string; triggers: string };
+  questions: { id: string; text: string; category: string | null; source: RfiLibraryQuestionDto["source"]; codeChecks: RfiCheckType[] }[];
+}
+
+export function resolveLibraryChoice(
+  file: RfiLibraryFile,
+  customs: CustomQuestionRow[],
+  elementId: string,
+  questionIds: readonly string[],
+): LibraryScope {
+  const dto = buildLibrary(file, "", customs);
+  const element = dto.packages.flatMap((p) => p.elements).find((e) => e.id === elementId);
+  if (!element) throw new Error(`element ${elementId} is not in the library`);
+  const found = new Map<string, { q: RfiLibraryQuestionDto; parents: string[] }>();
+  const walk = (qs: RfiLibraryQuestionDto[], parents: string[]) => {
+    for (const q of qs) {
+      found.set(q.id, { q, parents });
+      walk(q.children, [...parents, q.text]);
+    }
+  };
+  walk(element.questions, []);
+  const missing = questionIds.filter((id) => !found.has(id));
+  if (missing.length) throw new Error(`not questions of ${element.name}: ${missing.join(", ")}`);
+  return {
+    element: { id: element.id, name: element.name, variants: element.variants, attributes: element.attributes, triggers: element.triggers },
+    questions: [...new Set(questionIds)].map((id) => {
+      const { q, parents } = found.get(id)!;
+      return { id, text: [...parents, q.text].join(" → "), category: q.category, source: q.source, codeChecks: q.codeChecks };
+    }),
   };
 }

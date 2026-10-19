@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { buildSources, type ChunkSourceRecord } from "../citations.js";
-import { answerFromChunks, chatModelAvailable, type HistoryTurn } from "../answer.js";
+import { answerFromChunks, chatModelAvailable, takeRfiSuggestion, type HistoryTurn } from "../answer.js";
 import { chatProvider } from "../llm.js";
 import { chatLimiter } from "../rateLimit.js";
 import { prisma } from "../db.js";
@@ -155,10 +155,11 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
       },
     ]),
   );
-  const { text, sources } = buildSources(rawAnswer, records);
+  const { text: body, rfi: rfiSuggestion } = takeRfiSuggestion(rawAnswer);
+  const { text, sources } = buildSources(body, records);
 
   // FR-23: persist prompt, retrieved chunks, response, sources, timestamp.
-  await prisma.$transaction([
+  const [, reply] = await prisma.$transaction([
     prisma.message.create({
       data: {
         sessionId: session.id,
@@ -170,14 +171,14 @@ async function cachedChunkIds(projectId: string, portionId: string | undefined, 
       data: {
         sessionId: session.id,
         role: "assistant",
-        content: { answer: rawAnswer, displayedAnswer: text },
+        content: { answer: rawAnswer, displayedAnswer: text, rfiSuggestion },
         sources: sources as unknown as object[],
       },
     }),
   ]);
 
   chatDuration.record(performance.now() - requestStart, { cached: false });
-  res.json({ sessionId: session.id, answer: text, sources });
+  res.json({ sessionId: session.id, messageId: reply.id, answer: text, sources, rfiSuggestion });
 });
 
 /** Replay/audit (FR-23) and session restore for the UI. */

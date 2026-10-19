@@ -766,11 +766,14 @@ model RfiCandidate {
   id             String             @id @default(uuid())
   projectId      String
   scanId         String?
-  /// "deterministic_scan", "targeted_review" or "full_scan". A targeted or full
-  /// scan candidate names its run (checked in the migration SQL).
+  /// "deterministic_scan", "targeted_review", "full_scan" or "chat". Each
+  /// names where it came from (checked in the migration SQL).
   origin         String             @default("deterministic_scan")
   reviewRunId    String?
   fullScanId     String?
+  /// origin "chat": the assistant message the finding was sent from (no FK —
+  /// the finding outlives a deleted chat, and its evidence is copied).
+  chatMessageId  String?
   /// Targeted review only: the one-sentence "why flagged" the review list
   /// shows, and the priority it suggests.
   reasoning      String?
