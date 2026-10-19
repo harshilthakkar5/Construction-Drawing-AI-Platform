@@ -2672,8 +2672,9 @@ def _run(run: dict) -> dict:
             saved += wrote
             tally(candidate["checkId"], fp, wrote, decision["subject"])
 
-    for lines in known.values():
-        notes.extend(f"Found again, not added twice: {line}." for line in lines)
+    # One finding can answer several asked questions; it is one note.
+    for line in dict.fromkeys(line for lines in known.values() for line in lines):
+        notes.append(f"Found again, not added twice: {line}.")
     # Occurrences measured off grid or left unsettled that no saved finding
     # covers: the review did not raise them, but it cannot claim the question
     # is clean either — "no issue" would be a claim about dimensions nobody
