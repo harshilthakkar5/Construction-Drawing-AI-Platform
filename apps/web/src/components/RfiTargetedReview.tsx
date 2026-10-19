@@ -15,6 +15,7 @@ import {
 import { api, type RfiReviewPlanRequest } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
+import { choiceSummary, LibraryPicker, loadChoice, type LibraryChoice } from "@/components/LibraryPicker";
 import { SettingsLine, useRfiSettings } from "@/components/ProjectSettings";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +101,7 @@ function newKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-type TargetMode = "sheet" | "element" | "compare";
+type TargetMode = "library" | "sheet" | "element" | "compare";
 
 export function RfiTargetedReview({
   projectId,
@@ -109,7 +110,11 @@ export function RfiTargetedReview({
   projectId: string;
   onFinished: () => void;
 }) {
-  const [mode, setMode] = useState<TargetMode>("sheet");
+  const [mode, setMode] = useState<TargetMode>("library");
+  const [choice, setChoice] = useState<LibraryChoice>(() => loadChoice(projectId));
+  const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId), enabled: mode === "library" });
+  const libraryElement = library.data?.packages.flatMap((p) => p.elements).find((e) => e.id === choice.elementId);
+  const fromLibrary = choiceSummary(libraryElement, choice);
   const [sheets, setSheets] = useState<string[]>(["", ""]);
   const [element, setElement] = useState({ value: "", level: "", area: "" });
   const [checkMode, setCheckMode] = useState<RfiReviewCheckMode>("auto");
@@ -188,7 +193,9 @@ export function RfiTargetedReview({
     },
   });
 
-  const values = (mode === "compare" ? sheets : sheets.slice(0, 1)).map((s) => s.trim()).filter(Boolean);
+  const values = (mode === "library" ? choice.sheets : mode === "compare" ? sheets : sheets.slice(0, 1))
+    .map((s) => s.trim())
+    .filter(Boolean);
   const limits = options.data;
   const inputNumber = settings.maxInputTokens ?? undefined;
   const thinkingNumber = model?.capability.budget ? (settings.maxThinkingTokens ?? undefined) : undefined;
@@ -198,15 +205,27 @@ export function RfiTargetedReview({
     thinkingNumber === undefined ||
     (!!limits && thinkingNumber >= limits.thinkingLimits.min && thinkingNumber <= limits.thinkingLimits.max);
   const targetOk =
-    mode === "sheet" ? values.length === 1 : mode === "compare" ? values.length >= 2 : element.value.trim().length > 0;
+    mode === "library"
+      ? fromLibrary.ready
+      : mode === "sheet"
+        ? values.length === 1
+        : mode === "compare"
+          ? values.length >= 2
+          : element.value.trim().length > 0;
   const canPlan =
-    targetOk && inputOk && thinkingOk && (checkMode !== "custom" || custom.length > 0) && model?.available !== false;
+    targetOk &&
+    inputOk &&
+    thinkingOk &&
+    (mode === "library" || checkMode !== "custom" || custom.length > 0) &&
+    model?.available !== false;
 
+  // A library choice is asked through the review: one sheet alone, or the
+  // chosen sheets compared, with the catalogue questions its questions link to.
   const request = (excludePageIds: string[] = []): RfiReviewPlanRequest => ({
     target:
-      mode === "sheet"
+      mode === "sheet" || (mode === "library" && values.length === 1)
         ? { type: "sheet", value: values[0]! }
-        : mode === "compare"
+        : mode === "compare" || mode === "library"
           ? { type: "compare", values }
           : {
               type: "element",
@@ -214,8 +233,8 @@ export function RfiTargetedReview({
               ...(element.level.trim() ? { level: element.level.trim() } : {}),
               ...(element.area.trim() ? { area: element.area.trim() } : {}),
             },
-    checkMode,
-    checkIds: checkMode === "custom" ? custom : [],
+    checkMode: mode === "library" ? "custom" : checkMode,
+    checkIds: mode === "library" ? fromLibrary.checkIds : checkMode === "custom" ? custom : [],
     depth,
     thinking,
     ...(model ? { provider: model.provider, model: model.model } : {}),
@@ -254,8 +273,9 @@ export function RfiTargetedReview({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Review one sheet, one element (a mark such as C-6), or compare sheets that should agree. You see the
-        pages, the questions and the cost before anything is sent to the AI.
+        Work through the question library element by element — grids first — or review one sheet, one mark
+        (such as C-6), or sheets that should agree. You see the pages, the questions and the cost before
+        anything is sent to the AI.
       </p>
       <ToggleGroup
         type="single"
@@ -266,18 +286,23 @@ export function RfiTargetedReview({
         className="w-full"
         aria-label="What to review"
       >
+        <ToggleGroupItem value="library" className="flex-1 text-xs" title="Package, element, questions, then the sheets to read">
+          By element
+        </ToggleGroupItem>
         <ToggleGroupItem value="sheet" className="flex-1 text-xs">
           One sheet
         </ToggleGroupItem>
-        <ToggleGroupItem value="element" className="flex-1 text-xs">
-          An element
+        <ToggleGroupItem value="element" className="flex-1 text-xs" title="One mark as printed, such as C-6 or PC1">
+          A mark
         </ToggleGroupItem>
         <ToggleGroupItem value="compare" className="flex-1 text-xs">
-          Compare sheets
+          Compare
         </ToggleGroupItem>
       </ToggleGroup>
 
-      {mode === "element" ? (
+      {mode === "library" ? (
+        <LibraryPicker projectId={projectId} value={choice} onChange={setChoice} />
+      ) : mode === "element" ? (
         <div className="flex flex-col gap-1.5">
           <Input
             value={element.value}
@@ -324,6 +349,7 @@ export function RfiTargetedReview({
         </div>
       )}
 
+      {mode !== "library" && (
       <div>
         <p className="text-xs font-medium">Questions</p>
         <ToggleGroup
@@ -344,6 +370,7 @@ export function RfiTargetedReview({
         <p className="text-muted-foreground mt-1 text-[11px]">{CHECK_MODES.find((m) => m.value === checkMode)!.hint}</p>
         {checkMode === "custom" && <CheckPicker value={custom} onChange={setCustom} />}
       </div>
+      )}
 
       <SettingsLine>
         {options.isLoading ? "…" : model ? `${model.provider === "gemini" ? "Gemini" : "Claude"} · ${model.model}` : "No model"} ·{" "}

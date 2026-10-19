@@ -45,6 +45,7 @@ import type {
   SupportTicketDto,
   UserDto,
   RfiProjectSettings,
+  RfiLibraryDto,
 } from "@cdip/shared";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -625,6 +626,11 @@ export const api = {
     withToken(`${API_URL}/projects/${projectId}/rfis/export.xlsx`),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
+  rfiLibrary: (projectId: string) => request<RfiLibraryDto>(`/projects/${projectId}/rfis/library`),
+  addLibraryQuestion: (projectId: string, body: { elementId: string; parentId?: string | null; text: string }) =>
+    request<{ id: string }>(`/projects/${projectId}/rfis/library/questions`, { method: "POST", body: JSON.stringify(body) }),
+  deleteLibraryQuestion: (projectId: string, questionId: string) =>
+    request<{ deleted: string[] }>(`/projects/${projectId}/rfis/library/questions/${questionId}`, { method: "DELETE" }),
   documentFileUrl: (projectId: string, documentId: string) =>
     withToken(`${API_URL}/projects/${projectId}/documents/${documentId}/file`),
   pageThumbUrl: (projectId: string, combined: number) =>
