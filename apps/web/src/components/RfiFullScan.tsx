@@ -13,14 +13,13 @@ import { api, type RfiFullScanList } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
 import { scopeLine } from "@/components/RfiScanScope";
+import { SettingsLine, useRfiSettings } from "@/components/ProjectSettings";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 /**
  * Full AI scan: every pair of sheets that should agree is shown to the AI
@@ -251,15 +250,16 @@ function Planned({
   onStarted: (s: RfiFullScanDto) => void;
   onCancel: () => void;
 }) {
+  // Model, batch/direct and budget are project settings (Settings tab).
+  const settings = useRfiSettings(projectId).fullScan;
   const available = models.options.filter((o) => o.available);
-  const [choice, setChoice] = useState(() => `${models.default.provider}|${models.default.model}`);
+  const saved = settings.provider && settings.model ? `${settings.provider}|${settings.model}` : null;
+  const choice = saved && available.some((o) => `${o.provider}|${o.model}` === saved) ? saved : `${models.default.provider}|${models.default.model}`;
   const [provider, model] = choice.split("|") as [RfiReviewProvider, string];
-  const [useBatch, setUseBatch] = useState(true);
+  const useBatch = settings.useBatch;
   const price = prices[choice]?.[useBatch ? "batch" : "direct"] ?? null;
-  const [budget, setBudget] = useState(() => {
-    const high = prices[`${models.default.provider}|${models.default.model}`]?.batch?.high ?? scan.estimate?.costUsd?.high ?? null;
-    return high !== null ? String(Math.max(1, Math.ceil(high * 1.2))) : "";
-  });
+  const high = price?.high ?? scan.estimate?.costUsd?.high ?? null;
+  const budget = String(settings.budgetUsd ?? (high !== null ? Math.max(1, Math.ceil(high * 1.2)) : ""));
   const key = useRef(newKey());
   const start = useMutation({
     mutationFn: () => {
@@ -353,49 +353,14 @@ function Planned({
               </span>
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={choice} onValueChange={setChoice}>
-              <SelectTrigger size="sm" className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((o) => (
-                  <SelectItem key={`${o.provider}|${o.model}`} value={`${o.provider}|${o.model}`} disabled={!o.priced}>
-                    {o.model}
-                    {o.priced ? "" : " (no price known)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={useBatch ? "batch" : "direct"}
-              onValueChange={(v) => v && setUseBatch(v === "batch")}
-              aria-label="How to send"
-            >
-              <ToggleGroupItem value="batch" className="text-xs" title="Half price; results can take minutes to hours">
-                Batch
-              </ToggleGroupItem>
-              <ToggleGroupItem value="direct" className="text-xs" title="Full price; results as they come">
-                Direct
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-          <label className="flex flex-wrap items-center gap-2">
-            <span>Budget ($)</span>
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              className="h-8 w-28"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              aria-label="Budget in dollars"
-            />
-            <span className="text-muted-foreground">The scan stops before it would spend more, keeps what it found, and can be resumed.</span>
-          </label>
+          <SettingsLine>
+            {model} · {useBatch ? "batch" : "direct"} · budget {Number(budget) > 0 ? money(Number(budget)) : "not set"}
+            {settings.budgetUsd === null ? " (estimate + 20%)" : ""}
+          </SettingsLine>
+          {saved && saved !== choice && (
+            <Notice tone="error">The model in Settings is not available on this server; using {model} instead.</Notice>
+          )}
+          <p className="text-muted-foreground">The scan stops before it would spend more than the budget, keeps what it found, and can be resumed.</p>
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={start.isPending || !(Number(budget) > 0) || available.length === 0} onClick={() => start.mutate()}>
               {start.isPending ? <Spinner /> : <PlayIcon />}

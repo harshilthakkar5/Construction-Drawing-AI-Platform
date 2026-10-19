@@ -9,6 +9,7 @@ import {
   MessageCircleQuestionIcon,
   MessageSquareIcon,
   PanelsTopLeftIcon,
+  SettingsIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -28,6 +29,7 @@ import {
 } from "@/components/ProjectSetup";
 import { FullViewButton, PageLoading } from "@/components/shared";
 import { PortionsPanel } from "@/components/PortionsPanel";
+import { ProjectSettings } from "@/components/ProjectSettings";
 import { RfiPanel } from "@/components/RfiPanel";
 import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
@@ -41,7 +43,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/pages/DashboardPage";
-import { useAppStore } from "@/store";
+import { useAppStore, type WorkTab } from "@/store";
 
 /**
  * FR-17 project workspace: a project header, then the left work column
@@ -161,6 +163,8 @@ function rollupStatus(documents: DocumentDto[] | undefined): string {
 }
 
 export function ProjectView({ projectId }: { projectId: string }) {
+  const workTab = useAppStore((s) => s.workTab);
+  const setWorkTab = useAppStore((s) => s.setWorkTab);
   const project = useQuery({
     queryKey: ["projects", projectId],
     queryFn: async () => (await api.listProjects()).find((p) => p.id === projectId),
@@ -340,7 +344,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
           style={only ? undefined : { width: sidebarWidth }}
         >
           <Card className="gap-0 py-4" data-tour="summary">
-            <Tabs defaultValue="summary">
+            <Tabs value={workTab} onValueChange={(tab) => setWorkTab(tab as WorkTab)}>
               <div className="flex items-center gap-2 px-4">
                 <TabsList className="min-w-0 flex-1">
                   <TabsTrigger value="documents" title="Documents">
@@ -355,6 +359,10 @@ export function ProjectView({ projectId }: { projectId: string }) {
                   <TabsTrigger value="rfis" title="RFIs">
                     <MessageCircleQuestionIcon />
                     <span className="@[16rem]/work:inline hidden">RFIs</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="settings" title="Project settings">
+                    <SettingsIcon />
+                    <span className="@[24rem]/work:inline hidden">Settings</span>
                   </TabsTrigger>
                 </TabsList>
                 {wide && (
@@ -383,6 +391,9 @@ export function ProjectView({ projectId }: { projectId: string }) {
               </TabsContent>
               <TabsContent value="rfis" className="mt-4">
                 <RfiPanel projectId={projectId} />
+              </TabsContent>
+              <TabsContent value="settings" className="mt-4">
+                <ProjectSettings projectId={projectId} />
               </TabsContent>
             </Tabs>
           </Card>

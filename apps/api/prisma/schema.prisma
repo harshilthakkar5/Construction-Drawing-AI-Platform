@@ -255,6 +255,9 @@ model Project {
   /// and wait for Start. Read when the scan is pressed and stored on the plan
   /// (rfi_full_scans.autoStart), so changing it never moves a scan in flight.
   rfiAutoScanUsd Float?
+  /// RFI settings edited in the project Settings tab (RfiProjectSettings in
+  /// @cdip/shared): models, depth, care, token limits, full-scan budget.
+  rfiSettings    Json?
 
   owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   members       ProjectMember[]

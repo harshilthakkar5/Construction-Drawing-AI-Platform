@@ -3033,7 +3033,14 @@ and as an X in the chat header — it used to float over the drawing, covering t
 scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
 COLUMN's width, which the divider changes independently of the window's.
 
-The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). The
+The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
+(`components/ProjectSettings.tsx`). Settings holds the project's details and every RFI SETTING the
+RFIs tab used to carry beside the work — the targeted review's model, depth, care and token limits,
+the AI comparison's model, batch/direct, budget and auto-start limit — saved on the project
+(`projects.rfiSettings`, `RfiProjectSettings` + `rfiSettingsOf` in `@cdip/shared`, validated in
+`routes/projects.ts` to a run's own bounds, owner only). The RFIs tab reads them (`useRfiSettings`)
+and shows one `SettingsLine` per run type whose link switches tabs through the store's `workTab`.
+What to compare and which questions stay in the RFIs tab: that is the work, not a setting. The
 tab opens on "Scan all drawings" — one button, code checks then the optional priced AI comparison
 (`components/RfiReview.tsx`, see Generated RFIs below) — beside "Targeted review": the
 review list, then the log, then "Add manually" as the secondary path. Clicking any pin or piece

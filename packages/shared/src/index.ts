@@ -150,6 +150,8 @@ export interface ProjectDto {
   /** "Find RFIs in drawings" starts the AI comparison by itself when it may
    * cost up to this many dollars; null = always ask. Owner-set. */
   rfiAutoScanUsd?: number | null;
+  /** Owner-set RFI settings; read through `rfiSettingsOf`. */
+  rfiSettings?: Partial<{ review: Partial<RfiProjectSettings["review"]>; fullScan: Partial<RfiProjectSettings["fullScan"]> }> | null;
 }
 
 export interface DocumentDto {
@@ -1420,6 +1422,35 @@ export const RFI_REVIEW_THINKING = ["low", "medium", "high"] as const;
 export type RfiReviewThinking = (typeof RFI_REVIEW_THINKING)[number];
 
 export type RfiReviewProvider = "claude" | "gemini";
+
+/**
+ * A project's RFI settings (projects.rfiSettings), edited in its Settings tab
+ * and read by the RFIs tab, which no longer carries these controls. A null
+ * model means the server's default; a null budget means the plan's own
+ * estimate plus a margin. The API refuses anything a run would refuse.
+ */
+export interface RfiProjectSettings {
+  review: {
+    provider: RfiReviewProvider | null;
+    model: string | null;
+    depth: RfiReviewDepth;
+    thinking: RfiReviewThinking;
+    maxInputTokens: number | null;
+    maxThinkingTokens: number | null;
+  };
+  fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
+}
+export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
+  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null },
+  fullScan: { provider: null, model: null, useBatch: true, budgetUsd: null },
+};
+/** Stored settings over the defaults — a row saved before a field existed still reads whole. */
+export function rfiSettingsOf(stored: { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]> } | null | undefined): RfiProjectSettings {
+  return {
+    review: { ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review },
+    fullScan: { ...RFI_SETTINGS_DEFAULTS.fullScan, ...stored?.fullScan },
+  };
+}
 
 /**
  * What a model lets a review control about its reasoning. A VERSION SNIFF, the

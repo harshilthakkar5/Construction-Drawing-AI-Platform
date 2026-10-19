@@ -1,5 +1,12 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
-import { PROJECT_ROLE_VALUES } from "@cdip/shared";
+import {
+  PROJECT_ROLE_VALUES,
+  RFI_REVIEW_DEPTH_KEYS,
+  RFI_REVIEW_INPUT_LIMITS,
+  RFI_REVIEW_THINKING,
+  RFI_REVIEW_THINKING_LIMITS,
+} from "@cdip/shared";
 import { z } from "zod";
 import { assertProjectOwner, currentUser } from "../auth.js";
 import { purgeProjectData } from "../cleanup.js";
@@ -20,7 +27,29 @@ const createProjectSchema = z.object({
   roles: rolesSchema.optional(),
 });
 
-const updateProjectSchema = z
+const provider = z.enum(["claude", "gemini"]).nullable();
+const model = z.string().trim().min(1).max(100).nullable();
+/** RfiProjectSettings: the same bounds a run enforces, so a saved setting never makes Plan fail. */
+const rfiSettingsSchema = z
+  .object({
+    review: z
+      .object({
+        provider,
+        model,
+        depth: z.enum(RFI_REVIEW_DEPTH_KEYS as [string, ...string[]]),
+        thinking: z.enum(RFI_REVIEW_THINKING),
+        maxInputTokens: z.number().int().min(RFI_REVIEW_INPUT_LIMITS.min).max(RFI_REVIEW_INPUT_LIMITS.max).nullable(),
+        maxThinkingTokens: z.number().int().min(RFI_REVIEW_THINKING_LIMITS.min).max(RFI_REVIEW_THINKING_LIMITS.max).nullable(),
+      })
+      .strict(),
+    fullScan: z
+      .object({ provider, model, useBatch: z.boolean(), budgetUsd: z.number().positive().max(10_000).nullable() })
+      .strict(),
+  })
+  .strict()
+  .nullable();
+
+export const updateProjectSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
@@ -28,8 +57,9 @@ const updateProjectSchema = z
     // Spending money is the owner's call, like every other change here; null
     // turns one-click off. Capped well under the full-scan budget ceiling.
     rfiAutoScanUsd: z.number().positive().max(1000).nullable().optional(),
+    rfiSettings: rfiSettingsSchema.optional(),
   })
-  .refine((b) => b.name !== undefined || b.description !== undefined || b.roles !== undefined || b.rfiAutoScanUsd !== undefined, {
+  .refine((b) => Object.values(b).some((v) => v !== undefined), {
     message: "nothing to update",
   });
 
@@ -77,7 +107,11 @@ projectsRouter.patch("/:projectId", async (req, res) => {
   if (!(await assertProjectOwner(req, projectId))) {
     return void res.status(403).json({ error: "owner role required" });
   }
-  const project = await prisma.project.update({ where: { id: projectId }, data: body });
+  const { rfiSettings, ...rest } = body;
+  const project = await prisma.project.update({
+    where: { id: projectId },
+    data: { ...rest, ...(rfiSettings !== undefined ? { rfiSettings: rfiSettings ?? Prisma.DbNull } : {}) },
+  });
   res.json(project);
 });
 

@@ -171,7 +171,7 @@ library questions on hand-picked pages, and chat → review.
 
 | # | Phase | Delivers | Effort |
 |---|---|---|---|
-| 1 | **Project Settings tab** | New tab. Move model, careful, depth, token limits, auto-start $, whole-project checks out of the RFIs tab. Per-project storage plus the RFI form fields. The RFIs tab shows one summary line | 3–4 days |
+| 1 | **Project Settings tab** ✅ built | New Settings tab: project name, description, roles; targeted-review model, depth, how careful, token limits; AI-comparison model, batch/direct, budget, auto-start limit. Saved on the project (`projects.rfiSettings`, owner only). The RFIs tab shows one line per run type with "Change in Settings". Not moved: what to compare and which questions (that is the work, not a setting). Not built: RFI form fields (author initials already come from the user's name) | done |
 | 2 | **Built-in library** ✅ built | Workbook imported once into the app (developer step, not a user upload), red rows off, universal questions expanded per element, the 17 existing questions and code checks linked, saved custom questions with follow-ups to any depth (API: `GET/POST/PATCH/DELETE /projects/:id/rfis/library`) | done |
 | 3 | **Structured review UI** | Package → element → questions → pages → plan → run → results flow, sheet picker with thumbnails and suggested sheets, "next element", missing-document warnings | 5–6 days |
 | 4 | **Engine** | Run selected library questions on the chosen pages only. Prompt carries the element's attributes and triggers. Per-question answers. Code checks where a question has one. Results tagged by question ID, shown in "Needs your review" | 5–7 days |

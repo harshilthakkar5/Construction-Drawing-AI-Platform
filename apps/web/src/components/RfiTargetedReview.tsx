@@ -4,21 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_REVIEW_CHECKS,
   RFI_REVIEW_DEPTHS,
-  RFI_REVIEW_DEPTH_KEYS,
-  RFI_REVIEW_THINKING,
   type RfiCheckOutcome,
   type RfiReviewCheckId,
   type RfiReviewCheckMode,
-  type RfiReviewDepth,
   type RfiReviewEstimateDto,
   type RfiReviewPageDto,
   type RfiReviewProvider,
   type RfiReviewRunDto,
-  type RfiReviewThinking,
 } from "@cdip/shared";
 import { api, type RfiReviewPlanRequest } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
+import { SettingsLine, useRfiSettings } from "@/components/ProjectSettings";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,11 +46,6 @@ const STAGES: Record<string, string> = {
   saving: "Saving findings",
 };
 
-const THINKING_HINT: Record<RfiReviewThinking, string> = {
-  low: "Fastest and cheapest.",
-  medium: "The default: more careful on crowded sheets.",
-  high: "Most careful; slower and costs more.",
-};
 
 const CHECK_MODES: { value: RfiReviewCheckMode; label: string; hint: string }[] = [
   { value: "auto", label: "Choose for me", hint: "Runs the questions the target points at; every other question says why it was left out." },
@@ -122,20 +114,23 @@ export function RfiTargetedReview({
   const [element, setElement] = useState({ value: "", level: "", area: "" });
   const [checkMode, setCheckMode] = useState<RfiReviewCheckMode>("auto");
   const [custom, setCustom] = useState<RfiReviewCheckId[]>(["G01", "C01"]);
-  const [depth, setDepth] = useState<RfiReviewDepth>("standard");
-  const [thinking, setThinking] = useState<RfiReviewThinking>("medium");
-  const [modelKey, setModelKey] = useState<string>("");
-  const [maxInput, setMaxInput] = useState<string>("");
-  const [maxThinking, setMaxThinking] = useState<string>("");
+  // Model, depth, care and token limits are project settings (Settings tab).
+  const settings = useRfiSettings(projectId).review;
+  const { depth, thinking } = settings;
   const [runId, setRunId] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<RfiReviewPlanRequest | null>(null);
 
   const options = useQuery({ queryKey: ["rfi-review-options", projectId], queryFn: () => api.rfiReviewOptions(projectId) });
   const model = useMemo(() => {
     const all = options.data?.options ?? [];
-    const key = modelKey || (options.data ? `${options.data.default.provider}|${options.data.default.model}` : "");
+    const key =
+      settings.provider && settings.model
+        ? `${settings.provider}|${settings.model}`
+        : options.data
+          ? `${options.data.default.provider}|${options.data.default.model}`
+          : "";
     return all.find((o) => `${o.provider}|${o.model}` === key) ?? null;
-  }, [options.data, modelKey]);
+  }, [options.data, settings.provider, settings.model]);
 
   // Resume the latest unfinished review after a reload.
   const recent = useQuery({
@@ -195,8 +190,8 @@ export function RfiTargetedReview({
 
   const values = (mode === "compare" ? sheets : sheets.slice(0, 1)).map((s) => s.trim()).filter(Boolean);
   const limits = options.data;
-  const inputNumber = maxInput.trim() ? Number(maxInput) : undefined;
-  const thinkingNumber = maxThinking.trim() && model?.capability.budget ? Number(maxThinking) : undefined;
+  const inputNumber = settings.maxInputTokens ?? undefined;
+  const thinkingNumber = model?.capability.budget ? (settings.maxThinkingTokens ?? undefined) : undefined;
   const inputOk =
     inputNumber === undefined || (!!limits && inputNumber >= limits.inputLimits.min && inputNumber <= limits.inputLimits.max);
   const thinkingOk =
@@ -350,114 +345,13 @@ export function RfiTargetedReview({
         {checkMode === "custom" && <CheckPicker value={custom} onChange={setCustom} />}
       </div>
 
-      <div>
-        <p className="text-xs font-medium">Depth</p>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="mt-1.5 w-full"
-          value={depth}
-          onValueChange={(value) => value && setDepth(value as RfiReviewDepth)}
-          aria-label="Depth"
-        >
-          {RFI_REVIEW_DEPTH_KEYS.map((key) => (
-            <ToggleGroupItem key={key} value={key} className="flex-1 text-xs">
-              {RFI_REVIEW_DEPTHS[key].label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <p className="text-muted-foreground mt-1 text-[11px]">
-          Up to {RFI_REVIEW_DEPTHS[depth].visualPages} rendered pages, {RFI_REVIEW_DEPTHS[depth].chunks} text pieces,{" "}
-          {RFI_REVIEW_DEPTHS[depth].maxBatches} reading call(s), {RFI_REVIEW_DEPTHS[depth].maxTotalTokens.toLocaleString()} tokens
-          in all.
-        </p>
-      </div>
-
-      <div>
-        <p className="text-xs font-medium">AI model</p>
-        {options.isLoading ? (
-          <Spinner />
-        ) : (
-          <Select value={model ? `${model.provider}|${model.model}` : ""} onValueChange={setModelKey}>
-            <SelectTrigger size="sm" className="mt-1.5 w-full text-xs" aria-label="AI model">
-              <SelectValue placeholder="Choose a model" />
-            </SelectTrigger>
-            <SelectContent>
-              {(options.data?.options ?? []).map((o) => (
-                <SelectItem key={`${o.provider}|${o.model}`} value={`${o.provider}|${o.model}`} disabled={!o.available} className="text-xs">
-                  {o.provider === "gemini" ? "Gemini" : "Claude"} · {o.model}
-                  {!o.available && " (no API key)"}
-                  {o.available && !o.priced && " (price unknown)"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      <div>
-        <p className="text-xs font-medium">How careful</p>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="mt-1.5 w-full"
-          value={thinking}
-          onValueChange={(value) => value && setThinking(value as RfiReviewThinking)}
-          aria-label="Thinking"
-        >
-          {RFI_REVIEW_THINKING.map((level) => (
-            <ToggleGroupItem key={level} value={level} className="flex-1 text-xs capitalize">
-              {level}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <p className="text-muted-foreground mt-1 text-[11px]">{THINKING_HINT[thinking]}</p>
-      </div>
-
-      <Collapsible>
-        <CollapsibleTrigger className="text-muted-foreground flex items-center gap-1 text-xs hover:underline">
-          <ChevronDownIcon className="size-3" /> Token limits
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2 flex flex-col gap-2">
-          <label className="text-xs">
-            Most input tokens per reading call
-            <Input
-              type="number"
-              inputMode="numeric"
-              className="mt-1"
-              value={maxInput}
-              placeholder={limits ? String(limits.inputLimits.default) : ""}
-              onChange={(e) => setMaxInput(e.target.value)}
-              aria-invalid={!inputOk}
-            />
-            {limits && (
-              <span className={cn("text-[11px]", inputOk ? "text-muted-foreground" : "text-destructive")}>
-                {limits.inputLimits.min.toLocaleString()} – {limits.inputLimits.max.toLocaleString()}. Smaller splits the
-                reading into more calls; what does not fit the depth's calls is reported as not read.
-              </span>
-            )}
-          </label>
-          <label className="text-xs">
-            Most thinking tokens per call
-            <Input
-              type="number"
-              inputMode="numeric"
-              className="mt-1"
-              value={model?.capability.budget ? maxThinking : ""}
-              disabled={!model?.capability.budget}
-              placeholder={model?.capability.budget ? "set by How careful" : "not supported by this model"}
-              onChange={(e) => setMaxThinking(e.target.value)}
-              aria-invalid={!thinkingOk}
-            />
-            <span className={cn("text-[11px]", thinkingOk ? "text-muted-foreground" : "text-destructive")}>
-              {model?.capability.note}
-              {model?.capability.budget && limits && ` ${limits.thinkingLimits.min.toLocaleString()} – ${limits.thinkingLimits.max.toLocaleString()}.`}
-            </span>
-          </label>
-        </CollapsibleContent>
-      </Collapsible>
+      <SettingsLine>
+        {options.isLoading ? "…" : model ? `${model.provider === "gemini" ? "Gemini" : "Claude"} · ${model.model}` : "No model"} ·{" "}
+        {RFI_REVIEW_DEPTHS[depth].label} · {thinking} care
+        {settings.maxInputTokens ? ` · ${settings.maxInputTokens.toLocaleString()} input tokens a call` : ""}
+      </SettingsLine>
+      {model?.available === false && <Notice tone="error">The model in Settings has no API key on this server — pick another there.</Notice>}
+      {!(inputOk && thinkingOk) && <Notice tone="error">A token limit in Settings is outside what this server allows — fix it there.</Notice>}
 
       <Button size="sm" disabled={!canPlan || plan.isPending} onClick={() => plan.mutate(request())}>
         {plan.isPending ? <Spinner /> : <SearchIcon />}
