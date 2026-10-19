@@ -2807,6 +2807,18 @@ keys on the user id, so they were one counter: loading a project spent the 30-an
 tier, and a user who had never pressed a button got "too many summary runs" from the first
 summary, scan or review.
 
+**The question library** (docs/rfi-structured-review-requirements.md, Phase 2). The client's
+"Concrete Scope Element Library" workbook is imported ONCE by a developer —
+`npx tsx apps/api/src/rfiLibraryImport.ts <file.xlsx>` writes `packages/shared/data/rfi-library.json`,
+which ships with the app; users never upload it. Package → element → question, the client's ids
+kept (`CE-04-01-Q03`), a red-filled element row is `active: false` and its questions with it,
+universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
+not the client's) ties items to the original 17 questions and to code checks, and an import that
+drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
+element or as follow-ups under any question of it, to any depth (`GET/POST/PATCH/DELETE
+/projects/:id/rfis/library`, `apps/api/src/rfiLibrary.ts` builds the tree). Nothing runs these
+questions yet — that is Phases 3–4.
+
 ## Full AI scan — code pairs and lines up, the model only compares
 
 Step 2 of "Find RFIs in drawings" (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:
@@ -3021,7 +3033,14 @@ and as an X in the chat header — it used to float over the drawing, covering t
 scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
 COLUMN's width, which the divider changes independently of the window's.
 
-The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`). The
+The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
+(`components/ProjectSettings.tsx`). Settings holds the project's details and every RFI SETTING the
+RFIs tab used to carry beside the work — the targeted review's model, depth, care and token limits,
+the AI comparison's model, batch/direct, budget and auto-start limit — saved on the project
+(`projects.rfiSettings`, `RfiProjectSettings` + `rfiSettingsOf` in `@cdip/shared`, validated in
+`routes/projects.ts` to a run's own bounds, owner only). The RFIs tab reads them (`useRfiSettings`)
+and shows one `SettingsLine` per run type whose link switches tabs through the store's `workTab`.
+What to compare and which questions stay in the RFIs tab: that is the work, not a setting. The
 tab opens on "Scan all drawings" — one button, code checks then the optional priced AI comparison
 (`components/RfiReview.tsx`, see Generated RFIs below) — beside "Targeted review": the
 review list, then the log, then "Add manually" as the secondary path. Clicking any pin or piece

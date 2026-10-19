@@ -348,3 +348,35 @@ def test_cover_discipline_names_the_sheets_a_draft_is_on():
     assert cover_discipline(["plumbing", "plumbing", "mechanical"]) == "plumbing / mechanical"
     assert cover_discipline([None, "other"]) is None
     assert cover_discipline(["general"]) == "general"
+
+
+def test_a_copied_sheet_does_not_carry_the_source_set_with_it():
+    # Bluebeam leaves /Annots in a melted content stream's dictionary; those
+    # annotations point (/P) at their page and through it at the whole source
+    # set. A 3-page Leland package was 56 MB because of it.
+    src = fitz.open()
+    src.new_page()
+    src.new_page()
+    sheet, other = src[0], src[1]
+    sheet.insert_text((72, 72), "S2.32-B", fontsize=12)
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 600, 600), 0)
+    pix.set_rect(pix.irect, (10, 200, 30))
+    other.insert_image(fitz.Rect(0, 0, 400, 400), stream=pix.tobytes("png"))
+    annot = other.add_text_annot((50, 50), "markup")
+    contents = sheet.get_contents()[0]
+    src.xref_set_key(contents, "Annots", f"[{annot.xref} 0 R]")
+
+    def copied(detach: bool) -> fitz.Document:
+        out = fitz.open()
+        out.insert_pdf(src, from_page=0, to_page=0, annots=False)
+        if detach:
+            rp.detach_contents(out, out[-1])
+        return fitz.open("pdf", out.tobytes(garbage=3, deflate=True))
+
+    def images(doc: fitz.Document) -> int:
+        return sum(1 for x in range(1, doc.xref_length()) if doc.xref_get_key(x, "Subtype")[1] == "/Image")
+
+    assert images(copied(detach=False)) == 1, "the fixture must reproduce the leak"
+    clean = copied(detach=True)
+    assert images(clean) == 0 and clean.page_count == 1
+    assert "S2.32-B" in clean[0].get_text()

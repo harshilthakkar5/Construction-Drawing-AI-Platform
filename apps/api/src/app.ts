@@ -22,6 +22,7 @@ import { regionRouter } from "./routes/region.js";
 import { rfiDiagnosticsRouter } from "./routes/rfiDiagnostics.js";
 import { rfiFullScanRouter } from "./routes/rfiFullScan.js";
 import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
+import { rfiLibraryRouter } from "./routes/rfiLibrary.js";
 import { rfiPackagesRouter } from "./routes/rfiPackages.js";
 import { rfiReviewRouter } from "./routes/rfiReview.js";
 import { rfisRouter } from "./routes/rfis.js";
@@ -125,6 +126,7 @@ export function createApp() {
   app.use("/projects/:projectId/rfis/generated", requireGeneratedModels, rfiGeneratedRouter);
   app.use("/projects/:projectId/rfis/reviews", requireGeneratedModels, rfiReviewRouter);
   app.use("/projects/:projectId/rfis/packages", requireGeneratedModels, rfiPackagesRouter);
+  app.use("/projects/:projectId/rfis/library", requireGeneratedModels, rfiLibraryRouter);
   app.use("/projects/:projectId/rfis/full-scans", requireGeneratedModels, rfiFullScanRouter);
   app.use("/projects/:projectId/rfis/diagnostics", requireGeneratedModels, rfiDiagnosticsRouter);
   app.use("/projects/:projectId/rfis", requireGeneratedModels, rfisRouter);

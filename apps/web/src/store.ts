@@ -45,7 +45,13 @@ interface AppState {
   /** Active bbox highlight; persists until the next jump replaces/clears it. */
   highlight: Highlight | null;
   requestJump: (combinedPageNumber: number | null, bbox?: BBox | null) => void;
+  /** The project work column's tab — in the store so the RFIs tab can send
+   * someone to Settings. */
+  workTab: WorkTab;
+  setWorkTab: (tab: WorkTab) => void;
 }
+
+export type WorkTab = "documents" | "summary" | "rfis" | "settings";
 
 export const useAppStore = create<AppState>((set) => ({
   user: null,
@@ -70,6 +76,7 @@ export const useAppStore = create<AppState>((set) => ({
       highlight: null,
       selectedPortionId: null,
       pageFilter: null,
+      workTab: "summary",
     }),
   selectedPortionId: null,
   selectPortion: (portionId) => set({ selectedPortionId: portionId }),
@@ -90,4 +97,6 @@ export const useAppStore = create<AppState>((set) => ({
             ? { combinedPageNumber, bbox }
             : null,
     })),
+  workTab: "summary",
+  setWorkTab: (workTab) => set({ workTab }),
 }));

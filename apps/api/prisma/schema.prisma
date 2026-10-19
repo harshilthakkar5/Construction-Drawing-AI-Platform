@@ -149,8 +149,9 @@ model User {
   rfiDecisions              RfiCandidate[]
   rfiReviewRuns             RfiReviewRun[]
 
-  rfiPackages  RfiPackage[]
-  rfiFullScans RfiFullScan[]
+  rfiPackages        RfiPackage[]
+  rfiCustomQuestions RfiCustomQuestion[]
+  rfiFullScans       RfiFullScan[]
 
   @@map("users")
 }
@@ -254,6 +255,9 @@ model Project {
   /// and wait for Start. Read when the scan is pressed and stored on the plan
   /// (rfi_full_scans.autoStart), so changing it never moves a scan in flight.
   rfiAutoScanUsd Float?
+  /// RFI settings edited in the project Settings tab (RfiProjectSettings in
+  /// @cdip/shared): models, depth, care, token limits, full-scan budget.
+  rfiSettings    Json?
 
   owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   members       ProjectMember[]
@@ -268,8 +272,9 @@ model Project {
   rfiCandidates RfiCandidate[]
   rfiReviewRuns RfiReviewRun[]
 
-  rfiPackages  RfiPackage[]
-  rfiFullScans RfiFullScan[]
+  rfiPackages        RfiPackage[]
+  rfiCustomQuestions RfiCustomQuestion[]
+  rfiFullScans       RfiFullScan[]
 
   @@map("projects")
 }
@@ -996,4 +1001,26 @@ model RfiPackage {
 
   @@index([projectId, createdAt])
   @@map("rfi_packages")
+}
+
+/// A question a project added to the shipped library (packages/shared/data/
+/// rfi-library.json): under an element, or as a follow-up under any question
+/// of that element. elementId and parentId are library ids (or another custom
+/// question's id), not foreign keys — the library is a file, not a table.
+model RfiCustomQuestion {
+  id          String   @id @default(uuid())
+  projectId   String
+  elementId   String
+  parentId    String?
+  category    String?
+  text        String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, elementId])
+  @@map("rfi_custom_questions")
 }

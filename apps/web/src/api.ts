@@ -44,6 +44,7 @@ import type {
   SummaryStatusDto,
   SupportTicketDto,
   UserDto,
+  RfiProjectSettings,
 } from "@cdip/shared";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -208,7 +209,13 @@ export const api = {
     request<ProjectDto>("/projects", { method: "POST", body: JSON.stringify(body) }),
   updateProject: (
     id: string,
-    body: { name?: string; description?: string | null; roles?: string[]; rfiAutoScanUsd?: number | null },
+    body: {
+      name?: string;
+      description?: string | null;
+      roles?: string[];
+      rfiAutoScanUsd?: number | null;
+      rfiSettings?: RfiProjectSettings | null;
+    },
   ) =>
     request<ProjectDto>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),

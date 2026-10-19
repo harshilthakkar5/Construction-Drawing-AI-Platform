@@ -150,6 +150,8 @@ export interface ProjectDto {
   /** "Find RFIs in drawings" starts the AI comparison by itself when it may
    * cost up to this many dollars; null = always ask. Owner-set. */
   rfiAutoScanUsd?: number | null;
+  /** Owner-set RFI settings; read through `rfiSettingsOf`. */
+  rfiSettings?: Partial<{ review: Partial<RfiProjectSettings["review"]>; fullScan: Partial<RfiProjectSettings["fullScan"]> }> | null;
 }
 
 export interface DocumentDto {
@@ -1422,6 +1424,35 @@ export type RfiReviewThinking = (typeof RFI_REVIEW_THINKING)[number];
 export type RfiReviewProvider = "claude" | "gemini";
 
 /**
+ * A project's RFI settings (projects.rfiSettings), edited in its Settings tab
+ * and read by the RFIs tab, which no longer carries these controls. A null
+ * model means the server's default; a null budget means the plan's own
+ * estimate plus a margin. The API refuses anything a run would refuse.
+ */
+export interface RfiProjectSettings {
+  review: {
+    provider: RfiReviewProvider | null;
+    model: string | null;
+    depth: RfiReviewDepth;
+    thinking: RfiReviewThinking;
+    maxInputTokens: number | null;
+    maxThinkingTokens: number | null;
+  };
+  fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
+}
+export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
+  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null },
+  fullScan: { provider: null, model: null, useBatch: true, budgetUsd: null },
+};
+/** Stored settings over the defaults — a row saved before a field existed still reads whole. */
+export function rfiSettingsOf(stored: { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]> } | null | undefined): RfiProjectSettings {
+  return {
+    review: { ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review },
+    fullScan: { ...RFI_SETTINGS_DEFAULTS.fullScan, ...stored?.fullScan },
+  };
+}
+
+/**
  * What a model lets a review control about its reasoning. A VERSION SNIFF, the
  * same one workers/src/llm.py makes (`_claude_takes_effort`,
  * `_takes_thinking_level`); both read fixtures/thinking-capability.json so the
@@ -1861,6 +1892,76 @@ export const RFI_CUSTOM_QUESTION_MAX = 5;
 export const RFI_CUSTOM_QUESTION_CHARS = 300;
 /** The ids custom questions carry through the AI comparison, in order. */
 export const RFI_CUSTOM_QUESTION_IDS = ["Q1", "Q2", "Q3", "Q4", "Q5"] as const;
+
+/**
+ * The question library: the client's "Concrete Scope Element Library"
+ * workbook, imported once by a developer into packages/shared/data/
+ * rfi-library.json (apps/api/src/rfiLibraryImport.ts) and shipped with the
+ * app. Package → element → question; ids are the client's own. `catalogue`
+ * links a library item to the original 17 questions, `codeChecks` to the
+ * code checks that answer it without AI.
+ */
+export interface RfiLibraryFile {
+  source: string;
+  packages: { id: string; name: string; active: boolean }[];
+  elements: {
+    id: string;
+    seq: number;
+    packageId: string;
+    name: string;
+    variants: string;
+    compareAcross: string[];
+    attributes: string;
+    triggers: string;
+    active: boolean;
+    catalogue: RfiReviewCheckId[];
+  }[];
+  questions: {
+    id: string;
+    elementId: string;
+    parentId: string | null;
+    category: string;
+    text: string;
+    whereToLook: string[];
+    active: boolean;
+    catalogue: RfiReviewCheckId[];
+    codeChecks: RfiCheckType[];
+  }[];
+  /** U-01..: asked of every element, `{element}` filled with its name. */
+  universal: { id: string; category: string; template: string; codeChecks: RfiCheckType[] }[];
+}
+
+/** A question as a project sees it: the library's, a universal one expanded
+ * for this element (id `<element>-U-01`), or one the project added. Any
+ * question can carry follow-up questions, to any depth. */
+export interface RfiLibraryQuestionDto {
+  id: string;
+  source: "library" | "universal" | "custom";
+  category: string | null;
+  text: string;
+  whereToLook: string[];
+  catalogue: RfiReviewCheckId[];
+  codeChecks: RfiCheckType[];
+  children: RfiLibraryQuestionDto[];
+}
+export interface RfiLibraryElementDto {
+  id: string;
+  name: string;
+  variants: string;
+  compareAcross: string[];
+  attributes: string;
+  triggers: string;
+  catalogue: RfiReviewCheckId[];
+  questions: RfiLibraryQuestionDto[];
+}
+/** GET /projects/:id/rfis/library — active items only, in review order. */
+export interface RfiLibraryDto {
+  /** Changes whenever the shipped library does; a run records it. */
+  version: string;
+  packages: { id: string; name: string; elements: RfiLibraryElementDto[] }[];
+}
+/** The most saved questions one project may add to the library. */
+export const RFI_LIBRARY_CUSTOM_MAX = 500;
 
 /**
  * The code checks that answer each catalogue question exactly (no AI): G01

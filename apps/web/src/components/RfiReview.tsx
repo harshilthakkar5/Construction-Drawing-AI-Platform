@@ -31,7 +31,6 @@ import { api } from "@/api";
 import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RfiFullScan } from "@/components/RfiFullScan";
@@ -327,7 +326,6 @@ export function RfiReview({ projectId }: { projectId: string }) {
             </Button>
           )}
         </div>
-        {fullScanOffered && <AutoScanLimit projectId={projectId} />}
         {!scan.data && !scan.isLoading && (
           <p className="text-muted-foreground text-xs leading-relaxed">
             One scan, two steps. <strong className="text-foreground">1 · Code checks</strong> read every
@@ -337,8 +335,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
             {fullScanOffered && (
               <>
                 <strong className="text-foreground">2 · AI sheet comparison</strong> is prepared at the same
-                time and is optional: you see its price and choose a budget before anything is spent — or set
-                a spend limit above, and it starts by itself whenever it costs less.{" "}
+                time and is optional: you see its price before anything is spent — or set a spend limit in
+                Settings, and it starts by itself whenever it costs less.{" "}
               </>
             )}
             Every finding is written up as an RFI question for you to accept or dismiss.
@@ -922,70 +920,5 @@ function EvidenceLine({
         <span className="text-muted-foreground"> (AI description — weakest evidence)</span>
       )}
     </li>
-  );
-}
-
-/**
- * One-click scans (Phase 5): a per-project limit under which step 2 starts by
- * itself once the code checks finish. Stored on the project, owner-set; read
- * when the scan button is pressed, so changing it never moves a scan in flight.
- */
-function AutoScanLimit({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient();
-  const project = useQuery({
-    queryKey: ["projects", projectId],
-    queryFn: async () => (await api.listProjects()).find((p) => p.id === projectId),
-  });
-  const saved = project.data?.rfiAutoScanUsd ?? null;
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? (saved !== null ? String(saved) : "");
-  const save = useMutation({
-    mutationFn: (limit: number | null) => api.updateProject(projectId, { rfiAutoScanUsd: limit }),
-    onSuccess: () => {
-      setDraft(null);
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-  const amount = Number(value);
-  const valid = value.trim() === "" || (Number.isFinite(amount) && amount > 0 && amount <= 1000);
-  const changed = draft !== null && (value.trim() === "" ? saved !== null : amount !== saved);
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label htmlFor={`auto-scan-${projectId}`} className="text-muted-foreground">
-          Start the AI comparison by itself when it costs up to $
-        </label>
-        <Input
-          id={`auto-scan-${projectId}`}
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step="0.5"
-          placeholder="ask me"
-          className="h-7 w-24 text-xs"
-          value={value}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        {changed && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            disabled={!valid || save.isPending}
-            onClick={() => save.mutate(value.trim() === "" ? null : Math.round(amount * 100) / 100)}
-          >
-            {save.isPending ? <Spinner /> : null}
-            Save
-          </Button>
-        )}
-      </div>
-      <p className="text-muted-foreground text-[11px] leading-relaxed">
-        {saved !== null
-          ? `One click: when step 2 may cost up to $${saved.toFixed(2)}, it starts as soon as the code checks finish; above that it waits for you.`
-          : "Empty: step 2 always shows its price and waits for you to press Start."}
-      </p>
-      {save.error && <Notice tone="error">{(save.error as Error).message}</Notice>}
-    </div>
   );
 }

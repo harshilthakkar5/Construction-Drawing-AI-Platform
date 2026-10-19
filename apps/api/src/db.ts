@@ -20,6 +20,7 @@ const REQUIRED_MODELS = [
   "rfiCandidate",
   "rfiReviewRun",
   "rfiPackage",
+  "rfiCustomQuestion",
   "rfiFullScan",
   "rfiFullScanTile",
 ] as const;
