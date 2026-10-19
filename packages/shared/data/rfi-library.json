@@ -78,7 +78,9 @@
    "attributes": "Grid labels, spacing/dimensions, angles, alignment across disciplines",
    "triggers": "Grid spacing differs between Arch & Struct; missing/duplicate grid tags; skew angle not dimensioned",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "G01"
+   ]
   },
   {
    "id": "CE-01-02",
@@ -94,7 +96,9 @@
    "attributes": "Datum consistency, relative vs absolute elevations, level naming",
    "triggers": "FFE on Arch ≠ T.O.S. on Struct; slab elevation not given; conflicting datum (100'-0\" vs actual)",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "G02"
+   ]
   },
   {
    "id": "CE-01-03",
@@ -338,7 +342,9 @@
    "attributes": "Size, depth, pile layout, edge distance, rebar, T.O. elevation",
    "triggers": "Pile layout in cap differs plan vs schedule; cap size too small for pile spacing",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F04"
+   ]
   },
   {
    "id": "CE-03-06",
@@ -385,7 +391,9 @@
    "attributes": "Size, thickness, reinforcement, column locations",
    "triggers": "Combined footing shown on plan without detail",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-04-03",
@@ -400,7 +408,9 @@
    "attributes": "Strap size, rebar, elevations",
    "triggers": "Strap beam depth conflicts with footing elevations",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-04-04",
@@ -434,7 +444,10 @@
    "attributes": "Step locations, step height/length, rebar continuity",
    "triggers": "Step locations not dimensioned; steps don't match grade",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01",
+    "F02"
+   ]
   },
   {
    "id": "CE-04-06",
@@ -467,7 +480,11 @@
    "attributes": "Size, elevation, rebar, intersections with footings/caps",
    "triggers": "Grade beam bottom elev. conflicts with pile cap; schedule missing beam mark",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "B01",
+    "B02",
+    "B03"
+   ]
   },
   {
    "id": "CE-04-08",
@@ -500,7 +517,9 @@
    "attributes": "Thickness, rebar faces, waterproofing, drainage, wall-to-slab connection",
    "triggers": "One-sided forming not addressed; waterproofing system conflicts with lagging",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02"
+   ]
   },
   {
    "id": "CE-04-10",
@@ -516,7 +535,9 @@
    "attributes": "Size, height, T.O. pedestal, anchor bolt pattern fit, ties",
    "triggers": "Base plate larger than pedestal; T.O. pedestal vs grout bed thickness",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C01"
+   ]
   },
   {
    "id": "CE-04-11",
@@ -689,7 +710,9 @@
    "attributes": "Depth, extent, slab thickness below depression",
    "triggers": "Arch shows depression for floor finish; Struct shows flat slab",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL03"
+   ]
   },
   {
    "id": "CE-06-03",
@@ -833,7 +856,9 @@
    "attributes": "Size, projection, rebar",
    "triggers": "Pilaster shown Arch only",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C01"
+   ]
   },
   {
    "id": "CE-07-03",
@@ -899,7 +924,9 @@
    "attributes": "Thickness, fire rating, rebar, height",
    "triggers": "Fire rating requires thicker wall than shown",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02"
+   ]
   },
   {
    "id": "CE-07-07",
@@ -1041,7 +1068,11 @@
    "attributes": "Size, embeds, slab edge relation",
    "triggers": "Curtain wall embeds not shown",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "B01",
+    "B02",
+    "B03"
+   ]
   },
   {
    "id": "CE-08-05",
@@ -1055,7 +1086,11 @@
    "attributes": "Size, rebar congestion, shoring",
    "triggers": "Shoring/sequence not addressed; rebar congestion unbuildable",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "B01",
+    "B02",
+    "B03"
+   ]
   },
   {
    "id": "CE-08-06",
@@ -1830,7 +1865,9 @@
    "attributes": "Size, location, edge distance, beam penetration limits",
    "triggers": "Sleeve through beam not approved; sleeve near column",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "O01"
+   ]
   },
   {
    "id": "CE-12-05",

@@ -2817,7 +2817,15 @@ not the client's) ties items to the original 17 questions and to code checks, an
 drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
 element or as follow-ups under any question of it, to any depth (`GET/POST/PATCH/DELETE
 /projects/:id/rfis/library`, `apps/api/src/rfiLibrary.ts` builds the tree). Nothing runs these
-questions yet — that is Phases 3–4.
+questions yet — that is Phase 4. Phase 3 is the picker (`components/LibraryPicker.tsx`, the
+targeted review's first mode "By element"): element → questions (+ the project's own, follow-ups) →
+1–4 sheets, suggested by `suggestSheets` in `@cdip/shared` from the element's Compare Across words
+(`compareAcrossNeeds`; a kind alone like "pile cap schedule" belongs to the discipline before it,
+anything naming no discipline — Geotech, Specs, vendors — is reported as not a drawing), preferring
+a plan that names a level and keeping one level; the manifest now carries `sheetKind`/`level` for it.
+Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
+asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
+chosen question has none — so an element with no link (pits, joints…) cannot be planned and says so.
 
 ## Full AI scan — code pairs and lines up, the model only compares
 

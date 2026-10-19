@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { RFI_CHECK_LABELS, RFI_REVIEW_CHECKS, type RfiLibraryQuestionDto } from "@cdip/shared";
+import {
+  RFI_CHECK_LABELS,
+  RFI_REVIEW_CHECKS,
+  compareAcrossNeeds,
+  libraryCatalogueIds,
+  suggestSheets,
+  type LibrarySheet,
+  type RfiLibraryQuestionDto,
+} from "@cdip/shared";
 import { buildLibrary, library, questionIdsOf, type CustomQuestionRow } from "./rfiLibrary.js";
 import { readLibrary } from "./rfiLibraryImport.js";
 
@@ -120,5 +128,71 @@ describe("readLibrary (the importer)", () => {
 
   it("refuses a link to an id the new workbook dropped", async () => {
     await expect(readLibrary(await workbook(), { "CE-09-09": { catalogue: ["G01"] } })).rejects.toThrow(/CE-09-09/);
+  });
+});
+
+describe("sheet suggestions for an element", () => {
+  const sheet = (sheetNumber: string, discipline: LibrarySheet["discipline"], sheetKind: LibrarySheet["sheetKind"], n = 1): LibrarySheet => ({
+    combinedPageNumber: n, sheetNumber, discipline, sheetKind,
+  });
+  const set = [
+    sheet("A0.01", "architectural", "cover", 1),
+    sheet("A1.01", "architectural", "plan", 2),
+    sheet("S0.01", "structural", "notes", 3),
+    sheet("S2.01", "structural", "plan", 4),
+    sheet("S5.01", "structural", "schedule", 5),
+    sheet("M1.01", "mechanical", null, 6),
+  ];
+
+  it("reads the client's wording: a kind alone belongs to the discipline before it, anything else is outside", () => {
+    const { needs, outside } = compareAcrossNeeds(["Struct plan", "pile cap schedule", "details", "Geotech", "Specs Div 03"]);
+    expect(needs.map((n) => [n.entry, n.disciplines, n.kinds])).toEqual([
+      ["Struct plan", ["structural"], ["plan", "enlarged_plan"]],
+      ["pile cap schedule", ["structural"], ["schedule"]],
+      ["details", ["structural"], ["detail"]],
+    ]);
+    expect(outside).toEqual(["Geotech", "Specs Div 03"]);
+  });
+
+  it("suggests one sheet per entry, the matching kind first, a page never read as a fallback", () => {
+    expect(suggestSheets(["Arch plans", "Struct plans", "Civil site plan", "MEP plans"], set)).toEqual({
+      sheets: ["A1.01", "S2.01", "M1.01"],
+      missing: ["Civil site plan"],
+      outside: [],
+    });
+    expect(suggestSheets(["Struct plan", "pile cap schedule", "Geotech"], set)).toEqual({
+      sheets: ["S2.01", "S5.01"],
+      missing: [],
+      outside: ["Geotech"],
+    });
+  });
+
+  it("prefers a floor plan over a cover or notes sheet, a plan over an enlarged one, and one floor throughout", () => {
+    const floors: LibrarySheet[] = [
+      { ...sheet("A0.10", "architectural", "plan", 1), level: null },
+      { ...sheet("A2.83.01", "architectural", "enlarged_plan", 2), level: "LEVEL 1" },
+      { ...sheet("A1.02", "architectural", "plan", 3), level: "LEVEL 2" },
+      { ...sheet("S0.00", "structural", "plan", 4), level: null },
+      { ...sheet("S2.21", "structural", "plan", 5), level: "LEVEL 1" },
+      { ...sheet("S2.23", "structural", "plan", 6), level: "LEVEL 2" },
+    ];
+    expect(suggestSheets(["Arch plans", "Struct plans"], floors).sheets).toEqual(["A1.02", "S2.23"]);
+  });
+
+  it("never suggests a sheet twice or more than four", () => {
+    const r = suggestSheets(["Struct", "Struct plan", "Arch", "Arch plans", "MEP", "Struct"], set);
+    expect(new Set(r.sheets).size).toBe(r.sheets.length);
+    expect(r.sheets.length).toBeLessThanOrEqual(4);
+  });
+
+  it("asks a chosen question through its own link, or its element's when it has none", () => {
+    expect(libraryCatalogueIds({ catalogue: ["C01"] }, [{ catalogue: ["C03"] }])).toEqual(["C03"]);
+    expect(libraryCatalogueIds({ catalogue: ["C01"] }, [{ catalogue: ["C03"] }, { catalogue: [] }]).sort()).toEqual(["C01", "C03"]);
+    expect(libraryCatalogueIds({ catalogue: [] }, [{ catalogue: [] }])).toEqual([]);
+  });
+
+  it("every active element of the shipped library maps to at least one drawing discipline", () => {
+    const none = file.elements.filter((e) => e.active && compareAcrossNeeds(e.compareAcross).needs.length === 0);
+    expect(none.map((e) => e.id)).toEqual([]);
   });
 });

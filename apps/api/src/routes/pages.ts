@@ -47,6 +47,8 @@ pagesRouter.get("/manifest", async (req, res) => {
       rotation: true,
       discipline: true,
       sheetNumber: true,
+      sheetKind: true,
+      level: true,
     },
   });
   const storedByKey = new Map(stored.map((p) => [`${p.documentId}:${p.pageNumber}`, p]));
@@ -62,6 +64,8 @@ pagesRouter.get("/manifest", async (req, res) => {
         rotation: page?.rotation ?? null,
         discipline: page?.discipline ?? null,
         sheetNumber: page?.sheetNumber ?? null,
+        sheetKind: page?.sheetKind ?? null,
+        level: page?.level ?? null,
       };
     }),
   );

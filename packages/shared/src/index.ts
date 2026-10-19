@@ -222,6 +222,10 @@ export interface ManifestEntryDto extends PageManifestEntry {
   discipline: Discipline | "unclassified" | null;
   /** The sheet number the discipline came from, e.g. "S-103.0". */
   sheetNumber: string | null;
+  /** What the sheet is (plan, schedule, section…) and its level, read by a
+   * scan's page facts; null until a scan has read the page. */
+  sheetKind?: SheetKind | null;
+  level?: string | null;
 }
 
 /** FR-15: one portion per discipline, spanning all of its pages. */
@@ -1962,6 +1966,118 @@ export interface RfiLibraryDto {
 }
 /** The most saved questions one project may add to the library. */
 export const RFI_LIBRARY_CUSTOM_MAX = 500;
+
+/** The most sheets one review compares (the targeted review's compare limit). */
+export const RFI_LIBRARY_MAX_SHEETS = 4;
+
+const NEED_DISCIPLINES: [RegExp, Discipline[]][] = [
+  [/\barch/i, ["architectural"]],
+  [/\bstruct/i, ["structural"]],
+  [/\bcivil/i, ["civil"]],
+  [/\bmep\b/i, ["mechanical", "hvac", "plumbing", "electrical"]],
+  [/\bplumbing/i, ["plumbing"]],
+  [/\belectrical/i, ["electrical"]],
+  [/\b(?:mechanical|hvac)/i, ["mechanical", "hvac"]],
+  [/\blandscape/i, ["landscape"]],
+  [/\bfire protection/i, ["fire_protection"]],
+  [/\blife safety/i, ["architectural", "general"]],
+];
+const NEED_KINDS: [RegExp, SheetKind[]][] = [
+  [/\b(?:plans?|rcp|layout|partitions)\b/i, ["plan", "enlarged_plan"]],
+  [/\bschedules?\b/i, ["schedule"]],
+  [/\bsections?\b/i, ["section"]],
+  [/\belevations?\b/i, ["elevation"]],
+  [/\bdetails?\b/i, ["detail"]],
+  [/\bnotes\b/i, ["notes"]],
+];
+
+/** What one library element's "compare across" entries ask for, in the client's
+ * words ("Arch plans", "Struct", "pile cap schedule", "Geotech"). An entry naming
+ * only a sheet kind belongs to the discipline before it ("Struct plan, footing
+ * schedule"); one naming neither is a document that is not a drawing. */
+export function compareAcrossNeeds(entries: readonly string[]): {
+  needs: { entry: string; disciplines: Discipline[]; kinds: SheetKind[] }[];
+  outside: string[];
+} {
+  const needs: { entry: string; disciplines: Discipline[]; kinds: SheetKind[] }[] = [];
+  const outside: string[] = [];
+  let last: Discipline[] | null = null;
+  for (const entry of entries) {
+    const named = NEED_DISCIPLINES.filter(([re]) => re.test(entry)).flatMap(([, d]) => d);
+    const kinds = NEED_KINDS.filter(([re]) => re.test(entry)).flatMap(([, k]) => k);
+    const disciplines: Discipline[] | null = named.length ? [...new Set(named)] : kinds.length && last ? last : null;
+    if (!disciplines) {
+      outside.push(entry);
+      continue;
+    }
+    last = disciplines;
+    needs.push({ entry, disciplines, kinds });
+  }
+  return { needs, outside };
+}
+
+/** A sheet a person can pick: one live page with its sheet number read. */
+export interface LibrarySheet {
+  combinedPageNumber: number;
+  sheetNumber: string;
+  discipline: Discipline | "unclassified" | null;
+  sheetKind: SheetKind | null;
+  /** The level its title names ("LEVEL 2"); a floor plan names one, a cover or notes sheet does not. */
+  level?: string | null;
+}
+
+/**
+ * Sheets to suggest for an element: one per entry it compares across, in that
+ * order: a page whose kind is known to match before one whose kind was never
+ * read, the entry's first kind first (a plan before an enlarged plan), a page
+ * naming a level before one that names none, and once one sheet is picked, the
+ * other sheets on ITS level — coordination compares one floor. `missing` names entries this project has no sheet for, and
+ * `outside` the documents that are not drawings (specs, geotech, vendors).
+ * A suggestion, never a choice: the person edits it.
+ */
+export function suggestSheets(
+  compareAcross: readonly string[],
+  sheets: readonly LibrarySheet[],
+  max = RFI_LIBRARY_MAX_SHEETS,
+): { sheets: string[]; missing: string[]; outside: string[] } {
+  const { needs, outside } = compareAcrossNeeds(compareAcross);
+  const picked: string[] = [];
+  const missing: string[] = [];
+  let level: string | null = null;
+  for (const need of needs) {
+    const of = sheets.filter((s) => s.discipline && need.disciplines.includes(s.discipline as Discipline));
+    if (!of.length) {
+      missing.push(need.entry);
+      continue;
+    }
+    const kindRank = (s: LibrarySheet) =>
+      !need.kinds.length ? 0 : s.sheetKind === null ? need.kinds.length : need.kinds.indexOf(s.sheetKind);
+    const rank = (s: LibrarySheet) => [kindRank(s), level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber];
+    const pick = of
+      .filter((s) => kindRank(s) >= 0 && !picked.includes(s.sheetNumber))
+      .sort((a, b) => {
+        const [x, y] = [rank(a), rank(b)];
+        return x[0]! - y[0]! || x[1]! - y[1]! || x[2]! - y[2]!;
+      })[0];
+    if (pick && picked.length < max) {
+      picked.push(pick.sheetNumber);
+      level ??= pick.level ?? null;
+    }
+  }
+  return { sheets: picked, missing, outside };
+}
+
+/** The original catalogue questions a library choice is asked through today:
+ * each chosen question's own links, and its element's when a chosen question
+ * has none of its own. */
+export function libraryCatalogueIds(
+  element: { catalogue: readonly RfiReviewCheckId[] },
+  chosen: readonly { catalogue: readonly RfiReviewCheckId[] }[],
+): RfiReviewCheckId[] {
+  const ids = new Set(chosen.flatMap((q) => q.catalogue));
+  if (chosen.some((q) => q.catalogue.length === 0)) element.catalogue.forEach((id) => ids.add(id));
+  return [...ids];
+}
 
 /**
  * The code checks that answer each catalogue question exactly (no AI): G01

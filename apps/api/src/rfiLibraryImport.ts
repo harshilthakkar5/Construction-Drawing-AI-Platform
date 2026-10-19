@@ -24,6 +24,22 @@ type Link = { catalogue?: RfiReviewCheckId[]; codeChecks?: RfiCheckType[] };
 
 /** id → { catalogue: original question ids, codeChecks: RFI_CHECK_LABELS keys }. */
 export const LINKS: Record<string, Link> = {
+  // Element-level: a chosen question with no link of its own is asked through these.
+  "CE-01-01": { catalogue: ["G01"] },
+  "CE-01-02": { catalogue: ["G02"] },
+  "CE-03-05": { catalogue: ["F04"] },
+  "CE-04-02": { catalogue: ["F01"] },
+  "CE-04-03": { catalogue: ["F01"] },
+  "CE-04-05": { catalogue: ["F01", "F02"] },
+  "CE-04-07": { catalogue: ["B01", "B02", "B03"] },
+  "CE-04-09": { catalogue: ["C02"] },
+  "CE-04-10": { catalogue: ["C01"] },
+  "CE-06-02": { catalogue: ["FL03"] },
+  "CE-07-02": { catalogue: ["C01"] },
+  "CE-07-06": { catalogue: ["C02"] },
+  "CE-08-04": { catalogue: ["B01", "B02", "B03"] },
+  "CE-08-05": { catalogue: ["B01", "B02", "B03"] },
+  "CE-12-04": { catalogue: ["O01"] },
   "CE-01-01-Q01": { catalogue: ["G01"], codeChecks: ["grid_mismatch"] },
   "CE-01-01-Q02": { catalogue: ["G01"], codeChecks: ["grid_spacing"] },
   "CE-01-01-Q08": { codeChecks: ["grid_mismatch", "grid_spacing"] },
