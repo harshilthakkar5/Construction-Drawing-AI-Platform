@@ -59,3 +59,19 @@ def test_outcomes_cover_library_questions():
     assert results["CE-03-01-Q01"]["outcome"] == "candidate_found"
     assert results["c-1"]["outcome"] == "insufficient_evidence"
     assert results["G02"]["outcome"] == "not_selected"
+
+
+def test_a_mark_finding_answers_only_its_own_elements_library_questions():
+    pile = rr.rfi_checks.Finding("unmarked_element", "fp", "high", "Element with no type mark", "?", [],
+                                 facts={"examples": ["P30-12", "P24-10"]})
+    angle = rr.rfi_checks.Finding("unscheduled_mark", "fp2", "medium", "A8 not scheduled", "?", [], facts={"mark": "A8"})
+    ref = rr.rfi_checks.Finding("dangling_reference", "fp3", "high", "S-501 missing", "?", [])
+    linked = {"unmarked_element": ["F04", "CE-12-01-U-01"], "unscheduled_mark": ["CE-12-01-U-01"],
+              "dangling_reference": ["CE-12-01-U-07"]}
+    bolts = {"name": "Anchor bolts", "variants": "Column anchor bolts"}
+    piers = {"name": "Drilled piers / caissons", "variants": "Straight shaft"}
+    assert rr.credited(pile, linked, bolts) == ["F04"]  # the catalogue question keeps its link
+    assert rr.credited(pile, linked, piers) == ["F04", "CE-12-01-U-01"]
+    assert rr.credited(angle, linked, piers) == []  # unknown prefix: no library question
+    assert rr.credited(ref, linked, bolts) == ["CE-12-01-U-07"]  # not a mark check
+    assert rr.credited(pile, linked, {"name": "Pile caps", "variants": "Single, 2-pile caps"}) == ["F04"]
