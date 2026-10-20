@@ -2796,6 +2796,13 @@ and the code proposes a conflict where two sources print different LENGTHS for o
 are two elements; rows citing the same evidence are one source). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
+Those values must be IN VIEW to be compared, and the planned close-ups were not: they are aimed at
+text pieces, and on a detail sheet one piece spans several details (Leland S4.00: 2,400pt wide), so
+S4.00's three close-ups showed a shear wall, waterproofing and dowels while the AI never read detail
+3's 8" slab. In a By element review the worker now aims the page's close-up SLOTS first at the
+details whose TITLE names the element (`detail_regions`: a title line with its SCALE line right below —
+a "SEE ELEVATOR PIT" note is not one — cut as the cell above it, in display space and mapped back) and
+fills the rest from the plan. Same number of images, so the plan's price stands.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

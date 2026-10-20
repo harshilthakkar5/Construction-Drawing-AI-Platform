@@ -321,6 +321,63 @@ def _unrotated_rect(page: fitz.Page) -> fitz.Rect:
     return fitz.Rect(page.rect * page.derotation_matrix).normalize()
 
 
+_NOT_A_TITLE_WORD = {"and", "the", "with", "for", "on", "of"}
+
+
+def element_title_words(name: str | None) -> list[list[str]]:
+    """The words a detail TITLE about this element carries, per alternative:
+    "Drilled piers / caissons" → [[DRILLED, PIER], [CAISSON]]. Upper-case stems. Pure."""
+    out = []
+    for part in re.sub(r"\([^)]*\)", " ", name or "").split("/"):
+        words = [re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", part.upper()) if w.lower() not in _NOT_A_TITLE_WORD]
+        if words:
+            out.append(words)
+    return out
+
+
+_SCALE_LINE = re.compile(r"^\s*SCALE\b", re.I)
+
+
+def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
+    """Where the element is DRAWN on a detail sheet, in UNROTATED space: each
+    detail whose title names it ("ELEVATOR PIT DETAIL", with its SCALE line
+    right below — never a "SEE ELEVATOR PIT" note), cut as the cell above that
+    title, up to the scale line of the detail above and the next column. A
+    sheet's text pieces are too wide to aim a close-up with (one on Leland's
+    S4.00 spans 2,400pt across several details), so the words' own positions
+    are. [] when no title names the element."""
+    if not alternatives:
+        return []
+    to_display = page.rotation_matrix
+    lines = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line["spans"]).strip()
+            if text:
+                lines.append((text, fitz.Rect(line["bbox"]) * to_display))
+    scales = [r for t, r in lines if _SCALE_LINE.match(t)]
+    shown = page.rect  # display space
+    regions: list[fitz.Rect] = []
+    for text, box in sorted(lines, key=lambda l: (l[1].y0, l[1].x0)):
+        tokens = {re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", text.upper())}
+        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not any(set(a) <= tokens for a in alternatives):
+            continue
+        under = [s for s in scales if 0 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0]
+        if not under:
+            continue
+        bottom = max(s.y1 for s in under) + 10
+        right = min((s.x0 for s in scales if s.x0 > box.x0 + 50 and abs(s.y0 - under[0].y0) < 60), default=box.x0 + 600) - 10
+        top = max((s.y1 for s in scales if s.y1 < box.y0 - 20 and s.x0 < right and s.x1 > box.x0 - 30), default=box.y0 - 600) + 10
+        region = fitz.Rect(box.x0 - 30, top, right, bottom) & shown
+        if region.is_empty or any((region & r).get_area() > 0.5 * region.get_area() for r in regions):
+            continue
+        regions.append(region)
+        if len(regions) >= limit:
+            break
+    back = page.derotation_matrix
+    return [fitz.Rect(r * back).normalize() for r in regions]
+
+
 def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
@@ -351,8 +408,18 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
         whole = {"x": unrotated.x0, "y": unrotated.y0, "width": unrotated.width, "height": unrotated.height}
         out.append(Evidence(id=f"ev{n}", kind="page", bbox=whole, image=vlm.render(page, OVERVIEW_EDGE), **common))
         n += 1
-        for anchor in p.get("crops", []):
-            box = crop_box(anchor["bbox"], unrotated)
+        # The planned close-ups' SLOTS, aimed first at the details whose titles
+        # name the element (By element), then at the planned text pieces: as
+        # many images as the plan priced, never more.
+        planned = p.get("crops", [])
+        aimed = detail_regions(page, element_title_words(((scope.get("library") or {}).get("element") or {}).get("name")), len(planned))
+        anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
+        anchors += planned[: len(planned) - len(aimed)]
+        for anchor in anchors:
+            b = anchor["bbox"]
+            # A detail cell is already the region to show; a text piece gets crop_box's padding.
+            box = (fitz.Rect(b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"]) & unrotated
+                   if anchor.get("detail") else crop_box(b, unrotated))
             if box.is_empty:
                 continue
             shown = fitz.Rect(box * page.rotation_matrix).normalize()

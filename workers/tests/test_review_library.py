@@ -128,3 +128,38 @@ def test_the_guard_lets_the_codes_two_detail_conflict_stand_on_one_sheet_only():
     assert rr.guard(c, decision, ev, []) is None  # the printed values ground the numbers
     model_made = dict(c, fromValues=False)
     assert rr.guard(model_made, decision, ev, []) == "a conflict needs two sources, and it cites one page"
+
+
+def _detail_sheet(rotation=0):
+    """A detail sheet as a person SEES it: titles under their details in display
+    space. A rotated CAD sheet stores its content sideways so it displays
+    upright, so text is placed through the derotation and turned with the page."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=1600, height=1200) if rotation in (0, 180) else doc.new_page(width=1200, height=1600)
+    page.set_rotation(rotation)
+
+    def put(x, y, text, size):
+        page.insert_text(fitz.Point(x, y) * page.derotation_matrix, text, fontsize=size, rotate=rotation)
+
+    for x, title, inside in ((100, "ELEVATOR PIT DETAIL", "SLABA8IN"), (600, "SUMP PIT DETAIL", "SUMPX"), (1100, "ELEVATOR PIT DETAIL", "SLABB16IN")):
+        put(x + 40, 300, inside, 12)       # drawn above its title
+        put(x, 560, title, 14)
+        put(x, 580, 'SCALE: 3/4" = 1\'-0"', 9)
+    put(100, 900, "SEE ELEVATOR PIT", 10)
+    put(100, 920, 'SCALE: 1/8" = 1\'-0"', 9)  # a note over a scale is still not a title
+    return doc, page
+
+
+def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
+    assert rr.element_title_words("Elevator pits") == [["ELEVATOR", "PIT"]]
+    assert rr.element_title_words("Drilled piers / caissons (CIDH)") == [["DRILLED", "PIER"], ["CAISSON"]]
+    for rotation in (0, 90):
+        doc, page = _detail_sheet(rotation)
+        regions = rr.detail_regions(page, [["ELEVATOR", "PIT"]], 3)
+        inside = [" ".join(w[4] for w in page.get_text("words", clip=r)) for r in regions]
+        assert len(regions) == 2, (rotation, inside)
+        assert any("SLABA8IN" in t for t in inside) and any("SLABB16IN" in t for t in inside), (rotation, inside)
+        assert not any("SUMPX" in t for t in inside), (rotation, inside)
+        assert rr.detail_regions(page, [["ELEVATOR", "PIT"]], 1) == regions[:1]
+        assert rr.detail_regions(page, [], 3) == [] and rr.detail_regions(page, [["PILE", "CAP"]], 3) == []
