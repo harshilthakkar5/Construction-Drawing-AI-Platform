@@ -431,6 +431,40 @@ def code_checks_for(check_ids: list[str], library: dict[str, dict]) -> dict[str,
     return out
 
 
+# A mark's letters → the element words they name, by drafting convention. A
+# library question is per element ("Is every anchor bolt tagged?"), so a pile
+# finding (P30-12) must not answer it; an unknown prefix answers no library
+# question rather than every one. Catalogue questions keep their own links.
+MARK_ELEMENTS = (
+    ("PC", re.compile(r"pile cap", re.I)),
+    ("P", re.compile(r"\bpiles?\b(?!\s*caps?)|\bpiers?\b|caisson|drilled shafts?", re.I)),
+    ("GB", re.compile(r"grade beam", re.I)),
+    ("F", re.compile(r"footing", re.I)),
+    ("C", re.compile(r"column|pilaster", re.I)),
+    ("SW", re.compile(r"\bwalls?\b", re.I)),
+    ("W", re.compile(r"\bwalls?\b", re.I)),
+    ("B", re.compile(r"\bbeams?\b|girder", re.I)),
+)
+MARK_CHECKS = ("unmarked_element", "unscheduled_mark")
+
+
+def mark_is_element(finding, element: dict) -> bool:
+    """Whether a mark-shaped code finding is about THIS library element."""
+    if finding.check_type not in MARK_CHECKS:
+        return True
+    facts = finding.facts or {}
+    mark = facts.get("mark") or next(iter(facts.get("examples") or []), "")
+    letters = re.match(r"[A-Z]+", mark or "")
+    words = dict(MARK_ELEMENTS).get(letters.group(0)) if letters else None
+    return bool(words and words.search(element.get("name") or ""))  # variants ("4-pile caps") over-match
+
+
+def credited(finding, linked: dict[str, list[str]], element: dict) -> list[str]:
+    """The asked questions a code finding answers: catalogue links always,
+    library links only when the finding is about the element asked about."""
+    return [c for c in linked.get(finding.check_type, []) if c in CHECKS or mark_is_element(finding, element)]
+
+
 def library_code_findings(project_id: str, scope: dict, check_types: set[str], open_page) -> tuple[list, list[str]]:
     """The code checks a review's questions link to, on the review's sheets
     only. Text checks read the whole project (a mark's schedule is usually on
@@ -2308,6 +2342,11 @@ def _run(run: dict) -> dict:
         # 1b. The code checks the asked questions link to, on these sheets.
         code_found, code_notes = library_code_findings(project_id, scope, set(linked), open_page)
         notes += code_notes
+        element = (scope.get("library") or {}).get("element") or {}
+        other = [f for f in code_found if not credited(f, linked, element)]
+        if other:
+            code_found = [f for f in code_found if f not in other]
+            notes.append(f"Left out {len(other)} code finding(s) about other elements' marks: {'; '.join(f.subject for f in other[:3])}.")
         if code_docs:
             notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
@@ -2610,7 +2649,7 @@ def _run(run: dict) -> dict:
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
             saved += wrote
             # Credit every asked question the check answers; the overlay is C01's.
-            for cid in linked.get(f.check_type) or (["G01"] if f.check_type == rfi_grid.CHECK_TYPE else ["C01"]):
+            for cid in credited(f, linked, element) or (["G01"] if f.check_type == rfi_grid.CHECK_TYPE else ["C01"]):
                 tally(cid, f.fingerprint, wrote, f.subject)
         by_ev: dict[str, list[str]] = {}
         for obs in observations:

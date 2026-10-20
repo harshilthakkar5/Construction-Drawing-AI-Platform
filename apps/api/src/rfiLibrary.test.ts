@@ -179,6 +179,11 @@ describe("sheet suggestions for an element", () => {
     expect(suggestSheets(["Arch plans", "Struct plans"], floors).sheets).toEqual(["A1.02", "S2.23"]);
   });
 
+  it("reads a bare discipline as its plan, falling back to other kinds", () => {
+    expect(suggestSheets(["Struct", "Arch"], set).sheets).toEqual(["S2.01", "A1.01"]);
+    expect(suggestSheets(["Struct"], [sheet("S0.01", "structural", "notes", 1)]).sheets).toEqual(["S0.01"]);
+  });
+
   it("never suggests a sheet twice or more than four", () => {
     const r = suggestSheets(["Struct", "Struct plan", "Arch", "Arch plans", "MEP", "Struct"], set);
     expect(new Set(r.sheets).size).toBe(r.sheets.length);

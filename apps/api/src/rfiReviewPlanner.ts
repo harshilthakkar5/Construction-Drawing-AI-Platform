@@ -233,6 +233,10 @@ const asPage = (row: PageRow): CandidatePage => ({
 export function resolveSheet(value: string, pages: PageRow[]): PageRow[] {
   const wanted = normalizeSheet(value);
   if (!wanted) return [];
+  // As printed first: "S0.01" and a misread "S-001" normalise alike.
+  const typed = value.trim().toUpperCase();
+  const asPrinted = pages.filter((p) => p.sheetNumber?.trim().toUpperCase() === typed);
+  if (asPrinted.length) return asPrinted;
   const exact = pages.filter((p) => p.sheetNumber && normalizeSheet(p.sheetNumber) === wanted);
   if (exact.length) return exact;
   return pages.filter((p) =>

@@ -2060,8 +2060,15 @@ export function suggestSheets(
       missing.push(need.entry);
       continue;
     }
-    const kindRank = (s: LibrarySheet) =>
-      !need.kinds.length ? 0 : s.sheetKind === null ? need.kinds.length : need.kinds.indexOf(s.sheetKind);
+    // A bare discipline ("Struct") still means where the element is DRAWN: a
+    // plan first, other kinds after it rather than not at all.
+    const prefer: readonly SheetKind[] = need.kinds.length ? need.kinds : ["plan", "enlarged_plan"];
+    const kindRank = (s: LibrarySheet) => {
+      const i = s.sheetKind === null ? -1 : prefer.indexOf(s.sheetKind);
+      if (i >= 0) return i;
+      if (s.sheetKind === null) return prefer.length;
+      return need.kinds.length ? -1 : prefer.length + 1;
+    };
     const rank = (s: LibrarySheet) => [kindRank(s), level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber];
     const pick = of
       .filter((s) => kindRank(s) >= 0 && !picked.includes(s.sheetNumber))
