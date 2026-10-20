@@ -28,8 +28,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 /**
- * Targeted RFI review: one sheet, one element (a mark such as C-6), or two to
- * four sheets compared.
+ * Targeted RFI review: one sheet, one element (a mark such as C-6), or two or more
+ * sheets compared.
  *
  * Two steps, on purpose. "Plan" finds the pages, decides which of the 16
  * original questions apply, finds related and referenced pages and prices
@@ -338,7 +338,7 @@ export function RfiTargetedReview({
               onKeyDown={(e) => e.key === "Enter" && canPlan && plan.mutate(request())}
             />
           ))}
-          {mode === "compare" && sheets.length < 4 && (
+          {mode === "compare" && (
             <button
               type="button"
               className="text-primary self-start text-xs hover:underline"

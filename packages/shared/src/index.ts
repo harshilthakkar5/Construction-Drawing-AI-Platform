@@ -1977,8 +1977,10 @@ export interface RfiLibraryDto {
 /** The most saved questions one project may add to the library. */
 export const RFI_LIBRARY_CUSTOM_MAX = 500;
 
-/** The most sheets one review compares (the targeted review's compare limit). */
-export const RFI_LIBRARY_MAX_SHEETS = 4;
+/** No limit on the sheets a person picks — only a guard on one request's size,
+ * above any project's sheet count. Every chosen sheet is rendered whatever the
+ * depth, so the plan's price grows with it. */
+export const RFI_REVIEW_SHEETS_GUARD = 1000;
 
 const NEED_DISCIPLINES: [RegExp, Discipline[]][] = [
   [/\barch/i, ["architectural"]],
@@ -2048,7 +2050,7 @@ export interface LibrarySheet {
 export function suggestSheets(
   compareAcross: readonly string[],
   sheets: readonly LibrarySheet[],
-  max = RFI_LIBRARY_MAX_SHEETS,
+  max = Infinity,
 ): { sheets: string[]; missing: string[]; outside: string[] } {
   const { needs, outside } = compareAcrossNeeds(compareAcross);
   const picked: string[] = [];

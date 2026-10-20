@@ -10,6 +10,7 @@ import {
   RFI_REVIEW_THINKING_LIMITS,
   type RfiReviewDepth,
   type RfiReviewThinking,
+  RFI_REVIEW_SHEETS_GUARD,
 } from "@cdip/shared";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
@@ -58,7 +59,7 @@ const planBody = z.object({
     }),
     // Each side is resolved on its own and keeps its own evidence — a
     // comparison never collapses into one search for all the words.
-    z.object({ type: z.literal("compare"), values: z.array(sheetValue).min(2).max(4) }),
+    z.object({ type: z.literal("compare"), values: z.array(sheetValue).min(2).max(RFI_REVIEW_SHEETS_GUARD) }),
   ]),
   checkMode: z.enum(["auto", "custom", "all_original"]).default("auto"),
   checkIds: z.array(z.enum(RFI_REVIEW_CHECK_IDS as [string, ...string[]])).max(RFI_REVIEW_CHECK_IDS.length).default([]),
