@@ -11,6 +11,7 @@ import {
   type RfiReviewPageDto,
   type RfiReviewProvider,
   type RfiReviewRunDto,
+  RFI_LIBRARY_MAX_SHEETS,
 } from "@cdip/shared";
 import { api, type RfiReviewPlanRequest } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Targeted RFI review: one sheet, one element (a mark such as C-6), or two to
- * four sheets compared.
+ * ten sheets compared.
  *
  * Two steps, on purpose. "Plan" finds the pages, decides which of the 16
  * original questions apply, finds related and referenced pages and prices
@@ -338,7 +339,7 @@ export function RfiTargetedReview({
               onKeyDown={(e) => e.key === "Enter" && canPlan && plan.mutate(request())}
             />
           ))}
-          {mode === "compare" && sheets.length < 4 && (
+          {mode === "compare" && sheets.length < RFI_LIBRARY_MAX_SHEETS && (
             <button
               type="button"
               className="text-primary self-start text-xs hover:underline"
