@@ -2787,6 +2787,16 @@ saved Low. `rfi_eval.py --project-reviews <project>` scores every element's late
 cases' `elements`, links "found again" findings by the fingerprint each run now records
 (`checkResults[q].foundAgain`), and says where an element answered "no issue" and missed.
 
+Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
+detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead
+of detail 3 (8") — and the inventory could not have shown it, because it held one MERGED row per
+element. Discovery now writes one inventory row per element PER SOURCE (`source`: "detail 3/S4.00"),
+and the code proposes a conflict where two sources print different LENGTHS for one element and field
+(`parse_length` takes exactly one length — never a bar spacing or a note; rows at different locations
+are two elements; rows citing the same evidence are one source). It goes through verification like
+any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
+two sources); its `printed` text grounds the wording, as discovery's observations do.
+
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
 time"). The first real forming-plan review grouped five marks into one "missing offsets" RFI, two

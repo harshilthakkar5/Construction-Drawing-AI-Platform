@@ -103,6 +103,10 @@ PROMPT_VERSION = "review-2026-10-15.2"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
+# One inventory row per element PER SOURCE, so more rows than elements.
+MAX_INVENTORY = 100
+# Value conflicts the code proposes from the inventory, per review.
+MAX_VALUE_CONFLICTS = 5
 # A call that FAILED (503 "high demand", 429, a timeout) is asked again after
 # these pauses before the run gives up. Without it one busy moment at the
 # provider failed a whole review and threw away the stages already paid for.
@@ -558,16 +562,20 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "- A value you cannot read is absent. Say it is not legible; never guess it.\n"
         "- Keep what different sheets show in separate observations, so they can be compared.\n"
         f"- At most {MAX_OBSERVATIONS} observations; prefer the ones the checks need.\n"
-        "- inventory: one entry per element a check is about, with each field its Record line names. A "
-        "field is `supported` only with evidence ids; `unknown` when the evidence given does not show it; "
-        "`not_applicable` when the element has no such field. Mark `derived: true` for a value you worked "
-        "out rather than read.\n"
+        "- inventory: one entry per element a check is about PER SOURCE that prints its values — a detail, "
+        "a section, a schedule row, a plan note. Two details of one element are TWO entries, each naming its "
+        "`source` (\"detail 3/S4.00\", \"section 2/S5.10\", \"pier schedule on S2.30-A\"), never merged into "
+        "one, even when they agree: the code compares the entries, so a merged value hides a disagreement. "
+        "Use the same `entity` name for the same element in every entry, and record each field as printed on "
+        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). A field is `supported` only "
+        "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
+        "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
         "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
         "the evidence shows do not exist here (e.g. no beams on a slab plan), with the evidence that shows it.\n"
         'Respond with ONLY JSON, no prose and no code fences: {"observations": [{"checkId": "C01", '
         '"element": "...", "location": "...", "statement": "...", "evidenceIds": ["ev3"], '
         '"confidence": "high|medium|low"}], "inventory": [{"checkId": "C01", "entity": "column C-6", '
-        '"location": "3/C", "fields": [{"name": "size", "value": "14 x 30", "state": "supported", '
+        '"location": "3/C", "source": "column schedule on S8.02", "fields": [{"name": "size", "value": "14 x 30", "state": "supported", '
         '"evidenceIds": ["ev3"], "derived": false}]}], "gaps": [{"checkId": "C01", "field": "...", '
         '"reason": "..."}], "notApplicable": [{"checkId": "B01", "reason": "...", "evidenceIds": ["ev2"]}]}'
     )
@@ -732,7 +740,8 @@ def _inventory_item(item, known: set[str], checks: set[str]) -> dict | None:
             "evidenceIds": ids,
             "derived": bool(f.get("derived")) and state == "supported",
         })
-    return {"checkId": item["checkId"], "entity": entity, "location": _text(item.get("location"), 120) or None, "fields": fields[:20]}
+    return {"checkId": item["checkId"], "entity": entity, "location": _text(item.get("location"), 120) or None,
+            "source": _text(item.get("source"), 80) or None, "fields": fields[:20]}
 
 
 def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict | None:
@@ -751,7 +760,7 @@ def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict 
             dropped += 1
         else:
             observations.append(obs)
-    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:60]) if i]
+    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:MAX_INVENTORY]) if i]
     gaps = [
         {"checkId": g["checkId"], "field": _text(g.get("field"), 120), "reason": _text(g.get("reason"), 300)}
         for g in (data.get("gaps") or [])[:40]
@@ -818,6 +827,92 @@ def parse_candidates(raw: str | None, known: set[str], checks: set[str]) -> tupl
             }
         )
     return out[:MAX_CANDIDATES], dropped
+
+
+# --- Values the code compares (pure; tested) ----------------------------------------
+#
+# The model READS values and the code lines them up: on Leland RFI 007 two
+# models read detail 4's 1'-4" pit slab correctly, then compared detail 4 with
+# detail 5 (which agree) instead of 3 (8") and answered "no issue". Only a value
+# that is exactly ONE length is compared — never a note or a bar spacing, where
+# a string difference is not a disagreement.
+
+_LENGTH = re.compile(
+    r"""^\s*(?P<sign>-)?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:\s+(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
+    r"""\s*(?:thick|thk\.?|deep|min\.?|\([^)]*\))?\s*$""",
+    re.I,
+)
+
+
+def parse_length(value: str | None) -> float | None:
+    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2"); else None. Pure."""
+    m = _LENGTH.match(value or "")
+    if not m or not (m["ft"] or m["in"]):
+        return None
+    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] and int(m["den"]) else 0)
+    return -inches if m["sign"] else inches
+
+
+def _key(text: str | None) -> str:
+    words = re.sub(r"\([^)]*\)", " ", (text or "").lower())
+    return " ".join(re.sub(r"s$", "", w) for w in re.findall(r"[a-z0-9]+", words))
+
+
+def value_conflicts(inventory: list[dict]) -> list[dict]:
+    """One element, one field, two SOURCES printing different lengths. Rows of
+    one element are matched on the entity's words; two rows at different
+    locations are two elements, and two rows citing the same evidence are one
+    source. Pure."""
+    rows: dict[tuple[str, str], list[dict]] = {}
+    for item in inventory:
+        for f in item.get("fields") or []:
+            inches = parse_length(f.get("value")) if f.get("state") == "supported" and not f.get("derived") else None
+            if inches is None or not f.get("evidenceIds"):
+                continue
+            rows.setdefault((_key(item.get("entity")), _key(f.get("name"))), []).append(
+                {"item": item, "field": f, "inches": inches}
+            )
+    out = []
+    for (entity, name), group in rows.items():
+        if not entity or not name:
+            continue
+        found = None
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                if abs(a["inches"] - b["inches"]) < 0.01 or set(a["field"]["evidenceIds"]) & set(b["field"]["evidenceIds"]):
+                    continue
+                la, lb = _key(a["item"].get("location")), _key(b["item"].get("location"))
+                if la and lb and la != lb:
+                    continue
+                found = (a, b)
+                break
+            if found:
+                break
+        if found:
+            out.append(value_candidate(*found))
+    return out[:MAX_VALUE_CONFLICTS]
+
+
+def value_candidate(a: dict, b: dict) -> dict:
+    """The conflict two rows make, shaped like a reasoning candidate."""
+    def said(r):
+        return f"{r['item'].get('source') or 'one source'} gives {r['field']['value']}"
+    entity = a["item"]["entity"]
+    field = a["field"]["name"]
+    location = a["item"].get("location") or b["item"].get("location") or ""
+    return {
+        "checkId": a["item"]["checkId"], "kind": "conflict", "disposition": "rfi", "searchFor": "",
+        "element": entity, "location": location,
+        "issue": f"The {field} of {entity}: {said(a)}, but {said(b)}.",
+        "why": "Two sources print different values for the same element, so it cannot be built from both.",
+        "derivation": "", "impact": "", "unresolvedReason": "",
+        "evidenceIds": list(dict.fromkeys(a["field"]["evidenceIds"] + b["field"]["evidenceIds"])),
+        "confidence": "medium", "searched": [],
+        # What discovery read, the only record of a value printed in a picture —
+        # the wording guard may draw on it like an observation.
+        "printed": f"{said(a)}; {said(b)}",
+        "fromValues": True,
+    }
 
 
 REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
@@ -923,7 +1018,7 @@ def _material(candidate: dict, evidence: dict[str, Evidence], observations: list
     the cited evidence's own words and sheet names, and what discovery said
     about THOSE pieces of evidence (the only record of what the images show)."""
     cited = set(candidate["evidenceIds"])
-    parts = [candidate.get("element", ""), candidate.get("location", "")]
+    parts = [candidate.get("element", ""), candidate.get("location", ""), candidate.get("printed", "")]
     for eid in cited:
         ev = evidence[eid]
         # An aid's numbers were computed, not printed: a question may not
@@ -968,7 +1063,11 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
         return "its only support is a model's description of the drawing"
     if all(ev.kind in WEAK_KINDS for ev in cited):
         return "its only support is a measurement or index the server derived, not the drawing itself"
-    if candidate["kind"] == "conflict" and len({(ev.document_id, ev.page_number) for ev in cited}) < 2:
+    # Two details on ONE sheet can disagree (Leland RFI 007: 3/S4.00 and 4/S4.00),
+    # but only the code's own comparison may claim it: it cites each source apart.
+    two_pages = len({(ev.document_id, ev.page_number) for ev in cited}) >= 2
+    two_items = candidate.get("fromValues") and len({ev.id for ev in cited if ev.kind not in WEAK_KINDS}) >= 2
+    if candidate["kind"] == "conflict" and not (two_pages or two_items):
         return "a conflict needs two sources, and it cites one page"
     if not decision["subject"] or not decision["question"]:
         return "the verification kept it but wrote no question"
@@ -2544,6 +2643,16 @@ def _run(run: dict) -> dict:
             lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
             run=run, usage=usage,
         )
+        # 4a. Values the code compares: the inventory's rows, source by source.
+        reasoned = [set(c["evidenceIds"]) for c in candidates if c["kind"] == "conflict"]
+        by_values = [
+            c for c in value_conflicts(inventory)
+            if not any(set(c["evidenceIds"]) <= s or s <= set(c["evidenceIds"]) for s in reasoned)
+        ][: max(0, MAX_CANDIDATES - len(candidates))]
+        if by_values:
+            candidates += by_values
+            notes.append(f"Values compared by code: {len(by_values)} element(s) where two sources print different "
+                         f"values ({'; '.join(c['issue'] for c in by_values[:3])[:400]}), sent to verification.")
         _set(run_id, reasoningOutput=json.dumps(candidates))
         if dropped:
             notes.append(f"Reasoning: {dropped} proposed issue(s) dropped for citing evidence outside the observations or no issue at all.")

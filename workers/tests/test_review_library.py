@@ -85,3 +85,46 @@ def test_the_ai_is_told_what_the_code_checked_found_or_not():
     assert "a mark with no row in its schedule: nothing found" in block
     assert "grid_mismatch" not in block and "not proof" in block
     assert rr.checked_by_code_block([], [], ["S2.20"]) == ""
+
+
+def test_parse_length_reads_one_printed_length_and_nothing_else():
+    assert rr.parse_length('8"') == 8
+    assert rr.parse_length("1'-4\"") == 16
+    assert rr.parse_length("1' - 4 1/2\" thick") == 16.5
+    assert rr.parse_length("-23'-0\"") == -276
+    assert rr.parse_length('8" (concrete)') == 8
+    for not_one in ['#5 @ 10" EA WAY', "verify with mfr", '8" or 10"', "", None, "18 x 24"]:
+        assert rr.parse_length(not_one) is None, not_one
+
+
+def _row(source, value, ev, *, entity="Elevator pit slab", location="BH/B7", field="thickness", check="CE-05-01-U-03"):
+    return {"checkId": check, "entity": entity, "location": location, "source": source,
+            "fields": [{"name": field, "value": value, "state": "supported", "evidenceIds": ev, "derived": False}]}
+
+
+def test_two_sources_printing_different_lengths_make_one_conflict_leland_rfi_007():
+    inv = [_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"]),
+           _row("detail 5/S4.00", "1'-4\"", ["ev5"])]
+    [c] = rr.value_conflicts(inv)
+    assert c["kind"] == "conflict" and c["fromValues"] and set(c["evidenceIds"]) == {"ev3", "ev4"}
+    assert "detail 3/S4.00 gives 8\"" in c["issue"] and "detail 4/S4.00 gives 1'-4\"" in c["issue"]
+
+
+def test_no_conflict_when_values_agree_sources_overlap_or_elements_differ():
+    assert rr.value_conflicts([_row("detail 4", "1'-4\"", ["ev4"]), _row("detail 5", '16"', ["ev5"])]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"]), _row("detail 4", "1'-4\"", ["ev3"])]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"], location="A1"), _row("detail 4", "1'-4\"", ["ev4"], location="B7")]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"], field="slab"), _row("detail 4", "1'-4\"", ["ev4"], field="wall")]) == []
+    # a value that is not one length is never compared
+    assert rr.value_conflicts([_row("d3", '#5 @ 10"', ["ev3"]), _row("d4", '#6 @ 12"', ["ev4"])]) == []
+
+
+def test_the_guard_lets_the_codes_two_detail_conflict_stand_on_one_sheet_only():
+    ev = {e: rr.Evidence(id=e, kind="crop", document_id="d", page_number=73, combined_page_number=73,
+                         sheet_number="S4.00", side=None, bbox={"x": 1, "y": 1, "width": 9, "height": 9})
+          for e in ("ev3", "ev4")}
+    [c] = rr.value_conflicts([_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"])])
+    decision = {"subject": "Elevator pit slab thickness 8\" vs 1'-4\"", "question": "Which governs at BH/B7: 8\" or 1'-4\"?"}
+    assert rr.guard(c, decision, ev, []) is None  # the printed values ground the numbers
+    model_made = dict(c, fromValues=False)
+    assert rr.guard(model_made, decision, ev, []) == "a conflict needs two sources, and it cites one page"
