@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   RFI_CHECK_LABELS,
   RFI_CUSTOM_QUESTION_CHARS,
-  RFI_LIBRARY_MAX_SHEETS,
   libraryCatalogueIds,
   suggestSheets,
   type LibrarySheet,
@@ -384,9 +383,8 @@ function SheetPicker({
   const [typed, setTyped] = useState("");
   const bySheet = new Map(sheets.map((s) => [s.sheetNumber.toUpperCase(), s]));
   const match = bySheet.get(typed.trim().toUpperCase());
-  const full = value.length >= RFI_LIBRARY_MAX_SHEETS;
   const addTyped = () => {
-    if (!match || full || value.includes(match.sheetNumber)) return;
+    if (!match || value.includes(match.sheetNumber)) return;
     onChange([...value, match.sheetNumber]);
     setTyped("");
   };
@@ -395,7 +393,7 @@ function SheetPicker({
   return (
     <section className="flex flex-col gap-2">
       <p className="text-xs font-medium">
-        3 · Sheets to read <span className="text-muted-foreground font-normal">(1 to {RFI_LIBRARY_MAX_SHEETS})</span>
+        3 · Sheets to read <span className="text-muted-foreground font-normal">(as many as you need)</span>
       </p>
       {value.length > 0 && (
         <ul className="flex flex-wrap gap-2">
@@ -429,8 +427,7 @@ function SheetPicker({
         <Input
           list={`library-sheets-${projectId}`}
           value={typed}
-          disabled={full}
-          placeholder={full ? `${RFI_LIBRARY_MAX_SHEETS} sheets chosen` : "Add a sheet, e.g. S2.105"}
+          placeholder="Add a sheet, e.g. S2.105"
           className="h-8 text-xs"
           aria-label="Add a sheet"
           onChange={(e) => setTyped(e.target.value)}
@@ -443,7 +440,7 @@ function SheetPicker({
             </option>
           ))}
         </datalist>
-        <Button size="sm" variant="outline" className="h-8" disabled={!match || full} onClick={addTyped}>
+        <Button size="sm" variant="outline" className="h-8" disabled={!match} onClick={addTyped}>
           Add
         </Button>
       </div>

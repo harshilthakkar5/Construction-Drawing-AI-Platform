@@ -9,7 +9,6 @@ import {
   compareAcrossNeeds,
   libraryCatalogueIds,
   suggestSheets,
-  RFI_LIBRARY_MAX_SHEETS,
   type LibrarySheet,
   type RfiLibraryQuestionDto,
 } from "@cdip/shared";
@@ -185,10 +184,10 @@ describe("sheet suggestions for an element", () => {
     expect(suggestSheets(["Struct"], [sheet("S0.01", "structural", "notes", 1)]).sheets).toEqual(["S0.01"]);
   });
 
-  it("never suggests a sheet twice or more than the limit", () => {
+  it("never suggests a sheet twice, and one per entry unless capped", () => {
     const r = suggestSheets(["Struct", "Struct plan", "Arch", "Arch plans", "MEP", "Struct"], set);
     expect(new Set(r.sheets).size).toBe(r.sheets.length);
-    expect(r.sheets.length).toBeLessThanOrEqual(RFI_LIBRARY_MAX_SHEETS);
+    expect(r.sheets.length).toBeLessThanOrEqual(6);
     expect(suggestSheets(["Struct", "Arch", "MEP"], set, 2).sheets).toHaveLength(2);
   });
 
