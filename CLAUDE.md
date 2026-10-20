@@ -2803,6 +2803,9 @@ S4.00's three close-ups showed a shear wall, waterproofing and dowels while the 
 details whose TITLE names the element (`detail_regions`: a title line with its SCALE line right below —
 a "SEE ELEVATOR PIT" note is not one — cut as the cell above it, in display space and mapped back) and
 fills the rest from the plan. Same number of images, so the plan's price stands.
+A title is matched by the element's words OR a drafter's name for it (`TITLE_SYNONYMS`: Leland titles
+pile caps PIER CAP, retaining walls BASEMENT WALL, drilled piers DRILLED FOOTING — the library's words
+found none of them), and its SCALE line may overlap it by 15pt (S0.03's "COLUMN PIER CAP PLANS").
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

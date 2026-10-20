@@ -322,6 +322,15 @@ def _unrotated_rect(page: fitz.Page) -> fitz.Rect:
 
 
 _NOT_A_TITLE_WORD = {"and", "the", "with", "for", "on", "of"}
+# What drafters call an element besides the library's name for it. Leland titles
+# its pile caps PIER CAP, its retaining walls BASEMENT WALL and its drilled
+# piers DRILLED FOOTING, and close-ups aimed by the library's words found none.
+TITLE_SYNONYMS: dict[tuple[str, ...], list[list[str]]] = {
+    ("PILE", "CAP"): [["PIER", "CAP"]],
+    ("RETAINING", "WALL"): [["BASEMENT", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+    ("DRILLED", "PIER"): [["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"], ["CAISSON"]],
+    ("BASEMENT", "WALL"): [["RETAINING", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+}
 
 
 def element_title_words(name: str | None) -> list[list[str]]:
@@ -330,8 +339,10 @@ def element_title_words(name: str | None) -> list[list[str]]:
     out = []
     for part in re.sub(r"\([^)]*\)", " ", name or "").split("/"):
         words = [re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", part.upper()) if w.lower() not in _NOT_A_TITLE_WORD]
-        if words:
+        if words and words not in out:
             out.append(words)
+    for words in list(out):
+        out += [s for s in TITLE_SYNONYMS.get(tuple(words), []) if s not in out]
     return out
 
 
@@ -362,11 +373,14 @@ def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz
         tokens = {re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", text.upper())}
         if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not any(set(a) <= tokens for a in alternatives):
             continue
-        under = [s for s in scales if 0 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0]
+        # Right below, or touching: "COLUMN PIER CAP PLANS" on Leland S0.03 overlaps its scale by 8pt.
+        under = [s for s in scales if -15 <= s.y0 - box.y1 <= 40 and s.y0 > box.y0 and s.x0 < box.x1 and s.x1 > box.x0]
         if not under:
             continue
         bottom = max(s.y1 for s in under) + 10
-        right = min((s.x0 for s in scales if s.x0 > box.x0 + 50 and abs(s.y0 - under[0].y0) < 60), default=box.x0 + 600) - 10
+        # The next column's scale line — never this detail's own, which can start right of the title's left edge.
+        right = min((s.x0 for s in scales if s not in under and s.x0 > box.x0 + 50 and abs(s.y0 - under[0].y0) < 60),
+                    default=box.x0 + 600) - 10
         top = max((s.y1 for s in scales if s.y1 < box.y0 - 20 and s.x0 < right and s.x1 > box.x0 - 30), default=box.y0 - 600) + 10
         region = fitz.Rect(box.x0 - 30, top, right, bottom) & shown
         if region.is_empty or any((region & r).get_area() > 0.5 * region.get_area() for r in regions):

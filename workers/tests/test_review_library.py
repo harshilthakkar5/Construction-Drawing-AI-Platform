@@ -153,7 +153,11 @@ def _detail_sheet(rotation=0):
 
 def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
     assert rr.element_title_words("Elevator pits") == [["ELEVATOR", "PIT"]]
-    assert rr.element_title_words("Drilled piers / caissons (CIDH)") == [["DRILLED", "PIER"], ["CAISSON"]]
+    assert rr.element_title_words("Drilled piers / caissons (CIDH)") == [
+        ["DRILLED", "PIER"], ["CAISSON"], ["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"]]
+    # Drafters' names for an element count too (Leland: PIER CAP, BASEMENT WALL).
+    assert ["PIER", "CAP"] in rr.element_title_words("Pile caps")
+    assert ["BASEMENT", "WALL"] in rr.element_title_words("Retaining walls (building)")
     for rotation in (0, 90):
         doc, page = _detail_sheet(rotation)
         regions = rr.detail_regions(page, [["ELEVATOR", "PIT"]], 3)
@@ -163,3 +167,18 @@ def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
         assert not any("SUMPX" in t for t in inside), (rotation, inside)
         assert rr.detail_regions(page, [["ELEVATOR", "PIT"]], 1) == regions[:1]
         assert rr.detail_regions(page, [], 3) == [] and rr.detail_regions(page, [["PILE", "CAP"]], 3) == []
+
+
+def test_a_title_touching_its_scale_line_is_still_a_title_and_its_cell_reaches_the_next_column():
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=1600, height=1200)
+    page.insert_text((150, 300), "CAPA", fontsize=12)
+    page.insert_text((700, 300), "CAPB", fontsize=12)              # still this detail's cell
+    page.insert_text((100, 580), "24/S0.03 COLUMN PIER CAP PLANS", fontsize=19)
+    page.insert_text((190, 584), 'SCALE: 3/4" = 1\'-0"', fontsize=9)  # overlaps the title, starts right of it
+    page.insert_text((1000, 580), "OTHER DETAIL", fontsize=19)
+    page.insert_text((1000, 600), 'SCALE: 3/4" = 1\'-0"', fontsize=9)
+    [region] = rr.detail_regions(page, rr.element_title_words("Pile caps"), 3)
+    words = " ".join(w[4] for w in page.get_text("words", clip=region))
+    assert "CAPA" in words and "CAPB" in words and "OTHER" not in words
