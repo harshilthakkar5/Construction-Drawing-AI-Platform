@@ -487,12 +487,17 @@ def test_a_rejection_saying_elsewhere_without_evidence_is_contested():
     assert not rfi_review.contested({"decision": "reject", "basis": "not_visible", "reason": "not shown on S0.302"}, shown)
     assert not rfi_review.contested({"decision": "reject", "basis": "other", "reason": "the opening is not shown on S0.302"}, shown)
     assert not rfi_review.contested({"decision": "keep"}, shown)
+    # The specifications or a standard govern: right for a drawing set, never overruled (Leland).
+    assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
+                                     "reason": "Time intervals between adjacent pours are governed by project concrete "
+                                               "specifications and ACI standards rather than annotated on plan sheets."}, shown)
+    assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "reason": "see Division 03 specs"}, shown)
 
 
-def test_an_overruled_rejection_is_kept_at_medium_and_says_why():
+def test_an_overruled_rejection_is_kept_at_low_and_says_why():
     candidate = {"element": "Level 2 slab openings", "issue": "Shaft openings have no sizes or grid dimensions.", "why": "plans show no sizes"}
     kept = rfi_review.overruled(candidate, {"decision": "reject", "confidence": "high", "subject": "", "question": ""})
-    assert kept["decision"] == "keep" and kept["confidence"] == "medium" and kept["priority"] == "normal"
+    assert kept["decision"] == "keep" and kept["confidence"] == "low" and kept["priority"] == "normal"
     assert kept["subject"] == "Level 2 slab openings"
     assert kept["question"].startswith("Shaft openings have no sizes or grid dimensions. Please provide it")
     assert kept["why"].startswith("plans show no sizes") and "could not point to evidence" in kept["why"]

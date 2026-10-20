@@ -57,7 +57,19 @@ def centre(rect: fitz.Rect) -> tuple[float, float]:
     return ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
 
 
+# Bump with rfi_scan.GRID_CACHE_VERSION (a test holds them equal): a review
+# shares styled_systems readings through Redis under this version.
+STYLED_VERSION = 7
+
+
 def bubbles(page: fitz.Page) -> list[tuple[str, float, float]]:
+    """`_bubbles`, reused for a page a review already read (page_memo)."""
+    import page_memo
+
+    return page_memo.memo("bubbles@1", page, lambda: _bubbles(page))
+
+
+def _bubbles(page: fitz.Page) -> list[tuple[str, float, float]]:
     """Circled grid labels, in the page's DISPLAYED coordinate space.
 
     Display space because that is where the user and the renderer both live;
@@ -468,6 +480,14 @@ def _ring_bubbles(page: fitz.Page, words) -> list[tuple[str, fitz.Rect, str]]:
 
 
 def styled_systems(page: fitz.Page) -> list[dict]:
+    """`_styled_systems`, reused for a page already read — by this worker or,
+    through Redis, any other (page_memo). Untagged pages are read every time."""
+    import page_memo
+
+    return page_memo.memo(f"styled_systems@{STYLED_VERSION}", page, lambda: _styled_systems(page), shared=True)
+
+
+def _styled_systems(page: fitz.Page) -> list[dict]:
     """Every grid on the page, one per bubble STYLE, in display coordinates.
 
     Each is {"style": "blue 27pt", "along_x": {label: x}, "along_y": {label: y},

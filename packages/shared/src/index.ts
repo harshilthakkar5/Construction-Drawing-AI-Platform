@@ -1555,6 +1555,8 @@ export interface RfiCheckResultDto {
   observations: number;
   candidates: number;
   gaps: string[];
+  /** Fingerprints of findings this run made again that were already on file. */
+  foundAgain?: string[];
   /** C03: every column-mark occurrence measured on the reviewed sheets. */
   occurrences?: (RfiColumnOccurrenceDto & { sheetNumber: string | null; documentId: string; pageNumber: number })[];
 }

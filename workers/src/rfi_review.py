@@ -66,6 +66,7 @@ import diagnostics
 import grid
 import llm
 import logutil
+import page_memo
 import rfi_checks
 import plan_match
 import rfi_grid
@@ -397,6 +398,37 @@ _TRUST_RULES = (
 # the sheets themselves). Grid naming and the column overlay run as G01 / C01.
 TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", "tag_value_conflict", "missing_plan_level")
 PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
+# Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
+CODE_CHECK_WORDS = {
+    "dangling_reference": "a sheet referred to but not in the set",
+    "unscheduled_mark": "a mark with no row in its schedule",
+    "open_item_note": "a note left open (TBD / to be confirmed)",
+    "tag_value_conflict": "one equipment tag with two ratings",
+    "missing_plan_level": "a level missing from a series of plans",
+    "unmarked_element": "an element drawn with no type mark",
+    "unsized_column": "a column in the schedule with no size",
+}
+
+
+def checked_by_code_block(ran: list[str], found: list, sheets: list[str]) -> str:
+    """What the exact checks looked for on these sheets, found or not, for
+    discovery and reasoning. Their finds are already reported; their silence
+    is NOT proof of no problem (they report only what they can prove), but a
+    problem of the same kind then needs evidence the model can cite. Pure."""
+    ran = [c for c in ran if c in CODE_CHECK_WORDS]
+    if not ran:
+        return ""
+    counts = {c: sum(1 for f in found if f.check_type == c) for c in ran}
+    lines = [f"- {CODE_CHECK_WORDS[c]}: {counts[c] or 'nothing'} found" for c in ran]
+    where = ", ".join(sheets[:12]) + ("…" if len(sheets) > 12 else "")
+    return (
+        "<checked_by_code>\nThe code already checked these sheets"
+        + (f" ({where})" if where else "")
+        + " for the following, from the drawings' own text and geometry:\n" + "\n".join(lines)
+        + "\nWhat they found is listed in already_found. They report only what they can prove, so finding nothing "
+        "is not proof there is no problem — but report a problem of the same kind only with evidence you can cite, "
+        "never from an impression of a dense sheet.\n</checked_by_code>\n\n"
+    )
 
 
 def library_checks(scope: dict) -> dict[str, dict]:
@@ -799,6 +831,11 @@ _ELSEWHERE = re.compile(
     r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet)\b",
     re.I,
 )
+# A rejection saying the SPECIFICATIONS or a standard govern is right where a
+# drawing set is concerned, and is never overruled: "time between adjacent
+# pours is governed by the concrete specifications and ACI" was overruled into
+# a Leland finding the drawings were never meant to answer.
+_SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
 def contested(decision: dict | None, shown: set[str]) -> bool:
@@ -814,6 +851,8 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
     if cited & shown:
         return False
+    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
+        return False
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
         return True
@@ -822,7 +861,9 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
 
 def overruled(candidate: dict, decision: dict) -> dict:
     """The decision a contested rejection becomes when the claim could not be
-    shown: kept, at most medium confidence, and saying why. Pure."""
+    shown: kept at LOW confidence, saying why. Low because the verifier said
+    no twice; kept because "another drawing gives it" with nothing shown is
+    how UT Law's RFI 006 was dropped twice. Pure."""
     subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
@@ -832,7 +873,7 @@ def overruled(candidate: dict, decision: dict) -> dict:
         "could not point to evidence that shows it, and searching the project did not settle it."
     ).strip()
     return dict(decision, decision="keep", subject=subject, question=question, why=why,
-                confidence="low" if decision.get("confidence") == "low" else "medium", priority="normal")
+                confidence="low", priority="normal")
 
 
 def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
@@ -1476,6 +1517,44 @@ def stale_reason(scope: dict, revisions: dict | None = None) -> str | None:
     return None
 
 
+# Original PDFs kept on the worker's disk between reviews: a document id's
+# bytes never change (a revision is a new id), and every review of a set used
+# to download the whole PDF again. Oldest dropped first past the size cap.
+PDF_CACHE_DIR = os.environ.get("RFI_PDF_CACHE_DIR") or os.path.join(tempfile.gettempdir(), "cdip-pdf-cache")
+PDF_CACHE_MB = int(os.environ.get("RFI_PDF_CACHE_MB", "2048"))
+
+
+def cached_pdf(document_id: str, key: str, cache_dir: str = PDF_CACHE_DIR, max_mb: int = PDF_CACHE_MB,
+               download=None) -> str:
+    """A local path to the document's original PDF, downloading it only the
+    first time. `max_mb` 0 turns the cache off (a fresh copy each call)."""
+    download = download or storage.download_to_file
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"{document_id}.pdf")
+    if max_mb > 0 and os.path.exists(path):
+        os.utime(path)  # most recently used
+        return path
+    part = f"{path}.{os.getpid()}.{threading.get_ident()}.part"
+    download(key, part)
+    os.replace(part, path)  # atomic: a reader never sees half a file
+    if max_mb > 0:
+        files = sorted(
+            (os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith(".pdf")),
+            key=lambda f: os.path.getmtime(f),
+        )
+        total = sum(os.path.getsize(f) for f in files)
+        for f in files:
+            if total <= max_mb * 1024 * 1024 or f == path:
+                break
+            try:
+                size = os.path.getsize(f)
+                os.remove(f)  # an open file cannot be removed on Windows; it stays until next time
+                total -= size
+            except OSError:
+                pass
+    return path
+
+
 @contextmanager
 def _documents(project_id: str, document_ids: list[str]):
     """open_page(document_id, page_number) over the ORIGINAL PDFs, each
@@ -1492,9 +1571,12 @@ def _documents(project_id: str, document_ids: list[str]):
 
         def open_page(document_id: str, page_number: int):
             if document_id not in opened:
-                path = os.path.join(tmp, f"{document_id}.pdf")
                 try:
-                    storage.download_to_file(keys[document_id], path)
+                    if PDF_CACHE_MB > 0:
+                        path = cached_pdf(document_id, keys[document_id])
+                    else:
+                        path = os.path.join(tmp, f"{document_id}.pdf")
+                        storage.download_to_file(keys[document_id], path)
                     opened[document_id] = fitz.open(path)
                 except Exception as exc:
                     log.warning("rfi review: could not open %s: %s", document_id[:8], exc)
@@ -1510,7 +1592,7 @@ def _documents(project_id: str, document_ids: list[str]):
             # The drawing as ISSUED: annotations (a reviewer's clouds, a pasted
             # stamp, someone's RFI markup) are not the design, and a render
             # that carries them shows the model the answer to its own question.
-            return grid.without_markup(doc[page_number - 1])
+            return page_memo.tag(grid.without_markup(doc[page_number - 1]), document_id, page_number)
 
         open_page.errors = {}
         try:
@@ -2405,6 +2487,9 @@ def _run(run: dict) -> dict:
             f"- {f.subject}" for f in exact
         ) + "\n</already_found>\n\n"
 
+    code_ran = sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS))
+    reviewed_sheets = sorted({p.get("sheetNumber") for p in scope.get("pages", []) if p.get("sheetNumber")})
+    checked = checked_by_code_block(code_ran, code_found, reviewed_sheets)
     lib_element = (scope.get("library") or {}).get("element") or {}
     element_block = (
         f"<element>Reviewing {lib_element.get('name')}"
@@ -2433,7 +2518,7 @@ def _run(run: dict) -> dict:
             images = [ev for ev in batch if ev.visual]
             header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
             found = _ask(
-                "discovery", discovery_system(asked, catalogue), header + already + element_block + "\n".join(_evidence_block(ev) for ev in batch),
+                "discovery", discovery_system(asked, catalogue), header + already + checked + element_block + "\n".join(_evidence_block(ev) for ev in batch),
                 lambda raw, known=known: parse_discovery(raw, known, set(asked)), run=run, usage=usage, images=images,
             )
             observations += found["observations"]
@@ -2454,7 +2539,7 @@ def _run(run: dict) -> dict:
         index = "\n".join(f"{ev.id}: {ev.kind} on {ev.where}" + (f" (side {ev.side})" if ev.side else "") for ev in sent)
         candidates, dropped = _ask(
             "reasoning", reasoning_system(asked, catalogue),
-            f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
+            already + checked + f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
             + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else ""),
             lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
             run=run, usage=usage,
@@ -2638,12 +2723,16 @@ def _run(run: dict) -> dict:
     saved = 0
     found_by_check: dict[str, int] = {}
     known: dict[str, list[str]] = {}
+    known_fps: dict[str, list[str]] = {}
 
     def tally(cid: str, fp: str, wrote: bool, subject: str) -> None:
         if wrote:
             found_by_check[cid] = found_by_check.get(cid, 0) + 1
         else:
             known.setdefault(cid, []).append(f"“{subject}” is {_where_found(conn, project_id, fp)}")
+            # The stored finding may be worded differently (a scan's AI wording):
+            # its fingerprint is what links this run to it.
+            known_fps.setdefault(cid, []).append(fp)
 
     with db.connect() as conn:
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
@@ -2725,6 +2814,9 @@ def _run(run: dict) -> dict:
         list(CHECKS) + list(library), asked, run.get("checkPlan") or {}, observations, gaps + unsettled, not_applicable, found_by_check,
         omitted=bool(unread), stopped=stopped, known=known,
     )
+    for cid, fps in known_fps.items():
+        if cid in results:
+            results[cid]["foundAgain"] = sorted(set(fps))
     if "C03" in results and measured:
         results["C03"]["occurrences"] = [
             dict(o.as_json(), sheetNumber=page.page.get("sheetNumber"), documentId=page.page["documentId"], pageNumber=page.page["pageNumber"])

@@ -12,3 +12,17 @@ describe("resolveSheet", () => {
     expect(resolveSheet("s001", pages).map((p) => p.id)).toEqual(["a", "b"]);
   });
 });
+
+describe("libraryQueries", () => {
+  it("searches once per question category, in the element's own words, with no sheet numbers", async () => {
+    const { libraryQueries } = await import("./rfiReviewRules.js");
+    const q = (id: string, category: string | null, text: string) => ({ id, text, category, source: "library", codeChecks: [] });
+    const out = libraryQueries({
+      element: { id: "CE-05-01", name: "Elevator pits", variants: "Single, double", attributes: "", triggers: "" },
+      questions: [q("a", "Elevation", "Is the top of pit slab elevation specified?"), q("b", "Elevation", "Is the pit depth given?"), q("c", null, "Is the sump shown?")],
+    });
+    expect(out.map((s) => s.label)).toEqual(["Elevator pits — Elevation", "Elevator pits — your questions"]);
+    expect(out[0]!.query).toBe("Elevator pits Single, double Is the top of pit slab elevation specified? Is the pit depth given?");
+    expect(libraryQueries(undefined)).toEqual([]);
+  });
+});

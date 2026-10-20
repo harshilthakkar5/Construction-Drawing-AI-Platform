@@ -2770,6 +2770,23 @@ answered "insufficient evidence": the forming notes defer opening sizes to an ar
 it was not shown). O01's first real run hit RFI 005 on S5.210 ("LB-B1/B2/B3 on SW-1.1: width, height
 and sill height?"); RFI 005's form names S5.200, but the marked sheet is S5.210.
 
+A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
+before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet
+results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
+page: grid bubbles, `styled_systems` (also in Redis, versioned by `grid.STYLED_VERSION`, which a test
+holds equal to `rfi_scan.GRID_CACHE_VERSION`), column elements, `column_locate.locate` and unmarked
+elements; every hit is a deep copy because callers fill fields in. `cached_pdf` keeps the original
+PDFs on the worker's disk (`RFI_PDF_CACHE_MB`). Measured: 70 s cold, 11 s on the next review of the
+same sheets, identical results. By element planning also searches in the library's OWN words
+(`libraryQueries`, one search per question category): 28 of 62 elements link to none of the 17
+original questions and searched nothing, reading only the picked sheets (Elevator pits: 7 pages →
+32, now including S4.00, the sheet of RFI 007). The AI is told which code checks ran and what they
+found (`checked_by_code_block`) — never that their silence settles a question. A rejection saying
+the specifications or a standard govern stands (`_SPEC_GOVERNED`), and an overruled rejection is
+saved Low. `rfi_eval.py --project-reviews <project>` scores every element's latest run against the
+cases' `elements`, links "found again" findings by the fingerprint each run now records
+(`checkResults[q].foundAgain`), and says where an element answered "no issue" and missed.
+
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
 time"). The first real forming-plan review grouped five marks into one "missing offsets" RFI, two

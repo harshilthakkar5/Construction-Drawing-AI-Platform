@@ -75,3 +75,13 @@ def test_a_mark_finding_answers_only_its_own_elements_library_questions():
     assert rr.credited(angle, linked, piers) == []  # unknown prefix: no library question
     assert rr.credited(ref, linked, bolts) == ["CE-12-01-U-07"]  # not a mark check
     assert rr.credited(pile, linked, {"name": "Pile caps", "variants": "Single, 2-pile caps"}) == ["F04"]
+
+
+def test_the_ai_is_told_what_the_code_checked_found_or_not():
+    pile = rr.rfi_checks.Finding("unmarked_element", "fp", "high", "Element with no type mark", "?", [])
+    block = rr.checked_by_code_block(["unmarked_element", "unscheduled_mark", "grid_mismatch"], [pile], ["S2.20", "S2.30-B"])
+    assert "(S2.20, S2.30-B)" in block
+    assert "an element drawn with no type mark: 1 found" in block
+    assert "a mark with no row in its schedule: nothing found" in block
+    assert "grid_mismatch" not in block and "not proof" in block
+    assert rr.checked_by_code_block([], [], ["S2.20"]) == ""

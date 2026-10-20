@@ -3,6 +3,17 @@
     python benchmarks/rfi_eval.py --run <review run id> [--case rfi-002]
     python benchmarks/rfi_eval.py --scan <rfi scan id> --case fp-s8-door-schedule
     python benchmarks/rfi_eval.py --fullscan <full scan id> --case rfi-002,rfi-015,fp-a303-a305-levels
+    python benchmarks/rfi_eval.py --project-reviews <project id> --case leland-rfi-001,leland-rfi-007
+
+`--project-reviews` scores every "By element" review of a project together:
+the latest finished run of each element, the candidates those runs saved, and
+the ones they reported "found again" (already on file from a scan or an
+earlier review). A By element finding is filed under its LIBRARY question
+(CE-05-01-Q03), so a case lists the `elements` whose questions count as its
+check. It also says, per case, whether one of those elements answered a
+question "no issue" while the RFI went unfound — the review looked and missed,
+which is worse than "not enough evidence" — and how many proposals the guards
+rejected or overruled across the runs.
 
 Reads the run's candidates from Postgres (DATABASE_URL) and, for each expected
 finding in the case, reports whether ONE candidate matches all of it: its check,
@@ -52,10 +63,12 @@ def _pair(a: str, b: str, text: str) -> bool:
     return one(a, b) or one(b, a)
 
 
-def matches(expected: dict, candidate: dict) -> list[str]:
-    """What this candidate is missing for this expectation; [] is a match."""
+def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> list[str]:
+    """What this candidate is missing for this expectation; [] is a match.
+    `elements`: library elements whose questions (CE-05-01-Q03) count too."""
     missing = []
-    if candidate["checkType"] not in expected["checkTypes"]:
+    by_element = any(candidate["checkType"].startswith(f"{e}-") for e in elements)
+    if candidate["checkType"] not in expected["checkTypes"] and not by_element:
         missing.append(f"check {candidate['checkType']} is not {'/'.join(expected['checkTypes'])}")
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     for sheet in expected.get("sheets", []):
@@ -66,7 +79,8 @@ def matches(expected: dict, candidate: dict) -> list[str]:
         if not _pair(a, b, text):
             missing.append(f"does not say {a} = {b}")
     for m in expected.get("mentions", []):
-        if _norm(m) not in _norm(text):
+        # "pile|pier": any one of them (Leland's drawings say pier, its RFIs pile).
+        if not any(_norm(alt) in _norm(text) for alt in m.split("|")):
             missing.append(f"does not mention {m}")
     return missing
 
@@ -84,19 +98,19 @@ def is_rejected(rejected: dict, candidate: dict) -> bool:
     return all(_norm(m) in text for m in rejected.get("mentions", []))
 
 
-def score(case: dict, candidates: list[dict]) -> dict:
+def score(case: dict, candidates: list[dict], elements: tuple[str, ...] = ()) -> dict:
     found, used = [], set()
     for exp in case["expected"]:
-        hit = next((c for c in candidates if not matches(exp, c)), None)
+        hit = next((c for c in candidates if not matches(exp, c, elements)), None)
         if hit is not None:
             used.add(hit["id"])
-        closest = min(candidates, key=lambda c: len(matches(exp, c)), default=None)
+        closest = min(candidates, key=lambda c: len(matches(exp, c, elements)), default=None)
         found.append(
             {
                 "what": exp["what"],
                 "hit": hit is not None,
                 "candidate": hit["subject"] if hit else None,
-                "closestMissing": [] if hit or closest is None else matches(exp, closest),
+                "closestMissing": [] if hit or closest is None else matches(exp, closest, elements),
             }
         )
     false_positives = []
@@ -135,12 +149,81 @@ def load_candidates(run_id: str | None = None, scan_id: str | None = None, full_
     return [dict(zip(("id", "checkType", "subject", "question", "evidence"), r)) for r in rows]
 
 
+_FOUND_AGAIN = re.compile(r"Found again, not added twice: “(.+?)” is")
+
+
+def element_runs(rows: list[tuple]) -> dict[str, dict]:
+    """The latest finished By element run per element. rows: (id, elementId,
+    status, notes, checkResults, createdAt), any order. Pure."""
+    latest: dict[str, dict] = {}
+    for run_id, element, status, notes, results, created in rows:
+        if not element or status not in ("ready", "partial"):
+            continue
+        if element not in latest or created > latest[element]["createdAt"]:
+            latest[element] = {"id": run_id, "notes": notes or [], "checkResults": results or {}, "createdAt": created}
+    return latest
+
+
+def guard_tally(runs: dict[str, dict]) -> dict[str, int]:
+    """Proposals the guards turned away, and rejections overruled, from the
+    runs' notes. Pure."""
+    proposed = kept = overruled = 0
+    for run in runs.values():
+        for note in run["notes"]:
+            m = re.match(r"Verification kept (\d+) of (\d+)", note)
+            if m:
+                kept, proposed = kept + int(m[1]), proposed + int(m[2])
+            if note.startswith("Kept ") and "could not show where" in note:
+                overruled += 1
+    return {"proposed": proposed, "kept": kept, "rejected": proposed - kept, "overruled": overruled}
+
+
+def missed_with_no_issue(case: dict, runs: dict[str, dict]) -> list[str]:
+    """The case's elements that answered a question "no issue": when the RFI
+    was not found, those answers are wrong. Pure."""
+    out = []
+    for element in case.get("elements", []):
+        run = runs.get(element)
+        if run is None:
+            continue
+        ids = [q for q, r in run["checkResults"].items() if (r or {}).get("outcome") == "complete_no_issue"]
+        if ids:
+            out.append(f"{element}: {len(ids)} question(s) said no issue ({', '.join(sorted(ids)[:6])})")
+    return out
+
+
+def load_project_reviews(project_id: str) -> tuple[dict[str, dict], list[dict]]:
+    """Each element's latest By element run, and every candidate they saved
+    or reported found again."""
+    import psycopg
+
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        rows = conn.execute(
+            """SELECT id, scope->'library'->'element'->>'id', status, notes, "checkResults", "createdAt"
+               FROM rfi_review_runs WHERE "projectId" = %s AND scope ? 'library'""",
+            (project_id,),
+        ).fetchall()
+        runs = element_runs(rows)
+        # Found again: by fingerprint (runs record it per question), else by the
+        # note's wording — runs made before the fingerprint was recorded.
+        again_fps = sorted({fp for r in runs.values() for res in r["checkResults"].values() for fp in (res or {}).get("foundAgain") or []})
+        again = sorted({m[1] for r in runs.values() for n in r["notes"] for m in [_FOUND_AGAIN.match(n)] if m})
+        found = conn.execute(
+            """SELECT id, "checkType", subject, question, evidence FROM rfi_candidates
+               WHERE "projectId" = %s
+                 AND ("reviewRunId" = ANY(%s::text[]) OR fingerprint = ANY(%s::text[]) OR subject = ANY(%s::text[]))""",
+            (project_id, [r["id"] for r in runs.values()], again_fps, again),
+        ).fetchall()
+    return runs, [dict(zip(("id", "checkType", "subject", "question", "evidence"), r)) for r in found]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--run", help="rfi_review_runs.id to score")
     source.add_argument("--scan", help="rfi_scans.id to score (the project-wide checks)")
     source.add_argument("--fullscan", help="rfi_full_scans.id to score (the full AI scan)")
+    source.add_argument("--project-reviews", help="projects.id: score every By element review of the project")
     parser.add_argument("--case", default="rfi-002", help="a case id, or several separated by commas")
     args = parser.parse_args()
     cases = {c["id"]: c for c in json.loads(CASES.read_text())["cases"]}
@@ -149,6 +232,24 @@ def main() -> int:
     if unknown:
         print(f"no case {', '.join(map(repr, unknown))}; have {', '.join(cases)}", file=sys.stderr)
         return 2
+    if args.project_reviews:
+        runs, candidates = load_project_reviews(args.project_reviews)
+        print(f"{len(runs)} element(s) reviewed, {len(candidates)} candidate(s) saved or found again")
+        failed = 0
+        for case_id in wanted:
+            case = cases[case_id]
+            result = score(case, candidates, tuple(case.get("elements", [])))
+            failed += report(result, len(candidates), show_unmatched=False)
+            if result["hits"] < result["expected"]:
+                for line in missed_with_no_issue(case, runs):
+                    print(f"  LOOKED AND MISSED {line}")
+                for element in case.get("elements", []):
+                    if element not in runs:
+                        print(f"  NOT RUN {element}: no finished By element review of it")
+        t = guard_tally(runs)
+        print(f"Guards: {t['proposed']} proposed by the AI, {t['kept']} kept by verification, "
+              f"{t['rejected']} rejected, {t['overruled']} rejection(s) overruled")
+        return 1 if failed else 0
     candidates = load_candidates(args.run, args.scan, args.fullscan)
     failed = 0
     for case_id in wanted:
@@ -156,7 +257,7 @@ def main() -> int:
     return 1 if failed else 0
 
 
-def report(result: dict, total: int) -> int:
+def report(result: dict, total: int, show_unmatched: bool = True) -> int:
     """Print one case's score; 1 when it did not pass."""
     print(f"{result['case']}: {result['hits']} of {result['expected']} expected finding(s) found "
           f"among {total} candidate(s)")
@@ -168,7 +269,7 @@ def report(result: dict, total: int) -> int:
             print(f"       closest candidate: {'; '.join(f['closestMissing'])}")
     for fp in result["falsePositives"]:
         print(f"  FALSE POSITIVE {fp['what']}\n       as: {fp['candidate']}\n       why it is wrong: {fp['why']}")
-    if result["unmatched"]:
+    if result["unmatched"] and show_unmatched:
         print(f"  {len(result['unmatched'])} other candidate(s), not scored:")
         for subject in result["unmatched"]:
             print(f"       - {subject}")
