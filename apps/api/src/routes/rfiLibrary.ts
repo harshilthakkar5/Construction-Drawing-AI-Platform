@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { RFI_CUSTOM_QUESTION_CHARS, RFI_LIBRARY_CUSTOM_MAX } from "@cdip/shared";
+import { RFI_CUSTOM_QUESTION_CHARS, RFI_LIBRARY_CUSTOM_MAX, scheduleHeadings } from "@cdip/shared";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { buildLibrary, library, questionIdsOf } from "../rfiLibrary.js";
@@ -26,6 +26,25 @@ rfiLibraryRouter.get("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const { file, version } = library();
   res.json(buildLibrary(file, version, await customsOf(projectId)));
+});
+
+/** Schedule headings per live page ({combinedPageNumber: headings}), so the
+ * picker can suggest the schedule NAMED for an element (S8.02 "CONCRETE COLUMN
+ * SCHEDULE") rather than the first schedule sheet. Only pages that say
+ * SCHEDULE at all are read; the viewer's manifest stays text-free. */
+rfiLibraryRouter.get("/headings", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const rows = await prisma.$queryRaw<{ n: number; text: string }[]>`
+    SELECT p."combinedPageNumber" AS n, p.text
+      FROM pages p JOIN documents d ON d.id = p."documentId"
+     WHERE d."projectId" = ${projectId} AND d."supersededAt" IS NULL
+       AND p."combinedPageNumber" IS NOT NULL AND p.text ILIKE '%SCHEDULE%'`;
+  const out: Record<number, string[]> = {};
+  for (const r of rows) {
+    const headings = scheduleHeadings(r.text ?? "");
+    if (headings.length) out[r.n] = headings;
+  }
+  res.json(out);
 });
 
 rfiLibraryRouter.post("/questions", async (req, res) => {

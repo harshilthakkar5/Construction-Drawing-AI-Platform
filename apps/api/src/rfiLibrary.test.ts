@@ -9,6 +9,8 @@ import {
   compareAcrossNeeds,
   libraryCatalogueIds,
   suggestSheets,
+  scheduleHeadings,
+  scheduleSubject,
   type LibrarySheet,
   type RfiLibraryQuestionDto,
 } from "@cdip/shared";
@@ -182,6 +184,29 @@ describe("sheet suggestions for an element", () => {
   it("reads a bare discipline as its plan, falling back to other kinds", () => {
     expect(suggestSheets(["Struct", "Arch"], set).sheets).toEqual(["S2.01", "A1.01"]);
     expect(suggestSheets(["Struct"], [sheet("S0.01", "structural", "notes", 1)]).sheets).toEqual(["S0.01"]);
+  });
+
+  it("reads schedule headings, joining a title broken over two lines and skipping notes that point at one", () => {
+    expect(scheduleHeadings("CONCRETE COLUMN\nSCHEDULE - AREA B\nSEE BEAM SCHEDULE\nCOLUMN SCHEDULE LEGEND\nSCHEDULE")).toEqual([
+      "CONCRETE COLUMN SCHEDULE - AREA B",
+      "COLUMN SCHEDULE LEGEND",
+    ]);
+    expect(scheduleSubject("pile cap schedule")).toEqual({ words: ["PILE", "CAP"], all: true });
+    expect(scheduleSubject("schedule", "Drilled piers / caissons / drilled shafts")).toEqual({ words: ["PIER", "CAISSON", "SHAFT"], all: false });
+  });
+
+  it("suggests the schedule named for the element, even printed on a plan (Leland)", () => {
+    const leland: LibrarySheet[] = [
+      { ...sheet("S0.01", "structural", "schedule", 2), level: "ROOF", headings: ["COLUMN/STUDPACK SCHEDULE", "STUDWALL SCHEDULE"] },
+      { ...sheet("S2.20", "structural", "plan", 15), level: "LEVEL B2" },
+      { ...sheet("S2.30-A", "structural", "plan", 24), level: "LEVEL B2", headings: ["PIER SCHEDULE"] },
+      { ...sheet("S8.01", "structural", "schedule", 92), headings: ["COLUMN SCHEDULE LEGEND", "CONCRETE COLUMN SCHEDULE - AREA A"] },
+      { ...sheet("S9.01", "structural", "schedule", 99), headings: ["BEAM SCHEDULE"] },
+    ];
+    expect(suggestSheets(["Struct plan", "column schedule"], leland).sheets).toEqual(["S2.20", "S8.01"]);
+    expect(suggestSheets(["Struct foundation plan", "schedule"], leland, Infinity, "Drilled piers / caissons").sheets).toEqual(["S2.20", "S2.30-A"]);
+    // Nothing named: the first schedule sheet, as before.
+    expect(suggestSheets(["Struct plan", "pile cap schedule"], leland).sheets).toEqual(["S2.20", "S0.01"]);
   });
 
   it("never suggests a sheet twice, and one per entry unless capped", () => {

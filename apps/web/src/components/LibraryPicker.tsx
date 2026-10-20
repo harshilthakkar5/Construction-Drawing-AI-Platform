@@ -71,6 +71,7 @@ export function LibraryPicker({
 }) {
   const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
   const manifest = useQuery({ queryKey: ["manifest", projectId], queryFn: () => api.manifest(projectId) });
+  const headings = useQuery({ queryKey: ["rfi-library-headings", projectId], queryFn: () => api.rfiLibraryHeadings(projectId) });
   const set = (patch: Partial<LibraryChoice>) => {
     const next = { ...value, ...patch };
     saveChoice(projectId, next);
@@ -84,18 +85,21 @@ export function LibraryPicker({
     const seen = new Set<string>();
     return (manifest.data ?? []).flatMap((p) =>
       p.sheetNumber && !seen.has(p.sheetNumber) && seen.add(p.sheetNumber)
-        ? [{ combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline, sheetKind: p.sheetKind ?? null, level: p.level ?? null }]
+        ? [{
+            combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
+            sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
+          }]
         : [],
     );
-  }, [manifest.data]);
-  const suggestion = element ? suggestSheets(element.compareAcross, sheets) : null;
+  }, [manifest.data, headings.data]);
+  const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name) : null;
 
   const pickElement = (id: string) => {
     const next = elements.find((e) => e.id === id);
     if (!next) return;
     // Every built-in question of the element to start with; the person narrows it.
     const questionIds = next.questions.filter((q) => q.source === "library").map((q) => q.id);
-    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets).sheets });
+    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets, Infinity, next.name).sheets });
   };
   // A choice remembered from an element the library no longer has starts over.
   useEffect(() => {

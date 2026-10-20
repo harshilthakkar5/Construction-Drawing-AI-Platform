@@ -2038,6 +2038,58 @@ export interface LibrarySheet {
   sheetKind: SheetKind | null;
   /** The level its title names ("LEVEL 2"); a floor plan names one, a cover or notes sheet does not. */
   level?: string | null;
+  /** Schedule headings printed on it ("CONCRETE COLUMN SCHEDULE - AREA B"), from `scheduleHeadings`. */
+  headings?: string[];
+}
+
+const HEADING_REFERENCE = /\b(?:SEE|PER|REFER|WHERE|SCHEDULED|SHALL|NOTES?|FOR|TO|IN)\b/;
+
+/**
+ * Schedule HEADINGS in a page's text: a short line naming a SCHEDULE, never a
+ * note pointing at one ("SEE BEAM SCHEDULE"). A title the drafter broke over
+ * two lines ("CONCRETE COLUMN" / "SCHEDULE - AREA B") is joined back up.
+ */
+export function scheduleHeadings(text: string, max = 12): string[] {
+  const lines = text.toUpperCase().split(/\n/).map((l) => l.trim().replace(/\s+/g, " "));
+  const out: string[] = [];
+  lines.forEach((line, i) => {
+    if (!/\bSCHEDULE\b/.test(line)) return;
+    const heading = line.startsWith("SCHEDULE") && i > 0 && lines[i - 1] && !/\bSCHEDULE\b/.test(lines[i - 1]!) ? `${lines[i - 1]} ${line}` : line;
+    if (heading.length > 70 || HEADING_REFERENCE.test(heading) || heading === "SCHEDULE") return;
+    if (!out.includes(heading)) out.push(heading);
+  });
+  return out.slice(0, max);
+}
+
+const NOT_A_SUBJECT = new Set([
+  "struct", "structural", "arch", "architectural", "civil", "mep", "plumbing", "electrical", "mechanical", "hvac",
+  "landscape", "fire", "protection", "life", "safety", "plan", "plans", "schedule", "schedules", "section", "sections",
+  "elevation", "elevations", "detail", "details", "notes", "rcp", "layout", "partitions", "and", "the", "with", "drilled",
+]);
+const stem = (w: string) => w.replace(/(?<![sS])[sS]$/, ""); // PIERS → PIER, PILES → PILE, never GLASS → GLAS
+
+/** What a schedule entry is a schedule OF: its own words, which must ALL be
+ * in the heading ("pile cap schedule" → PILE + CAP), else the element's name,
+ * any one of which will do ("Drilled piers / caissons" → PIER or CAISSON).
+ * Upper-case stems. */
+export function scheduleSubject(entry: string, elementName = ""): { words: string[]; all: boolean } {
+  const words = (text: string) =>
+    (text.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length >= 3 && !NOT_A_SUBJECT.has(w)).map((w) => stem(w).toUpperCase());
+  const own = words(entry);
+  return own.length ? { words: own, all: true } : { words: words(elementName), all: false };
+}
+
+/** How strongly a sheet's schedule headings name the subject: 0 not at all,
+ * 2 named, 3 named as CONCRETE (the library is a concrete scope). Pure. */
+export function headingScore(sheet: LibrarySheet, subject: { words: readonly string[]; all: boolean }): number {
+  if (!subject.words.length) return 0;
+  let best = 0;
+  for (const h of sheet.headings ?? []) {
+    const tokens = (h.match(/[A-Z]+/g) ?? []).map(stem);
+    const named = subject.all ? subject.words.every((w) => tokens.includes(w)) : subject.words.some((w) => tokens.includes(w));
+    if (named) best = Math.max(best, tokens.includes("CONCRETE") ? 3 : 2);
+  }
+  return best;
 }
 
 /**
@@ -2053,6 +2105,7 @@ export function suggestSheets(
   compareAcross: readonly string[],
   sheets: readonly LibrarySheet[],
   max = Infinity,
+  elementName = "",
 ): { sheets: string[]; missing: string[]; outside: string[] } {
   const { needs, outside } = compareAcrossNeeds(compareAcross);
   const picked: string[] = [];
@@ -2073,12 +2126,17 @@ export function suggestSheets(
       if (s.sheetKind === null) return prefer.length;
       return need.kinds.length ? -1 : prefer.length + 1;
     };
-    const rank = (s: LibrarySheet) => [kindRank(s), level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber];
+    // A schedule entry: the sheet whose HEADING names the element comes first,
+    // whatever its kind — Leland prints its pier schedule on the foundation
+    // plans, and "the first schedule sheet" was S0.01, general notes, for columns.
+    const subject = need.kinds.includes("schedule") ? scheduleSubject(need.entry, elementName) : { words: [], all: true };
+    const named = (s: LibrarySheet) => headingScore(s, subject);
+    const rank = (s: LibrarySheet) => [-named(s), named(s) ? 0 : kindRank(s), level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber];
     const pick = of
-      .filter((s) => kindRank(s) >= 0 && !picked.includes(s.sheetNumber))
+      .filter((s) => (kindRank(s) >= 0 || named(s) > 0) && !picked.includes(s.sheetNumber))
       .sort((a, b) => {
         const [x, y] = [rank(a), rank(b)];
-        return x[0]! - y[0]! || x[1]! - y[1]! || x[2]! - y[2]!;
+        return x[0]! - y[0]! || x[1]! - y[1]! || x[2]! - y[2]! || x[3]! - y[3]!;
       })[0];
     if (pick && picked.length < max) {
       picked.push(pick.sheetNumber);

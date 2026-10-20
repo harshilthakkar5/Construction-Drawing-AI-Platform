@@ -634,6 +634,7 @@ export const api = {
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   rfiLibrary: (projectId: string) => request<RfiLibraryDto>(`/projects/${projectId}/rfis/library`),
+  rfiLibraryHeadings: (projectId: string) => request<Record<number, string[]>>(`/projects/${projectId}/rfis/library/headings`),
   addLibraryQuestion: (projectId: string, body: { elementId: string; parentId?: string | null; text: string }) =>
     request<{ id: string }>(`/projects/${projectId}/rfis/library/questions`, { method: "POST", body: JSON.stringify(body) }),
   deleteLibraryQuestion: (projectId: string, questionId: string) =>
