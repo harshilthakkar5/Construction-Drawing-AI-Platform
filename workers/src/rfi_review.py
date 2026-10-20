@@ -1116,7 +1116,8 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
     """Whether every identifier and number in a question appears in what it
     was built from — the scan's guard (rfi_scan) applied to a review. An RFI
     that invents a mark or a dimension costs an engineer an afternoon."""
-    upper = text.upper()
+    upper = rfi_scan.plain_numbers(text.upper())
+    material = rfi_scan.plain_numbers(material)
     for token in rfi_scan._IDENT.findall(upper):
         if rfi_checks.normalize(token) and rfi_checks.normalize(token) not in rfi_checks.normalize(material):
             return False, f"names {token}, which the evidence does not contain"

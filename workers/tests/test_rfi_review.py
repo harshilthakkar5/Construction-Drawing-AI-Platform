@@ -171,6 +171,15 @@ def test_a_member_size_is_checked_digit_by_digit():
     assert rfi_review.guard(cand, _decision(question="Should C-6 be a W14x90 at 3/C?"), evidence, []) is None
 
 
+def test_a_thousands_comma_is_one_number_not_two():
+    """Leland: the mix table prints 4500 and the question said "4,500 psi" — read
+    as "4" and "500", it was rejected for a number the drawing does print."""
+    assert rfi_review.grounded("Is it 4,500 psi?", "DRILLED PIERS 4500")[0]
+    assert rfi_review.grounded("Is it 4500 psi?", "DRILLED PIERS 4,500")[0]
+    assert not rfi_review.grounded("Is it 4,500 psi?", "DRILLED PIERS 4000")[0]
+    assert not rfi_review.grounded("Is it 500 psi?", "DRILLED PIERS 4,500")[0]  # still not a free 500
+
+
 def test_what_discovery_saw_in_an_image_can_be_quoted():
     """The only record of what a crop SHOWS is the observation made from it, so
     a number read there is grounded — but only for a candidate citing it."""
