@@ -1549,6 +1549,26 @@ export interface RfiCheckPlanDto {
   reason: string;
 }
 
+/** One proposal a review did not raise, as the worker recorded it. */
+export interface RfiSetAsideDto {
+  checkId: string;
+  checkType: string;
+  kind: string;
+  element: string;
+  location: string;
+  issue: string;
+  reason: string;
+  /** "model" (verification rejected it), "guard" (a rule did) or "measured column positions". */
+  rule: string;
+  subject: string;
+  question: string;
+  questionSource: "model" | "template";
+  evidence: RfiEvidenceDto[];
+  fingerprint: string;
+  /** Set once a person kept it: the finding it became. */
+  keptCandidateId?: string;
+}
+
 export interface RfiCheckResultDto {
   outcome: RfiCheckOutcome;
   reason: string;
@@ -1557,6 +1577,9 @@ export interface RfiCheckResultDto {
   gaps: string[];
   /** Fingerprints of findings this run made again that were already on file. */
   foundAgain?: string[];
+  /** Proposals the review set aside (verification or a rule), with why —
+   * shown to the person, who can still keep one as a low-confidence finding. */
+  setAside?: RfiSetAsideDto[];
   /** C03: every column-mark occurrence measured on the reviewed sheets. */
   occurrences?: (RfiColumnOccurrenceDto & { sheetNumber: string | null; documentId: string; pageNumber: number })[];
 }

@@ -515,6 +515,12 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
+  /** A proposal the review set aside, kept anyway: a low-confidence finding. */
+  keepSetAside: (projectId: string, runId: string, checkId: string, index: number) =>
+    request<RfiCandidateDto>(`/projects/${projectId}/rfis/reviews/${runId}/set-aside/keep`, {
+      method: "POST",
+      body: JSON.stringify({ checkId, index }),
+    }),
   deleteRfiCandidate: (projectId: string, candidateId: string) =>
     request<{ deleted: true }>(`/projects/${projectId}/rfis/generated/${candidateId}`, { method: "DELETE" }),
 

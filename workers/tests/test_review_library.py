@@ -182,3 +182,26 @@ def test_a_title_touching_its_scale_line_is_still_a_title_and_its_cell_reaches_t
     [region] = rr.detail_regions(page, rr.element_title_words("Pile caps"), 3)
     words = " ".join(w[4] for w in page.get_text("words", clip=region))
     assert "CAPA" in words and "CAPB" in words and "OTHER" not in words
+
+
+def test_a_set_aside_proposal_keeps_what_keep_as_rfi_needs_and_only_grounded_wording():
+    ev = {
+        "E1": rr.Evidence(id="E1", kind="text", document_id="d", page_number=4, combined_page_number=4,
+                          sheet_number="S4.00", side=None, bbox={"x": 1, "y": 2, "width": 3, "height": 4},
+                          text="PIER P-3 BOTTOM ELEVATION SEE CIVIL"),
+        "E2": rr.Evidence(id="E2", kind="description", document_id="d", page_number=4, combined_page_number=4,
+                          sheet_number="S4.00", side=None, bbox=None, text="a pier"),
+    }
+    candidate = {"checkId": "F04", "kind": "missing", "element": "P-3", "location": "S4.00",
+                 "issue": "Bottom elevation of P-3 is not given.", "evidenceIds": ["E1", "E2"]}
+    ok = {"subject": "P-3 bottom elevation", "question": "What is the bottom elevation of P-3?"}
+    entry = rr.set_aside_entry(candidate, "the detail refers to civil", "model", ok, ev, [])
+    assert entry["subject"] == ok["subject"] and entry["questionSource"] == "model"
+    assert [e["evidenceId"] for e in entry["evidence"]] == ["E1"]  # a description pins nothing
+    assert entry["fingerprint"] == rr.fingerprint(candidate, ev, [])
+    # Wording that names something the evidence lacks falls back to the template.
+    invented = {"subject": "P-3 at 12 ft", "question": "Is P-3 at 12 ft below grade?"}
+    entry = rr.set_aside_entry(candidate, "rejected", "model", invented, ev, [])
+    assert entry["questionSource"] == "template" and "12" not in entry["question"]
+    # A guard rejection never reuses the model's wording, however grounded.
+    assert rr.set_aside_entry(candidate, "x", "guard", ok, ev, [])["questionSource"] == "template"

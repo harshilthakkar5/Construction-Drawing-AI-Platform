@@ -593,6 +593,11 @@ def test_an_elsewhere_rejection_that_cites_what_the_search_found_stands(database
     assert [r for r in _candidates(database, seeded["project"]) if r[0] == "C01"] == []
     notes = _row(database, seeded["run"])[4]
     assert any("(re-checked)" in n for n in notes)
+    # The person still sees it, with the reason, ready for "Keep as RFI".
+    with database.connect() as conn:
+        results = conn.execute('SELECT "checkResults" FROM rfi_review_runs WHERE id = %s', (seeded["run"],)).fetchone()[0]
+    [entry] = [a for a in results["C01"]["setAside"] if a["reason"] == "the schedule gives it (re-checked)"]
+    assert entry["checkType"] == "C01" and entry["fingerprint"] and entry["evidence"]
 
 
 @needs_db

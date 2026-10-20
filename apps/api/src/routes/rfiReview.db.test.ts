@@ -109,6 +109,27 @@ describe.skipIf(!url)("review routes against a real database", () => {
     expect(added.length - before).toBe(1);
   });
 
+  it("keeps a set-aside proposal once, as a low-confidence finding", async () => {
+    const run = await plan();
+    const entry = {
+      checkId: "G01", checkType: "G01", kind: "conflict", element: "grid 6", location: "S2.105", issue: "x", reason: "the detail refers to civil",
+      rule: "model", subject: "Grid 6 naming", question: "Which name governs?", questionSource: "template", fingerprint: `fp-${run.id}`,
+      evidence: [{ documentId, pageNumber: 1, combinedPageNumber: 1, sheetNumber: "S2.105", bbox: null, chunkId: null, quote: "GRID 6" }],
+    };
+    await prisma.rfiReviewRun.update({
+      where: { id: run.id },
+      data: { checkResults: { G01: { outcome: "complete_no_issue", reason: "", observations: 0, candidates: 0, gaps: [], setAside: [entry] } } },
+    });
+    const kept = await post(`/${run.id}/set-aside/keep`, { checkId: "G01", index: 0 });
+    expect(kept.status).toBe(201);
+    const candidate = (await kept.json()) as { id: string; confidence: string; status: string };
+    expect([candidate.confidence, candidate.status]).toEqual(["low", "pending"]);
+    const stored = await prisma.rfiReviewRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect((stored.checkResults as { G01: { setAside: { keptCandidateId: string }[] } }).G01.setAside[0]!.keptCandidateId).toBe(candidate.id);
+    expect((await post(`/${run.id}/set-aside/keep`, { checkId: "G01", index: 0 })).status).toBe(409);
+    expect((await post(`/${run.id}/set-aside/keep`, { checkId: "G01", index: 1 })).status).toBe(404);
+  });
+
   it("the same key cannot start a second review", async () => {
     const run = await plan();
     const res = await post(`/${run.id}/start`, {}, { "Idempotency-Key": "click-0001-abcdef" });

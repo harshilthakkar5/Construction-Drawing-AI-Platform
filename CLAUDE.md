@@ -2786,6 +2786,12 @@ the specifications or a standard govern stands (`_SPEC_GOVERNED`), and an overru
 saved Low. `rfi_eval.py --project-reviews <project>` scores every element's latest run against the
 cases' `elements`, links "found again" findings by the fingerprint each run now records
 (`checkResults[q].foundAgain`), and says where an element answered "no issue" and missed.
+What verification or a rule SET ASIDE is no longer only a note: `set_aside_entry` stores each in
+`checkResults[q].setAside` (≤ 5 per question: issue, reason, rule, fingerprint, non-weak evidence,
+the verifier's wording only if it is `grounded` and no guard refused it, else the template), shown
+under the question as "Considered, not raised", and `POST /reviews/:runId/set-aside/keep` files one
+as a LOW pending candidate (409 if its fingerprint is on file). On Leland the AI proposed RFIs 008
+and 009 when asked directly and verification rejected both — this is where a person overrules it.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead

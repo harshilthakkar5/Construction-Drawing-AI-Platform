@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, CoinsIcon, DownloadIcon, PlayIcon, SearchIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -468,8 +468,46 @@ function Section({ title, count, children, open = false }: { title: string; coun
   );
 }
 
+/** What the checking step (or a rule) turned away for one question, with why.
+ * The person may disagree: "Keep as RFI" files it as a LOW-confidence finding
+ * in Needs your review — still not an RFI until accepted. */
+function SetAside({ projectId, run, checkId }: { projectId: string; run: RfiReviewRunDto; checkId: string }) {
+  const queryClient = useQueryClient();
+  const keep = useMutation({
+    mutationFn: (index: number) => api.keepSetAside(projectId, run.id, checkId, index),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["rfi-review", projectId, run.id] });
+      void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+    },
+  });
+  const entries = run.checkResults?.[checkId]?.setAside ?? [];
+  if (!entries.length) return null;
+  return (
+    <div className="mt-1 flex flex-col gap-1 border-l-2 pl-2">
+      <span className="text-muted-foreground font-medium">Considered, not raised</span>
+      {entries.map((entry, index) => (
+        <div key={entry.fingerprint} className="flex items-start gap-2">
+          <span className="min-w-0 flex-1">
+            {entry.subject}
+            {entry.location && <span className="text-muted-foreground"> · {entry.location}</span>}
+            <span className="text-muted-foreground block">Set aside because: {entry.reason}</span>
+          </span>
+          {entry.keptCandidateId ? (
+            <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">kept</Badge>
+          ) : (
+            <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[11px]" disabled={keep.isPending} onClick={() => keep.mutate(index)}>
+              Keep as RFI
+            </Button>
+          )}
+        </div>
+      ))}
+      {keep.error && <span className="text-destructive">{keep.error.message}</span>}
+    </div>
+  );
+}
+
 /** A "By element" run: its library questions first, in the client's words. */
-function LibraryQuestions({ run, results = false }: { run: RfiReviewRunDto; results?: boolean }) {
+function LibraryQuestions({ projectId, run, results = false }: { projectId?: string; run: RfiReviewRunDto; results?: boolean }) {
   if (!run.library) return null;
   return (
     <li className="flex flex-col gap-1.5">
@@ -484,6 +522,7 @@ function LibraryQuestions({ run, results = false }: { run: RfiReviewRunDto; resu
               {q.text}
               {q.codeChecks.length > 0 && <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">code check</Badge>}
               {results && result?.reason && <span className="text-muted-foreground block">{result.reason}</span>}
+              {results && projectId && <SetAside projectId={projectId} run={run} checkId={q.id} />}
             </span>
           </div>
         );
@@ -532,12 +571,12 @@ function headline(run: RfiReviewRunDto): string {
   return "No problems were confirmed on these pages.";
 }
 
-function Outcomes({ run }: { run: RfiReviewRunDto }) {
+function Outcomes({ projectId, run }: { projectId: string; run: RfiReviewRunDto }) {
   if (!run.checkResults) return null;
   return (
     <Section title="The questions" count={(run.library ? run.checkIds.length : RFI_REVIEW_CHECKS.length) + (run.library?.questions.length ?? 0)} open>
       <ul className="flex flex-col gap-1.5 text-xs">
-        <LibraryQuestions run={run} results />
+        <LibraryQuestions projectId={projectId} run={run} results />
         {RFI_REVIEW_CHECKS.filter((c) => !run.library || run.checkIds.includes(c.id)).map((check) => {
           const result = run.checkResults![check.id];
           const outcome = OUTCOME[result?.outcome ?? "not_selected"];
@@ -555,6 +594,7 @@ function Outcomes({ run }: { run: RfiReviewRunDto }) {
                       Missing: {gap}
                     </span>
                   ))}
+                  <SetAside projectId={projectId} run={run} checkId={check.id} />
                 </span>
               </div>
             </li>
@@ -900,7 +940,7 @@ function RunView({
             </Notice>
           )}
           <p className="text-sm">{headline(run)}</p>
-          <Outcomes run={run} />
+          <Outcomes projectId={projectId} run={run} />
           <Inventory run={run} />
           <Coverage run={run} />
           {run.usage?.total && (
@@ -932,7 +972,7 @@ function RunView({
           {run.error ?? "unknown error"}
         </Notice>
       )}
-      {run.status === "failed" && run.checkResults && <Outcomes run={run} />}
+      {run.status === "failed" && run.checkResults && <Outcomes projectId={projectId} run={run} />}
 
       {!!error && <Notice tone="error">{error.message}</Notice>}
 

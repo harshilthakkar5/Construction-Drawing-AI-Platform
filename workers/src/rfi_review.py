@@ -1159,6 +1159,41 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
     return None
 
 
+MAX_SET_ASIDE = 5  # per question
+
+
+def set_aside_entry(candidate: dict, reason: str, rule: str, decision: dict | None,
+                    evidence: dict[str, Evidence], observations: list[dict]) -> dict:
+    """A proposal verification or a guard turned away, kept for a PERSON to
+    see beside the question: what was proposed, why it was set aside, and
+    everything "Keep as RFI" needs to file it. On Leland the AI proposed RFI
+    008 and 009 when asked directly and verification rejected both ("the
+    detail refers to plan and civil") — defensible, and stricter than the
+    engineers who wrote them. Wording a guard refused is never reused. Pure."""
+    issue = candidate.get("issue") or ""
+    material = _material(candidate, evidence, observations)
+    grounded_wording = bool(
+        decision and decision.get("subject") and decision.get("question") and rule != "guard"
+        and grounded(decision["subject"], material)[0] and grounded(decision["question"], material)[0]
+    )
+    return {
+        "checkId": candidate["checkId"],
+        "kind": candidate["kind"],
+        "element": candidate.get("element") or "",
+        "location": candidate.get("location") or "",
+        "issue": issue,
+        "reason": reason,
+        "rule": rule,
+        "subject": decision["subject"] if grounded_wording else _text(candidate.get("element") or issue, 90),
+        "question": decision["question"] if grounded_wording
+        else f"{issue.rstrip('.')}. Please confirm, or provide the missing information.",
+        "evidence": [evidence[e].as_candidate_evidence(None) for e in candidate["evidenceIds"]
+                     if e in evidence and evidence[e].kind not in WEAK_KINDS],
+        "questionSource": "model" if grounded_wording else "template",
+        "fingerprint": fingerprint(candidate, evidence, observations),
+    }
+
+
 def fingerprint(candidate: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str:
     """Identity of the ISSUE, never its wording: the check, the kind, the
     pages it sits on (not the description ones), and the identifiers in its
@@ -2686,6 +2721,7 @@ def _run(run: dict) -> dict:
     candidates: list[dict] = []
     kept: list[tuple[dict, dict, OccurrenceVerdict]] = []
     rejected: list[str] = []
+    aside: list[dict] = []  # set-aside proposals, structured, for the person
     # C03 occurrences a claim named that measurement could not settle: they
     # are recorded as needing a person, never dropped and never asserted.
     unsettled: list[dict] = []
@@ -2769,24 +2805,28 @@ def _run(run: dict) -> dict:
         for candidate in candidates:
             early = occurrence_check(candidate, None, measured, evidence)
             if early.rejected:
-                rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {early.reason}")
+                set_aside(candidate, early.reason, "measured column positions")
                 diagnostics.event("rejected_before_verification", candidate=candidate, reason=early.reason,
                                   rule="occurrence_check (measured column positions)")
                 continue
             to_verify.append(candidate)
+
+        def set_aside(candidate: dict, reason: str, rule: str, decision: dict | None = None) -> None:
+            rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {reason}")
+            aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
             why_not = guard(candidate, decision, evidence, observations)
             if why_not:
-                rejected.append(f"{label}: {why_not}")
+                set_aside(candidate, why_not, "guard", decision)
                 diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                   reason=why_not, rule="guard")
                 return
             verdict = occurrence_check(candidate, decision, measured, evidence)
             if verdict.rejected:
-                rejected.append(f"{label}: {verdict.reason}")
+                set_aside(candidate, verdict.reason, "measured column positions", decision)
                 diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                   reason=verdict.reason, rule="occurrence_check (measured column positions)")
                 return
@@ -2796,7 +2836,7 @@ def _run(run: dict) -> dict:
                     {"checkId": "C03", "field": f"location of {candidate['element'] or 'the column named'}",
                      "reason": f"needs manual verification: {verdict.reason}"}
                 ])
-                rejected.append(f"{label}: not verified by measurement, recorded for a person to check")
+                set_aside(candidate, "not verified by measurement, recorded for a person to check", "measured column positions", decision)
                 return
             kept.append((candidate, decision, verdict))
 
@@ -2820,7 +2860,7 @@ def _run(run: dict) -> dict:
                 label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
                 decision = decisions.get(i)
                 if decision is None:
-                    rejected.append(f"{label}: no verdict")
+                    set_aside(candidate, "verification gave no verdict", "model")
                     diagnostics.event("rejected_after_verification", candidate=candidate, reason="no verdict", rule="model")
                     continue
                 if decision["decision"] != "keep":
@@ -2829,7 +2869,7 @@ def _run(run: dict) -> dict:
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
                         continue
-                    rejected.append(f"{label}: {decision['reason'] or 'rejected'}")
+                    set_aside(candidate, decision["reason"] or "rejected", "model", decision)
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
                     continue
@@ -2889,7 +2929,7 @@ def _run(run: dict) -> dict:
                         # rejection: never more than medium.
                         accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
                     elif decision is not None and not contested(decision, set(cited2)):
-                        rejected.append(f"{label}: {decision['reason'] or 'rejected'} (re-checked)")
+                        set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                           reason=decision["reason"] or "rejected", rule="model, re-checked with the project searched")
                     else:
@@ -3007,6 +3047,13 @@ def _run(run: dict) -> dict:
     for cid, fps in known_fps.items():
         if cid in results:
             results[cid]["foundAgain"] = sorted(set(fps))
+    for entry in aside:
+        # A project's own question is saved as "custom", as an accepted one is.
+        entry["checkType"] = "custom" if library.get(entry["checkId"], {}).get("source") == "custom" else entry["checkId"]
+        if entry["checkId"] in results:
+            results[entry["checkId"]].setdefault("setAside", [])
+            if len(results[entry["checkId"]]["setAside"]) < MAX_SET_ASIDE:
+                results[entry["checkId"]]["setAside"].append(entry)
     if "C03" in results and measured:
         results["C03"]["occurrences"] = [
             dict(o.as_json(), sheetNumber=page.page.get("sheetNumber"), documentId=page.page["documentId"], pageNumber=page.page["pageNumber"])
