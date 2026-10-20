@@ -5,6 +5,7 @@ import {
   CoinsIcon,
   RefreshCwIcon,
   RotateCcwIcon,
+  Trash2Icon,
   ScanSearchIcon,
   SparklesIcon,
   SquareIcon,
@@ -160,6 +161,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const [showScope, setShowScope] = useState(true);
   const [showUsage, setShowUsage] = useState(false);
   const [confirmFresh, setConfirmFresh] = useState(false);
+  const [deleting, setDeleting] = useState<RfiCandidateDto | null>(null);
   const usageTotals = useQuery({
     queryKey: ["rfi-usage", projectId],
     queryFn: () => api.rfiUsage(projectId),
@@ -228,6 +230,13 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const restore = useMutation({
     mutationFn: (id: string) => api.restoreRfiCandidate(projectId, id),
     onSuccess: refreshAll,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteRfiCandidate(projectId, id),
+    onSuccess: () => {
+      setDeleting(null);
+      refreshAll();
+    },
   });
   const acceptAll = useMutation({
     mutationFn: (min: RfiConfidence) => api.acceptAllRfiCandidates(projectId, min),
@@ -464,6 +473,28 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </p>
       )}
 
+      {deleting && (
+        <ConfirmDialog
+          title="Delete this finding?"
+          message={
+            <>
+              <p className="font-medium">{deleting.subject}</p>
+              <p className="mt-2">
+                It is removed for good. A dismissed finding stays dismissed on every rescan; a deleted
+                one is forgotten, so a later scan or review that finds the same thing proposes it again.
+              </p>
+            </>
+          }
+          confirmLabel="Delete"
+          busyLabel="Deleting…"
+          tone="danger"
+          busy={remove.isPending}
+          error={remove.error}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+
       {confirmFresh && (
         <ConfirmDialog
           title="Rescan from scratch?"
@@ -512,6 +543,16 @@ export function RfiReview({ projectId }: { projectId: string }) {
                   >
                     <RotateCcwIcon className="size-3" />
                     Restore
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-destructive h-6 px-2"
+                    aria-label={`Delete ${c.subject}`}
+                    onClick={() => setDeleting(c)}
+                  >
+                    <Trash2Icon className="size-3" />
+                    Delete
                   </Button>
                 </li>
               ))}

@@ -515,6 +515,9 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
+  deleteRfiCandidate: (projectId: string, candidateId: string) =>
+    request<{ deleted: true }>(`/projects/${projectId}/rfis/generated/${candidateId}`, { method: "DELETE" }),
+
   // --- Targeted RFI review --------------------------------------------------
 
   /** Resolve the sheet(s), pick checks, retrieve related pages and price it.

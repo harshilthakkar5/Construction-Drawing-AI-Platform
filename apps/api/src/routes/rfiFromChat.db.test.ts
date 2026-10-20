@@ -103,3 +103,37 @@ describe.skipIf(!url)("sending a chat answer to review", () => {
     expect((await send(otherProject, answerId)).status).toBe(404);
   });
 });
+
+describe.skipIf(!url)("deleting a dismissed finding", () => {
+  // Reuses the router above through a fresh app: delete only takes a dismissed one.
+  it("deletes only a dismissed finding of this project, and then it can be found again", async () => {
+    const { prisma } = await import("../db.js");
+    const express = (await import("express")).default;
+    const { rfiGeneratedRouter } = await import("./rfiGenerated.js");
+    const app = express();
+    app.use(express.json());
+    app.use("/projects/:projectId/rfis/generated", rfiGeneratedRouter);
+    const server = app.listen(0);
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/projects`;
+    const projectId = randomUUID();
+    const other = randomUUID();
+    try {
+      for (const id of [projectId, other]) await prisma.$executeRawUnsafe(`INSERT INTO projects (id, name) VALUES ($1, 'delete rfi')`, id);
+      const make = () =>
+        prisma.rfiCandidate.create({
+          data: { projectId, fingerprint: "delete-test", checkType: "custom", confidence: "medium", subject: "s", question: "q", questionSource: "template", evidence: [] },
+        });
+      const c = await make();
+      const del = (project: string) => fetch(`${base}/${project}/rfis/generated/${c.id}`, { method: "DELETE" });
+      expect((await del(projectId)).status).toBe(409); // pending
+      await prisma.rfiCandidate.update({ where: { id: c.id }, data: { status: "dismissed" } });
+      expect((await del(other)).status).toBe(409); // another project's id
+      expect((await del(projectId)).status).toBe(200);
+      expect((await del(projectId)).status).toBe(409); // already gone
+      await expect(make()).resolves.toBeTruthy(); // the fingerprint is free again
+    } finally {
+      server.close();
+      await prisma.$executeRawUnsafe(`DELETE FROM projects WHERE id IN ($1, $2)`, projectId, other);
+    }
+  });
+});

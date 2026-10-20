@@ -541,3 +541,15 @@ rfiGeneratedRouter.post("/:candidateId/restore", async (req, res) => {
   }
   res.json({ restored: true });
 });
+
+/** Delete a DISMISSED finding for good. Its fingerprint goes with it, so a
+ * later scan or review that finds the same thing proposes it again — unlike
+ * a dismissal, which keeps it dismissed. Pending and accepted ones cannot. */
+rfiGeneratedRouter.delete("/:candidateId", async (req, res) => {
+  const { projectId, candidateId } = candidateParams.parse(req.params);
+  const done = await prisma.rfiCandidate.deleteMany({ where: { id: candidateId, projectId, status: "dismissed" } });
+  if (done.count === 0) {
+    return void res.status(409).json({ error: "only a dismissed finding can be deleted" });
+  }
+  res.json({ deleted: true });
+});
