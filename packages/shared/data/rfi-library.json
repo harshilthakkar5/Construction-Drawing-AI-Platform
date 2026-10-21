@@ -162,7 +162,9 @@
    "attributes": "Joint location, width, covers, continuity through all levels",
    "triggers": "Expansion joint shown on Arch but not Struct; joint doesn't align level to level",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL01"
+   ]
   },
   {
    "id": "CE-01-07",
@@ -192,7 +194,9 @@
    "attributes": "Thickness, strength, extent",
    "triggers": "Mud mat required by geotech but not shown on drawings",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-02-02",
@@ -209,7 +213,9 @@
    "attributes": "Presence, thickness, location relative to granular base",
    "triggers": "Vapor retarder shown on Arch, not Struct; mil thickness conflicts with spec",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-02-03",
@@ -225,7 +231,9 @@
    "attributes": "Thickness, extent, R-value, effect on slab elevation",
    "triggers": "Insulation thickness not accounted for in slab section depth",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-02-04",
@@ -241,7 +249,9 @@
    "attributes": "Thickness, compaction, material",
    "triggers": "Base thickness differs Geotech vs Struct",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-02-05",
@@ -291,7 +301,9 @@
    "attributes": "Diameter, length, capacity, reinforcement, grout strength",
    "triggers": "Full-length vs partial cage unclear; test pile requirements missing",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F04"
+   ]
   },
   {
    "id": "CE-03-03",
@@ -358,7 +370,9 @@
    "attributes": "Embedment length, dowel size/length",
    "triggers": "Embedment not dimensioned",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F04"
+   ]
   },
   {
    "id": "CE-04-01",
@@ -792,7 +806,10 @@
    "attributes": "Insulation, heating system, depression depth",
    "triggers": "Heated sub-slab system not coordinated",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "FL03"
+   ]
   },
   {
    "id": "CE-06-08",
@@ -823,7 +840,10 @@
    "attributes": "Recess depth, ledge elevation",
    "triggers": "Brick ledge elevation conflicts with grade",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL01",
+    "FL03"
+   ]
   },
   {
    "id": "CE-07-01",
@@ -989,7 +1009,10 @@
    "attributes": "Core thickness, rebar, openings",
    "triggers": "Core thickness vs form system mismatch",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02",
+    "O01"
+   ]
   },
   {
    "id": "CE-07-11",
@@ -1004,7 +1027,9 @@
    "attributes": "Grout spacing, rebar, bond beam levels",
    "triggers": "Grouted cell spacing not shown; scope split with mason unclear",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02"
+   ]
   },
   {
    "id": "CE-08-01",
@@ -1296,7 +1321,10 @@
    "attributes": "Riser/tread, landing elevations, thickness, rebar, nosings",
    "triggers": "Riser count doesn't fit floor-to-floor; landing elevation conflict",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "G02",
+    "FL02"
+   ]
   },
   {
    "id": "CE-09-02",
@@ -1311,7 +1339,9 @@
    "attributes": "Fill thickness, reinforcement",
    "triggers": "Fill scope (concrete vs misc metals) unclear",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-09-03",
@@ -1327,7 +1357,9 @@
    "attributes": "Size, height, location, anchor bolts, rebar",
    "triggers": "Pads on MEP not on Struct/Arch; pad sizes not given",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL03"
+   ]
   },
   {
    "id": "CE-09-04",
@@ -1343,7 +1375,9 @@
    "attributes": "Height, size, location",
    "triggers": "Curb sizes not coordinated with equipment",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL03"
+   ]
   },
   {
    "id": "CE-09-05",
@@ -1358,7 +1392,9 @@
    "attributes": "Height, width, dowels",
    "triggers": "Curb dowels not detailed",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL03"
+   ]
   },
   {
    "id": "CE-09-06",
@@ -1374,7 +1410,9 @@
    "attributes": "Mass, isolation, anchor bolts, embeds",
    "triggers": "Vendor loads/dimensions not provided",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-09-07",
@@ -1390,7 +1428,9 @@
    "attributes": "Location, depth, fill, footing",
    "triggers": "Bollard footing depth not given",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-09-08",
@@ -1406,7 +1446,9 @@
    "attributes": "Encasement thickness, rebar",
    "triggers": "Encasement extent unclear",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C01"
+   ]
   },
   {
    "id": "CE-09-09",
@@ -1421,7 +1463,9 @@
    "attributes": "Grout thickness, type",
    "triggers": "Grout bed thickness conflicts with T.O. pier elevation",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C01"
+   ]
   },
   {
    "id": "CE-09-10",
@@ -1436,7 +1480,10 @@
    "attributes": "Size, embeds, interaction with permanent structure",
    "triggers": "Crane base conflicts with permanent footings",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01",
+    "F04"
+   ]
   },
   {
    "id": "CE-10-01",
@@ -1452,7 +1499,10 @@
    "attributes": "Thickness, joints, slope, finish, ADA cross slope",
    "triggers": "Joint pattern Landscape ≠ Civil; thickness not given",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "FL04"
+   ]
   },
   {
    "id": "CE-10-02",
@@ -1482,7 +1532,10 @@
    "attributes": "Thickness, rebar/dowels, joints, base",
    "triggers": "Heavy vs light duty limits not defined",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "FL04"
+   ]
   },
   {
    "id": "CE-10-04",
@@ -1497,7 +1550,10 @@
    "attributes": "Thickness, slope, joints",
    "triggers": "Apron elevation vs dock height mismatch",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "FL04"
+   ]
   },
   {
    "id": "CE-10-05",
@@ -1512,7 +1568,9 @@
    "attributes": "Slopes, landing size, warning type",
    "triggers": "Ramp slope exceeds ADA per grading",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL04"
+   ]
   },
   {
    "id": "CE-10-06",
@@ -1527,7 +1585,9 @@
    "attributes": "Size, thickness, enclosure footing",
    "triggers": "Enclosure footing not detailed",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-10-07",
@@ -1543,7 +1603,9 @@
    "attributes": "Height, footing, finish, drainage",
    "triggers": "Wall height/top elevation not given along length",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F02"
+   ]
   },
   {
    "id": "CE-10-08",
@@ -1559,7 +1621,9 @@
    "attributes": "Risers, handrail embeds, drainage",
    "triggers": "Riser heights don't fit grade",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL03"
+   ]
   },
   {
    "id": "CE-10-09",
@@ -1575,7 +1639,9 @@
    "attributes": "Size, thickness, conduit stub-ups, oil containment",
    "triggers": "Pad per utility standard differs from drawings",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-10-10",
@@ -1591,7 +1657,9 @@
    "attributes": "Diameter, depth, anchor bolts, conduit",
    "triggers": "Base detail missing; bolt pattern unknown",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-10-11",
@@ -1606,7 +1674,9 @@
    "attributes": "Depth, diameter, spacing",
    "triggers": "Gate footing size not detailed",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F01"
+   ]
   },
   {
    "id": "CE-10-12",
@@ -1680,7 +1750,11 @@
    "attributes": "Wall/slab thickness, waterstops, joints, liners",
    "triggers": "Waterstop type/locations missing",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02",
+    "FL02",
+    "O01"
+   ]
   },
   {
    "id": "CE-11-02",
@@ -1696,7 +1770,10 @@
    "attributes": "Shell thickness, embeds, finishes",
    "triggers": "Pool vendor embeds not coordinated",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "FL03"
+   ]
   },
   {
    "id": "CE-11-03",
@@ -1711,7 +1788,9 @@
    "attributes": "Thickness, rebar, nozzle access, finish",
    "triggers": "Shotcrete vs formed wall not decided",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02"
+   ]
   },
   {
    "id": "CE-11-04",
@@ -1726,7 +1805,9 @@
    "attributes": "Thermal control plan, max temperature differential",
    "triggers": "Mass concrete threshold & thermal plan not addressed",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "F03"
+   ]
   },
   {
    "id": "CE-11-05",
@@ -1771,7 +1852,9 @@
    "attributes": "Density, thickness, bonding",
    "triggers": "LW vs NW not stated for fire rating",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02"
+   ]
   },
   {
    "id": "CE-11-08",
@@ -1787,7 +1870,11 @@
    "attributes": "Density, thickness, penetrations, joints",
    "triggers": "Shielding thickness/density per physicist ≠ Struct",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C02",
+    "FL02",
+    "O01"
+   ]
   },
   {
    "id": "CE-11-09",
@@ -1802,7 +1889,10 @@
    "attributes": "Bearing, connections, embeds by CIP trade",
    "triggers": "Embed responsibility CIP vs precaster unclear",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "B01",
+    "B03"
+   ]
   },
   {
    "id": "CE-12-01",
@@ -1849,7 +1939,10 @@
    "attributes": "Size, spacing, embed/projection",
    "triggers": "Dowels not shown at CJ or future expansion",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "C01",
+    "C02"
+   ]
   },
   {
    "id": "CE-12-04",
@@ -1901,7 +1994,9 @@
    "attributes": "Type, spacing, load",
    "triggers": "Insert layout not provided by MEP",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL01"
+   ]
   },
   {
    "id": "CE-12-07",
@@ -1918,7 +2013,10 @@
    "attributes": "Depth, cover, conflicts with footings/thickenings",
    "triggers": "Conduit in slab exceeds allowable size; pipe through footing",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "O01"
+   ]
   },
   {
    "id": "CE-12-08",
@@ -1950,7 +2048,9 @@
    "attributes": "Size, anchorage, location",
    "triggers": "Dock edge angle detail missing",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL01"
+   ]
   },
   {
    "id": "CE-12-10",
@@ -1996,7 +2096,11 @@
    "attributes": "Thickness and cover vs required rating",
    "triggers": "2-hr rated wall/slab thinner than required",
    "active": true,
-   "catalogue": []
+   "catalogue": [
+    "FL02",
+    "C01",
+    "C02"
+   ]
   }
  ],
  "questions": [
