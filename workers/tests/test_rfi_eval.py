@@ -145,6 +145,11 @@ def test_a_by_element_finding_counts_under_the_cases_elements():
     assert rfi_eval.matches(exp, c) == ["check CE-05-01-Q03 is not F03"]
     assert rfi_eval.matches(exp, c, ("CE-05-01",)) == []
     assert rfi_eval.matches(exp, c, ("CE-05-0",)) != []  # a prefix of another element is not it
+    # A project's own question counts when asked in a review of the case's element.
+    own = dict(c, checkType="custom", element="CE-05-01")
+    assert rfi_eval.matches(exp, own, ("CE-05-01",)) == []
+    assert rfi_eval.matches(exp, dict(own, element="CE-04-12"), ("CE-05-01",)) != []
+    assert rfi_eval.matches(exp, dict(own, element=None), ("CE-05-01",)) != []
 
 
 def test_project_reviews_take_each_elements_latest_finished_run_and_tally_the_guards():

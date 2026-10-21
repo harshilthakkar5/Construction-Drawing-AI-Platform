@@ -65,9 +65,12 @@ def _pair(a: str, b: str, text: str) -> bool:
 
 def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> list[str]:
     """What this candidate is missing for this expectation; [] is a match.
-    `elements`: library elements whose questions (CE-05-01-Q03) count too."""
+    `elements`: library elements whose questions (CE-05-01-Q03) count too —
+    and so does a project's own question (checkType "custom") asked in a review
+    of one of them, since the test guide's second pass is exactly that."""
     missing = []
-    by_element = any(candidate["checkType"].startswith(f"{e}-") for e in elements)
+    by_element = any(candidate["checkType"].startswith(f"{e}-") for e in elements) or (
+        candidate["checkType"] == "custom" and candidate.get("element") in elements)
     if candidate["checkType"] not in expected["checkTypes"] and not by_element:
         missing.append(f"check {candidate['checkType']} is not {'/'.join(expected['checkTypes'])}")
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
@@ -208,13 +211,15 @@ def load_project_reviews(project_id: str) -> tuple[dict[str, dict], list[dict]]:
         # note's wording — runs made before the fingerprint was recorded.
         again_fps = sorted({fp for r in runs.values() for res in r["checkResults"].values() for fp in (res or {}).get("foundAgain") or []})
         again = sorted({m[1] for r in runs.values() for n in r["notes"] for m in [_FOUND_AGAIN.match(n)] if m})
+        element_of = {run_id: element for run_id, element, *_ in rows}
         found = conn.execute(
-            """SELECT id, "checkType", subject, question, evidence FROM rfi_candidates
+            """SELECT id, "checkType", subject, question, evidence, "reviewRunId" FROM rfi_candidates
                WHERE "projectId" = %s
                  AND ("reviewRunId" = ANY(%s::text[]) OR fingerprint = ANY(%s::text[]) OR subject = ANY(%s::text[]))""",
             (project_id, [r["id"] for r in runs.values()], again_fps, again),
         ).fetchall()
-    return runs, [dict(zip(("id", "checkType", "subject", "question", "evidence"), r)) for r in found]
+    keys = ("id", "checkType", "subject", "question", "evidence")
+    return runs, [dict(zip(keys, r[:5]), element=element_of.get(r[5])) for r in found]
 
 
 def main() -> int:
