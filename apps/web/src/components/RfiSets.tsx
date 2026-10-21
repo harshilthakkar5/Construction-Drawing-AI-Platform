@@ -39,6 +39,46 @@ const matcher = (query: string) => {
 /** Most search hits shown at once; past it the person narrows the words. */
 const SEARCH_LIMIT = 60;
 
+type Hit = { pkg: RfiLibraryDto["packages"][number]; element: RfiLibraryElementDto; questions: ReturnType<typeof flat> };
+
+/** Elements whose name, and questions whose words, match the search. */
+function searchLibrary(packages: RfiLibraryDto["packages"], query: string): { out: Hit[]; more: boolean } {
+  const match = matcher(query);
+  const out: Hit[] = [];
+  let shown = 0;
+  for (const pkg of packages) {
+    for (const element of pkg.elements) {
+      const questions = flat(element.questions).filter((q) => match(q.text));
+      if (!match(`${element.name} ${element.variants}`) && !questions.length) continue;
+      if (shown >= SEARCH_LIMIT) return { out, more: true };
+      shown += Math.max(1, questions.length);
+      out.push({ pkg, element, questions });
+    }
+  }
+  return { out, more: false };
+}
+
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+      <Input
+        value={value}
+        placeholder={placeholder}
+        className="h-10 pl-9 text-base"
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && value && (e.stopPropagation(), onChange(""))}
+      />
+      {value && (
+        <button type="button" aria-label="Clear search" onClick={() => onChange("")}
+          className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 -translate-y-1/2">
+          <XIcon className="size-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** A stage's elements all on (every question) or all off. */
 const setStage = (pkg: RfiLibraryDto["packages"][number], on: boolean): Picks =>
   Object.fromEntries(pkg.elements.map((e) => [e.id, on ? allQuestions(e) : []]));
@@ -223,22 +263,7 @@ function CreateRfiDialog({
   });
 
   // Search: which stage, element and question each match is in, without opening them.
-  const hits = useMemo(() => {
-    const match = matcher(query);
-    const out: { pkg: (typeof packages)[number]; element: RfiLibraryElementDto; byName: boolean; questions: ReturnType<typeof flat> }[] = [];
-    let shown = 0;
-    for (const pkg of packages) {
-      for (const element of pkg.elements) {
-        const byName = match(`${element.name} ${element.variants}`);
-        const questions = flat(element.questions).filter((q) => match(q.text));
-        if (!byName && !questions.length) continue;
-        if (shown >= SEARCH_LIMIT) return { out, more: true };
-        shown += Math.max(1, questions.length);
-        out.push({ pkg, element, byName, questions });
-      }
-    }
-    return { out, more: false };
-  }, [packages, query]);
+  const hits = useMemo(() => searchLibrary(packages, query), [packages, query]);
   const toggleQuestion = (elementId: string, id: string, on: boolean) =>
     setPicks((prev) => {
       const had = prev[elementId] ?? [];
@@ -294,22 +319,8 @@ function CreateRfiDialog({
                 Choose a stage — every element and question under it is selected, then narrow it down.
               </span>
             </div>
-            <div className="relative">
-              <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input
-                value={query}
-                placeholder="Search elements and questions, e.g. elevator pit, dowel, top of slab"
-                className="h-10 pl-9 text-base"
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Escape" && query && (e.stopPropagation(), setQuery(""))}
-              />
-              {query && (
-                <button type="button" aria-label="Clear search" onClick={() => setQuery("")}
-                  className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 -translate-y-1/2">
-                  <XIcon className="size-4" />
-                </button>
-              )}
-            </div>
+            <SearchBox value={query} onChange={setQuery}
+              placeholder="Search elements and questions, e.g. elevator pit, dowel, top of slab" />
             {library.isLoading ? (
               <Spinner />
             ) : library.error ? (
@@ -411,13 +422,14 @@ function SearchResults({
   onQuestion,
   onOpenStage,
 }: {
-  hits: { pkg: RfiLibraryDto["packages"][number]; element: RfiLibraryElementDto; byName: boolean; questions: ReturnType<typeof flat> }[];
+  hits: Hit[];
   more: boolean;
   query: string;
   picks: Picks;
   onElement: (e: RfiLibraryElementDto, on: boolean) => void;
   onQuestion: (elementId: string, questionId: string, on: boolean) => void;
-  onOpenStage: (packageId: string) => void;
+  /** Absent inside a stage's own window, where there is no stage to open. */
+  onOpenStage?: (packageId: string) => void;
 }) {
   if (!hits.length) {
     return <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">Nothing matches “{query.trim()}”.</p>;
@@ -430,12 +442,12 @@ function SearchResults({
         const pkg = inStage[0]!.pkg;
         return (
           <section key={id} className="rounded-xl border">
-            <button type="button" onClick={() => onOpenStage(id)}
+            {onOpenStage && <button type="button" onClick={() => onOpenStage(id)}
               className="bg-muted/40 hover:bg-muted flex w-full items-baseline gap-2 rounded-t-xl border-b px-4 py-2.5 text-left">
               <span className="text-muted-foreground text-xs font-medium">Stage {pkg.id}</span>
               <span className="text-sm font-semibold">{pkg.name}</span>
               <span className="text-muted-foreground ml-auto text-xs">Open stage</span>
-            </button>
+            </button>}
             <ul className="flex flex-col divide-y">
               {inStage.map(({ element, questions }) => {
                 const chosen = picks[element.id] ?? [];
@@ -454,7 +466,7 @@ function SearchResults({
                         {questions.map((q) => (
                           <li key={q.id}>
                             <label className="flex cursor-pointer items-start gap-2 text-sm">
-                              <input type="checkbox" className="mt-0.5 size-4" checked={chosen.includes(q.id)}
+                              <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={chosen.includes(q.id)}
                                 onChange={(e) => onQuestion(element.id, q.id, e.target.checked)} />
                               <span>{q.text}</span>
                             </label>
@@ -495,6 +507,8 @@ function PackageDialog({
   const pkg = library.packages.find((p) => p.id === packageId)!;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newElement, setNewElement] = useState("");
+  const [query, setQuery] = useState("");
+  const hits = useMemo(() => searchLibrary([pkg], query), [pkg, query]);
   const setFor = (id: string, ids: string[]) => onPicks((prev) => ({ ...prev, [id]: ids }));
 
   const addElement = useMutation({
@@ -531,6 +545,21 @@ function PackageDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 overflow-y-auto px-6 py-4">
+          <SearchBox value={query} onChange={setQuery} placeholder={`Search ${pkg.name}: elements and questions`} />
+          {query.trim() ? (
+            <SearchResults
+              hits={hits.out}
+              more={hits.more}
+              query={query}
+              picks={picks}
+              onElement={(e, on) => setFor(e.id, on ? allQuestions(e) : [])}
+              onQuestion={(elementId, id, on) => {
+                const had = picks[elementId] ?? [];
+                setFor(elementId, on ? [...new Set([...had, id])] : had.filter((x) => x !== id));
+              }}
+            />
+          ) : (
+          <>
           <AllBox
             className="text-muted-foreground px-3 pb-1 text-sm font-medium [&_input]:size-4"
             label={`All elements (${onCount} of ${pkg.elements.length})`}
@@ -590,6 +619,8 @@ function PackageDialog({
               </div>
             );
           })}
+          </>
+          )}
           <div className="mt-2 flex gap-2">
             <Input
               value={newElement}
