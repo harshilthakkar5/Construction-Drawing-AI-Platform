@@ -15,6 +15,9 @@ import type {
   RegionPreviewDto,
   RfiCandidateDto,
   RfiCandidateStatus,
+  RfiSetDetailDto,
+  RfiSetDto,
+  RfiSetItem,
   RfiConfidence,
   RfiDto,
   RfiFullScanAvailability,
@@ -645,6 +648,24 @@ export const api = {
     request<{ id: string }>(`/projects/${projectId}/rfis/library/questions`, { method: "POST", body: JSON.stringify(body) }),
   deleteLibraryQuestion: (projectId: string, questionId: string) =>
     request<{ deleted: string[] }>(`/projects/${projectId}/rfis/library/questions/${questionId}`, { method: "DELETE" }),
+  addLibraryElement: (projectId: string, body: { packageId: string; name: string }) =>
+    request<{ id: string; packageId: string; name: string }>(`/projects/${projectId}/rfis/library/elements`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteLibraryElement: (projectId: string, elementId: string) =>
+    request<{ deleted: string }>(`/projects/${projectId}/rfis/library/elements/${elementId}`, { method: "DELETE" }),
+  /** Named RFIs ("Create RFI"): one review per chosen element over the chosen sheets. */
+  listRfiSets: (projectId: string) => request<RfiSetDto[]>(`/projects/${projectId}/rfis/sets`),
+  getRfiSet: (projectId: string, setId: string) => request<RfiSetDetailDto>(`/projects/${projectId}/rfis/sets/${setId}`),
+  createRfiSet: (projectId: string, body: { name: string; sheets: string[]; items: RfiSetItem[] }) =>
+    request<RfiSetDetailDto>(`/projects/${projectId}/rfis/sets`, { method: "POST", body: JSON.stringify(body) }),
+  planRfiSet: (projectId: string, setId: string) =>
+    request<RfiSetDetailDto>(`/projects/${projectId}/rfis/sets/${setId}/plan`, { method: "POST" }),
+  startRfiSet: (projectId: string, setId: string) =>
+    request<RfiSetDetailDto>(`/projects/${projectId}/rfis/sets/${setId}/start`, { method: "POST" }),
+  deleteRfiSet: (projectId: string, setId: string) =>
+    request<{ deleted: string }>(`/projects/${projectId}/rfis/sets/${setId}`, { method: "DELETE" }),
   documentFileUrl: (projectId: string, documentId: string) =>
     withToken(`${API_URL}/projects/${projectId}/documents/${documentId}/file`),
   pageThumbUrl: (projectId: string, combined: number) =>

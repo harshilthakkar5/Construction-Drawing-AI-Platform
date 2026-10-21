@@ -31,12 +31,24 @@ export interface CustomQuestionRow {
   text: string;
 }
 
+/** An element a project added under one of the library's packages. */
+export interface CustomElementRow {
+  id: string;
+  packageId: string;
+  name: string;
+}
+
 const universalId = (elementId: string, uid: string) => `${elementId}-${uid}`;
 
 /** Every question id of an ACTIVE element — library, universal and the
  * project's own — so a follow-up can only hang under one of its element. */
-export function questionIdsOf(file: RfiLibraryFile, elementId: string, customs: CustomQuestionRow[]): Set<string> | null {
-  const element = file.elements.find((e) => e.id === elementId && e.active);
+export function questionIdsOf(
+  file: RfiLibraryFile,
+  elementId: string,
+  customs: CustomQuestionRow[],
+  customElements: CustomElementRow[] = [],
+): Set<string> | null {
+  const element = file.elements.find((e) => e.id === elementId && e.active) ?? customElements.find((e) => e.id === elementId);
   if (!element) return null;
   return new Set([
     ...file.questions.filter((q) => q.elementId === elementId && q.active).map((q) => q.id),
@@ -48,7 +60,12 @@ export function questionIdsOf(file: RfiLibraryFile, elementId: string, customs: 
 /** The project's view: active packages → elements (review order) → questions,
  * each with its follow-ups. A custom question whose parent is gone is shown
  * at the top of its element rather than lost. */
-export function buildLibrary(file: RfiLibraryFile, version: string, customs: CustomQuestionRow[]): RfiLibraryDto {
+export function buildLibrary(
+  file: RfiLibraryFile,
+  version: string,
+  customs: CustomQuestionRow[],
+  customElements: CustomElementRow[] = [],
+): RfiLibraryDto {
   const elements = new Map<string, RfiLibraryElementDto>();
   const nodes = new Map<string, RfiLibraryQuestionDto>();
   const tops = new Map<string, RfiLibraryQuestionDto[]>();
@@ -63,6 +80,15 @@ export function buildLibrary(file: RfiLibraryFile, version: string, customs: Cus
     elements.set(e.id, {
       id: e.id, name: e.name, variants: e.variants, compareAcross: e.compareAcross,
       attributes: e.attributes, triggers: e.triggers, catalogue: e.catalogue, questions: [],
+    });
+    tops.set(e.id, []);
+  }
+  const packageIds = new Set(file.packages.map((p) => p.id));
+  for (const e of customElements) {
+    if (!packageIds.has(e.packageId)) continue;
+    elements.set(e.id, {
+      id: e.id, name: e.name, custom: true, variants: "", compareAcross: [],
+      attributes: "", triggers: "", catalogue: [], questions: [],
     });
     tops.set(e.id, []);
   }
@@ -102,7 +128,10 @@ export function buildLibrary(file: RfiLibraryFile, version: string, customs: Cus
       .map((p) => ({
         id: p.id,
         name: p.name,
-        elements: file.elements.filter((e) => e.packageId === p.id && elements.has(e.id)).map((e) => elements.get(e.id)!),
+        elements: [
+          ...file.elements.filter((e) => e.packageId === p.id && elements.has(e.id)),
+          ...customElements.filter((e) => e.packageId === p.id),
+        ].map((e) => elements.get(e.id)!),
       })),
   };
 }
@@ -121,8 +150,9 @@ export function resolveLibraryChoice(
   customs: CustomQuestionRow[],
   elementId: string,
   questionIds: readonly string[],
+  customElements: CustomElementRow[] = [],
 ): LibraryScope {
-  const dto = buildLibrary(file, "", customs);
+  const dto = buildLibrary(file, "", customs, customElements);
   const element = dto.packages.flatMap((p) => p.elements).find((e) => e.id === elementId);
   if (!element) throw new Error(`element ${elementId} is not in the library`);
   const found = new Map<string, { q: RfiLibraryQuestionDto; parents: string[] }>();

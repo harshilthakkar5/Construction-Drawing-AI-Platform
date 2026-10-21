@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { RFI_CUSTOM_QUESTION_CHARS, RFI_LIBRARY_CUSTOM_MAX, scheduleHeadings } from "@cdip/shared";
+import { RFI_CUSTOM_QUESTION_CHARS, RFI_LIBRARY_CUSTOM_MAX, RFI_LIBRARY_ELEMENTS_MAX, scheduleHeadings } from "@cdip/shared";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { buildLibrary, library, questionIdsOf } from "../rfiLibrary.js";
@@ -21,11 +21,18 @@ const category = z.string().trim().max(60).nullable().optional();
 const select = { id: true, elementId: true, parentId: true, category: true, text: true } as const;
 const customsOf = (projectId: string) =>
   prisma.rfiCustomQuestion.findMany({ where: { projectId }, select, orderBy: { createdAt: "asc" } });
+export const customElementsOf = (projectId: string) =>
+  prisma.rfiCustomElement.findMany({
+    where: { projectId },
+    select: { id: true, packageId: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
 
 rfiLibraryRouter.get("/", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const { file, version } = library();
-  res.json(buildLibrary(file, version, await customsOf(projectId)));
+  const [customs, elements] = await Promise.all([customsOf(projectId), customElementsOf(projectId)]);
+  res.json(buildLibrary(file, version, customs, elements));
 });
 
 /** Schedule headings per live page ({combinedPageNumber: headings}), so the
@@ -56,7 +63,7 @@ rfiLibraryRouter.post("/questions", async (req, res) => {
   if (customs.length >= RFI_LIBRARY_CUSTOM_MAX) {
     return void res.status(409).json({ error: `a project can save at most ${RFI_LIBRARY_CUSTOM_MAX} questions` });
   }
-  const ids = questionIdsOf(library().file, body.elementId, customs);
+  const ids = questionIdsOf(library().file, body.elementId, customs, await customElementsOf(projectId));
   if (!ids) return void res.status(400).json({ error: `element ${body.elementId} is not in the library` });
   if (body.parentId && !ids.has(body.parentId)) {
     return void res.status(400).json({ error: `question ${body.parentId} is not a question of element ${body.elementId}` });
@@ -104,4 +111,30 @@ rfiLibraryRouter.delete("/questions/:questionId", async (req, res) => {
   }
   await prisma.rfiCustomQuestion.deleteMany({ where: { projectId, id: { in: [...doomed] } } });
   res.json({ deleted: [...doomed] });
+});
+
+/** An element of the project's own, under one of the library's packages. */
+rfiLibraryRouter.post("/elements", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const body = z.object({ packageId: z.string().min(1).max(10), name: z.string().trim().min(1).max(120) }).parse(req.body ?? {});
+  if (!library().file.packages.some((p) => p.id === body.packageId)) {
+    return void res.status(400).json({ error: `package ${body.packageId} is not in the library` });
+  }
+  if ((await prisma.rfiCustomElement.count({ where: { projectId } })) >= RFI_LIBRARY_ELEMENTS_MAX) {
+    return void res.status(409).json({ error: `a project can add at most ${RFI_LIBRARY_ELEMENTS_MAX} elements` });
+  }
+  const row = await prisma.rfiCustomElement.create({
+    data: { projectId, packageId: body.packageId, name: body.name, createdById: currentUser(req).id },
+    select: { id: true, packageId: true, name: true },
+  });
+  res.status(201).json(row);
+});
+
+/** Deletes the element and every question the project saved under it. */
+rfiLibraryRouter.delete("/elements/:elementId", async (req, res) => {
+  const { projectId, elementId } = projectParam.extend({ elementId: z.string().uuid() }).parse(req.params);
+  const { count } = await prisma.rfiCustomElement.deleteMany({ where: { id: elementId, projectId } });
+  if (!count) return void res.status(404).json({ error: "not found" });
+  await prisma.rfiCustomQuestion.deleteMany({ where: { projectId, elementId } });
+  res.json({ deleted: elementId });
 });

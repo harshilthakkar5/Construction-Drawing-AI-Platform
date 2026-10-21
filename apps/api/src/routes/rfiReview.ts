@@ -49,7 +49,7 @@ const modelSettings = {
   maxThinkingTokens: z.number().int().min(RFI_REVIEW_THINKING_LIMITS.min).max(RFI_REVIEW_THINKING_LIMITS.max).nullable().optional(),
   thinking: z.enum(RFI_REVIEW_THINKING as unknown as [RfiReviewThinking, ...RfiReviewThinking[]]).default("medium"),
 };
-const planBody = z.object({
+export const planBody = z.object({
   target: z.discriminatedUnion("type", [
     z.object({ type: z.literal("sheet"), value: sheetValue }),
     // An element is a MARK ("C-6", "PC1"), optionally narrowed to a level
@@ -175,30 +175,38 @@ rfiReviewRouter.post("/:runId/start", summaryLimiter, async (req, res) => {
   const { projectId, runId } = runParams.parse(req.params);
   const key = z.string().trim().min(8).max(100).safeParse(req.get("Idempotency-Key") ?? runId);
   if (!key.success) return void res.status(400).json({ error: "Idempotency-Key must be 8-100 characters" });
+  const { status, body } = await startReview(projectId, runId, key.data);
+  res.status(status).json(body);
+});
+
+/** Start one planned review (the route above, and a named RFI's Start, which
+ * starts each of its reviews). Every refusal the route gives, as a status and
+ * a body rather than a response. */
+export async function startReview(projectId: string, runId: string, key: string): Promise<{ status: number; body: unknown }> {
   const run = await runFor(projectId, runId);
 
-  const repeat = await prisma.rfiReviewRun.findFirst({ where: { projectId, idempotencyKey: key.data } });
+  const repeat = await prisma.rfiReviewRun.findFirst({ where: { projectId, idempotencyKey: key } });
   if (repeat) {
-    if (repeat.id !== run.id) return void res.status(409).json({ error: "this Idempotency-Key already started a different review" });
-    return void res.status(200).json(toReviewDto(repeat, 0));
+    if (repeat.id !== run.id) return { status: 409, body: { error: "this Idempotency-Key already started a different review" } };
+    return { status: 200, body: toReviewDto(repeat, 0) };
   }
   // A concurrent request with the same key may have won between our reads;
   // every refusal below first checks whether it was OUR start that won.
   const refuse = async (status: number, body: Record<string, unknown>) => {
     const latest = await runFor(projectId, runId);
-    if (latest.idempotencyKey === key.data) return void res.status(200).json(toReviewDto(latest, 0));
-    res.status(status).json(body);
+    if (latest.idempotencyKey === key) return { status: 200, body: toReviewDto(latest, 0) };
+    return { status, body };
   };
   if (run.status !== "planned") {
     return refuse(409, { error: `this review is already ${run.status}` });
   }
   if (run.provider && !process.env[keyFor(run.provider === "gemini" ? "gemini" : "claude")]) {
-    return void res.status(503).json({ error: `no API key is configured for ${run.provider}; set ${keyFor(run.provider === "gemini" ? "gemini" : "claude")} or plan with the other provider` });
+    return { status: 503, body: { error: `no API key is configured for ${run.provider}; set ${keyFor(run.provider === "gemini" ? "gemini" : "claude")} or plan with the other provider` } };
   }
   const scope = run.scope as unknown as ReviewScope;
   const settings = run.limits ? { provider: run.provider, model: run.model, limits: run.limits } : {};
   if (scopeHash(scope, run.checkIds as string[], run.depth, settings) !== run.scopeHash) {
-    return void res.status(409).json({ error: "this plan's stored scope does not match its hash", replan: true });
+    return { status: 409, body: { error: "this plan's stored scope does not match its hash", replan: true } };
   }
 
   const documentIds = [...new Set(scope.pages.map((p) => p.documentId))];
@@ -222,9 +230,9 @@ rfiReviewRouter.post("/:runId/start", summaryLimiter, async (req, res) => {
     (run.sourceRevisions ?? {}) as Record<string, number>,
   );
   if (stale) {
-    if ((await runFor(projectId, runId)).idempotencyKey === key.data) return refuse(409, {});
+    if ((await runFor(projectId, runId)).idempotencyKey === key) return refuse(409, {});
     await prisma.rfiReviewRun.updateMany({ where: { id: run.id, status: "planned" }, data: { status: "stale", error: stale } });
-    return void res.status(409).json({ error: `${stale} — plan the review again`, replan: true });
+    return { status: 409, body: { error: `${stale} — plan the review again`, replan: true } };
   }
 
   // The same approved scope twice at once would pay twice for one answer.
@@ -239,7 +247,7 @@ rfiReviewRouter.post("/:runId/start", summaryLimiter, async (req, res) => {
   try {
     claimed = await prisma.rfiReviewRun.updateMany({
       where: { id: run.id, status: "planned", idempotencyKey: null },
-      data: { status: "queued", stage: "planning", progress: 0, idempotencyKey: key.data },
+      data: { status: "queued", stage: "planning", progress: 0, idempotencyKey: key },
     });
   } catch {
     claimed = { count: 0 }; // the key's unique index lost a race
@@ -248,8 +256,8 @@ rfiReviewRouter.post("/:runId/start", summaryLimiter, async (req, res) => {
   const job = await rfiReviewQueue.add("review", { runId: run.id }, { jobId: `rfi-review-${run.id}` });
   const updated = await prisma.rfiReviewRun.update({ where: { id: run.id }, data: { jobId: job.id ?? null } });
   console.log(`[rfi-review] ${run.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)} on ${run.provider}/${run.model}`);
-  res.status(202).json(toReviewDto(updated, 0));
-});
+  return { status: 202, body: toReviewDto(updated, 0) };
+}
 
 /** Two runs' cost and tokens side by side, with the reasons the comparison
  * may not be like for like. */

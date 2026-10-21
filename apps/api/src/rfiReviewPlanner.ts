@@ -442,6 +442,7 @@ export async function planReview(
   userId: string,
   request: PlanRequest,
   deps: PlanDeps = { retrieve: retrieveChunkIds },
+  setId: string | null = null,
 ) {
   const settings = resolveSettings(request);
   const caps = RFI_REVIEW_DEPTHS[request.depth];
@@ -475,7 +476,11 @@ export async function planReview(
         where: { projectId },
         select: { id: true, elementId: true, parentId: true, category: true, text: true },
       });
-      libraryScope = resolveLibraryChoice(library().file, customs, request.library.elementId, request.library.questionIds);
+      const customElements = await prisma.rfiCustomElement.findMany({
+        where: { projectId },
+        select: { id: true, packageId: true, name: true },
+      });
+      libraryScope = resolveLibraryChoice(library().file, customs, request.library.elementId, request.library.questionIds, customElements);
     }
   } catch (err) {
     throw new PlanError((err as Error).message, 400);
@@ -684,14 +689,19 @@ export async function planReview(
 
   // A new plan replaces this person's earlier unstarted plans for the project:
   // re-planning after removing a sheet must not leave a trail of dead ones.
-  await prisma.rfiReviewRun.updateMany({
-    where: { projectId, createdById: userId, status: "planned" },
-    data: { status: "cancelled" },
-  });
+  // A named RFI plans one review per element at once, so its reviews are left
+  // alone here (its own re-plan clears them) and never cancel each other.
+  if (!setId) {
+    await prisma.rfiReviewRun.updateMany({
+      where: { projectId, createdById: userId, status: "planned", setId: null },
+      data: { status: "cancelled" },
+    });
+  }
   return prisma.rfiReviewRun.create({
     data: {
       id: runId,
       projectId,
+      setId,
       createdById: userId,
       target: request.target as unknown as Prisma.InputJsonValue,
       checkMode: request.checkMode,

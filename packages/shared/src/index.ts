@@ -1986,6 +1986,8 @@ export interface RfiLibraryQuestionDto {
 export interface RfiLibraryElementDto {
   id: string;
   name: string;
+  /** Added by this project ("Add element"), not the client's workbook. */
+  custom?: boolean;
   variants: string;
   compareAcross: string[];
   attributes: string;
@@ -2001,6 +2003,42 @@ export interface RfiLibraryDto {
 }
 /** The most saved questions one project may add to the library. */
 export const RFI_LIBRARY_CUSTOM_MAX = 500;
+/** The most elements one project may add to the library. */
+export const RFI_LIBRARY_ELEMENTS_MAX = 100;
+
+/**
+ * A named RFI ("Create RFI"): the sheets to read and the library elements
+ * with the questions chosen for each. Planning makes one targeted review per
+ * element; their findings are this RFI's findings.
+ */
+export interface RfiSetItem {
+  elementId: string;
+  questionIds: string[];
+}
+/** The most elements one RFI may review — each is its own review and its own price. */
+export const RFI_SET_MAX_ELEMENTS = 30;
+export const RFI_SET_NAME_CHARS = 120;
+export interface RfiSetDto {
+  id: string;
+  name: string;
+  sheets: string[];
+  items: RfiSetItem[];
+  createdAt: string;
+  /** Reviews by status, e.g. {planned: 3, running: 1, ready: 2}. */
+  runs: Partial<Record<RfiReviewStatus, number>>;
+  /** Findings of this RFI's reviews still waiting in "Needs your review". */
+  pending: number;
+  findings: number;
+  /** Sum of the planned reviews' price range; null when any is unpriced. */
+  costLowUsd: number | null;
+  costHighUsd: number | null;
+}
+export interface RfiSetDetailDto extends RfiSetDto {
+  reviews: RfiReviewRunDto[];
+  candidates: RfiCandidateDto[];
+  /** Elements that could not be planned, with the planner's reason. */
+  planErrors: { elementId: string; error: string }[];
+}
 
 /** No limit on the sheets a person picks — only a guard on one request's size,
  * above any project's sheet count. Every chosen sheet is rendered whatever the
