@@ -439,7 +439,17 @@ def _dimensions(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
     return [(r, m.group(0)) for r, text in plan_match.text_lines(page) for m in _DIMENSION.finditer(text)]
 
 
-def locate(
+def locate(page: fitz.Page, marks: set[str] | None = None, *, grid_lines=None, pt_per_ft=None):
+    """`_locate`; the every-mark, own-grid reading is reused for a page a
+    review already read (page_memo). Any narrower call is computed fresh."""
+    if marks is None and grid_lines is None and pt_per_ft is None:
+        import page_memo
+
+        return page_memo.memo("locate@1", page, lambda: _locate(page))
+    return _locate(page, marks, grid_lines=grid_lines, pt_per_ft=pt_per_ft)
+
+
+def _locate(
     page: fitz.Page,
     marks: set[str] | None = None,
     *,

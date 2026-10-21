@@ -2770,6 +2770,63 @@ answered "insufficient evidence": the forming notes defer opening sizes to an ar
 it was not shown). O01's first real run hit RFI 005 on S5.210 ("LB-B1/B2/B3 on SW-1.1: width, height
 and sill height?"); RFI 005's form names S5.200, but the marked sheet is S5.210.
 
+A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
+before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet
+results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
+page: grid bubbles, `styled_systems` (also in Redis, versioned by `grid.STYLED_VERSION`, which a test
+holds equal to `rfi_scan.GRID_CACHE_VERSION`), column elements, `column_locate.locate` and unmarked
+elements; every hit is a deep copy because callers fill fields in. `cached_pdf` keeps the original
+PDFs on the worker's disk (`RFI_PDF_CACHE_MB`). Measured: 70 s cold, 11 s on the next review of the
+same sheets, identical results. By element planning also searches in the library's OWN words
+(`libraryQueries`, one search per question category): 28 of 62 elements link to none of the 17
+original questions and searched nothing, reading only the picked sheets (Elevator pits: 7 pages →
+32, now including S4.00, the sheet of RFI 007). The AI is told which code checks ran and what they
+found (`checked_by_code_block`) — never that their silence settles a question. A rejection saying
+the specifications or a standard govern stands (`_SPEC_GOVERNED`), and an overruled rejection is
+saved Low. `rfi_eval.py --project-reviews <project>` scores every element's latest run against the
+cases' `elements`, links "found again" findings by the fingerprint each run now records
+(`checkResults[q].foundAgain`), and says where an element answered "no issue" and missed.
+What verification or a rule SET ASIDE is no longer only a note: `set_aside_entry` stores each in
+`checkResults[q].setAside` (≤ 5 per question: issue, reason, rule, fingerprint, non-weak evidence,
+the verifier's wording only if it is `grounded` and no guard refused it, else the template), shown
+under the question as "Considered, not raised", and `POST /reviews/:runId/set-aside/keep` files one
+as a LOW pending candidate (409 if its fingerprint is on file). On Leland the AI proposed RFIs 008
+and 009 when asked directly and verification rejected both — this is where a person overrules it.
+A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
+points elsewhere ("T.O.C. SEE PLAN", "SEE 24/S4.02", "SEE CIVIL") — never checking the place it points
+to. Discovery records such a field `unknown` with the reference quoted; reasoning proposes the problem
+`needs_evidence` with the referenced sheet in `searchFor`; and `contested` now also catches a rejection
+resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
+any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
+search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
+
+Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
+detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead
+of detail 3 (8") — and the inventory could not have shown it, because it held one MERGED row per
+element. Discovery now writes one inventory row per element PER SOURCE (`source`: "detail 3/S4.00"),
+and the code proposes a conflict where two sources print different LENGTHS for one element and field
+(`parse_length` takes exactly one length — never a bar spacing or a note; rows at different locations
+are two elements; rows citing the same evidence are one source). It goes through verification like
+any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
+two sources); its `printed` text grounds the wording, as discovery's observations do.
+Those values must be IN VIEW to be compared, and the planned close-ups were not: they are aimed at
+text pieces, and on a detail sheet one piece spans several details (Leland S4.00: 2,400pt wide), so
+S4.00's three close-ups showed a shear wall, waterproofing and dowels while the AI never read detail
+3's 8" slab. In a By element review the worker now aims the page's close-up SLOTS first at the
+details whose TITLE names the element (`detail_regions`: a title line with its SCALE line right below —
+a "SEE ELEVATOR PIT" note is not one — cut as the cell above it, in display space and mapped back) and
+fills the rest from the plan. Same number of images, so the plan's price stands.
+A title is matched by the element's words OR a drafter's name for it (`TITLE_SYNONYMS`: Leland titles
+pile caps PIER CAP, retaining walls BASEMENT WALL, drilled piers DRILLED FOOTING — the library's words
+found none of them), and its SCALE line may overlap it by 15pt (S0.03's "COLUMN PIER CAP PLANS").
+A PLAN gets the same treatment by its tags (`plan_regions`, By element only): its close-up slots go to a
+window (a third of the sheet a side, ~190 DPI on 36x48) over the tags whose tag+value combination the sheet
+prints RARELY — "P42-10 (-29'-10\")" among 39 "P30-18 (-26'-2\")" — since RFIs sit where a plan departs
+from its own pattern. Leland RFIs 002 and 004 are both in S2.30-B's shear-wall core and neither review
+ever saw it legibly: its one close-up was a 2983x2214pt text piece, the whole sheet again at ~64 DPI. The
+value is matched UNDER its tag in display space (a rotated sheet's stored frame turns "under" sideways);
+under `PLAN_MIN_TAGS` tagged values, or none rare, the planned text pieces are used as before.
+
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
 time"). The first real forming-plan review grouped five marks into one "missing offsets" RFI, two

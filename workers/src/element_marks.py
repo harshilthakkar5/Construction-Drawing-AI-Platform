@@ -243,6 +243,13 @@ def _merge(found: list[Unmarked], within: float) -> list[Unmarked]:
 
 
 def unmarked_on_page(page) -> tuple[list[Unmarked], list[str]]:
+    """`_unmarked_on_page`, reused for a page a review already read (page_memo)."""
+    import page_memo
+
+    return page_memo.memo("unmarked_on_page@1", page, lambda: _unmarked_on_page(page))
+
+
+def _unmarked_on_page(page) -> tuple[list[Unmarked], list[str]]:
     """`find_unmarked` over a fitz page, in its unrotated space (what
     get_text and get_cdrawings both report)."""
     words = page.get_text("words")

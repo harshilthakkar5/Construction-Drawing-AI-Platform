@@ -66,6 +66,7 @@ import diagnostics
 import grid
 import llm
 import logutil
+import page_memo
 import rfi_checks
 import plan_match
 import rfi_grid
@@ -102,6 +103,10 @@ PROMPT_VERSION = "review-2026-10-15.2"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
+# One inventory row per element PER SOURCE, so more rows than elements.
+MAX_INVENTORY = 100
+# Value conflicts the code proposes from the inventory, per review.
+MAX_VALUE_CONFLICTS = 5
 # A call that FAILED (503 "high demand", 429, a timeout) is asked again after
 # these pauses before the run gives up. Without it one busy moment at the
 # provider failed a whole review and threw away the stages already paid for.
@@ -316,6 +321,136 @@ def _unrotated_rect(page: fitz.Page) -> fitz.Rect:
     return fitz.Rect(page.rect * page.derotation_matrix).normalize()
 
 
+_NOT_A_TITLE_WORD = {"and", "the", "with", "for", "on", "of"}
+# What drafters call an element besides the library's name for it. Leland titles
+# its pile caps PIER CAP, its retaining walls BASEMENT WALL and its drilled
+# piers DRILLED FOOTING, and close-ups aimed by the library's words found none.
+TITLE_SYNONYMS: dict[tuple[str, ...], list[list[str]]] = {
+    ("PILE", "CAP"): [["PIER", "CAP"]],
+    ("RETAINING", "WALL"): [["BASEMENT", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+    ("DRILLED", "PIER"): [["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"], ["CAISSON"]],
+    ("BASEMENT", "WALL"): [["RETAINING", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+}
+
+
+def element_title_words(name: str | None) -> list[list[str]]:
+    """The words a detail TITLE about this element carries, per alternative:
+    "Drilled piers / caissons" → [[DRILLED, PIER], [CAISSON]]. Upper-case stems. Pure."""
+    out = []
+    for part in re.sub(r"\([^)]*\)", " ", name or "").split("/"):
+        words = [re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", part.upper()) if w.lower() not in _NOT_A_TITLE_WORD]
+        if words and words not in out:
+            out.append(words)
+    for words in list(out):
+        out += [s for s in TITLE_SYNONYMS.get(tuple(words), []) if s not in out]
+    return out
+
+
+_SCALE_LINE = re.compile(r"^\s*SCALE\b", re.I)
+
+
+def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
+    """Where the element is DRAWN on a detail sheet, in UNROTATED space: each
+    detail whose title names it ("ELEVATOR PIT DETAIL", with its SCALE line
+    right below — never a "SEE ELEVATOR PIT" note), cut as the cell above that
+    title, up to the scale line of the detail above and the next column. A
+    sheet's text pieces are too wide to aim a close-up with (one on Leland's
+    S4.00 spans 2,400pt across several details), so the words' own positions
+    are. [] when no title names the element."""
+    if not alternatives:
+        return []
+    to_display = page.rotation_matrix
+    lines = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line["spans"]).strip()
+            if text:
+                lines.append((text, fitz.Rect(line["bbox"]) * to_display))
+    scales = [r for t, r in lines if _SCALE_LINE.match(t)]
+    shown = page.rect  # display space
+    regions: list[fitz.Rect] = []
+    for text, box in sorted(lines, key=lambda l: (l[1].y0, l[1].x0)):
+        tokens = {re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", text.upper())}
+        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not any(set(a) <= tokens for a in alternatives):
+            continue
+        # Right below, or touching: "COLUMN PIER CAP PLANS" on Leland S0.03 overlaps its scale by 8pt.
+        under = [s for s in scales if -15 <= s.y0 - box.y1 <= 40 and s.y0 > box.y0 and s.x0 < box.x1 and s.x1 > box.x0]
+        if not under:
+            continue
+        bottom = max(s.y1 for s in under) + 10
+        # The next column's scale line — never this detail's own, which can start right of the title's left edge.
+        right = min((s.x0 for s in scales if s not in under and s.x0 > box.x0 + 50 and abs(s.y0 - under[0].y0) < 60),
+                    default=box.x0 + 600) - 10
+        top = max((s.y1 for s in scales if s.y1 < box.y0 - 20 and s.x0 < right and s.x1 > box.x0 - 30), default=box.y0 - 600) + 10
+        region = fitz.Rect(box.x0 - 30, top, right, bottom) & shown
+        if region.is_empty or any((region & r).get_area() > 0.5 * region.get_area() for r in regions):
+            continue
+        regions.append(region)
+        if len(regions) >= limit:
+            break
+    back = page.derotation_matrix
+    return [fitz.Rect(r * back).normalize() for r in regions]
+
+
+# A plan tag that carries a value printed under it: "P30-12" over "(-26'-2")",
+# "C-6" over "(14 x 30)". The tag and its value together are what a plan repeats.
+_PLAN_TAG = re.compile(r"^[A-Z]{1,3}-?\d{1,3}(?:-\d{1,3})?[A-Z]?$")
+PLAN_MIN_TAGS = 20  # fewer and it is not a tagged plan
+PLAN_WINDOW = 1 / 3  # of the sheet, per side: ~190 DPI for a 36x48 sheet
+
+
+def plan_regions(page, limit: int) -> list[fitz.Rect]:
+    """Where a PLAN departs from its own pattern, in UNROTATED space: windows
+    over the tags whose tag+value combination the sheet prints rarely
+    ("P42-10 (-29'-10")" among 39 "P30-18 (-26'-2")"). Leland RFIs 002 and 004
+    are both in S2.30-B's shear-wall core, where its piers and cap stop being
+    typical, and neither review ever saw it legibly: the one close-up was a
+    2983x2214pt text piece — the whole sheet again, at ~64 DPI. [] for a sheet
+    with under PLAN_MIN_TAGS tagged values or none rare. Pure but for `page`."""
+    import gridmarks
+
+    if limit <= 0:
+        return []
+    words = page.get_text("words")
+    to_display = ~page.derotation_matrix
+    # "Under" as the sheet is READ: on a rotated sheet the stored frame turns it sideways.
+    sizes = [(t, fitz.Rect(r * to_display).normalize()) for t, r in gridmarks._size_lines(words)]
+    tags = []
+    for x0, y0, x1, y1, text, *_ in words:
+        text = text.strip(",;:")
+        if _PLAN_TAG.match(text):
+            box = fitz.Rect(fitz.Rect(x0, y0, x1, y1) * to_display).normalize()
+            value = gridmarks._size_under(box, sizes)
+            if value:
+                tags.append((f"{text} {value}", (box.tl + box.br) / 2))
+    if len(tags) < PLAN_MIN_TAGS:
+        return []
+    freq: dict[str, int] = {}
+    for label, _ in tags:
+        freq[label] = freq.get(label, 0) + 1
+    rare = [(label, c) for label, c in tags if freq[label] <= max(2, 0.05 * len(tags))]
+    half_w, half_h = page.rect.width * PLAN_WINDOW / 2, page.rect.height * PLAN_WINDOW / 2
+    regions: list[fitz.Rect] = []
+    while len(regions) < limit:
+        best = None
+        for _, c in rare:
+            inside = [(label, p) for label, p in rare
+                      if abs(p.x - c.x) <= half_w and abs(p.y - c.y) <= half_h]
+            # Centred on the rare tags it holds, not on one of them.
+            mx, my = sum(p.x for _, p in inside) / len(inside), sum(p.y for _, p in inside) / len(inside)
+            win = fitz.Rect(mx - half_w, my - half_h, mx + half_w, my + half_h)
+            if any((win & r).get_area() > 0.25 * win.get_area() for r in regions):
+                continue
+            score = sum(1 / freq[label] for label, _ in inside)
+            if best is None or score > best[0]:
+                best = (score, win)
+        if best is None:
+            break
+        regions.append(best[1])
+    back = page.derotation_matrix
+    return [fitz.Rect((r & page.rect) * back).normalize() for r in regions]
+
+
 def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
@@ -346,8 +481,22 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
         whole = {"x": unrotated.x0, "y": unrotated.y0, "width": unrotated.width, "height": unrotated.height}
         out.append(Evidence(id=f"ev{n}", kind="page", bbox=whole, image=vlm.render(page, OVERVIEW_EDGE), **common))
         n += 1
-        for anchor in p.get("crops", []):
-            box = crop_box(anchor["bbox"], unrotated)
+        # The planned close-ups' SLOTS, aimed first at the details whose titles
+        # name the element (By element), then at a plan's rare tags (By
+        # element), then at the planned text pieces: as many images as the plan
+        # priced, never more.
+        planned = p.get("crops", [])
+        library = scope.get("library")
+        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned))
+        if library:  # a plan's slots go where it departs from its own pattern
+            aimed += plan_regions(page, len(planned) - len(aimed))
+        anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
+        anchors += planned[: len(planned) - len(aimed)]
+        for anchor in anchors:
+            b = anchor["bbox"]
+            # A detail cell is already the region to show; a text piece gets crop_box's padding.
+            box = (fitz.Rect(b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"]) & unrotated
+                   if anchor.get("detail") else crop_box(b, unrotated))
             if box.is_empty:
                 continue
             shown = fitz.Rect(box * page.rotation_matrix).normalize()
@@ -397,6 +546,37 @@ _TRUST_RULES = (
 # the sheets themselves). Grid naming and the column overlay run as G01 / C01.
 TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", "tag_value_conflict", "missing_plan_level")
 PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
+# Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
+CODE_CHECK_WORDS = {
+    "dangling_reference": "a sheet referred to but not in the set",
+    "unscheduled_mark": "a mark with no row in its schedule",
+    "open_item_note": "a note left open (TBD / to be confirmed)",
+    "tag_value_conflict": "one equipment tag with two ratings",
+    "missing_plan_level": "a level missing from a series of plans",
+    "unmarked_element": "an element drawn with no type mark",
+    "unsized_column": "a column in the schedule with no size",
+}
+
+
+def checked_by_code_block(ran: list[str], found: list, sheets: list[str]) -> str:
+    """What the exact checks looked for on these sheets, found or not, for
+    discovery and reasoning. Their finds are already reported; their silence
+    is NOT proof of no problem (they report only what they can prove), but a
+    problem of the same kind then needs evidence the model can cite. Pure."""
+    ran = [c for c in ran if c in CODE_CHECK_WORDS]
+    if not ran:
+        return ""
+    counts = {c: sum(1 for f in found if f.check_type == c) for c in ran}
+    lines = [f"- {CODE_CHECK_WORDS[c]}: {counts[c] or 'nothing'} found" for c in ran]
+    where = ", ".join(sheets[:12]) + ("…" if len(sheets) > 12 else "")
+    return (
+        "<checked_by_code>\nThe code already checked these sheets"
+        + (f" ({where})" if where else "")
+        + " for the following, from the drawings' own text and geometry:\n" + "\n".join(lines)
+        + "\nWhat they found is listed in already_found. They report only what they can prove, so finding nothing "
+        "is not proof there is no problem — but report a problem of the same kind only with evidence you can cite, "
+        "never from an impression of a dense sheet.\n</checked_by_code>\n\n"
+    )
 
 
 def library_checks(scope: dict) -> dict[str, dict]:
@@ -524,18 +704,24 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "- State what one source shows about one element: its mark or name, its location (grid "
         "crossing, offset, level) and its values, written exactly as printed.\n"
         "- A value you cannot read is absent. Say it is not legible; never guess it.\n"
+        "- A callout that points elsewhere (\"T.O.C. SEE PLAN\", \"SEE 24/S4.02\") is not a value: record "
+        "the field as `unknown`, quote the reference, and say which source it points to.\n"
         "- Keep what different sheets show in separate observations, so they can be compared.\n"
         f"- At most {MAX_OBSERVATIONS} observations; prefer the ones the checks need.\n"
-        "- inventory: one entry per element a check is about, with each field its Record line names. A "
-        "field is `supported` only with evidence ids; `unknown` when the evidence given does not show it; "
-        "`not_applicable` when the element has no such field. Mark `derived: true` for a value you worked "
-        "out rather than read.\n"
+        "- inventory: one entry per element a check is about PER SOURCE that prints its values — a detail, "
+        "a section, a schedule row, a plan note. Two details of one element are TWO entries, each naming its "
+        "`source` (\"detail 3/S4.00\", \"section 2/S5.10\", \"pier schedule on S2.30-A\"), never merged into "
+        "one, even when they agree: the code compares the entries, so a merged value hides a disagreement. "
+        "Use the same `entity` name for the same element in every entry, and record each field as printed on "
+        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). A field is `supported` only "
+        "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
+        "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
         "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
         "the evidence shows do not exist here (e.g. no beams on a slab plan), with the evidence that shows it.\n"
         'Respond with ONLY JSON, no prose and no code fences: {"observations": [{"checkId": "C01", '
         '"element": "...", "location": "...", "statement": "...", "evidenceIds": ["ev3"], '
         '"confidence": "high|medium|low"}], "inventory": [{"checkId": "C01", "entity": "column C-6", '
-        '"location": "3/C", "fields": [{"name": "size", "value": "14 x 30", "state": "supported", '
+        '"location": "3/C", "source": "column schedule on S8.02", "fields": [{"name": "size", "value": "14 x 30", "state": "supported", '
         '"evidenceIds": ["ev3"], "derived": false}]}], "gaps": [{"checkId": "C01", "field": "...", '
         '"reason": "..."}], "notApplicable": [{"checkId": "B01", "reason": "...", "evidenceIds": ["ev2"]}]}'
     )
@@ -553,8 +739,13 @@ def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "- inconsistency: a plan and a schedule (or detail) disagree about the same element;\n"
         "- ambiguity: the sources can be read two ways that lead to different work.\n"
         "NOT a problem: expected differences between levels or views; different drawing titles; a "
-        "value another given source resolves; a value that is only hard to read; what typical "
+        "value another given source PRINTS; a value that is only hard to read; what typical "
         "practice would do; anything outside the given sources.\n"
+        "A reference is not a value. A note or callout that points elsewhere for a needed value (\"SEE "
+        "PLAN\", \"SEE 24/S4.02\", \"SEE CIVIL\", \"REFER TO …\") answers nothing until the source it "
+        "points to is seen giving that value for THIS element at THIS location. If no observation shows "
+        "that, propose the problem with disposition `needs_evidence` and the referenced sheet or words in "
+        "`searchFor`; never treat the reference itself as the answer.\n"
         "Disposition: `rfi` when the given evidence is enough to ask; `needs_evidence` when another "
         "drawing in the project could settle it (a schedule, a detail, a referenced sheet) — then put in "
         "`searchFor` the words or sheet number to look for, and the server will search the project and "
@@ -588,6 +779,9 @@ def verification_system() -> str:
         "`<not_in_project>` lists drawings the notes refer to that the plan looked for and could not find "
         "in this project. Never reject a problem because its value is deferred to one of them: that "
         "deferral is what makes it a missing-information RFI.\n"
+        "A callout that points elsewhere (\"SEE PLAN\", \"SEE 24/S4.02\", \"SEE CIVIL\") is not the value it "
+        "points to: reject for it only when evidence shown to you PRINTS that value for this element, and "
+        "cite that evidence in `answeredBy`.\n"
         "Reject when: the problem is not visible in the cited evidence; the sources are about different "
         "levels, elements or conditions; another cited source resolves it; it rests on an assumption "
         "the evidence does not state; or it would need a fact the evidence does not contain.\n"
@@ -614,7 +808,7 @@ def verification_system() -> str:
 # pointing at it. Its own block so the first call's prompt stays cacheable.
 RECHECK = (
     "<recheck>Each problem below was rejected because another drawing was said to give the missing value, "
-    "without evidence that shows it. The server searched the project; what it found is listed under "
+    "or because the drawing refers elsewhere for it, without evidence that shows the value itself. The server searched the project; what it found is listed under "
     "`searched`. Reject only if evidence shown here GIVES the missing value (cite it in `answeredBy`); "
     "otherwise keep. Write `subject` and `question` for every problem, kept or not.</recheck>"
 )
@@ -700,7 +894,8 @@ def _inventory_item(item, known: set[str], checks: set[str]) -> dict | None:
             "evidenceIds": ids,
             "derived": bool(f.get("derived")) and state == "supported",
         })
-    return {"checkId": item["checkId"], "entity": entity, "location": _text(item.get("location"), 120) or None, "fields": fields[:20]}
+    return {"checkId": item["checkId"], "entity": entity, "location": _text(item.get("location"), 120) or None,
+            "source": _text(item.get("source"), 80) or None, "fields": fields[:20]}
 
 
 def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict | None:
@@ -719,7 +914,7 @@ def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict 
             dropped += 1
         else:
             observations.append(obs)
-    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:60]) if i]
+    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:MAX_INVENTORY]) if i]
     gaps = [
         {"checkId": g["checkId"], "field": _text(g.get("field"), 120), "reason": _text(g.get("reason"), 300)}
         for g in (data.get("gaps") or [])[:40]
@@ -788,6 +983,92 @@ def parse_candidates(raw: str | None, known: set[str], checks: set[str]) -> tupl
     return out[:MAX_CANDIDATES], dropped
 
 
+# --- Values the code compares (pure; tested) ----------------------------------------
+#
+# The model READS values and the code lines them up: on Leland RFI 007 two
+# models read detail 4's 1'-4" pit slab correctly, then compared detail 4 with
+# detail 5 (which agree) instead of 3 (8") and answered "no issue". Only a value
+# that is exactly ONE length is compared — never a note or a bar spacing, where
+# a string difference is not a disagreement.
+
+_LENGTH = re.compile(
+    r"""^\s*(?P<sign>-)?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:\s+(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
+    r"""\s*(?:thick|thk\.?|deep|min\.?|\([^)]*\))?\s*$""",
+    re.I,
+)
+
+
+def parse_length(value: str | None) -> float | None:
+    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2"); else None. Pure."""
+    m = _LENGTH.match(value or "")
+    if not m or not (m["ft"] or m["in"]):
+        return None
+    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] and int(m["den"]) else 0)
+    return -inches if m["sign"] else inches
+
+
+def _key(text: str | None) -> str:
+    words = re.sub(r"\([^)]*\)", " ", (text or "").lower())
+    return " ".join(re.sub(r"s$", "", w) for w in re.findall(r"[a-z0-9]+", words))
+
+
+def value_conflicts(inventory: list[dict]) -> list[dict]:
+    """One element, one field, two SOURCES printing different lengths. Rows of
+    one element are matched on the entity's words; two rows at different
+    locations are two elements, and two rows citing the same evidence are one
+    source. Pure."""
+    rows: dict[tuple[str, str], list[dict]] = {}
+    for item in inventory:
+        for f in item.get("fields") or []:
+            inches = parse_length(f.get("value")) if f.get("state") == "supported" and not f.get("derived") else None
+            if inches is None or not f.get("evidenceIds"):
+                continue
+            rows.setdefault((_key(item.get("entity")), _key(f.get("name"))), []).append(
+                {"item": item, "field": f, "inches": inches}
+            )
+    out = []
+    for (entity, name), group in rows.items():
+        if not entity or not name:
+            continue
+        found = None
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                if abs(a["inches"] - b["inches"]) < 0.01 or set(a["field"]["evidenceIds"]) & set(b["field"]["evidenceIds"]):
+                    continue
+                la, lb = _key(a["item"].get("location")), _key(b["item"].get("location"))
+                if la and lb and la != lb:
+                    continue
+                found = (a, b)
+                break
+            if found:
+                break
+        if found:
+            out.append(value_candidate(*found))
+    return out[:MAX_VALUE_CONFLICTS]
+
+
+def value_candidate(a: dict, b: dict) -> dict:
+    """The conflict two rows make, shaped like a reasoning candidate."""
+    def said(r):
+        return f"{r['item'].get('source') or 'one source'} gives {r['field']['value']}"
+    entity = a["item"]["entity"]
+    field = a["field"]["name"]
+    location = a["item"].get("location") or b["item"].get("location") or ""
+    return {
+        "checkId": a["item"]["checkId"], "kind": "conflict", "disposition": "rfi", "searchFor": "",
+        "element": entity, "location": location,
+        "issue": f"The {field} of {entity}: {said(a)}, but {said(b)}.",
+        "why": "Two sources print different values for the same element, so it cannot be built from both.",
+        "derivation": "", "impact": "", "unresolvedReason": "",
+        "evidenceIds": list(dict.fromkeys(a["field"]["evidenceIds"] + b["field"]["evidenceIds"])),
+        "confidence": "medium", "searched": [],
+        # What discovery read, the only record of a value printed in a picture —
+        # the wording guard may draw on it like an observation.
+        "printed": f"{said(a)}; {said(b)}",
+        "fromValues": True,
+    }
+
+
 REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
 # At most this many "it is on another drawing" rejections are re-checked per
 # review: each costs a project search and a share of one more call.
@@ -799,6 +1080,23 @@ _ELSEWHERE = re.compile(
     r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet)\b",
     re.I,
 )
+# A rejection resting on a REFERENCE rather than a value: "SEE PLAN", "SEE
+# 24/S4.02", "references plan sheets", "refers T.O.C. to plan", "directs weir
+# geometry to Civil". Leland RFI 009 was rejected twice this way while neither
+# wording reached _ELSEWHERE; a callout is not the value it points to.
+_DEFERS = re.compile(
+    r"\bSEE\s+(?:\d+\s*/\s*[A-Z]|PLANS?\b|CIVIL|ARCH|STRUCT|MEP|LANDSCAPE|GEOTECH|SCHED|DETAIL|SECTION|ELEVATION)"
+    r"|\breferences?\s+(?:to\s+)?(?:the\s+)?(?:\w+\s+)?(?:plans?|sheets?|drawings?|details?|sections?|schedules?|civil)\b"
+    r"|\brefer(?:s|red|ring)?\s+(?:\S+\s+){0,3}?to\b"
+    r"|\bdefer(?:s|red|ring)?\s+(?:\S+\s+){0,3}?to\b"
+    r"|\bdirect(?:s|ed|ing)?\s+(?:\S+\s+){1,4}?to\s+(?:the\s+)?(?:\w+\s+)?(?:plans?|sheets?|drawings?|civil|details?)\b",
+    re.I,
+)
+# A rejection saying the SPECIFICATIONS or a standard govern is right where a
+# drawing set is concerned, and is never overruled: "time between adjacent
+# pours is governed by the concrete specifications and ACI" was overruled into
+# a Leland finding the drawings were never meant to answer.
+_SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
 def contested(decision: dict | None, shown: set[str]) -> bool:
@@ -814,15 +1112,22 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
     if cited & shown:
         return False
+    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
+        return False
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
         return True
-    return basis == "other" and bool(_ELSEWHERE.search(decision.get("reason") or ""))
+    reason = decision.get("reason") or ""
+    if basis != "not_visible" and _DEFERS.search(reason):
+        return True
+    return basis == "other" and bool(_ELSEWHERE.search(reason))
 
 
 def overruled(candidate: dict, decision: dict) -> dict:
     """The decision a contested rejection becomes when the claim could not be
-    shown: kept, at most medium confidence, and saying why. Pure."""
+    shown: kept at LOW confidence, saying why. Low because the verifier said
+    no twice; kept because "another drawing gives it" with nothing shown is
+    how UT Law's RFI 006 was dropped twice. Pure."""
     subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
@@ -832,7 +1137,7 @@ def overruled(candidate: dict, decision: dict) -> dict:
         "could not point to evidence that shows it, and searching the project did not settle it."
     ).strip()
     return dict(decision, decision="keep", subject=subject, question=question, why=why,
-                confidence="low" if decision.get("confidence") == "low" else "medium", priority="normal")
+                confidence="low", priority="normal")
 
 
 def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
@@ -882,7 +1187,7 @@ def _material(candidate: dict, evidence: dict[str, Evidence], observations: list
     the cited evidence's own words and sheet names, and what discovery said
     about THOSE pieces of evidence (the only record of what the images show)."""
     cited = set(candidate["evidenceIds"])
-    parts = [candidate.get("element", ""), candidate.get("location", "")]
+    parts = [candidate.get("element", ""), candidate.get("location", ""), candidate.get("printed", "")]
     for eid in cited:
         ev = evidence[eid]
         # An aid's numbers were computed, not printed: a question may not
@@ -899,7 +1204,8 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
     """Whether every identifier and number in a question appears in what it
     was built from — the scan's guard (rfi_scan) applied to a review. An RFI
     that invents a mark or a dimension costs an engineer an afternoon."""
-    upper = text.upper()
+    upper = rfi_scan.plain_numbers(text.upper())
+    material = rfi_scan.plain_numbers(material)
     for token in rfi_scan._IDENT.findall(upper):
         if rfi_checks.normalize(token) and rfi_checks.normalize(token) not in rfi_checks.normalize(material):
             return False, f"names {token}, which the evidence does not contain"
@@ -927,7 +1233,11 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
         return "its only support is a model's description of the drawing"
     if all(ev.kind in WEAK_KINDS for ev in cited):
         return "its only support is a measurement or index the server derived, not the drawing itself"
-    if candidate["kind"] == "conflict" and len({(ev.document_id, ev.page_number) for ev in cited}) < 2:
+    # Two details on ONE sheet can disagree (Leland RFI 007: 3/S4.00 and 4/S4.00),
+    # but only the code's own comparison may claim it: it cites each source apart.
+    two_pages = len({(ev.document_id, ev.page_number) for ev in cited}) >= 2
+    two_items = candidate.get("fromValues") and len({ev.id for ev in cited if ev.kind not in WEAK_KINDS}) >= 2
+    if candidate["kind"] == "conflict" and not (two_pages or two_items):
         return "a conflict needs two sources, and it cites one page"
     if not decision["subject"] or not decision["question"]:
         return "the verification kept it but wrote no question"
@@ -936,6 +1246,41 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
     if not ok:
         return f"its wording {why}"
     return None
+
+
+MAX_SET_ASIDE = 5  # per question
+
+
+def set_aside_entry(candidate: dict, reason: str, rule: str, decision: dict | None,
+                    evidence: dict[str, Evidence], observations: list[dict]) -> dict:
+    """A proposal verification or a guard turned away, kept for a PERSON to
+    see beside the question: what was proposed, why it was set aside, and
+    everything "Keep as RFI" needs to file it. On Leland the AI proposed RFI
+    008 and 009 when asked directly and verification rejected both ("the
+    detail refers to plan and civil") — defensible, and stricter than the
+    engineers who wrote them. Wording a guard refused is never reused. Pure."""
+    issue = candidate.get("issue") or ""
+    material = _material(candidate, evidence, observations)
+    grounded_wording = bool(
+        decision and decision.get("subject") and decision.get("question") and rule != "guard"
+        and grounded(decision["subject"], material)[0] and grounded(decision["question"], material)[0]
+    )
+    return {
+        "checkId": candidate["checkId"],
+        "kind": candidate["kind"],
+        "element": candidate.get("element") or "",
+        "location": candidate.get("location") or "",
+        "issue": issue,
+        "reason": reason,
+        "rule": rule,
+        "subject": decision["subject"] if grounded_wording else _text(candidate.get("element") or issue, 90),
+        "question": decision["question"] if grounded_wording
+        else f"{issue.rstrip('.')}. Please confirm, or provide the missing information.",
+        "evidence": [evidence[e].as_candidate_evidence(None) for e in candidate["evidenceIds"]
+                     if e in evidence and evidence[e].kind not in WEAK_KINDS],
+        "questionSource": "model" if grounded_wording else "template",
+        "fingerprint": fingerprint(candidate, evidence, observations),
+    }
 
 
 def fingerprint(candidate: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str:
@@ -1476,6 +1821,44 @@ def stale_reason(scope: dict, revisions: dict | None = None) -> str | None:
     return None
 
 
+# Original PDFs kept on the worker's disk between reviews: a document id's
+# bytes never change (a revision is a new id), and every review of a set used
+# to download the whole PDF again. Oldest dropped first past the size cap.
+PDF_CACHE_DIR = os.environ.get("RFI_PDF_CACHE_DIR") or os.path.join(tempfile.gettempdir(), "cdip-pdf-cache")
+PDF_CACHE_MB = int(os.environ.get("RFI_PDF_CACHE_MB", "2048"))
+
+
+def cached_pdf(document_id: str, key: str, cache_dir: str = PDF_CACHE_DIR, max_mb: int = PDF_CACHE_MB,
+               download=None) -> str:
+    """A local path to the document's original PDF, downloading it only the
+    first time. `max_mb` 0 turns the cache off (a fresh copy each call)."""
+    download = download or storage.download_to_file
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"{document_id}.pdf")
+    if max_mb > 0 and os.path.exists(path):
+        os.utime(path)  # most recently used
+        return path
+    part = f"{path}.{os.getpid()}.{threading.get_ident()}.part"
+    download(key, part)
+    os.replace(part, path)  # atomic: a reader never sees half a file
+    if max_mb > 0:
+        files = sorted(
+            (os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith(".pdf")),
+            key=lambda f: os.path.getmtime(f),
+        )
+        total = sum(os.path.getsize(f) for f in files)
+        for f in files:
+            if total <= max_mb * 1024 * 1024 or f == path:
+                break
+            try:
+                size = os.path.getsize(f)
+                os.remove(f)  # an open file cannot be removed on Windows; it stays until next time
+                total -= size
+            except OSError:
+                pass
+    return path
+
+
 @contextmanager
 def _documents(project_id: str, document_ids: list[str]):
     """open_page(document_id, page_number) over the ORIGINAL PDFs, each
@@ -1492,9 +1875,12 @@ def _documents(project_id: str, document_ids: list[str]):
 
         def open_page(document_id: str, page_number: int):
             if document_id not in opened:
-                path = os.path.join(tmp, f"{document_id}.pdf")
                 try:
-                    storage.download_to_file(keys[document_id], path)
+                    if PDF_CACHE_MB > 0:
+                        path = cached_pdf(document_id, keys[document_id])
+                    else:
+                        path = os.path.join(tmp, f"{document_id}.pdf")
+                        storage.download_to_file(keys[document_id], path)
                     opened[document_id] = fitz.open(path)
                 except Exception as exc:
                     log.warning("rfi review: could not open %s: %s", document_id[:8], exc)
@@ -1510,7 +1896,7 @@ def _documents(project_id: str, document_ids: list[str]):
             # The drawing as ISSUED: annotations (a reviewer's clouds, a pasted
             # stamp, someone's RFI markup) are not the design, and a render
             # that carries them shows the model the answer to its own question.
-            return grid.without_markup(doc[page_number - 1])
+            return page_memo.tag(grid.without_markup(doc[page_number - 1]), document_id, page_number)
 
         open_page.errors = {}
         try:
@@ -2405,6 +2791,9 @@ def _run(run: dict) -> dict:
             f"- {f.subject}" for f in exact
         ) + "\n</already_found>\n\n"
 
+    code_ran = sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS))
+    reviewed_sheets = sorted({p.get("sheetNumber") for p in scope.get("pages", []) if p.get("sheetNumber")})
+    checked = checked_by_code_block(code_ran, code_found, reviewed_sheets)
     lib_element = (scope.get("library") or {}).get("element") or {}
     element_block = (
         f"<element>Reviewing {lib_element.get('name')}"
@@ -2421,6 +2810,7 @@ def _run(run: dict) -> dict:
     candidates: list[dict] = []
     kept: list[tuple[dict, dict, OccurrenceVerdict]] = []
     rejected: list[str] = []
+    aside: list[dict] = []  # set-aside proposals, structured, for the person
     # C03 occurrences a claim named that measurement could not settle: they
     # are recorded as needing a person, never dropped and never asserted.
     unsettled: list[dict] = []
@@ -2433,7 +2823,7 @@ def _run(run: dict) -> dict:
             images = [ev for ev in batch if ev.visual]
             header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
             found = _ask(
-                "discovery", discovery_system(asked, catalogue), header + already + element_block + "\n".join(_evidence_block(ev) for ev in batch),
+                "discovery", discovery_system(asked, catalogue), header + already + checked + element_block + "\n".join(_evidence_block(ev) for ev in batch),
                 lambda raw, known=known: parse_discovery(raw, known, set(asked)), run=run, usage=usage, images=images,
             )
             observations += found["observations"]
@@ -2454,11 +2844,21 @@ def _run(run: dict) -> dict:
         index = "\n".join(f"{ev.id}: {ev.kind} on {ev.where}" + (f" (side {ev.side})" if ev.side else "") for ev in sent)
         candidates, dropped = _ask(
             "reasoning", reasoning_system(asked, catalogue),
-            f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
+            already + checked + f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
             + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else ""),
             lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
             run=run, usage=usage,
         )
+        # 4a. Values the code compares: the inventory's rows, source by source.
+        reasoned = [set(c["evidenceIds"]) for c in candidates if c["kind"] == "conflict"]
+        by_values = [
+            c for c in value_conflicts(inventory)
+            if not any(set(c["evidenceIds"]) <= s or s <= set(c["evidenceIds"]) for s in reasoned)
+        ][: max(0, MAX_CANDIDATES - len(candidates))]
+        if by_values:
+            candidates += by_values
+            notes.append(f"Values compared by code: {len(by_values)} element(s) where two sources print different "
+                         f"values ({'; '.join(c['issue'] for c in by_values[:3])[:400]}), sent to verification.")
         _set(run_id, reasoningOutput=json.dumps(candidates))
         if dropped:
             notes.append(f"Reasoning: {dropped} proposed issue(s) dropped for citing evidence outside the observations or no issue at all.")
@@ -2494,24 +2894,28 @@ def _run(run: dict) -> dict:
         for candidate in candidates:
             early = occurrence_check(candidate, None, measured, evidence)
             if early.rejected:
-                rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {early.reason}")
+                set_aside(candidate, early.reason, "measured column positions")
                 diagnostics.event("rejected_before_verification", candidate=candidate, reason=early.reason,
                                   rule="occurrence_check (measured column positions)")
                 continue
             to_verify.append(candidate)
+
+        def set_aside(candidate: dict, reason: str, rule: str, decision: dict | None = None) -> None:
+            rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {reason}")
+            aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
             why_not = guard(candidate, decision, evidence, observations)
             if why_not:
-                rejected.append(f"{label}: {why_not}")
+                set_aside(candidate, why_not, "guard", decision)
                 diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                   reason=why_not, rule="guard")
                 return
             verdict = occurrence_check(candidate, decision, measured, evidence)
             if verdict.rejected:
-                rejected.append(f"{label}: {verdict.reason}")
+                set_aside(candidate, verdict.reason, "measured column positions", decision)
                 diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                   reason=verdict.reason, rule="occurrence_check (measured column positions)")
                 return
@@ -2521,7 +2925,7 @@ def _run(run: dict) -> dict:
                     {"checkId": "C03", "field": f"location of {candidate['element'] or 'the column named'}",
                      "reason": f"needs manual verification: {verdict.reason}"}
                 ])
-                rejected.append(f"{label}: not verified by measurement, recorded for a person to check")
+                set_aside(candidate, "not verified by measurement, recorded for a person to check", "measured column positions", decision)
                 return
             kept.append((candidate, decision, verdict))
 
@@ -2545,7 +2949,7 @@ def _run(run: dict) -> dict:
                 label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
                 decision = decisions.get(i)
                 if decision is None:
-                    rejected.append(f"{label}: no verdict")
+                    set_aside(candidate, "verification gave no verdict", "model")
                     diagnostics.event("rejected_after_verification", candidate=candidate, reason="no verdict", rule="model")
                     continue
                 if decision["decision"] != "keep":
@@ -2554,7 +2958,7 @@ def _run(run: dict) -> dict:
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
                         continue
-                    rejected.append(f"{label}: {decision['reason'] or 'rejected'}")
+                    set_aside(candidate, decision["reason"] or "rejected", "model", decision)
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
                     continue
@@ -2614,7 +3018,7 @@ def _run(run: dict) -> dict:
                         # rejection: never more than medium.
                         accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
                     elif decision is not None and not contested(decision, set(cited2)):
-                        rejected.append(f"{label}: {decision['reason'] or 'rejected'} (re-checked)")
+                        set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                           reason=decision["reason"] or "rejected", rule="model, re-checked with the project searched")
                     else:
@@ -2638,12 +3042,16 @@ def _run(run: dict) -> dict:
     saved = 0
     found_by_check: dict[str, int] = {}
     known: dict[str, list[str]] = {}
+    known_fps: dict[str, list[str]] = {}
 
     def tally(cid: str, fp: str, wrote: bool, subject: str) -> None:
         if wrote:
             found_by_check[cid] = found_by_check.get(cid, 0) + 1
         else:
             known.setdefault(cid, []).append(f"“{subject}” is {_where_found(conn, project_id, fp)}")
+            # The stored finding may be worded differently (a scan's AI wording):
+            # its fingerprint is what links this run to it.
+            known_fps.setdefault(cid, []).append(fp)
 
     with db.connect() as conn:
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
@@ -2725,6 +3133,16 @@ def _run(run: dict) -> dict:
         list(CHECKS) + list(library), asked, run.get("checkPlan") or {}, observations, gaps + unsettled, not_applicable, found_by_check,
         omitted=bool(unread), stopped=stopped, known=known,
     )
+    for cid, fps in known_fps.items():
+        if cid in results:
+            results[cid]["foundAgain"] = sorted(set(fps))
+    for entry in aside:
+        # A project's own question is saved as "custom", as an accepted one is.
+        entry["checkType"] = "custom" if library.get(entry["checkId"], {}).get("source") == "custom" else entry["checkId"]
+        if entry["checkId"] in results:
+            results[entry["checkId"]].setdefault("setAside", [])
+            if len(results[entry["checkId"]]["setAside"]) < MAX_SET_ASIDE:
+                results[entry["checkId"]]["setAside"].append(entry)
     if "C03" in results and measured:
         results["C03"]["occurrences"] = [
             dict(o.as_json(), sheetNumber=page.page.get("sheetNumber"), documentId=page.page["documentId"], pageNumber=page.page["pageNumber"])

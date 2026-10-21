@@ -387,6 +387,27 @@ export interface ReviewScope {
   };
 }
 
+/**
+ * The project searches a "By element" review makes in its OWN words: one per
+ * question category (Elevation, Reinforcement…), the element's name first and
+ * the chosen questions' text after, so an element linked to none of the 17
+ * original questions still finds its schedule, section or detail. Without
+ * this, 28 of the 62 elements searched nothing and read only the sheets
+ * picked. No sheet numbers: the point is to find pages NOT already named.
+ */
+export function libraryQueries(library: ReviewScope["library"]): { label: string; query: string }[] {
+  if (!library) return [];
+  const byCategory = new Map<string, string[]>();
+  for (const q of library.questions) {
+    const key = q.category ?? "your questions";
+    byCategory.set(key, [...(byCategory.get(key) ?? []), q.text]);
+  }
+  return [...byCategory].map(([category, texts]) => ({
+    label: `${library.element.name} — ${category}`,
+    query: [library.element.name, library.element.variants, ...texts].filter(Boolean).join(" ").slice(0, 600),
+  }));
+}
+
 export type CandidateChunk = Omit<ScopeChunk, "score">;
 export type CandidatePage = Omit<ScopePage, "role" | "visual" | "crops" | "reason">;
 

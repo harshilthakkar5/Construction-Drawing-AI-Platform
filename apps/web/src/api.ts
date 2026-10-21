@@ -515,6 +515,12 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
+  /** A proposal the review set aside, kept anyway: a low-confidence finding. */
+  keepSetAside: (projectId: string, runId: string, checkId: string, index: number) =>
+    request<RfiCandidateDto>(`/projects/${projectId}/rfis/reviews/${runId}/set-aside/keep`, {
+      method: "POST",
+      body: JSON.stringify({ checkId, index }),
+    }),
   deleteRfiCandidate: (projectId: string, candidateId: string) =>
     request<{ deleted: true }>(`/projects/${projectId}/rfis/generated/${candidateId}`, { method: "DELETE" }),
 
@@ -634,6 +640,7 @@ export const api = {
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
   rfiLibrary: (projectId: string) => request<RfiLibraryDto>(`/projects/${projectId}/rfis/library`),
+  rfiLibraryHeadings: (projectId: string) => request<Record<number, string[]>>(`/projects/${projectId}/rfis/library/headings`),
   addLibraryQuestion: (projectId: string, body: { elementId: string; parentId?: string | null; text: string }) =>
     request<{ id: string }>(`/projects/${projectId}/rfis/library/questions`, { method: "POST", body: JSON.stringify(body) }),
   deleteLibraryQuestion: (projectId: string, questionId: string) =>

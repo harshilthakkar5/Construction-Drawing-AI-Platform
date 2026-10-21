@@ -1099,6 +1099,9 @@
             "type mark"
           ]
         }
+      ],
+      "elements": [
+        "CE-03-01"
       ]
     },
     {
@@ -1122,9 +1125,13 @@
             "S2.31-A"
           ],
           "mentions": [
-            "pile"
+            "pile|pier",
+            "wall"
           ]
         }
+      ],
+      "elements": [
+        "CE-03-01"
       ]
     },
     {
@@ -1152,6 +1159,9 @@
             "type mark"
           ]
         }
+      ],
+      "elements": [
+        "CE-03-01"
       ]
     },
     {
@@ -1175,9 +1185,13 @@
             "S2.30-B"
           ],
           "mentions": [
-            "cap"
+            "cap",
+            "S0.03|typical"
           ]
         }
+      ],
+      "elements": [
+        "CE-03-05"
       ]
     },
     {
@@ -1202,9 +1216,13 @@
             "S8.02"
           ],
           "mentions": [
-            "column"
+            "column",
+            "B6|B7"
           ]
         }
+      ],
+      "elements": [
+        "CE-07-01"
       ]
     },
     {
@@ -1228,9 +1246,13 @@
             "S2.30-B"
           ],
           "mentions": [
-            "column"
+            "column",
+            "A5"
           ]
         }
+      ],
+      "elements": [
+        "CE-07-01"
       ]
     },
     {
@@ -1256,9 +1278,13 @@
             "S4.00"
           ],
           "mentions": [
-            "pit"
+            "pit",
+            "thick"
           ]
         }
+      ],
+      "elements": [
+        "CE-05-01"
       ]
     },
     {
@@ -1284,9 +1310,14 @@
             "S2.31-A"
           ],
           "mentions": [
-            "wall"
+            "wall",
+            "pier|pile"
           ]
         }
+      ],
+      "elements": [
+        "CE-04-12",
+        "CE-03-01"
       ]
     },
     {
@@ -1312,9 +1343,14 @@
             "S2.31-A"
           ],
           "mentions": [
-            "elevation"
+            "elevation",
+            "S4.10"
           ]
         }
+      ],
+      "elements": [
+        "CE-01-02",
+        "CE-04-12"
       ]
     }
   ]

@@ -39,6 +39,7 @@ import {
   elementFamily,
   estimateReview,
   levelOf,
+  libraryQueries,
   missingViews,
   pageLevel,
   rankCorrespondence,
@@ -113,7 +114,7 @@ export interface PlanDeps {
  * typo would plan fine and fail at the first call. */
 const CANDIDATE_MODELS: Record<RfiReviewProvider, string[]> = {
   claude: ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
-  gemini: ["gemini-3.8-flash", "models/gemini-3.1-pro-preview"],
+  gemini: ["gemini-3.8-flash", "models/gemini-3.1-pro-preview", "models/gemini-4-argon"],
 };
 
 function configuredModel(provider: RfiReviewProvider): string {
@@ -543,14 +544,19 @@ export async function planReview(
   const hitLists: string[][] = [];
   const searchLog: RfiReviewCoverageDto["searchLog"] = [];
   let denseMissing = false;
+  // The original questions' searches first (missingViews reads hitLists by
+  // their index), then the library's own; all at once, not one after another.
+  const searches = [
+    ...selection.checkIds.map((checkId) => ({ label: checkId, query: checkQuery(checkId, anchors) })),
+    ...libraryQueries(libraryScope),
+  ];
   await withUsageContext({ reviewRunId: runId, stage: "planning" }, async () => {
-    for (const checkId of selection.checkIds) {
-      const query = checkQuery(checkId, anchors);
-      const result = await deps.retrieve(projectId, query, { limit: caps.hitsPerQuery });
+    const results = await Promise.all(searches.map((s) => deps.retrieve(projectId, s.query, { limit: caps.hitsPerQuery })));
+    results.forEach((result, i) => {
       if (result.dense === 0) denseMissing = true;
       hitLists.push(result.chunkIds);
-      searchLog.push({ query: `${checkId}: ${query}`, found: result.chunkIds.length, stage: "planning" });
-    }
+      searchLog.push({ query: `${searches[i]!.label}: ${searches[i]!.query}`, found: result.chunkIds.length, stage: "planning" });
+    });
   });
   if (denseMissing) {
     notes.push("Semantic search returned nothing for at least one check; keyword and exact-identifier search still ran.");
@@ -648,7 +654,7 @@ export async function planReview(
     elementChunkIds: target.elementChunkIds,
     forced,
     hitLists: [...hitLists, forced.map((f) => f.page.pageId).flatMap((id) => [...chunks.values()].filter((c) => c.pageId === id).map((c) => c.chunkId))],
-    hitChecks: [...selection.checkIds, "reference"],
+    hitChecks: [...searches.map((s) => s.label), "reference"],
     chunks,
     pages,
   });

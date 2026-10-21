@@ -75,3 +75,182 @@ def test_a_mark_finding_answers_only_its_own_elements_library_questions():
     assert rr.credited(angle, linked, piers) == []  # unknown prefix: no library question
     assert rr.credited(ref, linked, bolts) == ["CE-12-01-U-07"]  # not a mark check
     assert rr.credited(pile, linked, {"name": "Pile caps", "variants": "Single, 2-pile caps"}) == ["F04"]
+
+
+def test_the_ai_is_told_what_the_code_checked_found_or_not():
+    pile = rr.rfi_checks.Finding("unmarked_element", "fp", "high", "Element with no type mark", "?", [])
+    block = rr.checked_by_code_block(["unmarked_element", "unscheduled_mark", "grid_mismatch"], [pile], ["S2.20", "S2.30-B"])
+    assert "(S2.20, S2.30-B)" in block
+    assert "an element drawn with no type mark: 1 found" in block
+    assert "a mark with no row in its schedule: nothing found" in block
+    assert "grid_mismatch" not in block and "not proof" in block
+    assert rr.checked_by_code_block([], [], ["S2.20"]) == ""
+
+
+def test_parse_length_reads_one_printed_length_and_nothing_else():
+    assert rr.parse_length('8"') == 8
+    assert rr.parse_length("1'-4\"") == 16
+    assert rr.parse_length("1' - 4 1/2\" thick") == 16.5
+    assert rr.parse_length("-23'-0\"") == -276
+    assert rr.parse_length('8" (concrete)') == 8
+    for not_one in ['#5 @ 10" EA WAY', "verify with mfr", '8" or 10"', "", None, "18 x 24"]:
+        assert rr.parse_length(not_one) is None, not_one
+
+
+def _row(source, value, ev, *, entity="Elevator pit slab", location="BH/B7", field="thickness", check="CE-05-01-U-03"):
+    return {"checkId": check, "entity": entity, "location": location, "source": source,
+            "fields": [{"name": field, "value": value, "state": "supported", "evidenceIds": ev, "derived": False}]}
+
+
+def test_two_sources_printing_different_lengths_make_one_conflict_leland_rfi_007():
+    inv = [_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"]),
+           _row("detail 5/S4.00", "1'-4\"", ["ev5"])]
+    [c] = rr.value_conflicts(inv)
+    assert c["kind"] == "conflict" and c["fromValues"] and set(c["evidenceIds"]) == {"ev3", "ev4"}
+    assert "detail 3/S4.00 gives 8\"" in c["issue"] and "detail 4/S4.00 gives 1'-4\"" in c["issue"]
+
+
+def test_no_conflict_when_values_agree_sources_overlap_or_elements_differ():
+    assert rr.value_conflicts([_row("detail 4", "1'-4\"", ["ev4"]), _row("detail 5", '16"', ["ev5"])]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"]), _row("detail 4", "1'-4\"", ["ev3"])]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"], location="A1"), _row("detail 4", "1'-4\"", ["ev4"], location="B7")]) == []
+    assert rr.value_conflicts([_row("detail 3", '8"', ["ev3"], field="slab"), _row("detail 4", "1'-4\"", ["ev4"], field="wall")]) == []
+    # a value that is not one length is never compared
+    assert rr.value_conflicts([_row("d3", '#5 @ 10"', ["ev3"]), _row("d4", '#6 @ 12"', ["ev4"])]) == []
+
+
+def test_the_guard_lets_the_codes_two_detail_conflict_stand_on_one_sheet_only():
+    ev = {e: rr.Evidence(id=e, kind="crop", document_id="d", page_number=73, combined_page_number=73,
+                         sheet_number="S4.00", side=None, bbox={"x": 1, "y": 1, "width": 9, "height": 9})
+          for e in ("ev3", "ev4")}
+    [c] = rr.value_conflicts([_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"])])
+    decision = {"subject": "Elevator pit slab thickness 8\" vs 1'-4\"", "question": "Which governs at BH/B7: 8\" or 1'-4\"?"}
+    assert rr.guard(c, decision, ev, []) is None  # the printed values ground the numbers
+    model_made = dict(c, fromValues=False)
+    assert rr.guard(model_made, decision, ev, []) == "a conflict needs two sources, and it cites one page"
+
+
+def _detail_sheet(rotation=0):
+    """A detail sheet as a person SEES it: titles under their details in display
+    space. A rotated CAD sheet stores its content sideways so it displays
+    upright, so text is placed through the derotation and turned with the page."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=1600, height=1200) if rotation in (0, 180) else doc.new_page(width=1200, height=1600)
+    page.set_rotation(rotation)
+
+    def put(x, y, text, size):
+        page.insert_text(fitz.Point(x, y) * page.derotation_matrix, text, fontsize=size, rotate=rotation)
+
+    for x, title, inside in ((100, "ELEVATOR PIT DETAIL", "SLABA8IN"), (600, "SUMP PIT DETAIL", "SUMPX"), (1100, "ELEVATOR PIT DETAIL", "SLABB16IN")):
+        put(x + 40, 300, inside, 12)       # drawn above its title
+        put(x, 560, title, 14)
+        put(x, 580, 'SCALE: 3/4" = 1\'-0"', 9)
+    put(100, 900, "SEE ELEVATOR PIT", 10)
+    put(100, 920, 'SCALE: 1/8" = 1\'-0"', 9)  # a note over a scale is still not a title
+    return doc, page
+
+
+def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
+    assert rr.element_title_words("Elevator pits") == [["ELEVATOR", "PIT"]]
+    assert rr.element_title_words("Drilled piers / caissons (CIDH)") == [
+        ["DRILLED", "PIER"], ["CAISSON"], ["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"]]
+    # Drafters' names for an element count too (Leland: PIER CAP, BASEMENT WALL).
+    assert ["PIER", "CAP"] in rr.element_title_words("Pile caps")
+    assert ["BASEMENT", "WALL"] in rr.element_title_words("Retaining walls (building)")
+    for rotation in (0, 90):
+        doc, page = _detail_sheet(rotation)
+        regions = rr.detail_regions(page, [["ELEVATOR", "PIT"]], 3)
+        inside = [" ".join(w[4] for w in page.get_text("words", clip=r)) for r in regions]
+        assert len(regions) == 2, (rotation, inside)
+        assert any("SLABA8IN" in t for t in inside) and any("SLABB16IN" in t for t in inside), (rotation, inside)
+        assert not any("SUMPX" in t for t in inside), (rotation, inside)
+        assert rr.detail_regions(page, [["ELEVATOR", "PIT"]], 1) == regions[:1]
+        assert rr.detail_regions(page, [], 3) == [] and rr.detail_regions(page, [["PILE", "CAP"]], 3) == []
+
+
+def test_a_title_touching_its_scale_line_is_still_a_title_and_its_cell_reaches_the_next_column():
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=1600, height=1200)
+    page.insert_text((150, 300), "CAPA", fontsize=12)
+    page.insert_text((700, 300), "CAPB", fontsize=12)              # still this detail's cell
+    page.insert_text((100, 580), "24/S0.03 COLUMN PIER CAP PLANS", fontsize=19)
+    page.insert_text((190, 584), 'SCALE: 3/4" = 1\'-0"', fontsize=9)  # overlaps the title, starts right of it
+    page.insert_text((1000, 580), "OTHER DETAIL", fontsize=19)
+    page.insert_text((1000, 600), 'SCALE: 3/4" = 1\'-0"', fontsize=9)
+    [region] = rr.detail_regions(page, rr.element_title_words("Pile caps"), 3)
+    words = " ".join(w[4] for w in page.get_text("words", clip=region))
+    assert "CAPA" in words and "CAPB" in words and "OTHER" not in words
+
+
+def test_a_set_aside_proposal_keeps_what_keep_as_rfi_needs_and_only_grounded_wording():
+    ev = {
+        "E1": rr.Evidence(id="E1", kind="text", document_id="d", page_number=4, combined_page_number=4,
+                          sheet_number="S4.00", side=None, bbox={"x": 1, "y": 2, "width": 3, "height": 4},
+                          text="PIER P-3 BOTTOM ELEVATION SEE CIVIL"),
+        "E2": rr.Evidence(id="E2", kind="description", document_id="d", page_number=4, combined_page_number=4,
+                          sheet_number="S4.00", side=None, bbox=None, text="a pier"),
+    }
+    candidate = {"checkId": "F04", "kind": "missing", "element": "P-3", "location": "S4.00",
+                 "issue": "Bottom elevation of P-3 is not given.", "evidenceIds": ["E1", "E2"]}
+    ok = {"subject": "P-3 bottom elevation", "question": "What is the bottom elevation of P-3?"}
+    entry = rr.set_aside_entry(candidate, "the detail refers to civil", "model", ok, ev, [])
+    assert entry["subject"] == ok["subject"] and entry["questionSource"] == "model"
+    assert [e["evidenceId"] for e in entry["evidence"]] == ["E1"]  # a description pins nothing
+    assert entry["fingerprint"] == rr.fingerprint(candidate, ev, [])
+    # Wording that names something the evidence lacks falls back to the template.
+    invented = {"subject": "P-3 at 12 ft", "question": "Is P-3 at 12 ft below grade?"}
+    entry = rr.set_aside_entry(candidate, "rejected", "model", invented, ev, [])
+    assert entry["questionSource"] == "template" and "12" not in entry["question"]
+    # A guard rejection never reuses the model's wording, however grounded.
+    assert rr.set_aside_entry(candidate, "x", "guard", ok, ev, [])["questionSource"] == "template"
+
+
+def _tagged_plan(rotation: int):
+    """A pier plan as a person SEES it: 40 typical tags with their elevation
+    printed under each, and a core of four unusual ones near the top left."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592) if rotation in (0, 180) else doc.new_page(width=2592, height=3456)
+    page.set_rotation(rotation)
+
+    def put(x, y, text):
+        page.insert_text(fitz.Point(x, y) * page.derotation_matrix, text, fontsize=8, rotate=rotation)
+
+    for i in range(40):
+        x, y = 1500 + (i % 8) * 200, 1200 + (i // 8) * 250
+        put(x, y, "P30-18")
+        put(x, y + 10, "(-26'-2\")")
+    for x, y, tag, value in ((700, 700, "P42-10", "(-29'-10\")"), (780, 760, "P24-10", "(-29'-10\")"),
+                             (860, 700, "GB4", "(-29'-10\")"), (760, 820, "P36-30", "(-26'-2\")")):
+        put(x, y, tag)
+        put(x, y + 10, value)
+    return doc, page
+
+
+def test_a_plans_close_up_goes_where_it_departs_from_its_own_pattern():
+    """Leland RFIs 002 and 004 are in S2.30-B's shear-wall core, where its piers
+    stop being typical; the review's one close-up was the whole sheet again."""
+    import fitz
+    for rotation in (0, 90):
+        doc, page = _tagged_plan(rotation)
+        [region] = rr.plan_regions(page, 1)
+        shown = fitz.Rect(region * page.rotation_matrix).normalize()
+        for word in page.get_text("words"):
+            if word[4] in ("P42-10", "P24-10", "GB4", "P36-30"):
+                centre = (fitz.Rect(word[:4]).tl + fitz.Rect(word[:4]).br) / 2
+                assert region.contains(centre), (rotation, word[4])  # unrotated space, as stored
+        assert shown.width < page.rect.width / 2 and shown.height < page.rect.height / 2  # a close-up, not the sheet
+        assert rr.plan_regions(page, 0) == []
+
+
+def test_a_sheet_without_enough_tags_or_without_rare_ones_gets_no_plan_close_up():
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592)
+    for i in range(40):
+        page.insert_text((1500 + (i % 8) * 200, 1200 + (i // 8) * 250), "P30-18", fontsize=8)
+        page.insert_text((1500 + (i % 8) * 200, 1210 + (i // 8) * 250), "(-26'-2\")", fontsize=8)
+    assert rr.plan_regions(page, 2) == []  # every tag typical
+    assert rr.plan_regions(fitz.open().new_page(width=3456, height=2592), 2) == []

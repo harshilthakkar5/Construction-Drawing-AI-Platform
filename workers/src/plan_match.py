@@ -306,6 +306,14 @@ def _dedupe(elements: list[Element]) -> list[Element]:
 
 
 def page_elements(page: fitz.Page, pt_per_ft: list[float], words=None) -> list[Element]:
+    """`_page_elements`, reused for a page a review already read (page_memo)."""
+    import page_memo
+
+    scales = ",".join(f"{v:.6g}" for v in pt_per_ft)
+    return page_memo.memo(f"page_elements@1:{scales}", page, lambda: _page_elements(page, pt_per_ft, words))
+
+
+def _page_elements(page: fitz.Page, pt_per_ft: list[float], words=None) -> list[Element]:
     matrix = page.rotation_matrix
     words = page.get_text("words") if words is None else words
     return elements_from_drawings(page.get_drawings(), matrix, pt_per_ft, [fitz.Rect(w[:4]) * matrix for w in words])

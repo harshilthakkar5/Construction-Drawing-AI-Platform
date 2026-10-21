@@ -136,3 +136,37 @@ def test_a_full_scan_candidate_scores_against_rfi_002():
     }
     case = next(c for c in json.loads(rfi_eval.CASES.read_text())["cases"] if c["id"] == "rfi-002")
     assert rfi_eval.score(case, [candidate])["hits"] == 1
+
+
+def test_a_by_element_finding_counts_under_the_cases_elements():
+    exp = {"what": "pit slab", "checkTypes": ["F03"], "sheets": ["S4.00"], "mentions": ["pit"]}
+    c = {"id": "1", "checkType": "CE-05-01-Q03", "subject": "Elevator pit slab", "question": "?",
+         "evidence": [{"sheetNumber": "S4.00"}]}
+    assert rfi_eval.matches(exp, c) == ["check CE-05-01-Q03 is not F03"]
+    assert rfi_eval.matches(exp, c, ("CE-05-01",)) == []
+    assert rfi_eval.matches(exp, c, ("CE-05-0",)) != []  # a prefix of another element is not it
+
+
+def test_project_reviews_take_each_elements_latest_finished_run_and_tally_the_guards():
+    rows = [
+        ("old", "CE-05-01", "ready", ["Verification kept 1 of 2 proposed issue(s)."], {}, 1),
+        ("new", "CE-05-01", "partial", ["Verification kept 0 of 3 proposed issue(s).",
+                                        "Kept CE-05-01-Q03 pit: verification said another drawing gives it, and could not show where."],
+         {"CE-05-01-Q03": {"outcome": "complete_no_issue"}, "CE-05-01-Q01": {"outcome": "insufficient_evidence"}}, 2),
+        ("failed", "CE-05-01", "failed", [], {}, 3),
+        ("other", "CE-03-01", "ready", [], {}, 1),
+    ]
+    runs = rfi_eval.element_runs(rows)
+    assert runs["CE-05-01"]["id"] == "new" and set(runs) == {"CE-05-01", "CE-03-01"}
+    assert rfi_eval.guard_tally(runs) == {"proposed": 3, "kept": 0, "rejected": 3, "overruled": 1}
+    case = {"elements": ["CE-05-01", "CE-04-12"]}
+    assert rfi_eval.missed_with_no_issue(case, runs) == ["CE-05-01: 1 question(s) said no issue (CE-05-01-Q03)"]
+
+
+def test_every_leland_case_names_library_elements_that_exist():
+    lib = json.loads((Path(__file__).resolve().parents[2] / "packages/shared/data/rfi-library.json").read_text())
+    active = {e["id"] for e in lib["elements"] if e["active"]}
+    cases = [c for c in json.loads(rfi_eval.CASES.read_text())["cases"] if c["id"].startswith("leland-rfi-")]
+    assert len(cases) == 9
+    for c in cases:
+        assert c.get("elements") and set(c["elements"]) <= active, c["id"]

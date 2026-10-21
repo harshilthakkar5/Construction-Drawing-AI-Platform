@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -8,6 +9,7 @@ import {
   RFI_REVIEW_INPUT_LIMITS,
   RFI_REVIEW_THINKING,
   RFI_REVIEW_THINKING_LIMITS,
+  type RfiCheckResultDto,
   type RfiReviewDepth,
   type RfiReviewThinking,
   RFI_REVIEW_SHEETS_GUARD,
@@ -20,6 +22,7 @@ import { summaryLimiter } from "../rateLimit.js";
 import { PlanError, compareRuns, planReview, reestimate, reviewModelOptions, toReviewDto, type RunRow } from "../rfiReviewPlanner.js";
 import { buildReviewReport, renderReviewReportPdf, type ManifestItem, type ReportKind } from "../rfiReviewReport.js";
 import { reviewIsActive, scopeHash, staleReason, type ReviewScope } from "../rfiReviewRules.js";
+import { toCandidateDto } from "../rfiStore.js";
 import { getObjectBytes } from "../s3.js";
 
 /**
@@ -307,4 +310,64 @@ rfiReviewRouter.post("/:runId/cancel", async (req, res) => {
     return void res.status(409).json({ error: "this review has already finished" });
   }
   res.json({ cancelled: true });
+});
+
+const keepBody = z.object({ checkId: z.string().min(1).max(80), index: z.number().int().min(0).max(50) });
+
+/** "Keep as RFI": a proposal the review set aside becomes a LOW-confidence
+ * finding in Needs your review — still not an RFI until someone accepts it.
+ * The person overrules the checking step; nothing is re-asked of a model. */
+rfiReviewRouter.post("/:runId/set-aside/keep", async (req, res) => {
+  const { projectId, runId } = runParams.parse(req.params);
+  const { checkId, index } = keepBody.parse(req.body ?? {});
+  const run = await prisma.rfiReviewRun.findFirst({ where: { id: runId, projectId }, select: { checkResults: true } });
+  if (!run) return void res.status(404).json({ error: "review not found" });
+  const results = (run.checkResults ?? {}) as unknown as Record<string, RfiCheckResultDto>;
+  const entry = results[checkId]?.setAside?.[index];
+  if (!entry) return void res.status(404).json({ error: "that proposal is not in this review" });
+  if (entry.keptCandidateId) return void res.status(409).json({ error: "already kept" });
+  // A document switched out of RFI analysis since the run pins nothing.
+  const allowed = new Set(
+    (
+      await prisma.document.findMany({
+        where: { projectId, id: { in: entry.evidence.map((e) => e.documentId) }, includeInRfiAnalysis: true },
+        select: { id: true },
+      })
+    ).map((d) => d.id),
+  );
+  const evidence = entry.evidence.filter((e) => allowed.has(e.documentId));
+  if (!evidence.length) {
+    return void res.status(400).json({ error: "none of its evidence is on a drawing still in RFI analysis, so there is nothing to pin it to" });
+  }
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.rfiCandidate.create({
+        data: {
+          projectId,
+          origin: "targeted_review",
+          reviewRunId: runId,
+          fingerprint: entry.fingerprint,
+          checkType: entry.checkType,
+          confidence: "low",
+          subject: entry.subject,
+          question: entry.question,
+          questionSource: entry.questionSource,
+          reasoning: `Set aside by the review (${entry.reason}); kept by a person.`,
+          evidence: evidence as unknown as Prisma.InputJsonValue,
+        },
+      });
+      entry.keptCandidateId = created.id;
+      await tx.rfiReviewRun.update({
+        where: { id: runId },
+        data: { checkResults: results as unknown as Prisma.InputJsonValue },
+      });
+      return created;
+    });
+    res.status(201).json(toCandidateDto(row));
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return void res.status(409).json({ error: "this finding is already on file (in Needs your review, the log, or dismissed)" });
+    }
+    throw err;
+  }
 });

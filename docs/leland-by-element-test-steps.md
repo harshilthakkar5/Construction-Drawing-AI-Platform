@@ -23,6 +23,12 @@ How to read the result: the question shows **Problem found** and a card appears 
 **Needs your review**, pinned to the sheet. Click the pin — it must land on the clouded area
 of the RFI.
 
+If the question says **No problems** but has a **Considered, not raised** list under it, the AI
+did propose something and the checking step set it aside — the reason is shown. If the
+proposal matches the RFI, press **Keep as RFI**: it goes to Needs your review as a Low finding.
+Count it as "proposed, set aside" in your results, not as a hit. (RFIs 008 and 009 landed here
+in the second pass.)
+
 ---
 
 ## RFI 001 — Pile type mark missing at A1 / BK (S2.30-B)

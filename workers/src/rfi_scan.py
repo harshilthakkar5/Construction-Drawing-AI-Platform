@@ -134,6 +134,13 @@ def _finding_block(index: int, finding: Finding) -> str:
 _IDENT = re.compile(r"(?<![A-Z0-9])[A-Z]{1,3}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?(?![A-Z0-9])")
 # A standalone number: a dimension, a count, a date part, a value.
 _NUMBER = re.compile(r"(?<![A-Z0-9.])\d+(?:\.\d+)?(?![A-Z0-9])")
+_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+
+
+def plain_numbers(text: str) -> str:
+    """'4,500' as '4500': the model writes thousands commas the drawing does not,
+    and a comma splits one number into two the evidence never printed."""
+    return _THOUSANDS.sub("", text)
 # A page reference: the ONLY context in which a page number may appear.
 _PAGE_REF = re.compile(r"\bPAGES?\s+(\d+)")
 
@@ -179,10 +186,10 @@ def wording_is_grounded(text: str, finding: Finding) -> tuple[bool, str | None]:
       pages        a page number only as "page N", and only a page the
                    evidence is actually on.
     """
-    material = _grounding_material(finding)
+    material = plain_numbers(_grounding_material(finding))
     material_idents = {rfi_checks.normalize(m) for m in _IDENT.findall(material)}
     material_numbers = set(_NUMBER.findall(material))
-    upper = text.upper()
+    upper = plain_numbers(text.upper())
     pages = _page_numbers(finding)
     for m in _PAGE_REF.finditer(upper):
         if m.group(1) not in pages:

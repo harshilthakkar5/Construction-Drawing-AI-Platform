@@ -115,6 +115,10 @@ const RATES: Record<string, { input: number; output: number }> = {
   "gemini-3.1-flash-lite": { input: 0.25, output: 1.5 },
   "models/gemini-3.1-pro-preview": { input: 2.0, output: 12.0 },
   "gemini-3.5-flash-lite": { input: 0.25, output: 1.5 },
+  // Google's listed rate, all context lengths, "through November 30, 2026" —
+  // re-check it after that date. Usage is recorded under the models/ name.
+  "models/gemini-4-argon": { input: 2.0, output: 10.0 },
+  "gemini-4-argon": { input: 2.0, output: 10.0 },
   // Newer Gemini models you run go here. Until a real rate is added, they are
   // priced by the family fallback below — close enough to keep the dialog
   // honest, not close enough to bill from.

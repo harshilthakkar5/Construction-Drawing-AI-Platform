@@ -487,12 +487,44 @@ def test_a_rejection_saying_elsewhere_without_evidence_is_contested():
     assert not rfi_review.contested({"decision": "reject", "basis": "not_visible", "reason": "not shown on S0.302"}, shown)
     assert not rfi_review.contested({"decision": "reject", "basis": "other", "reason": "the opening is not shown on S0.302"}, shown)
     assert not rfi_review.contested({"decision": "keep"}, shown)
+    # The specifications or a standard govern: right for a drawing set, never overruled (Leland).
+    assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
+                                     "reason": "Time intervals between adjacent pours are governed by project concrete "
+                                               "specifications and ACI standards rather than annotated on plan sheets."}, shown)
+    assert not rfi_review.contested({"decision": "reject", "basis": "answered_elsewhere", "reason": "see Division 03 specs"}, shown)
 
 
-def test_an_overruled_rejection_is_kept_at_medium_and_says_why():
+def test_a_rejection_resting_on_a_reference_callout_is_contested():
+    """Leland RFI 009 was set aside twice for "references plan sheets ('T.O.C. SEE
+    PLAN')" and "refers T.O.C. to plan … directs weir geometry to Civil" — a callout
+    is not the value it points to, so it must be shown before the rejection stands."""
+    shown = {"ev1", "ev2"}
+    for reason in (
+        "Detail 10/S4.10 intentionally references plan sheets ('T.O.C. SEE PLAN') and civil drawings.",
+        "It refers T.O.C. to plan and 24/S4.02, and directs weir geometry to Civil drawings per note.",
+        "The detail defers the pier centre to the plan.",
+        "T.O.C. SEE 24/S4.02.",
+    ):
+        for basis in ("other", "different_condition"):
+            assert rfi_review.contested({"decision": "reject", "basis": basis, "reason": reason, "answeredBy": []}, shown), reason
+        # Citing the evidence that PRINTS the value lets it stand; so does "not visible".
+        assert not rfi_review.contested({"decision": "reject", "basis": "other", "reason": reason, "answeredBy": ["ev2"]}, shown)
+        assert not rfi_review.contested({"decision": "reject", "basis": "not_visible", "reason": reason}, shown)
+    assert not rfi_review.contested({"decision": "reject", "basis": "different_condition",
+                                     "reason": "The two sources show different walls at different levels."}, shown)
+    assert not rfi_review.contested({"decision": "reject", "basis": "other",
+                                     "reason": "Mix strength is governed by the specifications; see ACI 301."}, shown)
+
+
+def test_the_prompts_say_a_reference_is_not_a_value():
+    assert "A reference is not a value" in rfi_review.reasoning_system(["F04"])
+    assert "is not the value it points to" in rfi_review.verification_system()
+
+
+def test_an_overruled_rejection_is_kept_at_low_and_says_why():
     candidate = {"element": "Level 2 slab openings", "issue": "Shaft openings have no sizes or grid dimensions.", "why": "plans show no sizes"}
     kept = rfi_review.overruled(candidate, {"decision": "reject", "confidence": "high", "subject": "", "question": ""})
-    assert kept["decision"] == "keep" and kept["confidence"] == "medium" and kept["priority"] == "normal"
+    assert kept["decision"] == "keep" and kept["confidence"] == "low" and kept["priority"] == "normal"
     assert kept["subject"] == "Level 2 slab openings"
     assert kept["question"].startswith("Shaft openings have no sizes or grid dimensions. Please provide it")
     assert kept["why"].startswith("plans show no sizes") and "could not point to evidence" in kept["why"]
@@ -588,6 +620,11 @@ def test_an_elsewhere_rejection_that_cites_what_the_search_found_stands(database
     assert [r for r in _candidates(database, seeded["project"]) if r[0] == "C01"] == []
     notes = _row(database, seeded["run"])[4]
     assert any("(re-checked)" in n for n in notes)
+    # The person still sees it, with the reason, ready for "Keep as RFI".
+    with database.connect() as conn:
+        results = conn.execute('SELECT "checkResults" FROM rfi_review_runs WHERE id = %s', (seeded["run"],)).fetchone()[0]
+    [entry] = [a for a in results["C01"]["setAside"] if a["reason"] == "the schedule gives it (re-checked)"]
+    assert entry["checkType"] == "C01" and entry["fingerprint"] and entry["evidence"]
 
 
 @needs_db
