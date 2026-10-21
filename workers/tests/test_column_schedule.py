@@ -67,3 +67,20 @@ def test_scan_findings_cite_the_schedule_column():
     box = f.evidence[0]["bbox"]
     assert box["x"] <= 290 + 6 <= box["x"] + box["width"]  # the empty column's own cell
     assert cs.findings([row], [Chunk("c", "p", "GENERAL NOTES", None)], lambda d, n: page) == ([], [])
+
+
+def test_the_question_reads_in_the_plural_for_a_group_and_singular_for_one():
+    page = schedule([("A1-AG", True), ("B6-BA, B6-BB", False), ("B5-BC", True), ("B3-BB", False), ("B7-BF", True),
+                     ("B2-BC", True), ("B4-BK", True)])
+    row = Page("p", "doc", 1, 93, "S8.02")
+    found, _ = cs.findings([row], [Chunk("c", "p", page.get_text(), None)], lambda d, n: page)
+    by = {f.facts["locations"][0]: f.question for f in found}
+    assert "lists the columns at B6-BA, B6-BB" in by["B6-BA"] and "for them at any level" in by["B6-BA"]
+    assert "column sizes and reinforcement" in by["B6-BA"]
+    assert "lists the column at B3-BB" in by["B3-BB"] and "for it at any level" in by["B3-BB"]
+
+
+def test_sizes_columns_only_for_a_schedule_read_reliably():
+    assert cs.sizes_columns(schedule([("A1-AG", True), ("B5-BC", True), ("B7-BF", True), ("B6-BA", False)]))
+    # mostly empty: not read as a schedule, so it answers nothing
+    assert not cs.sizes_columns(schedule([("A1-AG", True), ("B6-BA", False), ("B6-BB", False)]))

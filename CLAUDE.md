@@ -2811,7 +2811,7 @@ Verification is shown the aids of the pages it reads (`with_page_aids`; never as
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
 omitted the field for a whole batch, and the parser's default had turned RFI 008 — question written — into a rejection.
-Still open: the 002 re-check cited S2.31-A for showing the piers, and a citation makes a rejection stand even when the
+A pointer is settled when the code has READ its target: "details say SEE PLAN, plan says SEE COL SCHEDULE, so no source gives the column size" was kept on a Leland review that had S8.02 among its sheets — discovery could not read the schedule's boxes at the rendered resolution, and the deferral rule above reopened the rejection. `answered_by_column_schedule` rejects such a `missing` claim before verification when a reviewed sheet carries a column schedule `column_schedule.sizes_columns` reads as sizing columns; a column it leaves unsized is `unsized_column`'s finding, by location (on S8.02: B6/B7-BA/BB, Leland RFI 005, and B3(2'-4 3/4")-BB). Still open: the 002 re-check cited S2.31-A for showing the piers, and a citation makes a rejection stand even when the
 cited text prints no offset; the code cannot yet tell a citation of the value from a citation of the element.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read

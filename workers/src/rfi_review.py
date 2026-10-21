@@ -645,6 +645,18 @@ def credited(finding, linked: dict[str, list[str]], element: dict) -> list[str]:
     return [c for c in linked.get(finding.check_type, []) if c in CHECKS or mark_is_element(finding, element)]
 
 
+def _sizes_columns(open_page, p: dict) -> bool:
+    """Whether a reviewed page is a column schedule that sizes its columns. A
+    failure reading it is a no: the rule it feeds may only reject."""
+    import column_schedule
+    try:
+        page = open_page(p["documentId"], p["pageNumber"])
+        return page is not None and column_schedule.sizes_columns(page)
+    except Exception:
+        log.exception("rfi review: reading the column schedule on %s failed", p.get("sheetNumber"))
+        return False
+
+
 def library_code_findings(project_id: str, scope: dict, check_types: set[str], open_page) -> tuple[list, list[str]]:
     """The code checks a review's questions link to, on the review's sheets
     only. Text checks read the whole project (a mark's schedule is usually on
@@ -1097,6 +1109,31 @@ _DEFERS = re.compile(
 # pours is governed by the concrete specifications and ACI" was overruled into
 # a Leland finding the drawings were never meant to answer.
 _SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
+
+
+# "The plan says SEE COL SCHEDULE, so no source gives the column size" — on a
+# Leland review whose own sheets included S8.02, a column schedule sizing every
+# column but five. Discovery could not read its boxes at the rendered
+# resolution, so the chain looked like it ended nowhere; the code reads the
+# schedule from the PDF itself and reports those five as `unsized_column`.
+_SCHEDULE_POINTER = re.compile(r"\bSEE\s+(?:THE\s+)?(?:COL(?:UMN)?\.?\s+)?SCHED(?:ULE)?\b|\bpoints?\s+to\s+the\s+(?:column\s+)?schedule\b", re.I)
+_COLUMN_SIZE = re.compile(r"\bcolumns?\b.*\b(?:sizes?|reinforc\w*|T\.?O\.?C?\b|top\s+of\s+column)", re.I | re.S)
+
+
+def answered_by_column_schedule(candidate: dict, schedule_sheets: list[str]) -> str | None:
+    """Why a "column size is only referenced to the schedule" claim is
+    answered, or None. Pure. Only a `missing` claim resting on the pointer
+    itself, and only when a reviewed sheet carries a column schedule the code
+    read and found sizing columns; a column the schedule leaves unsized is
+    the column-schedule check's finding, by location."""
+    if not schedule_sheets or candidate.get("kind") != "missing":
+        return None
+    text = f"{candidate.get('element') or ''} {candidate.get('issue') or ''} {candidate.get('why') or ''}"
+    if not (_SCHEDULE_POINTER.search(text) and _COLUMN_SIZE.search(text)):
+        return None
+    return (f"The column schedule on {', '.join(schedule_sheets)} gives column sizes and reinforcement by grid "
+            "location and level, read from the drawing by code. A column it lists without a size is reported by "
+            "the column-schedule check, by location.")
 
 
 def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
@@ -2814,6 +2851,8 @@ def _run(run: dict) -> dict:
             notes.append(f"Left out {len(other)} code finding(s) about other elements' marks: {'; '.join(f.subject for f in other[:3])}.")
         if code_docs:
             notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
+        schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
+                                  for p in scope.get("pages", []) if _sizes_columns(open_page, p)})
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
@@ -2981,8 +3020,18 @@ def _run(run: dict) -> dict:
         # 4c. Measured counter-examples first: a C03 claim whose every named
         # occurrence is centred on two grid lines is rejected here, before a
         # verification call is paid for.
+        def set_aside(candidate: dict, reason: str, rule: str, decision: dict | None = None) -> None:
+            rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {reason}")
+            aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
+
         to_verify: list[dict] = []
         for candidate in candidates:
+            answered = answered_by_column_schedule(candidate, schedule_sheets)
+            if answered:
+                set_aside(candidate, answered, "column schedule read by code")
+                diagnostics.event("rejected_before_verification", candidate=candidate, reason=answered,
+                                  rule="answered_by_column_schedule")
+                continue
             early = occurrence_check(candidate, None, measured, evidence)
             if early.rejected:
                 set_aside(candidate, early.reason, "measured column positions")
@@ -2990,10 +3039,6 @@ def _run(run: dict) -> dict:
                                   rule="occurrence_check (measured column positions)")
                 continue
             to_verify.append(candidate)
-
-        def set_aside(candidate: dict, reason: str, rule: str, decision: dict | None = None) -> None:
-            rejected.append(f"{candidate['checkId']} {candidate['element'] or candidate['kind']}: {reason}")
-            aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
