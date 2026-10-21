@@ -392,6 +392,65 @@ def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz
     return [fitz.Rect(r * back).normalize() for r in regions]
 
 
+# A plan tag that carries a value printed under it: "P30-12" over "(-26'-2")",
+# "C-6" over "(14 x 30)". The tag and its value together are what a plan repeats.
+_PLAN_TAG = re.compile(r"^[A-Z]{1,3}-?\d{1,3}(?:-\d{1,3})?[A-Z]?$")
+PLAN_MIN_TAGS = 20  # fewer and it is not a tagged plan
+PLAN_WINDOW = 1 / 3  # of the sheet, per side: ~190 DPI for a 36x48 sheet
+
+
+def plan_regions(page, limit: int) -> list[fitz.Rect]:
+    """Where a PLAN departs from its own pattern, in UNROTATED space: windows
+    over the tags whose tag+value combination the sheet prints rarely
+    ("P42-10 (-29'-10")" among 39 "P30-18 (-26'-2")"). Leland RFIs 002 and 004
+    are both in S2.30-B's shear-wall core, where its piers and cap stop being
+    typical, and neither review ever saw it legibly: the one close-up was a
+    2983x2214pt text piece — the whole sheet again, at ~64 DPI. [] for a sheet
+    with under PLAN_MIN_TAGS tagged values or none rare. Pure but for `page`."""
+    import gridmarks
+
+    if limit <= 0:
+        return []
+    words = page.get_text("words")
+    to_display = ~page.derotation_matrix
+    # "Under" as the sheet is READ: on a rotated sheet the stored frame turns it sideways.
+    sizes = [(t, fitz.Rect(r * to_display).normalize()) for t, r in gridmarks._size_lines(words)]
+    tags = []
+    for x0, y0, x1, y1, text, *_ in words:
+        text = text.strip(",;:")
+        if _PLAN_TAG.match(text):
+            box = fitz.Rect(fitz.Rect(x0, y0, x1, y1) * to_display).normalize()
+            value = gridmarks._size_under(box, sizes)
+            if value:
+                tags.append((f"{text} {value}", (box.tl + box.br) / 2))
+    if len(tags) < PLAN_MIN_TAGS:
+        return []
+    freq: dict[str, int] = {}
+    for label, _ in tags:
+        freq[label] = freq.get(label, 0) + 1
+    rare = [(label, c) for label, c in tags if freq[label] <= max(2, 0.05 * len(tags))]
+    half_w, half_h = page.rect.width * PLAN_WINDOW / 2, page.rect.height * PLAN_WINDOW / 2
+    regions: list[fitz.Rect] = []
+    while len(regions) < limit:
+        best = None
+        for _, c in rare:
+            inside = [(label, p) for label, p in rare
+                      if abs(p.x - c.x) <= half_w and abs(p.y - c.y) <= half_h]
+            # Centred on the rare tags it holds, not on one of them.
+            mx, my = sum(p.x for _, p in inside) / len(inside), sum(p.y for _, p in inside) / len(inside)
+            win = fitz.Rect(mx - half_w, my - half_h, mx + half_w, my + half_h)
+            if any((win & r).get_area() > 0.25 * win.get_area() for r in regions):
+                continue
+            score = sum(1 / freq[label] for label, _ in inside)
+            if best is None or score > best[0]:
+                best = (score, win)
+        if best is None:
+            break
+        regions.append(best[1])
+    back = page.derotation_matrix
+    return [fitz.Rect((r & page.rect) * back).normalize() for r in regions]
+
+
 def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
@@ -423,10 +482,14 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
         out.append(Evidence(id=f"ev{n}", kind="page", bbox=whole, image=vlm.render(page, OVERVIEW_EDGE), **common))
         n += 1
         # The planned close-ups' SLOTS, aimed first at the details whose titles
-        # name the element (By element), then at the planned text pieces: as
-        # many images as the plan priced, never more.
+        # name the element (By element), then at a plan's rare tags (By
+        # element), then at the planned text pieces: as many images as the plan
+        # priced, never more.
         planned = p.get("crops", [])
-        aimed = detail_regions(page, element_title_words(((scope.get("library") or {}).get("element") or {}).get("name")), len(planned))
+        library = scope.get("library")
+        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned))
+        if library:  # a plan's slots go where it departs from its own pattern
+            aimed += plan_regions(page, len(planned) - len(aimed))
         anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
         anchors += planned[: len(planned) - len(aimed)]
         for anchor in anchors:

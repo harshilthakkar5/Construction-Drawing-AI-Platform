@@ -2819,6 +2819,13 @@ fills the rest from the plan. Same number of images, so the plan's price stands.
 A title is matched by the element's words OR a drafter's name for it (`TITLE_SYNONYMS`: Leland titles
 pile caps PIER CAP, retaining walls BASEMENT WALL, drilled piers DRILLED FOOTING — the library's words
 found none of them), and its SCALE line may overlap it by 15pt (S0.03's "COLUMN PIER CAP PLANS").
+A PLAN gets the same treatment by its tags (`plan_regions`, By element only): its close-up slots go to a
+window (a third of the sheet a side, ~190 DPI on 36x48) over the tags whose tag+value combination the sheet
+prints RARELY — "P42-10 (-29'-10\")" among 39 "P30-18 (-26'-2\")" — since RFIs sit where a plan departs
+from its own pattern. Leland RFIs 002 and 004 are both in S2.30-B's shear-wall core and neither review
+ever saw it legibly: its one close-up was a 2983x2214pt text piece, the whole sheet again at ~64 DPI. The
+value is matched UNDER its tag in display space (a rotated sheet's stored frame turns "under" sideways);
+under `PLAN_MIN_TAGS` tagged values, or none rare, the planned text pieces are used as before.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

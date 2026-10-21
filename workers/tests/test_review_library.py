@@ -205,3 +205,52 @@ def test_a_set_aside_proposal_keeps_what_keep_as_rfi_needs_and_only_grounded_wor
     assert entry["questionSource"] == "template" and "12" not in entry["question"]
     # A guard rejection never reuses the model's wording, however grounded.
     assert rr.set_aside_entry(candidate, "x", "guard", ok, ev, [])["questionSource"] == "template"
+
+
+def _tagged_plan(rotation: int):
+    """A pier plan as a person SEES it: 40 typical tags with their elevation
+    printed under each, and a core of four unusual ones near the top left."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592) if rotation in (0, 180) else doc.new_page(width=2592, height=3456)
+    page.set_rotation(rotation)
+
+    def put(x, y, text):
+        page.insert_text(fitz.Point(x, y) * page.derotation_matrix, text, fontsize=8, rotate=rotation)
+
+    for i in range(40):
+        x, y = 1500 + (i % 8) * 200, 1200 + (i // 8) * 250
+        put(x, y, "P30-18")
+        put(x, y + 10, "(-26'-2\")")
+    for x, y, tag, value in ((700, 700, "P42-10", "(-29'-10\")"), (780, 760, "P24-10", "(-29'-10\")"),
+                             (860, 700, "GB4", "(-29'-10\")"), (760, 820, "P36-30", "(-26'-2\")")):
+        put(x, y, tag)
+        put(x, y + 10, value)
+    return doc, page
+
+
+def test_a_plans_close_up_goes_where_it_departs_from_its_own_pattern():
+    """Leland RFIs 002 and 004 are in S2.30-B's shear-wall core, where its piers
+    stop being typical; the review's one close-up was the whole sheet again."""
+    import fitz
+    for rotation in (0, 90):
+        doc, page = _tagged_plan(rotation)
+        [region] = rr.plan_regions(page, 1)
+        shown = fitz.Rect(region * page.rotation_matrix).normalize()
+        for word in page.get_text("words"):
+            if word[4] in ("P42-10", "P24-10", "GB4", "P36-30"):
+                centre = (fitz.Rect(word[:4]).tl + fitz.Rect(word[:4]).br) / 2
+                assert region.contains(centre), (rotation, word[4])  # unrotated space, as stored
+        assert shown.width < page.rect.width / 2 and shown.height < page.rect.height / 2  # a close-up, not the sheet
+        assert rr.plan_regions(page, 0) == []
+
+
+def test_a_sheet_without_enough_tags_or_without_rare_ones_gets_no_plan_close_up():
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592)
+    for i in range(40):
+        page.insert_text((1500 + (i % 8) * 200, 1200 + (i // 8) * 250), "P30-18", fontsize=8)
+        page.insert_text((1500 + (i % 8) * 200, 1210 + (i // 8) * 250), "(-26'-2\")", fontsize=8)
+    assert rr.plan_regions(page, 2) == []  # every tag typical
+    assert rr.plan_regions(fitz.open().new_page(width=3456, height=2592), 2) == []
