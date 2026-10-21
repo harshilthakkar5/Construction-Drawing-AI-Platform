@@ -2792,6 +2792,13 @@ the verifier's wording only if it is `grounded` and no guard refused it, else th
 under the question as "Considered, not raised", and `POST /reviews/:runId/set-aside/keep` files one
 as a LOW pending candidate (409 if its fingerprint is on file). On Leland the AI proposed RFIs 008
 and 009 when asked directly and verification rejected both — this is where a person overrules it.
+A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
+points elsewhere ("T.O.C. SEE PLAN", "SEE 24/S4.02", "SEE CIVIL") — never checking the place it points
+to. Discovery records such a field `unknown` with the reference quoted; reasoning proposes the problem
+`needs_evidence` with the referenced sheet in `searchFor`; and `contested` now also catches a rejection
+resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
+any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
+search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead

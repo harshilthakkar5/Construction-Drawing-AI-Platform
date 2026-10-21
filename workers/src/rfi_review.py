@@ -641,6 +641,8 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "- State what one source shows about one element: its mark or name, its location (grid "
         "crossing, offset, level) and its values, written exactly as printed.\n"
         "- A value you cannot read is absent. Say it is not legible; never guess it.\n"
+        "- A callout that points elsewhere (\"T.O.C. SEE PLAN\", \"SEE 24/S4.02\") is not a value: record "
+        "the field as `unknown`, quote the reference, and say which source it points to.\n"
         "- Keep what different sheets show in separate observations, so they can be compared.\n"
         f"- At most {MAX_OBSERVATIONS} observations; prefer the ones the checks need.\n"
         "- inventory: one entry per element a check is about PER SOURCE that prints its values — a detail, "
@@ -674,8 +676,13 @@ def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "- inconsistency: a plan and a schedule (or detail) disagree about the same element;\n"
         "- ambiguity: the sources can be read two ways that lead to different work.\n"
         "NOT a problem: expected differences between levels or views; different drawing titles; a "
-        "value another given source resolves; a value that is only hard to read; what typical "
+        "value another given source PRINTS; a value that is only hard to read; what typical "
         "practice would do; anything outside the given sources.\n"
+        "A reference is not a value. A note or callout that points elsewhere for a needed value (\"SEE "
+        "PLAN\", \"SEE 24/S4.02\", \"SEE CIVIL\", \"REFER TO …\") answers nothing until the source it "
+        "points to is seen giving that value for THIS element at THIS location. If no observation shows "
+        "that, propose the problem with disposition `needs_evidence` and the referenced sheet or words in "
+        "`searchFor`; never treat the reference itself as the answer.\n"
         "Disposition: `rfi` when the given evidence is enough to ask; `needs_evidence` when another "
         "drawing in the project could settle it (a schedule, a detail, a referenced sheet) — then put in "
         "`searchFor` the words or sheet number to look for, and the server will search the project and "
@@ -709,6 +716,9 @@ def verification_system() -> str:
         "`<not_in_project>` lists drawings the notes refer to that the plan looked for and could not find "
         "in this project. Never reject a problem because its value is deferred to one of them: that "
         "deferral is what makes it a missing-information RFI.\n"
+        "A callout that points elsewhere (\"SEE PLAN\", \"SEE 24/S4.02\", \"SEE CIVIL\") is not the value it "
+        "points to: reject for it only when evidence shown to you PRINTS that value for this element, and "
+        "cite that evidence in `answeredBy`.\n"
         "Reject when: the problem is not visible in the cited evidence; the sources are about different "
         "levels, elements or conditions; another cited source resolves it; it rests on an assumption "
         "the evidence does not state; or it would need a fact the evidence does not contain.\n"
@@ -735,7 +745,7 @@ def verification_system() -> str:
 # pointing at it. Its own block so the first call's prompt stays cacheable.
 RECHECK = (
     "<recheck>Each problem below was rejected because another drawing was said to give the missing value, "
-    "without evidence that shows it. The server searched the project; what it found is listed under "
+    "or because the drawing refers elsewhere for it, without evidence that shows the value itself. The server searched the project; what it found is listed under "
     "`searched`. Reject only if evidence shown here GIVES the missing value (cite it in `answeredBy`); "
     "otherwise keep. Write `subject` and `question` for every problem, kept or not.</recheck>"
 )
@@ -1007,6 +1017,18 @@ _ELSEWHERE = re.compile(
     r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet)\b",
     re.I,
 )
+# A rejection resting on a REFERENCE rather than a value: "SEE PLAN", "SEE
+# 24/S4.02", "references plan sheets", "refers T.O.C. to plan", "directs weir
+# geometry to Civil". Leland RFI 009 was rejected twice this way while neither
+# wording reached _ELSEWHERE; a callout is not the value it points to.
+_DEFERS = re.compile(
+    r"\bSEE\s+(?:\d+\s*/\s*[A-Z]|PLANS?\b|CIVIL|ARCH|STRUCT|MEP|LANDSCAPE|GEOTECH|SCHED|DETAIL|SECTION|ELEVATION)"
+    r"|\breferences?\s+(?:to\s+)?(?:the\s+)?(?:\w+\s+)?(?:plans?|sheets?|drawings?|details?|sections?|schedules?|civil)\b"
+    r"|\brefer(?:s|red|ring)?\s+(?:\S+\s+){0,3}?to\b"
+    r"|\bdefer(?:s|red|ring)?\s+(?:\S+\s+){0,3}?to\b"
+    r"|\bdirect(?:s|ed|ing)?\s+(?:\S+\s+){1,4}?to\s+(?:the\s+)?(?:\w+\s+)?(?:plans?|sheets?|drawings?|civil|details?)\b",
+    re.I,
+)
 # A rejection saying the SPECIFICATIONS or a standard govern is right where a
 # drawing set is concerned, and is never overruled: "time between adjacent
 # pours is governed by the concrete specifications and ACI" was overruled into
@@ -1032,7 +1054,10 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
         return True
-    return basis == "other" and bool(_ELSEWHERE.search(decision.get("reason") or ""))
+    reason = decision.get("reason") or ""
+    if basis != "not_visible" and _DEFERS.search(reason):
+        return True
+    return basis == "other" and bool(_ELSEWHERE.search(reason))
 
 
 def overruled(candidate: dict, decision: dict) -> dict:
