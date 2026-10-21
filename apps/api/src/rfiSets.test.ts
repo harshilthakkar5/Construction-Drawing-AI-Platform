@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RFI_SETTINGS_DEFAULTS } from "@cdip/shared";
+import { RFI_SETTINGS_DEFAULTS, sheetTitleFrom } from "@cdip/shared";
 import { buildLibrary, library, questionIdsOf, resolveLibraryChoice } from "./rfiLibrary.js";
 import { setCost, setPlanRequest } from "./rfiSets.js";
 
@@ -62,5 +62,18 @@ describe("setCost", () => {
     expect(setCost([{ costLowUsd: 0.1, costHighUsd: 0.3 }, { costLowUsd: 0.2, costHighUsd: 0.5 }])).toEqual({ costLowUsd: 0.1 + 0.2, costHighUsd: 0.8 });
     expect(setCost([{ costLowUsd: 0.1, costHighUsd: 0.3 }, null])).toEqual({ costLowUsd: null, costHighUsd: null });
     expect(setCost([])).toEqual({ costLowUsd: null, costHighUsd: null });
+  });
+});
+
+describe("sheetTitleFrom", () => {
+  it("takes the words after SHEET TITLE and drops the sheet number", () => {
+    // Leland's title-block readings, as stored in pages.sheetRegionText.
+    expect(sheetTitleFrom("SHEET NUMBER SHEET TITLE S8.02 CONCRETE COLUMN SCHEDULE - AREA B", "S8.02"))
+      .toBe("CONCRETE COLUMN SCHEDULE - AREA B");
+    expect(sheetTitleFrom("A N SHEET NUMBER SHEET TITLE A2.41-B BASEMENT 1 REFLECTED CEILING PLAN - AREA B © 2024 Kirksey", "A2.41-B"))
+      .toBe("BASEMENT 1 REFLECTED CEILING PLAN - AREA B");
+  });
+  it("keeps the whole reading when the box has no SHEET TITLE label", () => {
+    expect(sheetTitleFrom("S2.105\n FORMING PLAN -  LEVEL 5", "S2.105")).toBe("FORMING PLAN - LEVEL 5");
   });
 });

@@ -2922,7 +2922,9 @@ review per element (`rfiSets.setPlanRequest` from the project's review settings,
 `rfi_review_runs.setId`) — no model call — and `/start` starts every planned one through the same
 `startReview` the single route uses. A set's findings are its runs' candidates. `planReview` only
 cancels a user's earlier unstarted plans when it is NOT planning for a set, or pricing a 12-element
-RFI would cancel 11 of its own plans.
+RFI would cancel 11 of its own plans. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
+`sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 
 ## Full AI scan — code pairs and lines up, the model only compares
 

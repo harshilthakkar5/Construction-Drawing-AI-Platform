@@ -2101,6 +2101,19 @@ export interface LibrarySheet {
   level?: string | null;
   /** Schedule headings printed on it ("CONCRETE COLUMN SCHEDULE - AREA B"), from `scheduleHeadings`. */
   headings?: string[];
+  /** What the project's title-block box reads on it (pages.sheetRegionText), for searching sheets by title. */
+  titleBlock?: string;
+}
+
+/** The sheet title out of a title-block reading: the words after "SHEET
+ * TITLE" with the sheet number dropped ("BASEMENT 2 - FOUNDATION PLAN - AREA
+ * B …"), else the whole reading. A title block is read as one run of words,
+ * so the tail can carry other text; callers truncate it for display. */
+export function sheetTitleFrom(titleBlock: string, sheetNumber: string): string {
+  const text = titleBlock.replace(/\s+/g, " ").trim();
+  const at = text.toUpperCase().lastIndexOf("SHEET TITLE");
+  const title = at >= 0 ? text.slice(at + "SHEET TITLE".length) : text;
+  return title.replace(sheetNumber, " ").split("©")[0]!.replace(/\s+/g, " ").trim();
 }
 
 const HEADING_REFERENCE = /\b(?:SEE|PER|REFER|WHERE|SCHEDULED|SHALL|NOTES?|FOR|TO|IN)\b/;

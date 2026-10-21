@@ -54,6 +54,18 @@ rfiLibraryRouter.get("/headings", async (req, res) => {
   res.json(out);
 });
 
+/** The title-block reading of every live page ({combinedPageNumber: text}),
+ * so the sheet picker can search "foundation plan" as well as "S2.30-B". */
+rfiLibraryRouter.get("/titles", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const rows = await prisma.$queryRaw<{ n: number; text: string }[]>`
+    SELECT p."combinedPageNumber" AS n, left(p."sheetRegionText", 400) AS text
+      FROM pages p JOIN documents d ON d.id = p."documentId"
+     WHERE d."projectId" = ${projectId} AND d."supersededAt" IS NULL
+       AND p."combinedPageNumber" IS NOT NULL AND p."sheetRegionText" IS NOT NULL`;
+  res.json(Object.fromEntries(rows.map((r) => [r.n, r.text.replace(/\s+/g, " ").trim()])));
+});
+
 rfiLibraryRouter.post("/questions", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const body = z
