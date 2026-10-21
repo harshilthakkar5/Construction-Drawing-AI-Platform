@@ -1227,7 +1227,7 @@
     },
     {
       "id": "leland-rfi-006",
-      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). Scored on a targeted review of S2.30-B. NOTE: S8.02 schedules A5-BA/BB, A5-BC.1 and A5-BD/BE/BF at 18\" X 24\" down to Level B2, so the drawings answer this RFI; a scan should raise nothing here.",
+      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). The drawings ANSWER it: every column its markup clouds (A5 at BA, BB, BC.1, BD, BE, BF; B6/B7 at BA/BB) is in the S8.02 column schedule (page 93) at 18\" X 24\", the size the RFI itself says was assumed. So it is scored as a finding that must NOT be raised on this set.",
       "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
       "target": {
         "type": "sheet",
@@ -1236,23 +1236,26 @@
       "checks": [
         "C01"
       ],
-      "expected": [
+      "expected": [],
+      "elements": [
+        "CE-07-01"
+      ],
+      "rejected": [
         {
           "what": "Columns along grid A5 on S2.30-B have no size in the column schedule",
+          "why": "S8.02 schedules A5-BA, A5-BB, A5-BC.1, A5-BD, A5-BE and A5-BF at 18\" X 24\"",
           "checkTypes": [
-            "C01"
+            "C01",
+            "unsized_column"
           ],
           "sheets": [
             "S2.30-B"
           ],
           "mentions": [
-            "column",
-            "A5"
+            "A5",
+            "schedule"
           ]
         }
-      ],
-      "elements": [
-        "CE-07-01"
       ]
     },
     {

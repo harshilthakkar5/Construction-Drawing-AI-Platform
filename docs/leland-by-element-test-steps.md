@@ -86,6 +86,8 @@ in the second pass.)
 
 ## RFI 006 — Columns along grid A5 with no size in the column schedule (S2.30-B)
 
+Answered by the drawings: S8.02 (page 93) schedules A5-BA, A5-BB, A5-BC.1, A5-BD, A5-BE and A5-BF at 18" X 24". A review that raises this is WRONG on this set; the benchmark scores it as a false positive.
+
 - **Element:** **Columns**
 - **Questions:** Q01 (code checks) + U-03
 - **Sheets:** S2.30-B, S8.02

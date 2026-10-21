@@ -175,3 +175,14 @@ def test_every_leland_case_names_library_elements_that_exist():
     assert len(cases) == 9
     for c in cases:
         assert c.get("elements") and set(c["elements"]) <= active, c["id"]
+
+
+def test_rfi_006_is_scored_as_a_finding_the_drawings_answer():
+    """S8.02 schedules every column RFI 006 clouds, so raising it is wrong on this set."""
+    case = next(c for c in json.loads(rfi_eval.CASES.read_text())["cases"] if c["id"] == "leland-rfi-006")
+    raised = {"id": "1", "checkType": "CE-07-01-Q02", "subject": "Column size at A5",
+              "question": "Columns on grid A5 have no size in the column schedule. Provide sizes.",
+              "evidence": [{"sheetNumber": "S2.30-B"}]}
+    result = rfi_eval.score(case, [raised], tuple(case["elements"]))
+    assert result["expected"] == 0 and len(result["falsePositives"]) == 1
+    assert rfi_eval.score(case, [dict(raised, checkType="CE-04-12-Q01")], tuple(case["elements"]))["falsePositives"] == []

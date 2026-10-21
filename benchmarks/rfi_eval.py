@@ -69,9 +69,7 @@ def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> 
     and so does a project's own question (checkType "custom") asked in a review
     of one of them, since the test guide's second pass is exactly that."""
     missing = []
-    by_element = any(candidate["checkType"].startswith(f"{e}-") for e in elements) or (
-        candidate["checkType"] == "custom" and candidate.get("element") in elements)
-    if candidate["checkType"] not in expected["checkTypes"] and not by_element:
+    if candidate["checkType"] not in expected["checkTypes"] and not _by_element(candidate, elements):
         missing.append(f"check {candidate['checkType']} is not {'/'.join(expected['checkTypes'])}")
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     for sheet in expected.get("sheets", []):
@@ -88,11 +86,16 @@ def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> 
     return missing
 
 
-def is_rejected(rejected: dict, candidate: dict) -> bool:
+def _by_element(candidate: dict, elements: tuple[str, ...]) -> bool:
+    return any(candidate["checkType"].startswith(f"{e}-") for e in elements) or (
+        candidate["checkType"] == "custom" and candidate.get("element") in elements)
+
+
+def is_rejected(rejected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> bool:
     """Whether this candidate is a finding a person already judged wrong: the
-    same check, evidence on every named sheet, and every named mark in its
-    wording."""
-    if candidate["checkType"] not in rejected["checkTypes"]:
+    same check (or a question of the case's element), evidence on every named
+    sheet, and every named mark in its wording."""
+    if candidate["checkType"] not in rejected["checkTypes"] and not _by_element(candidate, elements):
         return False
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     if any(_norm(sheet) not in named for sheet in rejected.get("sheets", [])):
@@ -119,7 +122,7 @@ def score(case: dict, candidates: list[dict], elements: tuple[str, ...] = ()) ->
     false_positives = []
     for rej in case.get("rejected", []):
         for c in candidates:
-            if c["id"] not in used and is_rejected(rej, c):
+            if c["id"] not in used and is_rejected(rej, c, elements):
                 used.add(c["id"])
                 false_positives.append({"what": rej["what"], "why": rej["why"], "candidate": c["subject"]})
     return {
