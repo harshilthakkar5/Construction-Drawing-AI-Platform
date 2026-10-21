@@ -2799,6 +2799,14 @@ to. Discovery records such a field `unknown` with the reference quoted; reasonin
 resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
 any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
 search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
+A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN", which is Leland RFI 002,
+and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
+dimension line of every reviewed page (an elevation's, under T.O.C., and a note's "-SEE PLAN" are not), grouped by the
+detail title UNDER it, as an aid — so whether the plan gives that length no longer depends on the model noticing.
+BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
+"by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
+LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead

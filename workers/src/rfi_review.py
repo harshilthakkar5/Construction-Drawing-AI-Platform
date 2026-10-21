@@ -1123,6 +1123,56 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
     return basis == "other" and bool(_ELSEWHERE.search(reason))
 
 
+# A rejection resting on who designs the element: "BY OTHERS", "BY SPECIALTY
+# RETENTION SYSTEM SUBCONTRACTOR", "delegated design".
+_BY_OTHERS = re.compile(
+    r"\bby\s+others\b|\bby\s+(?:the\s+)?(?:specialty\s+|specialist\s+)?(?:[\w-]+\s+){0,3}?(?:sub)?contractor\b"
+    r"|\bdelegated[\s-]+design\b|\bdesign[\s-]+build\b",
+    re.I,
+)
+_FIELD_DUTY = re.compile(r"\bverif(?:y|ied|ication)\b|\bin\s+(?:the\s+)?field\b", re.I)
+# What a coordination question about that element asks for: its geometry.
+_GEOMETRY = re.compile(
+    r"\b(?:thickness|thick|width|wide|size|sizes|diameter|dimension(?:s|ed)?|locat(?:ion|ions|ed)|"
+    r"elevations?|top\s+of|offset|spacing|centre(?:line)?|center(?:line)?)\b",
+    re.I,
+)
+
+
+def delegated(decision: dict | None, candidate: dict) -> bool:
+    """A rejection saying the element is by another party, of a problem about
+    its size, place or elevation. Pure. Who DESIGNS an element does not say
+    how big it is or where it goes on these drawings: Leland RFI 008 (the
+    cistern retaining wall and its piers, "BY OTHERS", ~20" on one sheet) was
+    proposed three times and set aside twice on exactly that reason, and the
+    client issued it."""
+    if not decision or decision.get("decision") != "reject":
+        return False
+    reason = decision.get("reason") or ""
+    if _FIELD_DUTY.search(reason):
+        return False  # verifying in the field is the contractor's duty, never an RFI
+    issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    return bool(_BY_OTHERS.search(reason)) and bool(_GEOMETRY.search(issue))
+
+
+def kept_for_coordination(candidate: dict, decision: dict) -> dict:
+    """The decision a by-others rejection becomes: kept LOW, asking for the
+    geometry to coordinate with, or for confirmation that the other party
+    gives it. Pure."""
+    subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
+    question = (
+        f"{(candidate.get('issue') or '').rstrip('.')}. The drawings assign this element to another party; please "
+        "confirm its size and location so the work around it can be coordinated, or confirm that the other party's "
+        "submittal provides them."
+    )
+    why = (
+        f"{decision.get('why') or candidate.get('why') or ''} Verification set it aside as by others; that settles "
+        "who designs it, not its size or place on these drawings."
+    ).strip()
+    return dict(decision, decision="keep", subject=subject, question=question, why=why,
+                confidence="low", priority="normal")
+
+
 def overruled(candidate: dict, decision: dict) -> dict:
     """The decision a contested rejection becomes when the claim could not be
     shown: kept at LOW confidence, saying why. Low because the verifier said
@@ -2724,7 +2774,7 @@ def _run(run: dict) -> dict:
     measured: dict[tuple[str, int], OccurrencePage] = {}
     code_docs = {p["documentId"] for p in scope.get("pages", [])} if set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS) else set()
     code_found: list = []
-    with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", []) if p.get("visual")} | code_docs)) as open_page:
+    with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", [])} | code_docs)) as open_page:
         # 1b. The code checks the asked questions link to, on these sheets.
         code_found, code_notes = library_code_findings(project_id, scope, set(linked), open_page)
         notes += code_notes
@@ -2758,6 +2808,18 @@ def _run(run: dict) -> dict:
                 if text:
                     aids.append(_aid(f"ev{n}", p, text))
                     n += 1
+        # Dimensions a detail prints as "SEE PLAN": listed for every review, so
+        # whether the plan gives them never depends on the model noticing.
+        for p in scope.get("pages", []):
+            try:
+                page = open_page(p["documentId"], p["pageNumber"])
+                text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
+            except Exception as exc:
+                text = None
+                notes.append(f"Deferred-dimension aid: could not read {p.get('sheetNumber') or p['pageNumber']}: {exc}")
+            if text:
+                aids.append(_aid(f"ev{n}", p, text))
+                n += 1
     if "G02" in check_ids and scope.get("pages"):
         index = review_aids.level_index([(ev.where, ev.text) for ev in texts])
         if index:
@@ -2953,6 +3015,12 @@ def _run(run: dict) -> dict:
                     diagnostics.event("rejected_after_verification", candidate=candidate, reason="no verdict", rule="model")
                     continue
                 if decision["decision"] != "keep":
+                    if delegated(decision, candidate):
+                        notes.append(f"Kept {label}: verification said it is by others, which settles who designs it, not its size or place.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
+                                          rule="by others settles who designs an element, not its size or place")
+                        accept(candidate, kept_for_coordination(candidate, decision))
+                        continue
                     if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown):
                         recheck.append((candidate, decision))
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,

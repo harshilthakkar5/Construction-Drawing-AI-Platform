@@ -684,3 +684,71 @@ def test_the_recheck_loads_the_sheet_a_rejection_names(database, monkeypatch):
     with database.connect() as conn:
         log_ = conn.execute("SELECT coverage FROM rfi_review_runs WHERE id = %s", (seeded["run"],)).fetchone()[0]["searchLog"]
     assert any(q["query"] == "C01 recheck: sheet S6.01" and q["found"] == 1 for q in log_)
+
+
+# --- "By others" settles who designs an element, not its size or place (Leland RFI 008) ---
+
+_WALL = {"issue": "The cantilevered retaining wall thickness and the drilled pier size and location at grid XA are not dimensioned on S2.31-A.",
+         "element": "retaining wall at the cistern", "why": "Cannot be modelled."}
+
+
+def test_a_by_others_rejection_of_a_geometry_question_is_kept_low():
+    reject = {"decision": "reject", "basis": "other",
+              "reason": "Detail 13/S4.10 marks the wall and piers 'BY OTHERS' / 'BY SPECIALTY RETENSION SYSTEM SUBCONTRACTOR'."}
+    assert rfi_review.delegated(reject, _WALL)
+    kept = rfi_review.kept_for_coordination(_WALL, reject)
+    assert kept["decision"] == "keep" and kept["confidence"] == "low"
+    assert "another party" in kept["question"] and "submittal" in kept["question"]
+    assert not re.search(r"\d", kept["question"].replace("13/S4.10", "").replace("2.31", "").replace("XA", ""))
+
+
+def test_by_others_does_not_overrule_other_rejections():
+    assert not rfi_review.delegated({"decision": "reject", "reason": "Detail 11/S4.10 gives the wall as 10 inches."}, _WALL)
+    assert not rfi_review.delegated({"decision": "keep", "reason": "by others"}, _WALL)
+    # A field-verification duty stays the contractor's.
+    assert not rfi_review.delegated({"decision": "reject", "reason": "Dimensions to be verified in field by contractor."}, _WALL)
+    # Not about the element's geometry: who supplies it is the whole answer.
+    assert not rfi_review.delegated({"decision": "reject", "reason": "Waterproofing is by others."},
+                                    {"issue": "Waterproofing product is not named.", "element": "waterproofing"})
+
+
+# --- Dimensions printed as "SEE PLAN" (Leland RFI 002) ---
+
+
+def _detail_sheet(rotation: int):
+    """A detail drawn as a CAD sheet is: upright as DISPLAYED, whatever /Rotate says."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=1200, height=800)
+    page.set_rotation(rotation)
+
+    def put(x, y, text, size=8, turn=0):
+        page.insert_text(fitz.Point(x, y) * page.derotation_matrix, text, fontsize=size, rotate=(rotation + turn) % 360)
+
+    put(300, 200, "SEE PLAN")              # wall face to grid line
+    put(300, 300, "T.O.C.")                # an elevation, not a dimension
+    put(300, 312, "SEE PLAN")
+    put(450, 250, "-SEE PLAN")             # a note's pointer
+    put(600, 260, "SEE PLAN", turn=90)     # slab thickness, read sideways
+    put(180, 452, "3", size=20)
+    put(200, 450, "BASEMENT WALL DETAIL AT PIER", size=10)
+    put(200, 470, "SCALE: 3/4\" = 1'-0\"")
+    return doc, page
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_dimensions_printed_as_see_plan_are_listed_by_the_detail_under_them(rotation):
+    doc, page = _detail_sheet(rotation)
+    text = review_aids.deferred_dimensions(page, "S4.01")
+    assert text is not None and "S4.01" in text
+    assert "- detail 3 BASEMENT WALL DETAIL AT PIER: 2 (1 horizontal, 1 vertical)" in text
+
+
+def test_a_sheet_with_no_deferred_dimension_gets_no_aid():
+    import fitz
+
+    page = fitz.open().new_page()
+    page.insert_text((100, 100), "T.O.C.", fontsize=8)
+    page.insert_text((100, 112), "SEE PLAN", fontsize=8)
+    assert review_aids.deferred_dimensions(page, "S4.01") is None
