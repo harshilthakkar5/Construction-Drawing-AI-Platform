@@ -6,8 +6,8 @@
  *
  *   npx tsx apps/api/src/rfiLibraryImport.ts path/to/library.xlsx
  *
- * Red-filled rows are elements the client keeps for later: imported with
- * `active: false`, and their questions with them. Ids are the client's own
+ * Every row is imported ON. The client fills rows red for "not for now"; at
+ * their request (21 Oct) those are enabled too. Ids are the client's own
  * (CE-04-01, CE-04-01-Q03, U-02), so a re-import updates by id.
  *
  * LINKS is ours, not the client's: which of the original 17 questions and
@@ -87,12 +87,6 @@ const text = (cell: ExcelJS.Cell): string => {
   if (typeof v === "object" && "text" in v) return String(v.text).trim();
   return String(v).trim();
 };
-/** The client marks "not for now" with a solid red fill. */
-const isRed = (row: ExcelJS.Row): boolean => {
-  const fill = row.getCell(1).fill;
-  const argb = fill?.type === "pattern" ? (fill.fgColor?.argb ?? "") : "";
-  return /^(FF)?FF0000$/i.test(argb);
-};
 const list = (s: string): string[] => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 function rows(sheet: ExcelJS.Worksheet): ExcelJS.Row[] {
@@ -117,7 +111,7 @@ export async function readLibrary(path: string, links: Record<string, Link> = LI
     const [, pkgId, pkgName] = /^(\d+)\s+(.*)$/.exec(text(r.getCell(3))) ?? [];
     if (!pkgId || !pkgName) throw new Error(`row ${r.number}: package "${text(r.getCell(3))}" has no number`);
     const id = text(r.getCell(1));
-    const active = !isRed(r);
+    const active = true;
     const pkg = packages.get(pkgId) ?? { id: pkgId, name: pkgName, active: false };
     pkg.active ||= active;
     packages.set(pkgId, pkg);
@@ -147,8 +141,7 @@ export async function readLibrary(path: string, links: Record<string, Link> = LI
       category: text(r.getCell(5)),
       text: text(r.getCell(6)),
       whereToLook: list(text(r.getCell(7))),
-      // A question is off with its element; the client marks elements only.
-      active: element.active && !isRed(r),
+      active: element.active,
       catalogue: links[id]?.catalogue ?? [],
       codeChecks: links[id]?.codeChecks ?? [],
     };

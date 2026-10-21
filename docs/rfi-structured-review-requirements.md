@@ -28,7 +28,7 @@ File: `Concrete_Scope_Element_Library.xlsx`
 | Universal Checks | 15 check categories, with what to verify and what to compare | 15 |
 | Summary | Counts per package | — |
 
-**Red rows = not used for now.** 58 elements are red, so 62 are active.
+**Red rows = not used for now** in the client's workbook (58 elements). Enabled on 21 Oct at the user's request: all 120 elements and 572 questions are active.
 Questions inherit this from their element: **346 active questions**.
 
 | Package | Active elements | Active questions |
@@ -88,7 +88,7 @@ Rules:
 - **Any depth:** any question, built-in or custom, can have follow-up questions under it,
   and those can have their own.
 - **New version from the client:** the developer runs the importer again and commits the
-  file. Questions update by ID; red rows go off. A link to an ID the new workbook dropped
+  file. Questions update by ID; red rows are imported on. A link to an ID the new workbook dropped
   stops the import.
 - **Custom questions:** users add their own, saved in the project (`rfi_custom_questions`),
   under an element or as a follow-up under any question of that element. They are marked "custom" and are AI-only, so never above medium confidence.
@@ -172,7 +172,7 @@ library questions on hand-picked pages, and chat → review.
 | # | Phase | Delivers | Effort |
 |---|---|---|---|
 | 1 | **Project Settings tab** ✅ built | New Settings tab: project name, description, roles; targeted-review model, depth, how careful, token limits; AI-comparison model, batch/direct, budget, auto-start limit. Saved on the project (`projects.rfiSettings`, owner only). The RFIs tab shows one line per run type with "Change in Settings". Not moved: what to compare and which questions (that is the work, not a setting). Not built: RFI form fields (author initials already come from the user's name) | done |
-| 2 | **Built-in library** ✅ built | Workbook imported once into the app (developer step, not a user upload), red rows off, universal questions expanded per element, the 17 existing questions and code checks linked, saved custom questions with follow-ups to any depth (API: `GET/POST/PATCH/DELETE /projects/:id/rfis/library`) | done |
+| 2 | **Built-in library** ✅ built | Workbook imported once into the app (developer step, not a user upload), red rows on (enabled 21 Oct), universal questions expanded per element, the 17 existing questions and code checks linked, saved custom questions with follow-ups to any depth (API: `GET/POST/PATCH/DELETE /projects/:id/rfis/library`) | done |
 | 3 | **Structured review UI** ✅ built | "By element" is the targeted review's first mode: element (grouped by package, review order, "Next element") → its questions by category, with follow-ups and the project's own questions (add, follow-up, delete) → any number of sheets (suggested from Compare Across: a floor plan naming a level first, every sheet on one level; type any sheet number to add; thumbnails) → the existing plan, price and results. Warns when the project has no sheets for an entry, or the element needs documents that are not drawings. Until Phase 4 the review asks a choice through the original questions it links to (34 of 62 active elements); an element with none says so and cannot be planned | done |
 | 4 | **Engine** ✅ built | A By element review asks the chosen library questions in the client's words (follow-ups carry their parents' words), with the element's attributes as what to record and its typical triggers as what makes an RFI, beside any linked original questions. The code checks the questions link to run first on the chosen sheets (type marks, schedule marks, unsized columns, references, TBDs; grids and columns via G01/C01) and their findings are credited to every question they answer. AI-only answers to library questions are capped at Medium; a project's own question files as "Your own question". Outcomes per library question in the results | done |
 | 5 | **Chat → review** ✅ built | The chat ends an answer with one "RFI:" line when the cited chunks show a problem; it is taken off the answer and offered as "Possible RFI". "Send to review" on any cited answer (subject + question editable) files a Medium finding (origin `chat`, linked to the message) pinned to the sheets the answer cited — never to documents kept out of RFI analysis; sending twice is "already on file". Not built: the "add automatically" setting | done |

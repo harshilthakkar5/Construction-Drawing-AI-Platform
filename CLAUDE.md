@@ -2882,7 +2882,8 @@ summary, scan or review.
 "Concrete Scope Element Library" workbook is imported ONCE by a developer —
 `npx tsx apps/api/src/rfiLibraryImport.ts <file.xlsx>` writes `packages/shared/data/rfi-library.json`,
 which ships with the app; users never upload it. Package → element → question, the client's ids
-kept (`CE-04-01-Q03`), a red-filled element row is `active: false` and its questions with it,
+kept (`CE-04-01-Q03`), every row imported ON — red-filled rows (the client's "not for now") included, at the
+user's request (21 Oct: 120 elements, 572 questions); `active` stays in the format for an element switched off,
 universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
 not the client's) ties items to the original 17 questions and to code checks, and an import that
 drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an

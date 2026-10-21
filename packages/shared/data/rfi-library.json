@@ -9,7 +9,7 @@
   {
    "id": "02",
    "name": "Subgrade & Below-Slab",
-   "active": false
+   "active": true
   },
   {
    "id": "03",
@@ -44,17 +44,17 @@
   {
    "id": "09",
    "name": "Stairs, Pads & Miscellaneous",
-   "active": false
+   "active": true
   },
   {
    "id": "10",
    "name": "Site Concrete",
-   "active": false
+   "active": true
   },
   {
    "id": "11",
    "name": "Specialty Concrete",
-   "active": false
+   "active": true
   },
   {
    "id": "12",
@@ -129,7 +129,7 @@
    ],
    "attributes": "Strength per element, exposure/durability, slump, admixtures",
    "triggers": "Element not listed in schedule; Spec vs general notes strength mismatch; exposure class missing for exterior/sulfate soils",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -145,7 +145,7 @@
    ],
    "attributes": "Cover by exposure, splice tables, bar grade, coating",
    "triggers": "Lap splice table missing bar sizes used; cover conflicts with detail; coated bar requirement unclear",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -161,7 +161,7 @@
    ],
    "attributes": "Joint location, width, covers, continuity through all levels",
    "triggers": "Expansion joint shown on Arch but not Struct; joint doesn't align level to level",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -175,7 +175,7 @@
    ],
    "attributes": "Applicability, which detail governs",
    "triggers": "Typical detail conflicts with specific detail; detail referenced but not provided",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -191,7 +191,7 @@
    ],
    "attributes": "Thickness, strength, extent",
    "triggers": "Mud mat required by geotech but not shown on drawings",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -208,7 +208,7 @@
    ],
    "attributes": "Presence, thickness, location relative to granular base",
    "triggers": "Vapor retarder shown on Arch, not Struct; mil thickness conflicts with spec",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -224,7 +224,7 @@
    ],
    "attributes": "Thickness, extent, R-value, effect on slab elevation",
    "triggers": "Insulation thickness not accounted for in slab section depth",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -240,7 +240,7 @@
    ],
    "attributes": "Thickness, compaction, material",
    "triggers": "Base thickness differs Geotech vs Struct",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -256,7 +256,7 @@
    ],
    "attributes": "Extent, strength, where required",
    "triggers": "Over-ex limits undefined; CLSM strength not specified",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -290,7 +290,7 @@
    ],
    "attributes": "Diameter, length, capacity, reinforcement, grout strength",
    "triggers": "Full-length vs partial cage unclear; test pile requirements missing",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -357,7 +357,7 @@
    ],
    "attributes": "Embedment length, dowel size/length",
    "triggers": "Embedment not dimensioned",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -791,7 +791,7 @@
    ],
    "attributes": "Insulation, heating system, depression depth",
    "triggers": "Heated sub-slab system not coordinated",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -807,7 +807,7 @@
    ],
    "attributes": "FF/FL numbers, measurement zones",
    "triggers": "FF/FL not specified for VNA aisles",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -822,7 +822,7 @@
    ],
    "attributes": "Recess depth, ledge elevation",
    "triggers": "Brick ledge elevation conflicts with grade",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -988,7 +988,7 @@
    ],
    "attributes": "Core thickness, rebar, openings",
    "triggers": "Core thickness vs form system mismatch",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1003,7 +1003,7 @@
    ],
    "attributes": "Grout spacing, rebar, bond beam levels",
    "triggers": "Grouted cell spacing not shown; scope split with mason unclear",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1295,7 +1295,7 @@
    ],
    "attributes": "Riser/tread, landing elevations, thickness, rebar, nosings",
    "triggers": "Riser count doesn't fit floor-to-floor; landing elevation conflict",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1310,7 +1310,7 @@
    ],
    "attributes": "Fill thickness, reinforcement",
    "triggers": "Fill scope (concrete vs misc metals) unclear",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1326,7 +1326,7 @@
    ],
    "attributes": "Size, height, location, anchor bolts, rebar",
    "triggers": "Pads on MEP not on Struct/Arch; pad sizes not given",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1342,7 +1342,7 @@
    ],
    "attributes": "Height, size, location",
    "triggers": "Curb sizes not coordinated with equipment",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1357,7 +1357,7 @@
    ],
    "attributes": "Height, width, dowels",
    "triggers": "Curb dowels not detailed",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1373,7 +1373,7 @@
    ],
    "attributes": "Mass, isolation, anchor bolts, embeds",
    "triggers": "Vendor loads/dimensions not provided",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1389,7 +1389,7 @@
    ],
    "attributes": "Location, depth, fill, footing",
    "triggers": "Bollard footing depth not given",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1405,7 +1405,7 @@
    ],
    "attributes": "Encasement thickness, rebar",
    "triggers": "Encasement extent unclear",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1420,7 +1420,7 @@
    ],
    "attributes": "Grout thickness, type",
    "triggers": "Grout bed thickness conflicts with T.O. pier elevation",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1435,7 +1435,7 @@
    ],
    "attributes": "Size, embeds, interaction with permanent structure",
    "triggers": "Crane base conflicts with permanent footings",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1451,7 +1451,7 @@
    ],
    "attributes": "Thickness, joints, slope, finish, ADA cross slope",
    "triggers": "Joint pattern Landscape ≠ Civil; thickness not given",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1466,7 +1466,7 @@
    ],
    "attributes": "Type, height, radius, transitions",
    "triggers": "Curb type changes not called out",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1481,7 +1481,7 @@
    ],
    "attributes": "Thickness, rebar/dowels, joints, base",
    "triggers": "Heavy vs light duty limits not defined",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1496,7 +1496,7 @@
    ],
    "attributes": "Thickness, slope, joints",
    "triggers": "Apron elevation vs dock height mismatch",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1511,7 +1511,7 @@
    ],
    "attributes": "Slopes, landing size, warning type",
    "triggers": "Ramp slope exceeds ADA per grading",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1526,7 +1526,7 @@
    ],
    "attributes": "Size, thickness, enclosure footing",
    "triggers": "Enclosure footing not detailed",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1542,7 +1542,7 @@
    ],
    "attributes": "Height, footing, finish, drainage",
    "triggers": "Wall height/top elevation not given along length",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1558,7 +1558,7 @@
    ],
    "attributes": "Risers, handrail embeds, drainage",
    "triggers": "Riser heights don't fit grade",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1574,7 +1574,7 @@
    ],
    "attributes": "Size, thickness, conduit stub-ups, oil containment",
    "triggers": "Pad per utility standard differs from drawings",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1590,7 +1590,7 @@
    ],
    "attributes": "Diameter, depth, anchor bolts, conduit",
    "triggers": "Base detail missing; bolt pattern unknown",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1605,7 +1605,7 @@
    ],
    "attributes": "Depth, diameter, spacing",
    "triggers": "Gate footing size not detailed",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1619,7 +1619,7 @@
    ],
    "attributes": "Size, invert, rim elevations, precast vs CIP",
    "triggers": "Rim elevation conflicts with paving grade",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1634,7 +1634,7 @@
    ],
    "attributes": "Size, location",
    "triggers": "Thrust block sizes not given",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1649,7 +1649,7 @@
    ],
    "attributes": "Size, cover, rebar, red dye",
    "triggers": "Duct bank route conflicts with footings",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1663,7 +1663,7 @@
    ],
    "attributes": "Size, invert, wingwall geometry",
    "triggers": "Wingwall dimensions missing",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1679,7 +1679,7 @@
    ],
    "attributes": "Wall/slab thickness, waterstops, joints, liners",
    "triggers": "Waterstop type/locations missing",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1695,7 +1695,7 @@
    ],
    "attributes": "Shell thickness, embeds, finishes",
    "triggers": "Pool vendor embeds not coordinated",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1710,7 +1710,7 @@
    ],
    "attributes": "Thickness, rebar, nozzle access, finish",
    "triggers": "Shotcrete vs formed wall not decided",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1725,7 +1725,7 @@
    ],
    "attributes": "Thermal control plan, max temperature differential",
    "triggers": "Mass concrete threshold & thermal plan not addressed",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1740,7 +1740,7 @@
    ],
    "attributes": "Finish class, reveal layout, form tie pattern, mockups",
    "triggers": "Reveal pattern conflicts with CJs; finish class unspecified",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1755,7 +1755,7 @@
    ],
    "attributes": "Extent, aggregate exposure, joint layout",
    "triggers": "Joint layout vs finish pattern conflict",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1770,7 +1770,7 @@
    ],
    "attributes": "Density, thickness, bonding",
    "triggers": "LW vs NW not stated for fire rating",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1786,7 +1786,7 @@
    ],
    "attributes": "Density, thickness, penetrations, joints",
    "triggers": "Shielding thickness/density per physicist ≠ Struct",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1801,7 +1801,7 @@
    ],
    "attributes": "Bearing, connections, embeds by CIP trade",
    "triggers": "Embed responsibility CIP vs precaster unclear",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1848,7 +1848,7 @@
    ],
    "attributes": "Size, spacing, embed/projection",
    "triggers": "Dowels not shown at CJ or future expansion",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1900,7 +1900,7 @@
    ],
    "attributes": "Type, spacing, load",
    "triggers": "Insert layout not provided by MEP",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1917,7 +1917,7 @@
    ],
    "attributes": "Depth, cover, conflicts with footings/thickenings",
    "triggers": "Conduit in slab exceeds allowable size; pipe through footing",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1933,7 +1933,7 @@
    ],
    "attributes": "Type, locations",
    "triggers": "Waterstop at below-grade CJs not shown",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1949,7 +1949,7 @@
    ],
    "attributes": "Size, anchorage, location",
    "triggers": "Dock edge angle detail missing",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1964,7 +1964,7 @@
    ],
    "attributes": "Location, rebar bonding",
    "triggers": "Ufer ground location not shown",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1980,7 +1980,7 @@
    ],
    "attributes": "Coordination with concrete faces, termination",
    "triggers": "Waterproofing on blind-side wall not detailed",
-   "active": false,
+   "active": true,
    "catalogue": []
   },
   {
@@ -1995,7 +1995,7 @@
    ],
    "attributes": "Thickness and cover vs required rating",
    "triggers": "2-hr rated wall/slab thinner than required",
-   "active": false,
+   "active": true,
    "catalogue": []
   }
  ],
@@ -2396,7 +2396,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2411,7 +2411,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2426,7 +2426,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2441,7 +2441,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2456,7 +2456,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2471,7 +2471,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2486,7 +2486,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2501,7 +2501,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2516,7 +2516,7 @@
     "Specs Div 03",
     "Geotech report"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2531,7 +2531,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2546,7 +2546,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2561,7 +2561,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2576,7 +2576,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2591,7 +2591,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2606,7 +2606,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2621,7 +2621,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2636,7 +2636,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2651,7 +2651,7 @@
     "typical details",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2666,7 +2666,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2681,7 +2681,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2696,7 +2696,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2711,7 +2711,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2726,7 +2726,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2741,7 +2741,7 @@
     "Struct plans",
     "Arch details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2754,7 +2754,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2767,7 +2767,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2780,7 +2780,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2793,7 +2793,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2806,7 +2806,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2819,7 +2819,7 @@
    "whereToLook": [
     "Struct typical sheets vs specific sections"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2834,7 +2834,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2849,7 +2849,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2864,7 +2864,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2879,7 +2879,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2894,7 +2894,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2910,7 +2910,7 @@
     "Specs",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2926,7 +2926,7 @@
     "Specs",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2942,7 +2942,7 @@
     "Specs",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2958,7 +2958,7 @@
     "Specs",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2974,7 +2974,7 @@
     "Specs",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -2989,7 +2989,7 @@
     "Struct",
     "Energy/MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3004,7 +3004,7 @@
     "Struct",
     "Energy/MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3019,7 +3019,7 @@
     "Struct",
     "Energy/MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3034,7 +3034,7 @@
     "Struct",
     "Energy/MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3049,7 +3049,7 @@
     "Struct",
     "Energy/MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3064,7 +3064,7 @@
     "Struct",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3079,7 +3079,7 @@
     "Struct",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3094,7 +3094,7 @@
     "Struct",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3109,7 +3109,7 @@
     "Struct",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3124,7 +3124,7 @@
     "Civil",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3139,7 +3139,7 @@
     "Civil",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3154,7 +3154,7 @@
     "Civil",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3169,7 +3169,7 @@
     "Civil",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3322,7 +3322,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3337,7 +3337,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3352,7 +3352,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3367,7 +3367,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3382,7 +3382,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3397,7 +3397,7 @@
     "Geotech",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3678,7 +3678,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3691,7 +3691,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -3704,7 +3704,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5923,7 +5923,7 @@
     "Refrigeration",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5938,7 +5938,7 @@
     "Refrigeration",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5953,7 +5953,7 @@
     "Refrigeration",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5968,7 +5968,7 @@
     "Refrigeration",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5983,7 +5983,7 @@
     "Arch",
     "Racking/equipment"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -5998,7 +5998,7 @@
     "Arch",
     "Racking/equipment"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6013,7 +6013,7 @@
     "Arch",
     "Racking/equipment"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6028,7 +6028,7 @@
     "Arch",
     "Racking/equipment"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6042,7 +6042,7 @@
     "Arch details",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6056,7 +6056,7 @@
     "Arch details",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6070,7 +6070,7 @@
     "Arch details",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6084,7 +6084,7 @@
     "Arch details",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6831,7 +6831,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6845,7 +6845,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6859,7 +6859,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6873,7 +6873,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6887,7 +6887,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6901,7 +6901,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -6915,7 +6915,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8086,7 +8086,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8100,7 +8100,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8114,7 +8114,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8128,7 +8128,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8142,7 +8142,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8156,7 +8156,7 @@
     "Arch stair sections",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8170,7 +8170,7 @@
     "Arch",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8184,7 +8184,7 @@
     "Arch",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8198,7 +8198,7 @@
     "Arch",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8213,7 +8213,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8228,7 +8228,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8243,7 +8243,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8258,7 +8258,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8273,7 +8273,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8288,7 +8288,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8303,7 +8303,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8318,7 +8318,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8332,7 +8332,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8346,7 +8346,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8360,7 +8360,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8375,7 +8375,7 @@
     "Equipment vendor",
     "MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8390,7 +8390,7 @@
     "Equipment vendor",
     "MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8405,7 +8405,7 @@
     "Equipment vendor",
     "MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8420,7 +8420,7 @@
     "Equipment vendor",
     "MEP"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8435,7 +8435,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8450,7 +8450,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8465,7 +8465,7 @@
     "Arch",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8480,7 +8480,7 @@
     "Arch",
     "Life safety"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8495,7 +8495,7 @@
     "Arch",
     "Life safety"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8510,7 +8510,7 @@
     "Arch",
     "Life safety"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8524,7 +8524,7 @@
     "Struct",
     "Steel"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8538,7 +8538,7 @@
     "Struct",
     "Steel"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8552,7 +8552,7 @@
     "Struct",
     "Steel"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8566,7 +8566,7 @@
     "Crane engineer",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8580,7 +8580,7 @@
     "Crane engineer",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8594,7 +8594,7 @@
     "Crane engineer",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8609,7 +8609,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8624,7 +8624,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8639,7 +8639,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8654,7 +8654,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8669,7 +8669,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8684,7 +8684,7 @@
     "Landscape",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8698,7 +8698,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8712,7 +8712,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8726,7 +8726,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8740,7 +8740,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8754,7 +8754,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8768,7 +8768,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8782,7 +8782,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8796,7 +8796,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8810,7 +8810,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8824,7 +8824,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8838,7 +8838,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8852,7 +8852,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8866,7 +8866,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8880,7 +8880,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8894,7 +8894,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8908,7 +8908,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8922,7 +8922,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8936,7 +8936,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8951,7 +8951,7 @@
     "Landscape",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8966,7 +8966,7 @@
     "Landscape",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8981,7 +8981,7 @@
     "Landscape",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -8996,7 +8996,7 @@
     "Landscape",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9011,7 +9011,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9026,7 +9026,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9041,7 +9041,7 @@
     "Civil",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9056,7 +9056,7 @@
     "Civil",
     "Utility co. std"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9071,7 +9071,7 @@
     "Civil",
     "Utility co. std"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9086,7 +9086,7 @@
     "Civil",
     "Utility co. std"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9101,7 +9101,7 @@
     "Civil",
     "Utility co. std"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9116,7 +9116,7 @@
     "Civil",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9131,7 +9131,7 @@
     "Civil",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9146,7 +9146,7 @@
     "Civil",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9161,7 +9161,7 @@
     "Civil",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9175,7 +9175,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9189,7 +9189,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9203,7 +9203,7 @@
     "Civil",
     "Landscape"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9216,7 +9216,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9229,7 +9229,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9242,7 +9242,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9255,7 +9255,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9269,7 +9269,7 @@
     "Civil",
     "Fire protection"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9283,7 +9283,7 @@
     "Civil",
     "Fire protection"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9297,7 +9297,7 @@
     "Electrical",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9311,7 +9311,7 @@
     "Electrical",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9325,7 +9325,7 @@
     "Electrical",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9339,7 +9339,7 @@
     "Electrical",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9352,7 +9352,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9365,7 +9365,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9378,7 +9378,7 @@
    "whereToLook": [
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9393,7 +9393,7 @@
     "Process",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9408,7 +9408,7 @@
     "Process",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9423,7 +9423,7 @@
     "Process",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9438,7 +9438,7 @@
     "Process",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9453,7 +9453,7 @@
     "Process",
     "Civil"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9468,7 +9468,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9483,7 +9483,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9498,7 +9498,7 @@
     "Struct",
     "Arch"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9512,7 +9512,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9526,7 +9526,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9540,7 +9540,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9554,7 +9554,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9568,7 +9568,7 @@
     "Specs",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9582,7 +9582,7 @@
     "Specs",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9596,7 +9596,7 @@
     "Specs",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9610,7 +9610,7 @@
     "Arch elevations",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9624,7 +9624,7 @@
     "Arch elevations",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9638,7 +9638,7 @@
     "Arch elevations",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9652,7 +9652,7 @@
     "Arch elevations",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9666,7 +9666,7 @@
     "Arch finish plan",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9680,7 +9680,7 @@
     "Arch finish plan",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9694,7 +9694,7 @@
     "Arch finish plan",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9708,7 +9708,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9722,7 +9722,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9736,7 +9736,7 @@
     "Struct",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9751,7 +9751,7 @@
     "Medical physicist",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9766,7 +9766,7 @@
     "Medical physicist",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9781,7 +9781,7 @@
     "Medical physicist",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9795,7 +9795,7 @@
     "Struct",
     "Precast shop drawings"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9809,7 +9809,7 @@
     "Struct",
     "Precast shop drawings"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9823,7 +9823,7 @@
     "Struct",
     "Precast shop drawings"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9975,7 +9975,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -9988,7 +9988,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10001,7 +10001,7 @@
    "whereToLook": [
     "Struct details"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10136,7 +10136,7 @@
     "Struct",
     "Facade"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10151,7 +10151,7 @@
     "Struct",
     "Facade"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10166,7 +10166,7 @@
     "Struct",
     "Facade"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10182,7 +10182,7 @@
     "Mechanical",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10198,7 +10198,7 @@
     "Mechanical",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10214,7 +10214,7 @@
     "Mechanical",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10229,7 +10229,7 @@
     "Waterproofing",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10244,7 +10244,7 @@
     "Waterproofing",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10259,7 +10259,7 @@
     "Waterproofing",
     "Specs"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10274,7 +10274,7 @@
     "Struct",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10289,7 +10289,7 @@
     "Struct",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10304,7 +10304,7 @@
     "Struct",
     "Misc metals"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10318,7 +10318,7 @@
     "Electrical",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10332,7 +10332,7 @@
     "Electrical",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10347,7 +10347,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10362,7 +10362,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10377,7 +10377,7 @@
     "Civil",
     "Geotech"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10391,7 +10391,7 @@
     "Arch life safety plans",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10405,7 +10405,7 @@
     "Arch life safety plans",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   },
@@ -10419,7 +10419,7 @@
     "Arch life safety plans",
     "Struct"
    ],
-   "active": false,
+   "active": true,
    "catalogue": [],
    "codeChecks": []
   }

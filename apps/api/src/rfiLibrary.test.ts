@@ -18,13 +18,19 @@ import { buildLibrary, library, questionIdsOf, resolveLibraryChoice, type Custom
 import { readLibrary } from "./rfiLibraryImport.js";
 
 const { file, version } = library();
+// The shipped library now has every element on; one switched off by hand
+// keeps the "an element that is off stays hidden" rule tested.
+const offFile = {
+  ...file,
+  elements: file.elements.map((e) => (e.id === "CE-01-04" ? { ...e, active: false } : e)),
+  questions: file.questions.map((q) => (q.elementId === "CE-01-04" ? { ...q, active: false } : q)),
+};
 
 describe("the shipped library (the client's workbook)", () => {
-  it("keeps the client's red rows off", () => {
-    expect(file.elements.filter((e) => e.active)).toHaveLength(62);
-    expect(file.questions.filter((q) => q.active)).toHaveLength(346);
-    const off = new Set(file.elements.filter((e) => !e.active).map((e) => e.id));
-    expect(file.questions.filter((q) => off.has(q.elementId) && q.active)).toEqual([]);
+  it("has every element and question on, the client's red rows included", () => {
+    expect(file.elements.filter((e) => e.active)).toHaveLength(120);
+    expect(file.questions.filter((q) => q.active)).toHaveLength(572);
+    expect(file.packages.filter((p) => !p.active)).toEqual([]);
   });
 
   it("has unique ids and no question outside an element", () => {
@@ -59,14 +65,14 @@ describe("buildLibrary", () => {
     { id: "c2", elementId: "CE-01-01", parentId: "c1", category: null, text: "On level 3?" },
     { id: "c3", elementId: "CE-01-01", parentId: null, category: "Location", text: "Own top-level question" },
     { id: "c4", elementId: "CE-01-01", parentId: "gone", category: null, text: "Parent deleted" },
-    { id: "c5", elementId: "CE-01-04", parentId: null, category: null, text: "On a red element" },
+    { id: "c5", elementId: "CE-01-04", parentId: null, category: null, text: "On an element that is off" },
   ];
-  const dto = buildLibrary(file, version, customs);
+  const dto = buildLibrary(offFile, version, customs);
   const grids = dto.packages[0]!.elements[0]!;
 
   it("shows active packages and elements only, in review order", () => {
-    expect(dto.packages.map((p) => p.id)).toEqual(["01", "03", "04", "05", "06", "07", "08", "12"]);
-    expect(dto.packages[0]!.elements.map((e) => e.name)).toEqual(["Grid lines", "Levels / elevations", "Project datum & survey control"]);
+    expect(dto.packages.map((p) => p.id)).toEqual(["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]);
+    expect(dto.packages[0]!.elements.map((e) => e.name).slice(0, 3)).toEqual(["Grid lines", "Levels / elevations", "Project datum & survey control"]);
     expect(dto.packages.flatMap((p) => p.elements).some((e) => e.id === "CE-01-04")).toBe(false);
   });
 
@@ -76,7 +82,7 @@ describe("buildLibrary", () => {
     const top = grids.questions.map((q) => q.id);
     expect(top).toContain("c3");
     expect(top).toContain("c4");
-    expect(JSON.stringify(dto)).not.toContain("On a red element");
+    expect(JSON.stringify(dto)).not.toContain("On an element that is off");
   });
 
   it("expands universal questions per element and carries the links", () => {
@@ -92,7 +98,7 @@ describe("buildLibrary", () => {
     const ids = questionIdsOf(file, "CE-01-01", customs)!;
     expect(ids.has("CE-01-01-Q02") && ids.has("CE-01-01-U-01") && ids.has("c1")).toBe(true);
     expect(ids.has("CE-01-02-Q01")).toBe(false);
-    expect(questionIdsOf(file, "CE-01-04", customs)).toBeNull();
+    expect(questionIdsOf(offFile, "CE-01-04", customs)).toBeNull();
     expect(questionIdsOf(file, "nope", customs)).toBeNull();
   });
 });
@@ -118,12 +124,12 @@ describe("readLibrary (the importer)", () => {
     return path;
   }
 
-  it("imports red rows as off, their questions with them, and keeps the links", async () => {
+  it("imports red rows ON, their questions with them, and keeps the links", async () => {
     const lib = await readLibrary(await workbook(), { "CE-01-01-Q01": { codeChecks: ["grid_mismatch"] } });
-    expect(lib.packages).toEqual([{ id: "01", name: "Setup", active: true }, { id: "02", name: "Subgrade", active: false }]);
-    expect(lib.elements.map((e) => [e.id, e.active])).toEqual([["CE-01-01", true], ["CE-02-01", false]]);
+    expect(lib.packages).toEqual([{ id: "01", name: "Setup", active: true }, { id: "02", name: "Subgrade", active: true }]);
+    expect(lib.elements.map((e) => [e.id, e.active])).toEqual([["CE-01-01", true], ["CE-02-01", true]]);
     expect(lib.elements[0]!.compareAcross).toEqual(["Arch plans", "Struct plans"]);
-    expect(lib.questions.map((q) => [q.id, q.active])).toEqual([["CE-01-01-Q01", true], ["CE-02-01-Q01", false]]);
+    expect(lib.questions.map((q) => [q.id, q.active])).toEqual([["CE-01-01-Q01", true], ["CE-02-01-Q01", true]]);
     expect(lib.questions[0]!.codeChecks).toEqual(["grid_mismatch"]);
     expect(lib.universal.map((x) => x.id)).toEqual(["U-01"]);
   });
@@ -244,7 +250,7 @@ describe("resolveLibraryChoice (what a By element review is asked)", () => {
 
   it("refuses another element's question, an element that is off, and an unknown id", () => {
     expect(() => resolveLibraryChoice(file, customs, "CE-03-01", ["CE-01-01-Q01"])).toThrow(/not questions of/);
-    expect(() => resolveLibraryChoice(file, customs, "CE-01-04", ["CE-01-04-Q01"])).toThrow(/not in the library/);
+    expect(() => resolveLibraryChoice(offFile, customs, "CE-01-04", ["CE-01-04-Q01"])).toThrow(/not in the library/);
     expect(() => resolveLibraryChoice(file, customs, "CE-03-01", ["nope"])).toThrow(/nope/);
   });
 });

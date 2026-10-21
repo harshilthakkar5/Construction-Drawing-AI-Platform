@@ -80,9 +80,9 @@ describe.skipIf(!url)("rfi library routes against a real database", () => {
     expect(JSON.stringify(await tree(other))).not.toContain("Between grids D and E");
   });
 
-  it("refuses a parent from another element, an element that is off, and an empty question", async () => {
+  it("refuses a parent from another element, an unknown element, and an empty question", async () => {
     expect((await add({ elementId: "CE-01-01", parentId: "CE-01-02-Q01", text: "x" })).status).toBe(400);
-    expect((await add({ elementId: "CE-01-04", text: "red row" })).status).toBe(400);
+    expect((await add({ elementId: "CE-99-99", text: "no such element" })).status).toBe(400);
     expect((await add({ elementId: "CE-01-01", text: "   " })).status).toBe(400);
   });
 
