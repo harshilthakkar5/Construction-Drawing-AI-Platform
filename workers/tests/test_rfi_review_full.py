@@ -788,3 +788,30 @@ def test_a_rejection_of_a_deferred_value_problem_must_show_the_value():
     assert not rfi_review.contested(dict(unsupported, answeredBy=["ev1"]), {"ev1"}, problem)
     # A problem not about a deferred value is judged as before.
     assert not rfi_review.contested(unsupported, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
+
+
+# The Leland review that proposed it read S8.02, whose column schedule sizes
+# every column but five (those are `unsized_column` findings by location).
+SEE_SCHEDULE = {
+    "checkId": "CE-07-01-Q01", "kind": "missing",
+    "element": "Concrete column sizes, T.O. column and T.O. pier for piers on S2.30-B",
+    "issue": "The column details print size, T.O.C. and T.O. PIER as 'SEE PLAN' and column reinforcement as "
+             "'SEE SCHEDULE'. The S2.30-B foundation plan prints pier marks and top of pier, but no column marks or "
+             "sizes. It says only 'SEE COL SCHEDULE'.",
+    "why": "Each source points to another for the needed value.",
+}
+
+
+def test_a_see_schedule_column_claim_is_answered_when_the_schedule_is_read():
+    why = rfi_review.answered_by_column_schedule(SEE_SCHEDULE, ["S8.01", "S8.02"])
+    assert why and "S8.01, S8.02" in why
+    assert rfi_review.answered_by_column_schedule(SEE_SCHEDULE, []) is None  # no schedule among the sheets: it stands
+
+
+def test_a_column_left_out_of_the_schedule_is_not_answered_by_it():
+    left_out = {"checkId": "C01", "kind": "missing", "element": "Column at B3/BB",
+                "issue": "The plan draws a column at B3/BB on pier P30-24; the column schedule has no size for it.",
+                "why": ""}
+    assert rfi_review.answered_by_column_schedule(left_out, ["S8.02"]) is None
+    conflict = dict(SEE_SCHEDULE, kind="conflict")
+    assert rfi_review.answered_by_column_schedule(conflict, ["S8.02"]) is None

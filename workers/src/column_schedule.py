@@ -37,10 +37,16 @@ def unsized(words: list[Word], vlines: list[tuple[float, float, float]]) -> tupl
     """({"locations": [...], "box": (x0, y0, x1, y1)} per schedule column
     with locations and no size, notes). Pure: `vlines` are (x, y0, y1) of the
     page's vertical strokes."""
+    found, notes, _ = read(words, vlines)
+    return found, notes
+
+
+def read(words: list[Word], vlines: list[tuple[float, float, float]]) -> tuple[list[dict], list[str], int]:
+    """`unsized`, plus how many columns the reliably read tables DO size. Pure."""
     labels = sorted((a for a in words if a[4] == "Locations"
                      and any(b[4] == "Column" and abs(b[0] - a[0]) < 40 and -3 < a[1] - b[1] < 25 for b in words)),
                     key=lambda a: a[1])
-    found, notes = [], []
+    found, notes, sized_total = [], [], 0
     for i, label in enumerate(labels):
         y = label[1]
         top = labels[i - 1][1] + HEADER_PT if i else 0.0  # the table above ends with its own header
@@ -61,15 +67,27 @@ def unsized(words: list[Word], vlines: list[tuple[float, float, float]]) -> tupl
                              "columns showed no size), so none of its columns is reported.")
             continue
         found += [{"locations": c[0], "box": c[2]} for c in empty]
-    return found, notes
+        sized_total += len(cells) - len(empty)
+    return found, notes, sized_total
 
 
 def on_page(page) -> tuple[list[dict], list[str]]:
     """`unsized` over a fitz page, in its unrotated space (get_text and
     get_cdrawings both report it)."""
+    found, notes, _ = read_page(page)
+    return found, notes
+
+
+def sizes_columns(page) -> bool:
+    """Whether this page carries a column schedule, read reliably, that gives
+    columns their sizes — the place a "SEE COL SCHEDULE" note points to."""
+    return read_page(page)[2] > 0
+
+
+def read_page(page) -> tuple[list[dict], list[str], int]:
     words = [tuple(w[:5]) for w in page.get_text("words")]
     if not any(w[4] == "Locations" for w in words):
-        return [], []
+        return [], [], 0
     vlines = []
     for d in page.get_cdrawings():
         for item in d["items"]:
@@ -80,7 +98,7 @@ def on_page(page) -> tuple[list[dict], list[str]]:
             elif item[0] == "re":  # cdrawings give a rect as a tuple
                 x0, y0, x1, y1 = item[1]
                 vlines += [(x0, y0, y1), (x1, y0, y1)]
-    return unsized(words, vlines)
+    return read(words, vlines)
 
 
 def findings(pages, chunks, open_page) -> tuple[list, list[str]]:
@@ -100,14 +118,16 @@ def findings(pages, chunks, open_page) -> tuple[list, list[str]]:
         notes += [f"Column schedule on {label}: {n}" for n in more]
         for f in found:
             where = ", ".join(f["locations"])
+            many = len(f["locations"]) > 1
             x0, y0, x1, y1 = f["box"]
             out.append(Finding(
                 check_type="unsized_column",
                 fingerprint=fingerprint("unsized_column", row.document_id, str(row.page_number), *sorted(f["locations"])),
                 confidence="high",
                 subject=f"No column size in the schedule for {where}"[:120],
-                question=(f"The column schedule on {label} lists the column at {where} but gives no size or "
-                          "reinforcement for it at any level. Please provide the column size and reinforcement."),
+                question=(f"The column schedule on {label} lists the column{'s' if many else ''} at {where} but gives "
+                          f"no size or reinforcement for {'them' if many else 'it'} at any level. Please provide the "
+                          f"column size{'s' if many else ''} and reinforcement."),
                 evidence=[{
                     "documentId": row.document_id,
                     "pageNumber": row.page_number,

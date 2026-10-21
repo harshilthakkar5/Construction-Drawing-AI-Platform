@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, CornerDownRightIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowRightIcon, CornerDownRightIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_CHECK_LABELS,
   RFI_CUSTOM_QUESTION_CHARS,
   libraryCatalogueIds,
+  sheetTitleFrom,
   suggestSheets,
   type LibrarySheet,
   type RfiLibraryElementDto,
@@ -58,6 +59,7 @@ export function choiceSummary(element: RfiLibraryElementDto | undefined, choice:
 export function useLibrarySheets(projectId: string): LibrarySheet[] {
   const manifest = useQuery({ queryKey: ["manifest", projectId], queryFn: () => api.manifest(projectId) });
   const headings = useQuery({ queryKey: ["rfi-library-headings", projectId], queryFn: () => api.rfiLibraryHeadings(projectId) });
+  const titles = useQuery({ queryKey: ["rfi-library-titles", projectId], queryFn: () => api.rfiLibraryTitles(projectId) });
   return useMemo<LibrarySheet[]>(() => {
     const seen = new Set<string>();
     return (manifest.data ?? []).flatMap((p) =>
@@ -65,10 +67,11 @@ export function useLibrarySheets(projectId: string): LibrarySheet[] {
         ? [{
             combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
             sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
+            titleBlock: titles.data?.[p.combinedPageNumber],
           }]
         : [],
     );
-  }, [manifest.data, headings.data]);
+  }, [manifest.data, headings.data, titles.data]);
 }
 
 /**
@@ -200,6 +203,34 @@ export function LibraryPicker({
         </p>
       )}
     </div>
+  );
+}
+
+/** One checkbox for a whole list: ticked when all are chosen, a dash when
+ * some are; clicking selects all, or clears all when all are chosen. */
+export function AllBox({
+  count,
+  total,
+  onChange,
+  label = "Select all",
+  className = "",
+}: {
+  count: number;
+  total: number;
+  onChange: (on: boolean) => void;
+  label?: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = count > 0 && count < total;
+  }, [count, total]);
+  return (
+    <label className={`flex cursor-pointer items-center gap-1.5 select-none ${className}`}>
+      <input ref={ref} type="checkbox" className="size-3.5" checked={total > 0 && count === total} disabled={!total}
+        onChange={() => onChange(count < total)} />
+      {label}
+    </label>
   );
 }
 
@@ -338,14 +369,12 @@ export function QuestionTree({
         <p className={`${t} font-medium`}>
           {roomy ? "Questions" : "2 · Questions"} <span className="text-muted-foreground font-normal">({selected.filter((id) => all.some((q) => q.id === id)).length} of {all.length})</span>
         </p>
-        <span className={`flex gap-2 ${small}`}>
-          <button type="button" className="hover:underline" onClick={() => toggle(all.map((q) => q.id), true)}>
-            All
-          </button>
-          <button type="button" className="hover:underline" onClick={() => toggle(all.map((q) => q.id), false)}>
-            None
-          </button>
-        </span>
+        <AllBox
+          className={small}
+          count={selected.filter((id) => all.some((q) => q.id === id)).length}
+          total={all.length}
+          onChange={(on) => toggle(all.map((q) => q.id), on)}
+        />
       </div>
       <div className={`flex flex-col gap-3 overflow-y-auto pr-1 ${t} ${roomy ? "" : "max-h-96"}`}>
         {ordered.map(([group, qs]) => (
@@ -381,6 +410,9 @@ export function QuestionTree({
   );
 }
 
+/** Most sheets listed under a search at once. */
+const SHEET_HITS = 40;
+
 export function SheetPicker({
   projectId,
   sheets,
@@ -401,9 +433,20 @@ export function SheetPicker({
   const [typed, setTyped] = useState("");
   const bySheet = new Map(sheets.map((s) => [s.sheetNumber.toUpperCase(), s]));
   const match = bySheet.get(typed.trim().toUpperCase());
+  // Search by sheet number, discipline, kind, level or a drawing title on the sheet.
+  const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = words.length
+    ? sheets.filter((s) => {
+        const hay = [s.sheetNumber, s.discipline, s.sheetKind, s.level, s.titleBlock, ...(s.headings ?? [])].filter(Boolean).join(" ").toLowerCase();
+        return words.every((w) => hay.includes(w));
+      })
+    : [];
+  const toggleSheet = (sheetNumber: string) =>
+    onChange(value.includes(sheetNumber) ? value.filter((v) => v !== sheetNumber) : [...value, sheetNumber]);
   const addTyped = () => {
-    if (!match || value.includes(match.sheetNumber)) return;
-    onChange([...value, match.sheetNumber]);
+    const pick = match ?? (hits.length === 1 ? hits[0] : undefined);
+    if (!pick || value.includes(pick.sheetNumber)) return;
+    onChange([...value, pick.sheetNumber]);
     setTyped("");
   };
   const sameAsSuggested = suggested.length > 0 && suggested.every((s) => value.includes(s)) && value.length === suggested.length;
@@ -441,28 +484,61 @@ export function SheetPicker({
           })}
         </ul>
       )}
-      <div className="flex gap-1.5">
+      <div className="relative">
+        <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
         <Input
-          list={`library-sheets-${projectId}`}
           value={typed}
-          placeholder="Add a sheet, e.g. S2.105"
-          className={`h-8 ${t}`}
-          aria-label="Add a sheet"
+          placeholder="Search sheets — number, discipline, level or title, e.g. S2.105, foundation plan, level 2"
+          className={`${roomy ? "h-10" : "h-8"} pl-8 ${t}`}
+          aria-label="Search sheets"
           onChange={(e) => setTyped(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTyped()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") addTyped();
+            if (e.key === "Escape" && typed) (e.stopPropagation(), setTyped(""));
+          }}
         />
-        <datalist id={`library-sheets-${projectId}`}>
-          {sheets.map((s) => (
-            <option key={s.sheetNumber} value={s.sheetNumber}>
-              {s.discipline ?? ""} {s.sheetKind ?? ""}
-            </option>
-          ))}
-        </datalist>
-        <Button size="sm" variant="outline" className="h-8" disabled={!match} onClick={addTyped}>
-          Add
-        </Button>
+        {typed && (
+          <button type="button" aria-label="Clear search" onClick={() => setTyped("")}
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2">
+            <XIcon className="size-3.5" />
+          </button>
+        )}
       </div>
-      {typed.trim() && !match && <span className="text-muted-foreground text-[11px]">No sheet {typed.trim()} in this project.</span>}
+      {words.length > 0 &&
+        (hits.length ? (
+          <ul className={`flex max-h-72 flex-col divide-y overflow-y-auto rounded-md border ${t}`}>
+            {hits.slice(0, SHEET_HITS).map((s) => {
+              const on = value.includes(s.sheetNumber);
+              return (
+                <li key={s.sheetNumber}>
+                  <label className={`hover:bg-accent/50 flex cursor-pointer items-center gap-2.5 px-2.5 py-1.5 ${on ? "bg-primary/5" : ""}`}>
+                    <input type="checkbox" className="size-4 shrink-0" checked={on} onChange={() => toggleSheet(s.sheetNumber)} />
+                    <img src={api.pageThumbUrl(projectId, s.combinedPageNumber)} alt="" loading="lazy"
+                      className={`${roomy ? "h-10 w-14" : "h-8 w-11"} shrink-0 rounded-sm border object-cover`} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-medium">
+                        {s.sheetNumber}
+                        <span className="text-muted-foreground ml-2 font-normal">
+                          {[s.discipline, s.sheetKind, s.level].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                      {(s.titleBlock || s.headings?.[0]) && (
+                        <span className="text-muted-foreground truncate text-xs">
+                          {s.titleBlock ? sheetTitleFrom(s.titleBlock, s.sheetNumber) : s.headings!.slice(0, 2).join(" · ")}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+            {hits.length > SHEET_HITS && (
+              <li className="text-muted-foreground px-2.5 py-1.5 text-xs">{hits.length - SHEET_HITS} more — add a word to narrow it.</li>
+            )}
+          </ul>
+        ) : (
+          <span className="text-muted-foreground text-[11px]">No sheet matches “{typed.trim()}”.</span>
+        ))}
       {suggested.length > 0 && !sameAsSuggested && (
         <button
           type="button"

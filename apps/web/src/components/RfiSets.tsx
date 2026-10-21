@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_SET_MAX_ELEMENTS,
@@ -12,7 +12,7 @@ import {
   type RfiSetDto,
 } from "@cdip/shared";
 import { api } from "@/api";
-import { flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
+import { AllBox, flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
 import { CandidateCard } from "@/components/RfiReview";
 import { Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,58 @@ const QUESTIONS_PER_ELEMENT = 60;
 const ACTIVE: RfiReviewStatus[] = ["queued", "running"];
 
 const allQuestions = (e: RfiLibraryElementDto) => flat(e.questions).map((q) => q.id).slice(0, QUESTIONS_PER_ELEMENT);
+
+/** Every word of the search, anywhere in the text, any case. */
+const matcher = (query: string) => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return (text: string) => words.length > 0 && words.every((w) => text.toLowerCase().includes(w));
+};
+/** Most search hits shown at once; past it the person narrows the words. */
+const SEARCH_LIMIT = 60;
+
+type Hit = { pkg: RfiLibraryDto["packages"][number]; element: RfiLibraryElementDto; questions: ReturnType<typeof flat> };
+
+/** Elements whose name, and questions whose words, match the search. */
+function searchLibrary(packages: RfiLibraryDto["packages"], query: string): { out: Hit[]; more: boolean } {
+  const match = matcher(query);
+  const out: Hit[] = [];
+  let shown = 0;
+  for (const pkg of packages) {
+    for (const element of pkg.elements) {
+      const questions = flat(element.questions).filter((q) => match(q.text));
+      if (!match(`${element.name} ${element.variants}`) && !questions.length) continue;
+      if (shown >= SEARCH_LIMIT) return { out, more: true };
+      shown += Math.max(1, questions.length);
+      out.push({ pkg, element, questions });
+    }
+  }
+  return { out, more: false };
+}
+
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+      <Input
+        value={value}
+        placeholder={placeholder}
+        className="h-10 pl-9 text-base"
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && value && (e.stopPropagation(), onChange(""))}
+      />
+      {value && (
+        <button type="button" aria-label="Clear search" onClick={() => onChange("")}
+          className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 -translate-y-1/2">
+          <XIcon className="size-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A stage's elements all on (every question) or all off. */
+const setStage = (pkg: RfiLibraryDto["packages"][number], on: boolean): Picks =>
+  Object.fromEntries(pkg.elements.map((e) => [e.id, on ? allQuestions(e) : []]));
 
 function usd(low: number | null, high: number | null): string | null {
   if (low == null || high == null) return null;
@@ -167,6 +219,7 @@ function CreateRfiDialog({
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [openPackage, setOpenPackage] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const packages = library.data?.packages ?? [];
   const elements = useMemo(() => packages.flatMap((p) => p.elements), [packages]);
@@ -208,6 +261,14 @@ function CreateRfiDialog({
       onCreated(detail);
     },
   });
+
+  // Search: which stage, element and question each match is in, without opening them.
+  const hits = useMemo(() => searchLibrary(packages, query), [packages, query]);
+  const toggleQuestion = (elementId: string, id: string, on: boolean) =>
+    setPicks((prev) => {
+      const had = prev[elementId] ?? [];
+      return { ...prev, [elementId]: on ? [...new Set([...had, id])] : had.filter((x) => x !== id) };
+    });
 
   const tooMany = chosen.length > RFI_SET_MAX_ELEMENTS;
   const ready = name.trim().length > 0 && chosenSheets.length > 0 && chosen.length > 0 && !tooMany;
@@ -258,40 +319,54 @@ function CreateRfiDialog({
                 Choose a stage — every element and question under it is selected, then narrow it down.
               </span>
             </div>
+            <SearchBox value={query} onChange={setQuery}
+              placeholder="Search elements and questions, e.g. elevator pit, dowel, top of slab" />
             {library.isLoading ? (
               <Spinner />
             ) : library.error ? (
               <Notice tone="error">{(library.error as Error).message}</Notice>
+            ) : query.trim() ? (
+              <SearchResults
+                hits={hits.out}
+                more={hits.more}
+                query={query}
+                picks={picks}
+                onElement={(e, on) => setPicks((prev) => ({ ...prev, [e.id]: on ? allQuestions(e) : [] }))}
+                onQuestion={toggleQuestion}
+                onOpenStage={setOpenPackage}
+              />
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {packages.map((p) => {
                   const on = p.elements.filter((e) => picks[e.id]?.length);
                   const questions = on.reduce((n, e) => n + (picks[e.id]?.length ?? 0), 0);
                   return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => pickPackage(p.id)}
-                      className={cn(
-                        "flex min-h-24 flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors",
-                        on.length ? "border-primary bg-primary/5 ring-primary ring-1" : "bg-card hover:bg-accent/50",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-muted-foreground text-xs font-medium">Stage {p.id}</span>
-                        {on.length > 0 && (
-                          <span className="bg-primary text-primary-foreground grid size-5 place-items-center rounded-full">
-                            <CheckIcon className="size-3.5" />
-                          </span>
+                    <div key={p.id} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => pickPackage(p.id)}
+                        className={cn(
+                          "flex min-h-24 w-full flex-col gap-1.5 rounded-xl border p-4 pr-12 text-left transition-colors",
+                          on.length ? "border-primary bg-primary/5 ring-primary ring-1" : "bg-card hover:bg-accent/50",
                         )}
-                      </div>
-                      <span className="text-base leading-snug font-semibold">{p.name}</span>
-                      <span className="text-muted-foreground text-sm">
-                        {on.length
-                          ? `${on.length} of ${p.elements.length} elements · ${questions} questions`
-                          : `${p.elements.length} elements`}
-                      </span>
-                    </button>
+                      >
+                        <span className="text-muted-foreground text-xs font-medium">Stage {p.id}</span>
+                        <span className="text-base leading-snug font-semibold">{p.name}</span>
+                        <span className="text-muted-foreground text-sm">
+                          {on.length
+                            ? `${on.length} of ${p.elements.length} elements · ${questions} questions`
+                            : `${p.elements.length} elements`}
+                        </span>
+                      </button>
+                      {/* Tick or untick the whole stage without opening it. */}
+                      <AllBox
+                        label=""
+                        className="absolute top-3.5 right-3.5 [&_input]:size-4"
+                        count={on.length}
+                        total={p.elements.length}
+                        onChange={(yes) => setPicks((prev) => ({ ...prev, ...setStage(p, yes) }))}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -336,6 +411,81 @@ function CreateRfiDialog({
   );
 }
 
+/** Search hits grouped by stage: tick an element (all its questions) or one
+ * question straight from the list; the stage name opens that stage. */
+function SearchResults({
+  hits,
+  more,
+  query,
+  picks,
+  onElement,
+  onQuestion,
+  onOpenStage,
+}: {
+  hits: Hit[];
+  more: boolean;
+  query: string;
+  picks: Picks;
+  onElement: (e: RfiLibraryElementDto, on: boolean) => void;
+  onQuestion: (elementId: string, questionId: string, on: boolean) => void;
+  /** Absent inside a stage's own window, where there is no stage to open. */
+  onOpenStage?: (packageId: string) => void;
+}) {
+  if (!hits.length) {
+    return <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">Nothing matches “{query.trim()}”.</p>;
+  }
+  const stages = [...new Set(hits.map((h) => h.pkg.id))];
+  return (
+    <div className="flex flex-col gap-4">
+      {stages.map((id) => {
+        const inStage = hits.filter((h) => h.pkg.id === id);
+        const pkg = inStage[0]!.pkg;
+        return (
+          <section key={id} className="rounded-xl border">
+            {onOpenStage && <button type="button" onClick={() => onOpenStage(id)}
+              className="bg-muted/40 hover:bg-muted flex w-full items-baseline gap-2 rounded-t-xl border-b px-4 py-2.5 text-left">
+              <span className="text-muted-foreground text-xs font-medium">Stage {pkg.id}</span>
+              <span className="text-sm font-semibold">{pkg.name}</span>
+              <span className="text-muted-foreground ml-auto text-xs">Open stage</span>
+            </button>}
+            <ul className="flex flex-col divide-y">
+              {inStage.map(({ element, questions }) => {
+                const chosen = picks[element.id] ?? [];
+                const total = flat(element.questions).length;
+                return (
+                  <li key={element.id} className="flex flex-col gap-1.5 px-4 py-3">
+                    <AllBox
+                      className="text-sm font-medium [&_input]:size-4"
+                      label={`${element.name} (${chosen.length} of ${total} questions)`}
+                      count={chosen.length}
+                      total={total}
+                      onChange={(on) => onElement(element, on)}
+                    />
+                    {questions.length > 0 && (
+                      <ul className="flex flex-col gap-1 pl-6">
+                        {questions.map((q) => (
+                          <li key={q.id}>
+                            <label className="flex cursor-pointer items-start gap-2 text-sm">
+                              <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={chosen.includes(q.id)}
+                                onChange={(e) => onQuestion(element.id, q.id, e.target.checked)} />
+                              <span>{q.text}</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+      {more && <p className="text-muted-foreground text-sm">More match — add a word to narrow the search.</p>}
+    </div>
+  );
+}
+
 /** One stage's elements: include or leave out each, narrow its questions, add
  * questions, follow-ups and elements of the project's own. */
 function PackageDialog({
@@ -357,6 +507,8 @@ function PackageDialog({
   const pkg = library.packages.find((p) => p.id === packageId)!;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newElement, setNewElement] = useState("");
+  const [query, setQuery] = useState("");
+  const hits = useMemo(() => searchLibrary([pkg], query), [pkg, query]);
   const setFor = (id: string, ids: string[]) => onPicks((prev) => ({ ...prev, [id]: ids }));
 
   const addElement = useMutation({
@@ -378,7 +530,8 @@ function PackageDialog({
     },
   });
 
-  const anyOn = pkg.elements.some((e) => picks[e.id]?.length);
+  const onCount = pkg.elements.filter((e) => picks[e.id]?.length).length;
+  const allOn = onCount === pkg.elements.length;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -392,6 +545,28 @@ function PackageDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 overflow-y-auto px-6 py-4">
+          <SearchBox value={query} onChange={setQuery} placeholder={`Search ${pkg.name}: elements and questions`} />
+          {query.trim() ? (
+            <SearchResults
+              hits={hits.out}
+              more={hits.more}
+              query={query}
+              picks={picks}
+              onElement={(e, on) => setFor(e.id, on ? allQuestions(e) : [])}
+              onQuestion={(elementId, id, on) => {
+                const had = picks[elementId] ?? [];
+                setFor(elementId, on ? [...new Set([...had, id])] : had.filter((x) => x !== id));
+              }}
+            />
+          ) : (
+          <>
+          <AllBox
+            className="text-muted-foreground px-3 pb-1 text-sm font-medium [&_input]:size-4"
+            label={`All elements (${onCount} of ${pkg.elements.length})`}
+            count={onCount}
+            total={pkg.elements.length}
+            onChange={(on) => onPicks((prev) => ({ ...prev, ...setStage(pkg, on) }))}
+          />
           {pkg.elements.map((e) => {
             const total = flat(e.questions).length;
             const on = picks[e.id]?.length ?? 0;
@@ -444,6 +619,8 @@ function PackageDialog({
               </div>
             );
           })}
+          </>
+          )}
           <div className="mt-2 flex gap-2">
             <Input
               value={newElement}
@@ -462,12 +639,8 @@ function PackageDialog({
           )}
         </div>
         <DialogFooter className="border-t px-6 py-4 sm:justify-between">
-          <Button
-            variant="ghost"
-            disabled={!anyOn}
-            onClick={() => onPicks((prev) => ({ ...prev, ...Object.fromEntries(pkg.elements.map((e) => [e.id, []])) }))}
-          >
-            Leave this stage out
+          <Button variant="outline" onClick={() => onPicks((prev) => ({ ...prev, ...setStage(pkg, !allOn) }))}>
+            {allOn ? "Unselect all" : "Select all"}
           </Button>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>

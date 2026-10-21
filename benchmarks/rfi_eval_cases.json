@@ -1223,11 +1223,27 @@
       ],
       "elements": [
         "CE-07-01"
+      ],
+      "rejected": [
+        {
+          "what": "Column size, T.O. column and reinforcement 'not given anywhere': details say SEE PLAN, S2.30-B says SEE COL SCHEDULE",
+          "why": "The S8.01/S8.02 column schedules give them by grid location and level (73 columns sized); the review read S8.02 but its boxes were too small at the rendered resolution. Fixed by rfi_review.answered_by_column_schedule: a SEE-SCHEDULE column claim is rejected when a reviewed sheet carries a column schedule the code reads as sizing columns.",
+          "checkTypes": [
+            "CE-07-01-Q01",
+            "C01"
+          ],
+          "sheets": [
+            "S2.30-B"
+          ],
+          "mentions": [
+            "SCHEDULE"
+          ]
+        }
       ]
     },
     {
       "id": "leland-rfi-006",
-      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). The drawings ANSWER it: every column its markup clouds (A5 at BA, BB, BC.1, BD, BE, BF; B6/B7 at BA/BB) is in the S8.02 column schedule (page 93) at 18\" X 24\", the size the RFI itself says was assumed. So it is scored as a finding that must NOT be raised on this set.",
+      "source": "BIM RFI 006 'Clarification on Column Dimension' on S2.30-B (Leland South Congress). The drawings ANSWER it: every A5 column its markup clouds (A5 at BA, BB, BC.1, BD, BE, BF) is in the S8.02 column schedule (page 93) at 18\" X 24\", the size the RFI itself says was assumed. So it is scored as a finding that must NOT be raised on this set. (B6/B7 at BA/BB are NOT sized on S8.02 — that is RFI 005, an expected finding.)",
       "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
       "target": {
         "type": "sheet",
