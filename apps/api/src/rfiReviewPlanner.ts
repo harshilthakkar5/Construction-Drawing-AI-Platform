@@ -114,7 +114,7 @@ export interface PlanDeps {
  * typo would plan fine and fail at the first call. */
 const CANDIDATE_MODELS: Record<RfiReviewProvider, string[]> = {
   claude: ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
-  gemini: ["gemini-3.8-flash", "models/gemini-3.1-pro-preview"],
+  gemini: ["gemini-3.8-flash", "models/gemini-3.1-pro-preview", "models/gemini-4-argon"],
 };
 
 function configuredModel(provider: RfiReviewProvider): string {
