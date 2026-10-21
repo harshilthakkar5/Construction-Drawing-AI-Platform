@@ -65,10 +65,11 @@ def _pair(a: str, b: str, text: str) -> bool:
 
 def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> list[str]:
     """What this candidate is missing for this expectation; [] is a match.
-    `elements`: library elements whose questions (CE-05-01-Q03) count too."""
+    `elements`: library elements whose questions (CE-05-01-Q03) count too —
+    and so does a project's own question (checkType "custom") asked in a review
+    of one of them, since the test guide's second pass is exactly that."""
     missing = []
-    by_element = any(candidate["checkType"].startswith(f"{e}-") for e in elements)
-    if candidate["checkType"] not in expected["checkTypes"] and not by_element:
+    if candidate["checkType"] not in expected["checkTypes"] and not _by_element(candidate, elements):
         missing.append(f"check {candidate['checkType']} is not {'/'.join(expected['checkTypes'])}")
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     for sheet in expected.get("sheets", []):
@@ -85,11 +86,16 @@ def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> 
     return missing
 
 
-def is_rejected(rejected: dict, candidate: dict) -> bool:
+def _by_element(candidate: dict, elements: tuple[str, ...]) -> bool:
+    return any(candidate["checkType"].startswith(f"{e}-") for e in elements) or (
+        candidate["checkType"] == "custom" and candidate.get("element") in elements)
+
+
+def is_rejected(rejected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> bool:
     """Whether this candidate is a finding a person already judged wrong: the
-    same check, evidence on every named sheet, and every named mark in its
-    wording."""
-    if candidate["checkType"] not in rejected["checkTypes"]:
+    same check (or a question of the case's element), evidence on every named
+    sheet, and every named mark in its wording."""
+    if candidate["checkType"] not in rejected["checkTypes"] and not _by_element(candidate, elements):
         return False
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     if any(_norm(sheet) not in named for sheet in rejected.get("sheets", [])):
@@ -116,7 +122,7 @@ def score(case: dict, candidates: list[dict], elements: tuple[str, ...] = ()) ->
     false_positives = []
     for rej in case.get("rejected", []):
         for c in candidates:
-            if c["id"] not in used and is_rejected(rej, c):
+            if c["id"] not in used and is_rejected(rej, c, elements):
                 used.add(c["id"])
                 false_positives.append({"what": rej["what"], "why": rej["why"], "candidate": c["subject"]})
     return {
@@ -208,13 +214,15 @@ def load_project_reviews(project_id: str) -> tuple[dict[str, dict], list[dict]]:
         # note's wording — runs made before the fingerprint was recorded.
         again_fps = sorted({fp for r in runs.values() for res in r["checkResults"].values() for fp in (res or {}).get("foundAgain") or []})
         again = sorted({m[1] for r in runs.values() for n in r["notes"] for m in [_FOUND_AGAIN.match(n)] if m})
+        element_of = {run_id: element for run_id, element, *_ in rows}
         found = conn.execute(
-            """SELECT id, "checkType", subject, question, evidence FROM rfi_candidates
+            """SELECT id, "checkType", subject, question, evidence, "reviewRunId" FROM rfi_candidates
                WHERE "projectId" = %s
                  AND ("reviewRunId" = ANY(%s::text[]) OR fingerprint = ANY(%s::text[]) OR subject = ANY(%s::text[]))""",
             (project_id, [r["id"] for r in runs.values()], again_fps, again),
         ).fetchall()
-    return runs, [dict(zip(("id", "checkType", "subject", "question", "evidence"), r)) for r in found]
+    keys = ("id", "checkType", "subject", "question", "evidence")
+    return runs, [dict(zip(keys, r[:5]), element=element_of.get(r[5])) for r in found]
 
 
 def main() -> int:

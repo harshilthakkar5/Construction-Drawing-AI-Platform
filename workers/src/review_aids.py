@@ -187,3 +187,75 @@ def level_index(sources: list[tuple[str, str]]) -> str | None:
     for value, sheets in sorted(elevations.items())[:40]:
         lines.append(f"{value}: {', '.join(sheets)}")
     return "\n".join(lines)
+
+
+# A dimension whose text is a pointer instead of a length: "SEE PLAN" standing
+# alone on a dimension line. A note's pointer carries a dash ("-SEE PLAN"),
+# and an elevation's sits under its label ("T.O.C." / "SEE PLAN").
+_DEFERRED = re.compile(r"^SEE\s+(PLANS?|CIVIL|ARCH(?:ITECTURAL)?)$", re.I)
+_ELEVATION_LABEL = re.compile(r"^(?:T\.?\s*O\.?|TOP\s+OF|B\.?\s*O\.?|BOTTOM\s+OF|EL\.?\b|ELEV)", re.I)
+_SCALE = re.compile(r"^\s*SCALE\b", re.I)
+MAX_DEFERRED_DETAILS = 12
+
+
+def _display_lines(page) -> list[tuple[str, object, bool]]:
+    """(text, display-space rect, runs vertically) per text line."""
+    import fitz
+
+    m = page.rotation_matrix
+    out = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line["spans"]).strip()
+            if not text:
+                continue
+            dx, dy = line["dir"]
+            vx, vy = dx * m.a + dy * m.c, dx * m.b + dy * m.d  # a direction turns, it does not move
+            out.append((text, fitz.Rect(line["bbox"]) * m, abs(vy) > abs(vx)))
+    return out
+
+
+def deferred_dimensions(page, sheet: str) -> str | None:
+    """The dimensions a detail sheet prints as "SEE PLAN" where a length
+    belongs, grouped by the detail they sit in. Leland RFI 002: 6/S4.01 gives
+    the wall face to grid line as "SEE PLAN" and the plan never dimensions it;
+    one review read that and one did not. Listed by code, every review sees
+    each one. None when the page has none."""
+    lines = _display_lines(page)
+    scales = [r for t, r, _ in lines if _SCALE.match(t)]
+    titles = []
+    for text, box, vertical in lines:
+        if vertical or _SCALE.match(text) or not re.search(r"[A-Z]{3,}", text):
+            continue
+        if any(-15 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0 for s in scales):
+            number = next((t for t, r, _ in lines if re.fullmatch(r"\d{1,2}", t) and 0 <= box.x0 - r.x1 <= 80
+                           and r.y0 < box.y1 + 30 and r.y1 > box.y0 - 10), None)
+            titles.append((f"detail {number} {text}" if number else text, box))
+    found: dict[str, list[bool]] = {}
+    for text, box, vertical in lines:
+        if not _DEFERRED.match(text):
+            continue
+        label = [r for t, r, _ in lines if _ELEVATION_LABEL.match(t) and 0 <= box.y0 - r.y1 <= 25
+                 and r.x0 < box.x1 and r.x1 > box.x0]
+        if label:
+            continue  # "T.O.C. / SEE PLAN" is an elevation, read by G02
+        cx, cy = (box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2
+        column = [(name, r) for name, r in titles if r.x0 - 60 <= cx <= r.x0 + 900]
+        # A detail's title is printed UNDER it (detail_regions' convention); a
+        # sheet titled above falls back to the nearest one.
+        below = [(r.y0 - cy, name) for name, r in column if r.y0 >= cy]
+        near = below or [(abs(cy - r.y1), name) for name, r in column]
+        where = min(near)[1] if near else "no detail title found"
+        found.setdefault(where, []).append(vertical)
+    if not found:
+        return None
+    out = [f"DIMENSIONS PRINTED AS A REFERENCE on {sheet} (found by code; not a finding): a dimension line whose "
+           "text reads 'SEE PLAN' (or civil/architectural) where a length belongs. The detail does NOT give these "
+           "lengths. For each, say whether the sheet it points to prints that length at this element; if it does not, "
+           "it is missing. Horizontal is a distance across the detail (a wall face or pier centre to a grid line); vertical is a height or thickness."]
+    for where, dirs in list(found.items())[:MAX_DEFERRED_DETAILS]:
+        v = sum(dirs)
+        out.append(f"- {where}: {len(dirs)} ({len(dirs) - v} horizontal, {v} vertical)")
+    if len(found) > MAX_DEFERRED_DETAILS:
+        out.append(f"- and {len(found) - MAX_DEFERRED_DETAILS} more detail(s)")
+    return "\n".join(out)

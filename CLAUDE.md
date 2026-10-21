@@ -2799,6 +2799,20 @@ to. Discovery records such a field `unknown` with the reference quoted; reasonin
 resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
 any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
 search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
+A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN", which is Leland RFI 002,
+and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
+dimension line of every reviewed page (an elevation's, under T.O.C., and a note's "-SEE PLAN" are not), grouped by the
+detail title UNDER it, as an aid — so whether the plan gives that length no longer depends on the model noticing.
+BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
+"by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
+LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands.
+Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
+problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
+with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
+omitted the field for a whole batch, and the parser's default had turned RFI 008 — question written — into a rejection.
+Still open: the 002 re-check cited S2.31-A for showing the piers, and a citation makes a rejection stand even when the
+cited text prints no offset; the code cannot yet tell a citation of the value from a citation of the element.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead
@@ -2868,7 +2882,8 @@ summary, scan or review.
 "Concrete Scope Element Library" workbook is imported ONCE by a developer —
 `npx tsx apps/api/src/rfiLibraryImport.ts <file.xlsx>` writes `packages/shared/data/rfi-library.json`,
 which ships with the app; users never upload it. Package → element → question, the client's ids
-kept (`CE-04-01-Q03`), a red-filled element row is `active: false` and its questions with it,
+kept (`CE-04-01-Q03`), every row imported ON — red-filled rows (the client's "not for now") included, at the
+user's request (21 Oct: 120 elements, 572 questions); `active` stays in the format for an element switched off,
 universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
 not the client's) ties items to the original 17 questions and to code checks, and an import that
 drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
