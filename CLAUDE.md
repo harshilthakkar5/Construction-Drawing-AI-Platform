@@ -2912,6 +2912,18 @@ off the displayed answer into `messages.content.rfiSuggestion`, and `POST /rfis/
 files a medium candidate (`origin = chat`, `chatMessageId`, fingerprint `chat:<message id>`) pinned
 to the answer's own cited sources in documents still in RFI analysis.
 
+**Named RFIs ("Create RFI", `components/RfiSets.tsx`, `rfi_sets`).** A project holds any number of
+named RFIs, each = a name, the sheets to read, and `items: [{elementId, questionIds}]`. The dialog
+shows the library's 12 packages as cards; choosing one selects every element and question under
+it and opens a second dialog to untick, add questions/follow-ups (the existing `QuestionTree`) or
+add an element of the project's own (`rfi_custom_elements`, `POST /rfis/library/elements`; it gets
+the universal questions and nothing else). `POST /rfis/sets/:id/plan` plans ONE ordinary By element
+review per element (`rfiSets.setPlanRequest` from the project's review settings,
+`rfi_review_runs.setId`) — no model call — and `/start` starts every planned one through the same
+`startReview` the single route uses. A set's findings are its runs' candidates. `planReview` only
+cancels a user's earlier unstarted plans when it is NOT planning for a set, or pricing a 12-element
+RFI would cancel 11 of its own plans.
+
 ## Full AI scan — code pairs and lines up, the model only compares
 
 Step 2 of "Find RFIs in drawings" (docs/rfi-full-scan.md; `rfi-full-scan` queue, job `{scanId, mode:

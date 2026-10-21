@@ -25,6 +25,7 @@ import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
 import { rfiLibraryRouter } from "./routes/rfiLibrary.js";
 import { rfiPackagesRouter } from "./routes/rfiPackages.js";
 import { rfiReviewRouter } from "./routes/rfiReview.js";
+import { rfiSetsRouter } from "./routes/rfiSets.js";
 import { rfisRouter } from "./routes/rfis.js";
 import { summariesRouter } from "./routes/summaries.js";
 import { supportRouter } from "./routes/support.js";
@@ -125,6 +126,7 @@ export function createApp() {
   // be read as an RFI id and refused as a malformed uuid.
   app.use("/projects/:projectId/rfis/generated", requireGeneratedModels, rfiGeneratedRouter);
   app.use("/projects/:projectId/rfis/reviews", requireGeneratedModels, rfiReviewRouter);
+  app.use("/projects/:projectId/rfis/sets", requireGeneratedModels, rfiSetsRouter);
   app.use("/projects/:projectId/rfis/packages", requireGeneratedModels, rfiPackagesRouter);
   app.use("/projects/:projectId/rfis/library", requireGeneratedModels, rfiLibraryRouter);
   app.use("/projects/:projectId/rfis/full-scans", requireGeneratedModels, rfiFullScanRouter);

@@ -45,13 +45,30 @@ function saveChoice(projectId: string, choice: LibraryChoice) {
   }
 }
 
-const flat = (qs: RfiLibraryQuestionDto[]): RfiLibraryQuestionDto[] => qs.flatMap((q) => [q, ...flat(q.children)]);
+export const flat = (qs: RfiLibraryQuestionDto[]): RfiLibraryQuestionDto[] => qs.flatMap((q) => [q, ...flat(q.children)]);
 
 /** What the review can ask today for this choice, and what is ready to plan. */
 export function choiceSummary(element: RfiLibraryElementDto | undefined, choice: LibraryChoice) {
   const chosen = element ? flat(element.questions).filter((q) => choice.questionIds.includes(q.id)) : [];
   const checkIds: RfiReviewCheckId[] = element ? libraryCatalogueIds(element, chosen) : [];
   return { chosen, checkIds, ready: !!element && chosen.length > 0 && choice.sheets.length > 0 };
+}
+
+/** Every sheet of the project once, with what the picker needs to suggest from. */
+export function useLibrarySheets(projectId: string): LibrarySheet[] {
+  const manifest = useQuery({ queryKey: ["manifest", projectId], queryFn: () => api.manifest(projectId) });
+  const headings = useQuery({ queryKey: ["rfi-library-headings", projectId], queryFn: () => api.rfiLibraryHeadings(projectId) });
+  return useMemo<LibrarySheet[]>(() => {
+    const seen = new Set<string>();
+    return (manifest.data ?? []).flatMap((p) =>
+      p.sheetNumber && !seen.has(p.sheetNumber) && seen.add(p.sheetNumber)
+        ? [{
+            combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
+            sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
+          }]
+        : [],
+    );
+  }, [manifest.data, headings.data]);
 }
 
 /**
@@ -70,8 +87,6 @@ export function LibraryPicker({
   onChange: (choice: LibraryChoice) => void;
 }) {
   const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
-  const manifest = useQuery({ queryKey: ["manifest", projectId], queryFn: () => api.manifest(projectId) });
-  const headings = useQuery({ queryKey: ["rfi-library-headings", projectId], queryFn: () => api.rfiLibraryHeadings(projectId) });
   const set = (patch: Partial<LibraryChoice>) => {
     const next = { ...value, ...patch };
     saveChoice(projectId, next);
@@ -81,17 +96,7 @@ export function LibraryPicker({
   const elements = useMemo(() => library.data?.packages.flatMap((p) => p.elements) ?? [], [library.data]);
   const element = elements.find((e) => e.id === value.elementId);
   const pkg = library.data?.packages.find((p) => p.elements.some((e) => e.id === value.elementId));
-  const sheets = useMemo<LibrarySheet[]>(() => {
-    const seen = new Set<string>();
-    return (manifest.data ?? []).flatMap((p) =>
-      p.sheetNumber && !seen.has(p.sheetNumber) && seen.add(p.sheetNumber)
-        ? [{
-            combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
-            sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
-          }]
-        : [],
-    );
-  }, [manifest.data, headings.data]);
+  const sheets = useLibrarySheets(projectId);
   const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name) : null;
 
   const pickElement = (id: string) => {
@@ -198,17 +203,22 @@ export function LibraryPicker({
   );
 }
 
-function QuestionTree({
+export function QuestionTree({
   projectId,
   element,
   selected,
   onSelect,
+  roomy = false,
 }: {
   projectId: string;
   element: RfiLibraryElementDto;
   selected: string[];
   onSelect: (ids: string[]) => void;
+  /** Larger text, for the Create RFI dialog. */
+  roomy?: boolean;
 }) {
+  const t = roomy ? "text-sm" : "text-xs";
+  const small = roomy ? "text-xs" : "text-[11px]";
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState<string | null>(null); // a parent id, or "" for a new top-level question
   const [text, setText] = useState("");
@@ -250,7 +260,7 @@ function QuestionTree({
           value={text}
           maxLength={RFI_CUSTOM_QUESTION_CHARS}
           placeholder={parentId ? "Follow-up question" : `Your own question about ${element.name}`}
-          className="h-7 text-xs"
+          className={`h-8 ${t}`}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && text.trim()) add.mutate();
@@ -325,10 +335,10 @@ function QuestionTree({
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-xs font-medium">
-          2 · Questions <span className="text-muted-foreground font-normal">({selected.filter((id) => all.some((q) => q.id === id)).length} of {all.length})</span>
+        <p className={`${t} font-medium`}>
+          {roomy ? "Questions" : "2 · Questions"} <span className="text-muted-foreground font-normal">({selected.filter((id) => all.some((q) => q.id === id)).length} of {all.length})</span>
         </p>
-        <span className="flex gap-2 text-[11px]">
+        <span className={`flex gap-2 ${small}`}>
           <button type="button" className="hover:underline" onClick={() => toggle(all.map((q) => q.id), true)}>
             All
           </button>
@@ -337,12 +347,12 @@ function QuestionTree({
           </button>
         </span>
       </div>
-      <div className="flex max-h-96 flex-col gap-3 overflow-y-auto pr-1 text-xs">
+      <div className={`flex flex-col gap-3 overflow-y-auto pr-1 ${t} ${roomy ? "" : "max-h-96"}`}>
         {ordered.map(([group, qs]) => (
           <div key={group}>
             <button
               type="button"
-              className="text-muted-foreground mb-1 text-[11px] font-medium tracking-wide uppercase hover:underline"
+              className={`text-muted-foreground mb-1 ${small} font-medium tracking-wide uppercase hover:underline`}
               title="Select every question in this group"
               onClick={() => toggle(flat(qs).map((q) => q.id), !flat(qs).every((q) => selected.includes(q.id)))}
             >
@@ -357,7 +367,7 @@ function QuestionTree({
       ) : (
         <button
           type="button"
-          className="text-primary flex items-center gap-1 self-start text-xs hover:underline"
+          className={`text-primary flex items-center gap-1 self-start ${t} hover:underline`}
           onClick={() => {
             setAdding("");
             setText("");
@@ -371,19 +381,23 @@ function QuestionTree({
   );
 }
 
-function SheetPicker({
+export function SheetPicker({
   projectId,
   sheets,
   value,
   suggested,
   onChange,
+  roomy = false,
 }: {
   projectId: string;
   sheets: LibrarySheet[];
   value: string[];
   suggested: string[];
   onChange: (sheets: string[]) => void;
+  /** Larger text and thumbnails, for the Create RFI dialog. */
+  roomy?: boolean;
 }) {
+  const t = roomy ? "text-sm" : "text-xs";
   const [typed, setTyped] = useState("");
   const bySheet = new Map(sheets.map((s) => [s.sheetNumber.toUpperCase(), s]));
   const match = bySheet.get(typed.trim().toUpperCase());
@@ -396,20 +410,20 @@ function SheetPicker({
 
   return (
     <section className="flex flex-col gap-2">
-      <p className="text-xs font-medium">
-        3 · Sheets to read <span className="text-muted-foreground font-normal">(as many as you need)</span>
+      <p className={`${t} font-medium`}>
+        {roomy ? "Sheets to read" : "3 · Sheets to read"} <span className="text-muted-foreground font-normal">(as many as you need)</span>
       </p>
       {value.length > 0 && (
         <ul className="flex flex-wrap gap-2">
           {value.map((sheetNumber) => {
             const s = bySheet.get(sheetNumber.toUpperCase());
             return (
-              <li key={sheetNumber} className="bg-card flex items-center gap-1.5 rounded-md border p-1 pr-1.5 text-xs">
+              <li key={sheetNumber} className={`bg-card flex items-center gap-1.5 rounded-md border p-1 pr-1.5 ${t}`}>
                 {s && (
                   <img
                     src={api.pageThumbUrl(projectId, s.combinedPageNumber)}
                     alt=""
-                    className="h-9 w-12 rounded-sm border object-cover"
+                    className={`${roomy ? "h-12 w-16" : "h-9 w-12"} rounded-sm border object-cover`}
                     loading="lazy"
                   />
                 )}
@@ -432,7 +446,7 @@ function SheetPicker({
           list={`library-sheets-${projectId}`}
           value={typed}
           placeholder="Add a sheet, e.g. S2.105"
-          className="h-8 text-xs"
+          className={`h-8 ${t}`}
           aria-label="Add a sheet"
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addTyped()}

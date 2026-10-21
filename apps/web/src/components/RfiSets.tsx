@@ -1,0 +1,662 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  RFI_SET_MAX_ELEMENTS,
+  RFI_SET_NAME_CHARS,
+  suggestSheets,
+  type RfiLibraryDto,
+  type RfiLibraryElementDto,
+  type RfiReviewStatus,
+  type RfiSetDetailDto,
+  type RfiSetDto,
+} from "@cdip/shared";
+import { api } from "@/api";
+import { flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
+import { CandidateCard } from "@/components/RfiReview";
+import { Notice, Spinner } from "@/components/shared";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
+
+/** elementId → the question ids chosen under it. */
+type Picks = Record<string, string[]>;
+
+/** A review takes at most this many questions (the plan request's own cap). */
+const QUESTIONS_PER_ELEMENT = 60;
+const ACTIVE: RfiReviewStatus[] = ["queued", "running"];
+
+const allQuestions = (e: RfiLibraryElementDto) => flat(e.questions).map((q) => q.id).slice(0, QUESTIONS_PER_ELEMENT);
+
+function usd(low: number | null, high: number | null): string | null {
+  if (low == null || high == null) return null;
+  const f = (n: number) => (n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
+  return low.toFixed(2) === high.toFixed(2) ? f(low) : `${f(low)}–${f(high)}`;
+}
+
+/** One word for where an RFI is, from its reviews by status. */
+function setStatus(runs: RfiSetDto["runs"]): { label: string; tone: "default" | "secondary" | "outline" | "destructive" } {
+  const n = (s: RfiReviewStatus) => runs[s] ?? 0;
+  if (n("queued") + n("running")) return { label: "Running", tone: "default" };
+  if (n("planned")) return { label: "Ready to start", tone: "secondary" };
+  if (n("ready") + n("partial")) return { label: "Done", tone: "outline" };
+  if (n("failed") + n("stale")) return { label: "Needs attention", tone: "destructive" };
+  return { label: "Not priced", tone: "outline" };
+}
+
+const REVIEW_LABEL: Record<RfiReviewStatus, string> = {
+  planned: "Priced, not started",
+  queued: "Waiting",
+  running: "Running",
+  ready: "Done",
+  partial: "Done (partly)",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  stale: "Drawings changed — price again",
+} as Record<RfiReviewStatus, string>;
+
+/**
+ * The RFIs a person creates in a project ("Create RFI"): each has a name, the
+ * sheets to read and the elements to check, and collects the findings of its
+ * own reviews.
+ */
+export function RfiSetsSection({ projectId, onFinished }: { projectId: string; onFinished: () => void }) {
+  const sets = useQuery({
+    queryKey: ["rfi-sets", projectId],
+    queryFn: () => api.listRfiSets(projectId),
+    refetchInterval: (q) => ((q.state.data ?? []).some((s) => ACTIVE.some((a) => s.runs[a])) ? 4000 : false),
+  });
+  const [creating, setCreating] = useState(false);
+  const [open, setOpen] = useState<{ id: string; errors: RfiSetDetailDto["planErrors"] } | null>(null);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-base font-semibold">
+          RFIs {!!sets.data?.length && <span className="text-muted-foreground font-normal">({sets.data.length})</span>}
+        </h3>
+        <Button size="sm" onClick={() => setCreating(true)}>
+          <PlusIcon /> Create RFI
+        </Button>
+      </div>
+      {sets.isLoading ? (
+        <Spinner />
+      ) : sets.error ? (
+        <Notice tone="error">{(sets.error as Error).message}</Notice>
+      ) : !sets.data?.length ? (
+        <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm leading-relaxed">
+          No RFIs yet. Create one: give it a name, pick the sheets, then the elements and questions to check. Each
+          RFI keeps its own findings.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {sets.data.map((s) => {
+            const status = setStatus(s.runs);
+            const elements = s.items.length;
+            const cost = usd(s.costLowUsd, s.costHighUsd);
+            return (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpen({ id: s.id, errors: [] })}
+                  className="bg-card hover:bg-accent/50 flex w-full flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">{s.name}</span>
+                    <Badge variant={status.tone}>{status.label}</Badge>
+                  </div>
+                  <span className="text-muted-foreground text-xs">
+                    {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
+                    {cost ? ` · est. ${cost}` : ""}
+                  </span>
+                  <span className="text-xs">
+                    {s.findings ? (
+                      <>
+                        <strong>{s.findings}</strong> finding{s.findings === 1 ? "" : "s"}
+                        {s.pending ? `, ${s.pending} to review` : ""}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">No findings yet</span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {creating && (
+        <CreateRfiDialog
+          projectId={projectId}
+          onClose={() => setCreating(false)}
+          onCreated={(detail) => {
+            setCreating(false);
+            setOpen({ id: detail.id, errors: detail.planErrors });
+          }}
+        />
+      )}
+      {open && (
+        <RfiSetDialog
+          projectId={projectId}
+          setId={open.id}
+          initialErrors={open.errors}
+          onClose={() => setOpen(null)}
+          onFinished={onFinished}
+        />
+      )}
+    </section>
+  );
+}
+
+function CreateRfiDialog({
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onCreated: (detail: RfiSetDetailDto) => void;
+}) {
+  const queryClient = useQueryClient();
+  const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
+  const sheets = useLibrarySheets(projectId);
+  const [name, setName] = useState("");
+  const [chosenSheets, setChosenSheets] = useState<string[]>([]);
+  const [picks, setPicks] = useState<Picks>({});
+  const [openPackage, setOpenPackage] = useState<string | null>(null);
+
+  const packages = library.data?.packages ?? [];
+  const elements = useMemo(() => packages.flatMap((p) => p.elements), [packages]);
+  const chosen = Object.entries(picks).filter(([, ids]) => ids.length > 0);
+  const questionCount = chosen.reduce((n, [, ids]) => n + ids.length, 0);
+  // Sheets the chosen elements usually need, from their Compare Across words.
+  const suggested = useMemo(() => {
+    const all = new Set<string>();
+    for (const [id] of chosen) {
+      const e = elements.find((x) => x.id === id);
+      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name).sheets.forEach((s) => all.add(s));
+    }
+    return [...all];
+  }, [picks, elements, sheets]);
+
+  const pickPackage = (packageId: string) => {
+    const pkg = packages.find((p) => p.id === packageId);
+    if (!pkg) return;
+    if (!pkg.elements.some((e) => picks[e.id]?.length)) {
+      // A card chosen for the first time takes every element and question under it.
+      setPicks((prev) => ({ ...prev, ...Object.fromEntries(pkg.elements.map((e) => [e.id, allQuestions(e)])) }));
+    }
+    setOpenPackage(packageId);
+  };
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const made = await api.createRfiSet(projectId, {
+        name: name.trim(),
+        sheets: chosenSheets,
+        items: chosen.map(([elementId, questionIds]) => ({ elementId, questionIds })),
+      });
+      // Price it at once: one plan per element, no AI call. Start is a separate press.
+      return api.planRfiSet(projectId, made.id);
+    },
+    onSuccess: (detail) => {
+      queryClient.setQueryData(["rfi-set", projectId, detail.id], detail);
+      void queryClient.invalidateQueries({ queryKey: ["rfi-sets", projectId] });
+      onCreated(detail);
+    },
+  });
+
+  const tooMany = chosen.length > RFI_SET_MAX_ELEMENTS;
+  const ready = name.trim().length > 0 && chosenSheets.length > 0 && chosen.length > 0 && !tooMany;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle className="text-xl">Create RFI</DialogTitle>
+          <DialogDescription className="text-sm">
+            Name it, pick the sheets to read, then the elements and questions to check. You see the price before
+            anything is sent to the AI.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-7 overflow-y-auto px-6 py-5">
+          <section className="flex flex-col gap-2">
+            <label className="text-sm font-semibold" htmlFor="rfi-name">
+              1 · Name
+            </label>
+            <Input
+              id="rfi-name"
+              autoFocus
+              value={name}
+              maxLength={RFI_SET_NAME_CHARS}
+              placeholder="e.g. Level B2 foundations"
+              className="h-10 text-base"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </section>
+
+          <section className="flex flex-col gap-2">
+            <p className="text-sm font-semibold">2 · Sheets</p>
+            <SheetPicker
+              projectId={projectId}
+              sheets={sheets}
+              value={chosenSheets}
+              suggested={suggested}
+              onChange={setChosenSheets}
+              roomy
+            />
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-semibold">3 · Elements</p>
+              <span className="text-muted-foreground text-sm">
+                Choose a stage — every element and question under it is selected, then narrow it down.
+              </span>
+            </div>
+            {library.isLoading ? (
+              <Spinner />
+            ) : library.error ? (
+              <Notice tone="error">{(library.error as Error).message}</Notice>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {packages.map((p) => {
+                  const on = p.elements.filter((e) => picks[e.id]?.length);
+                  const questions = on.reduce((n, e) => n + (picks[e.id]?.length ?? 0), 0);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => pickPackage(p.id)}
+                      className={cn(
+                        "flex min-h-24 flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors",
+                        on.length ? "border-primary bg-primary/5 ring-primary ring-1" : "bg-card hover:bg-accent/50",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-muted-foreground text-xs font-medium">Stage {p.id}</span>
+                        {on.length > 0 && (
+                          <span className="bg-primary text-primary-foreground grid size-5 place-items-center rounded-full">
+                            <CheckIcon className="size-3.5" />
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-base leading-snug font-semibold">{p.name}</span>
+                      <span className="text-muted-foreground text-sm">
+                        {on.length
+                          ? `${on.length} of ${p.elements.length} elements · ${questions} questions`
+                          : `${p.elements.length} elements`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <DialogFooter className="flex-col items-stretch gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <span className={cn("text-sm", tooMany ? "text-destructive" : "text-muted-foreground")}>
+            {chosen.length} element{chosen.length === 1 ? "" : "s"} · {questionCount} question{questionCount === 1 ? "" : "s"} ·{" "}
+            {chosenSheets.length} sheet{chosenSheets.length === 1 ? "" : "s"}
+            {tooMany ? ` — at most ${RFI_SET_MAX_ELEMENTS} elements in one RFI` : " · each element is its own review"}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={!ready || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? <Spinner /> : null}
+              Create RFI and see the price
+            </Button>
+          </div>
+        </DialogFooter>
+        {create.error && (
+          <div className="px-6 pb-4">
+            <Notice tone="error">{(create.error as Error).message}</Notice>
+          </div>
+        )}
+
+        {openPackage && library.data && (
+          <PackageDialog
+            projectId={projectId}
+            library={library.data}
+            packageId={openPackage}
+            picks={picks}
+            onPicks={setPicks}
+            onClose={() => setOpenPackage(null)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** One stage's elements: include or leave out each, narrow its questions, add
+ * questions, follow-ups and elements of the project's own. */
+function PackageDialog({
+  projectId,
+  library,
+  packageId,
+  picks,
+  onPicks,
+  onClose,
+}: {
+  projectId: string;
+  library: RfiLibraryDto;
+  packageId: string;
+  picks: Picks;
+  onPicks: (update: (prev: Picks) => Picks) => void;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const pkg = library.packages.find((p) => p.id === packageId)!;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [newElement, setNewElement] = useState("");
+  const setFor = (id: string, ids: string[]) => onPicks((prev) => ({ ...prev, [id]: ids }));
+
+  const addElement = useMutation({
+    mutationFn: () => api.addLibraryElement(projectId, { packageId, name: newElement.trim() }),
+    onSuccess: async (row) => {
+      await queryClient.invalidateQueries({ queryKey: ["rfi-library", projectId] });
+      const fresh = queryClient.getQueryData<RfiLibraryDto>(["rfi-library", projectId]);
+      const element = fresh?.packages.flatMap((p) => p.elements).find((e) => e.id === row.id);
+      setFor(row.id, element ? allQuestions(element) : []);
+      setExpanded(row.id);
+      setNewElement("");
+    },
+  });
+  const removeElement = useMutation({
+    mutationFn: (id: string) => api.deleteLibraryElement(projectId, id),
+    onSuccess: async (_r, id) => {
+      onPicks((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)));
+      await queryClient.invalidateQueries({ queryKey: ["rfi-library", projectId] });
+    },
+  });
+
+  const anyOn = pkg.elements.some((e) => picks[e.id]?.length);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle className="text-lg">
+            Stage {pkg.id} · {pkg.name}
+          </DialogTitle>
+          <DialogDescription className="text-sm">
+            Untick what this RFI should not check. Open an element to choose its questions or add your own.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 overflow-y-auto px-6 py-4">
+          {pkg.elements.map((e) => {
+            const total = flat(e.questions).length;
+            const on = picks[e.id]?.length ?? 0;
+            const isOpen = expanded === e.id;
+            return (
+              <div key={e.id} className={cn("rounded-lg border", on ? "bg-card" : "bg-muted/30")}>
+                <div className="flex items-center gap-3 p-3">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={on > 0}
+                    aria-label={`Include ${e.name}`}
+                    onChange={(ev) => setFor(e.id, ev.target.checked ? allQuestions(e) : [])}
+                  />
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => setExpanded(isOpen ? null : e.id)}
+                  >
+                    {isOpen ? <ChevronDownIcon className="size-4 shrink-0" /> : <ChevronRightIcon className="size-4 shrink-0" />}
+                    <span className="truncate text-sm font-medium">{e.name}</span>
+                    {e.custom && <Badge variant="outline">yours</Badge>}
+                    <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                      {on} of {total} questions
+                    </span>
+                  </button>
+                  {e.custom && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive"
+                      title="Delete this element and its questions"
+                      disabled={removeElement.isPending}
+                      onClick={() => removeElement.mutate(e.id)}
+                    >
+                      <Trash2Icon className="size-4" />
+                    </button>
+                  )}
+                </div>
+                {isOpen && (
+                  <div className="border-t px-4 py-3">
+                    <QuestionTree
+                      projectId={projectId}
+                      element={e}
+                      selected={picks[e.id] ?? []}
+                      onSelect={(ids) => setFor(e.id, ids.slice(0, QUESTIONS_PER_ELEMENT))}
+                      roomy
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="mt-2 flex gap-2">
+            <Input
+              value={newElement}
+              maxLength={120}
+              placeholder={`Add an element to ${pkg.name}`}
+              className="h-9 text-sm"
+              onChange={(e) => setNewElement(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && newElement.trim() && addElement.mutate()}
+            />
+            <Button variant="outline" disabled={!newElement.trim() || addElement.isPending} onClick={() => addElement.mutate()}>
+              {addElement.isPending ? <Spinner /> : <PlusIcon />} Add element
+            </Button>
+          </div>
+          {(addElement.error || removeElement.error) && (
+            <Notice tone="error">{((addElement.error ?? removeElement.error) as Error).message}</Notice>
+          )}
+        </div>
+        <DialogFooter className="border-t px-6 py-4 sm:justify-between">
+          <Button
+            variant="ghost"
+            disabled={!anyOn}
+            onClick={() => onPicks((prev) => ({ ...prev, ...Object.fromEntries(pkg.elements.map((e) => [e.id, []])) }))}
+          >
+            Leave this stage out
+          </Button>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** One RFI: its reviews, their price, Start, and the findings they made. */
+function RfiSetDialog({
+  projectId,
+  setId,
+  initialErrors,
+  onClose,
+  onFinished,
+}: {
+  projectId: string;
+  setId: string;
+  initialErrors: RfiSetDetailDto["planErrors"];
+  onClose: () => void;
+  onFinished: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [errors, setErrors] = useState(initialErrors);
+  const detail = useQuery({
+    queryKey: ["rfi-set", projectId, setId],
+    queryFn: () => api.getRfiSet(projectId, setId),
+    refetchInterval: (q) => (q.state.data?.reviews.some((r) => ACTIVE.includes(r.status)) ? 3000 : false),
+  });
+  const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
+  const names = useMemo(
+    () => new Map((library.data?.packages ?? []).flatMap((p) => p.elements).map((e) => [e.id, e.name])),
+    [library.data],
+  );
+
+  const refresh = (d?: RfiSetDetailDto) => {
+    if (d) {
+      queryClient.setQueryData(["rfi-set", projectId, setId], d);
+      setErrors(d.planErrors);
+    }
+    void queryClient.invalidateQueries({ queryKey: ["rfi-sets", projectId] });
+  };
+  const plan = useMutation({ mutationFn: () => api.planRfiSet(projectId, setId), onSuccess: refresh });
+  const start = useMutation({ mutationFn: () => api.startRfiSet(projectId, setId), onSuccess: refresh });
+  const remove = useMutation({
+    mutationFn: () => api.deleteRfiSet(projectId, setId),
+    onSuccess: () => {
+      refresh();
+      onClose();
+    },
+  });
+  const decided = () => {
+    void queryClient.invalidateQueries({ queryKey: ["rfi-set", projectId, setId] });
+    void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+    refresh();
+    onFinished();
+  };
+  const accept = useMutation({ mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id), onSuccess: decided });
+  const dismiss = useMutation({ mutationFn: (id: string) => api.dismissRfiCandidate(projectId, id), onSuccess: decided });
+
+  // Reviews finishing refresh the project's lists too.
+  const active = detail.data?.reviews.filter((r) => ACTIVE.includes(r.status)).length ?? 0;
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (wasActive.current > 0 && active === 0) {
+      refresh();
+      onFinished();
+    }
+    wasActive.current = active;
+  }, [active]);
+
+  const d = detail.data;
+  const planned = d?.reviews.filter((r) => r.status === "planned") ?? [];
+  const plannedCost = usd(
+    planned.every((r) => r.estimate?.costLowUsd != null) ? planned.reduce((n, r) => n + (r.estimate!.costLowUsd ?? 0), 0) : null,
+    planned.every((r) => r.estimate?.costHighUsd != null) ? planned.reduce((n, r) => n + (r.estimate!.costHighUsd ?? 0), 0) : null,
+  );
+  const pending = d?.candidates.filter((c) => c.status === "pending") ?? [];
+  const decidedCount = (d?.candidates.length ?? 0) - pending.length;
+  const errorOf = (elementId: string) => errors.find((e) => e.elementId === elementId)?.error;
+  const busy = plan.isPending || start.isPending || remove.isPending;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-4xl">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle className="text-xl">{d?.name ?? "RFI"}</DialogTitle>
+          <DialogDescription className="text-sm">
+            {d ? `Sheets: ${d.sheets.join(", ")}` : "Loading…"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-6 overflow-y-auto px-6 py-5">
+          {detail.isLoading || !d ? (
+            <Spinner />
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                {planned.length > 0 && (
+                  <Button disabled={busy} onClick={() => start.mutate()}>
+                    {start.isPending ? <Spinner /> : <PlayIcon />}
+                    Start {planned.length} review{planned.length === 1 ? "" : "s"}
+                    {plannedCost ? ` · est. ${plannedCost}` : ""}
+                  </Button>
+                )}
+                {active === 0 && (
+                  <Button variant="outline" disabled={busy} onClick={() => plan.mutate()}>
+                    {plan.isPending ? <Spinner /> : <RefreshCwIcon />}
+                    {planned.length ? "Price again" : "Price it again"}
+                  </Button>
+                )}
+                <Button variant="ghost" className="ml-auto" disabled={busy} onClick={() => remove.mutate()}>
+                  <Trash2Icon /> Delete RFI
+                </Button>
+              </div>
+              {planned.length > 0 && (
+                <p className="text-muted-foreground -mt-3 text-sm">
+                  Nothing has been sent to the AI yet. The price is a range — token counts are estimated before a run.
+                </p>
+              )}
+              {(plan.error || start.error || remove.error) && (
+                <Notice tone="error">{((plan.error ?? start.error ?? remove.error) as Error).message}</Notice>
+              )}
+
+              <section className="flex flex-col gap-2">
+                <h4 className="text-sm font-semibold">Elements ({d.items.length})</h4>
+                <ul className="flex flex-col divide-y rounded-lg border">
+                  {d.items.map((item) => {
+                    const run = d.reviews.find((r) => r.library?.element.id === item.elementId);
+                    const err = errorOf(item.elementId) ?? (run?.status === "failed" || run?.status === "stale" ? run.error : null);
+                    const cost = run?.estimate ? usd(run.estimate.costLowUsd, run.estimate.costHighUsd) : null;
+                    return (
+                      <li key={item.elementId} className="flex flex-col gap-1.5 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{run?.library?.element.name ?? names.get(item.elementId) ?? item.elementId}</span>
+                          <span className="text-muted-foreground text-xs">{item.questionIds.length} questions</span>
+                          <span className="ml-auto flex items-center gap-2 text-xs">
+                            {cost && run?.status === "planned" && <span className="text-muted-foreground">est. {cost}</span>}
+                            {run && run.candidates > 0 && <span>{run.candidates} found</span>}
+                            <Badge variant={run ? (run.status === "failed" ? "destructive" : "outline") : "secondary"}>
+                              {run ? REVIEW_LABEL[run.status] : "Not priced"}
+                            </Badge>
+                          </span>
+                        </div>
+                        {run && ACTIVE.includes(run.status) && <Progress value={run.progress} className="h-1.5" />}
+                        {err && <span className="text-destructive text-xs">{err}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              <section className="flex flex-col gap-2">
+                <h4 className="text-sm font-semibold">
+                  Findings {pending.length > 0 && <span className="text-muted-foreground font-normal">({pending.length} to review)</span>}
+                </h4>
+                {pending.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    {active > 0
+                      ? "Reviews are running — findings appear here as each one finishes."
+                      : d.candidates.length
+                        ? "Every finding has been decided."
+                        : "No findings yet."}
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {pending.map((c) => (
+                      <CandidateCard
+                        key={c.id}
+                        projectId={projectId}
+                        candidate={c}
+                        busy={accept.isPending || dismiss.isPending}
+                        onAccept={() => accept.mutate(c.id)}
+                        onDismiss={() => dismiss.mutate(c.id)}
+                      />
+                    ))}
+                  </ul>
+                )}
+                {decidedCount > 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    {decidedCount} already decided — accepted ones are in the RFI log.
+                  </p>
+                )}
+                {(accept.error || dismiss.error) && <Notice tone="error">{((accept.error ?? dismiss.error) as Error).message}</Notice>}
+              </section>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

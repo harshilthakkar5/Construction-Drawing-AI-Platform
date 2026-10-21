@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { RfiFullScan } from "@/components/RfiFullScan";
 import { loadScope, saveScope, ScanScopeForm, scopeLine, scopeReady, scopeToSend } from "@/components/RfiScanScope";
+import { RfiSetsSection } from "@/components/RfiSets";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -258,8 +259,12 @@ export function RfiReview({ projectId }: { projectId: string }) {
   return (
     <section className="mb-4">
       {mode === "targeted" ? (
-        <div className="bg-muted/40 rounded-lg border p-3">
-          <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
+        <div className="flex flex-col gap-4">
+          <RfiSetsSection projectId={projectId} onFinished={refreshAll} />
+          <div className="bg-muted/40 rounded-lg border p-3">
+            <p className="mb-2 text-sm font-semibold">Quick review: one element</p>
+            <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
+          </div>
         </div>
       ) : (
       <div className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3">
@@ -805,7 +810,7 @@ function ScanUsage({
   );
 }
 
-function CandidateCard({
+export function CandidateCard({
   projectId,
   candidate,
   busy,
