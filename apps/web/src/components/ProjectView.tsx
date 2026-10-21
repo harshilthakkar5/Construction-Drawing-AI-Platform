@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   CircleHelpIcon,
+  EllipsisVerticalIcon,
   FilesIcon,
   FileTextIcon,
   LayersIcon,
@@ -38,12 +39,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/pages/DashboardPage";
 import { useAppStore, type WorkTab } from "@/store";
+
+const WORK_TABS: { value: WorkTab; label: string; Icon: typeof FilesIcon }[] = [
+  { value: "documents", label: "Docs", Icon: FilesIcon },
+  { value: "summary", label: "Summary & categories", Icon: LayoutGridIcon },
+  { value: "rfis", label: "RFIs", Icon: MessageCircleQuestionIcon },
+  { value: "settings", label: "Settings", Icon: SettingsIcon },
+];
 
 /**
  * FR-17 project workspace: a project header, then the left work column
@@ -346,25 +360,24 @@ export function ProjectView({ projectId }: { projectId: string }) {
           <Card className="gap-0 py-4" data-tour="summary">
             <Tabs value={workTab} onValueChange={(tab) => setWorkTab(tab as WorkTab)}>
               <div className="flex items-center gap-2 px-4">
-                <TabsList className="min-w-0 flex-1">
-                  <TabsTrigger value="documents" title="Documents">
-                    <FilesIcon />
-                    <span className="@[16rem]/work:inline hidden">Docs</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="summary" title="Summary & categories">
-                    <LayoutGridIcon />
-                    <span className="@[16rem]/work:inline hidden @[26rem]/work:hidden">Summary</span>
-                    <span className="@[26rem]/work:inline hidden">Summary &amp; categories</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="rfis" title="RFIs">
-                    <MessageCircleQuestionIcon />
-                    <span className="@[16rem]/work:inline hidden">RFIs</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="settings" title="Project settings">
-                    <SettingsIcon />
-                    <span className="@[24rem]/work:inline hidden">Settings</span>
-                  </TabsTrigger>
-                </TabsList>
+                {/* The sections live behind a three-dots menu; the open one is named beside it. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label="Choose a section">
+                      <EllipsisVerticalIcon />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    {WORK_TABS.map(({ value, label, Icon }) => (
+                      <DropdownMenuItem key={value} onClick={() => setWorkTab(value)} data-active={workTab === value}>
+                        <Icon /> {label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+                  {WORK_TABS.find((t) => t.value === workTab)?.label}
+                </h2>
                 {wide && (
                   <FullViewButton
                     expanded={focus === "work"}

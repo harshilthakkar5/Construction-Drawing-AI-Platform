@@ -3126,8 +3126,10 @@ and as an X in the chat header — it used to float over the drawing, covering t
 scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
 COLUMN's width, which the divider changes independently of the window's.
 
-The work column's tabs are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
-(`components/ProjectSettings.tsx`). Settings holds the project's details and every RFI SETTING the
+The work column's sections are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
+(`components/ProjectSettings.tsx`), picked from a three-dots menu with the open one named beside it (`WORK_TABS`).
+The RFIs section shows only the targeted review's "By element" mode for now: the scan and the other review
+modes are still built, with their switches removed (`mode` is fixed in `RfiReview.tsx` / `RfiTargetedReview.tsx`). Settings holds the project's details and every RFI SETTING the
 RFIs tab used to carry beside the work — the targeted review's model, depth, care and token limits,
 the AI comparison's model, batch/direct, budget and auto-start limit — saved on the project
 (`projects.rfiSettings`, `RfiProjectSettings` + `rfiSettingsOf` in `@cdip/shared`, validated in

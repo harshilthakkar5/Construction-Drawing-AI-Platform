@@ -33,7 +33,6 @@ import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RfiFullScan } from "@/components/RfiFullScan";
 import { loadScope, saveScope, ScanScopeForm, scopeLine, scopeReady, scopeToSend } from "@/components/RfiScanScope";
 import { RfiTargetedReview } from "@/components/RfiTargetedReview";
@@ -137,7 +136,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [showDismissed, setShowDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
-  const [mode, setMode] = useState<"scan" | "targeted">("scan");
+  // Only "By element" (a targeted review) is offered for now; the scan stays built behind it.
+  const mode: "scan" | "targeted" = "targeted";
   // Turned off on this server (RFI_FULL_SCAN=off) the list 404s: step 2 is
   // not offered and the scan is the code checks alone.
   const fullScan = useQuery({ queryKey: ["rfi-full-scans", projectId], queryFn: () => api.listRfiFullScans(projectId), retry: false });
@@ -257,22 +257,6 @@ export function RfiReview({ projectId }: { projectId: string }) {
 
   return (
     <section className="mb-4">
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        className="mb-2 w-full"
-        value={mode}
-        onValueChange={(value) => value && setMode(value as "scan" | "targeted")}
-        aria-label="How to find RFIs"
-      >
-        <ToggleGroupItem value="scan" className="flex-1 text-xs" title="Every sheet: code checks, then an optional AI comparison">
-          Scan all drawings
-        </ToggleGroupItem>
-        <ToggleGroupItem value="targeted" className="flex-1 text-xs" title="One sheet, one element, or sheets that should agree">
-          Targeted review
-        </ToggleGroupItem>
-      </ToggleGroup>
       {mode === "targeted" ? (
         <div className="bg-muted/40 rounded-lg border p-3">
           <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />

@@ -110,7 +110,8 @@ export function RfiTargetedReview({
   projectId: string;
   onFinished: () => void;
 }) {
-  const [mode, setMode] = useState<TargetMode>("library");
+  // Only "By element" is offered for now; the other modes stay built behind it.
+  const mode = "library" as TargetMode;
   const [choice, setChoice] = useState<LibraryChoice>(() => loadChoice(projectId));
   const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId), enabled: mode === "library" });
   const libraryElement = library.data?.packages.flatMap((p) => p.elements).find((e) => e.id === choice.elementId);
@@ -274,32 +275,9 @@ export function RfiTargetedReview({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Work through the question library element by element — grids first — or review one sheet, one mark
-        (such as C-6), or sheets that should agree. You see the pages, the questions and the cost before
-        anything is sent to the AI.
+        Work through the question library element by element — grids first. You see the pages, the
+        questions and the cost before anything is sent to the AI.
       </p>
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        value={mode}
-        onValueChange={(value) => value && setMode(value as TargetMode)}
-        className="w-full"
-        aria-label="What to review"
-      >
-        <ToggleGroupItem value="library" className="flex-1 text-xs" title="Package, element, questions, then the sheets to read">
-          By element
-        </ToggleGroupItem>
-        <ToggleGroupItem value="sheet" className="flex-1 text-xs">
-          One sheet
-        </ToggleGroupItem>
-        <ToggleGroupItem value="element" className="flex-1 text-xs" title="One mark as printed, such as C-6 or PC1">
-          A mark
-        </ToggleGroupItem>
-        <ToggleGroupItem value="compare" className="flex-1 text-xs">
-          Compare
-        </ToggleGroupItem>
-      </ToggleGroup>
 
       {mode === "library" ? (
         <LibraryPicker projectId={projectId} value={choice} onChange={setChoice} />
