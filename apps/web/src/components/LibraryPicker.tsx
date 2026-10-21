@@ -100,14 +100,14 @@ export function LibraryPicker({
   const element = elements.find((e) => e.id === value.elementId);
   const pkg = library.data?.packages.find((p) => p.elements.some((e) => e.id === value.elementId));
   const sheets = useLibrarySheets(projectId);
-  const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name) : null;
+  const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name, pkg?.name) : null;
 
   const pickElement = (id: string) => {
     const next = elements.find((e) => e.id === id);
     if (!next) return;
     // Every built-in question of the element to start with; the person narrows it.
     const questionIds = next.questions.filter((q) => q.source === "library").map((q) => q.id);
-    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets, Infinity, next.name).sheets });
+    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets, Infinity, next.name, library.data?.packages.find((p) => p.elements.includes(next))?.name).sheets });
   };
   // A choice remembered from an element the library no longer has starts over.
   useEffect(() => {

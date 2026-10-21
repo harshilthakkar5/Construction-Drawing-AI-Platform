@@ -14,6 +14,10 @@
     {"text": "FOUNDATION PLAN", "level": null},
     {"text": "GARAGE LEVEL FOUNDATION PLAN - OVERALL", "level": null},
     {"text": "LEVEL SCHEDULE", "level": null},
+    {"text": "BASEMENT 2 - FOUNDATION PLAN - AREA B", "level": "LEVEL B2"},
+    {"text": "BASEMENT LEVEL 02 PLAN", "level": "LEVEL B2"},
+    {"text": "COMPOSITE FLOOR PLAN - LEVEL B2", "level": "LEVEL B2"},
+    {"text": "LOWER LEVEL 1 FLOOR PLAN", "level": "LOWER LEVEL 1"},
     {"text": "", "level": null}
   ]
 }

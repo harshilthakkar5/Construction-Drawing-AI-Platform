@@ -815,3 +815,17 @@ def test_a_column_left_out_of_the_schedule_is_not_answered_by_it():
     assert rfi_review.answered_by_column_schedule(left_out, ["S8.02"]) is None
     conflict = dict(SEE_SCHEDULE, kind="conflict")
     assert rfi_review.answered_by_column_schedule(conflict, ["S8.02"]) is None
+
+
+def test_a_reader_never_sees_an_evidence_id():
+    class Ev:
+        def __init__(self, sheet):
+            self.sheet_number = sheet
+
+    evidence = {"ev12": Ev("S4.00"), "ev3": Ev(None)}
+    assert rfi_review.readable("Detail 3 on ev12 gives 8\" (ev12, ev3).", evidence) == (
+        'Detail 3 on S4.00 gives 8" (S4.00, the drawing).')
+    assert rfi_review.readable("element at ev99", evidence) == "element at the drawing"  # an id never issued
+    # A drawing's own tag is printed in capitals and stays: EV1 is a charger.
+    assert rfi_review.readable("Charger EV1 at grid B/4 per ev12", evidence) == "Charger EV1 at grid B/4 per S4.00"
+    assert rfi_review.readable("", evidence) == "" and rfi_review.readable(None, evidence) is None

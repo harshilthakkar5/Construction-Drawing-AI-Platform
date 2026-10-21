@@ -22,6 +22,7 @@ import { summaryLimiter } from "../rateLimit.js";
 import { PlanError, compareRuns, planReview, reestimate, reviewModelOptions, toReviewDto, type RunRow } from "../rfiReviewPlanner.js";
 import { buildReviewReport, renderReviewReportPdf, type ManifestItem, type ReportKind } from "../rfiReviewReport.js";
 import { reviewIsActive, scopeHash, staleReason, type ReviewScope } from "../rfiReviewRules.js";
+import type { QueueJob } from "../queueJobs.js";
 import { toCandidateDto } from "../rfiStore.js";
 import { getObjectBytes } from "../s3.js";
 
@@ -109,8 +110,8 @@ rfiReviewRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
     take: 20,
   });
-  const counts = await candidateCounts(runs.map((r) => r.id));
-  res.json(runs.map((r) => toReviewDto(r, counts.get(r.id) ?? 0)));
+  const [counts, jobs] = await Promise.all([candidateCounts(runs.map((r) => r.id)), queuedReviewJobs(runs)]);
+  res.json(runs.map((r) => toReviewDto(r, counts.get(r.id) ?? 0, new Date(), jobs.get(r.id))));
 });
 
 async function runFor(projectId: string, runId: string): Promise<RunRow> {
@@ -120,8 +121,8 @@ async function runFor(projectId: string, runId: string): Promise<RunRow> {
 rfiReviewRouter.get("/:runId", async (req, res) => {
   const { projectId, runId } = runParams.parse(req.params);
   const run = await prisma.rfiReviewRun.findFirstOrThrow({ where: { id: runId, projectId } });
-  const counts = await candidateCounts([run.id]);
-  res.json(toReviewDto(run, counts.get(run.id) ?? 0));
+  const [counts, jobs] = await Promise.all([candidateCounts([run.id]), queuedReviewJobs([run])]);
+  res.json(toReviewDto(run, counts.get(run.id) ?? 0, new Date(), jobs.get(run.id)));
 });
 
 /**
@@ -182,6 +183,24 @@ rfiReviewRouter.post("/:runId/start", summaryLimiter, async (req, res) => {
 /** Start one planned review (the route above, and a named RFI's Start, which
  * starts each of its reviews). Every refusal the route gives, as a status and
  * a body rather than a response. */
+/** The queue's view of each QUEUED review among `rows` (reviewIsActive asks
+ * it); a review not queued, or one the queue could not be asked about, is
+ * left out and judged by time as before. */
+export async function queuedReviewJobs(rows: readonly { id: string; status: string }[]): Promise<Map<string, QueueJob>> {
+  const out = new Map<string, QueueJob>();
+  await Promise.all(
+    rows.filter((r) => r.status === "queued").map(async (r) => {
+      try {
+        const job = await rfiReviewQueue.getJob(`rfi-review-${r.id}`);
+        out.set(r.id, job ? { state: await job.getState(), processedOn: job.processedOn ?? null } : null);
+      } catch {
+        // no answer from the queue: the time rule decides
+      }
+    }),
+  );
+  return out;
+}
+
 export async function startReview(projectId: string, runId: string, key: string): Promise<{ status: number; body: unknown }> {
   const run = await runFor(projectId, runId);
 
@@ -239,7 +258,8 @@ export async function startReview(projectId: string, runId: string, key: string)
   const twin = await prisma.rfiReviewRun.findMany({
     where: { projectId, scopeHash: run.scopeHash, status: { in: ["queued", "running"] }, id: { not: run.id } },
   });
-  if (twin.some((t) => reviewIsActive(t, new Date()))) {
+  const twinJobs = await queuedReviewJobs(twin);
+  if (twin.some((t) => reviewIsActive(t, new Date(), twinJobs.get(t.id)))) {
     return refuse(409, { error: "this exact review is already running" });
   }
 

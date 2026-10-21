@@ -645,6 +645,22 @@ def credited(finding, linked: dict[str, list[str]], element: dict) -> list[str]:
     return [c for c in linked.get(finding.check_type, []) if c in CHECKS or mark_is_element(finding, element)]
 
 
+def _pages_whose_text(scope: dict, pattern: str) -> set[tuple[str, int]]:
+    """The reviewed pages whose stored text matches `pattern` (a Postgres
+    regex, any case): the only ones worth OPENING for an aid that looks for
+    those words. Reading every reviewed page's layout for a column schedule
+    and for "SEE PLAN" took two thirds of a review's preparation."""
+    pairs = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+    if not pairs:
+        return set()
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT "documentId", "pageNumber" FROM pages WHERE "documentId" = ANY(%s) AND text ~* %s',
+            (sorted({d for d, _ in pairs}), pattern),
+        ).fetchall()
+    return {(d, n) for d, n in rows} & pairs
+
+
 def _sizes_columns(open_page, p: dict) -> bool:
     """Whether a reviewed page is a column schedule that sizes its columns. A
     failure reading it is a no: the rule it feeds may only reject."""
@@ -1365,6 +1381,26 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
 
 
 MAX_SET_ASIDE = 5  # per question
+
+
+# The ids the server issues to evidence ("ev12"): the model cites them, and a
+# reader must never see one. Lowercase only — a drawing's tag is printed in
+# capitals ("EV1", an electric vehicle charger) and is left alone.
+_EVIDENCE_ID = re.compile(r"\bev(\d+)\b")
+
+
+def readable(text: str | None, evidence: dict) -> str | None:
+    """`text` with every evidence id the model wrote replaced by the sheet it
+    is on ("per ev12" → "per S4.00"). Pure. An id the run did not issue, or
+    evidence with no sheet number, reads "the drawing"."""
+    if not text:
+        return text
+
+    def sheet(m: re.Match) -> str:
+        ev = evidence.get(m.group(0))
+        return getattr(ev, "sheet_number", None) or "the drawing"
+
+    return _EVIDENCE_ID.sub(sheet, text)
 
 
 def set_aside_entry(candidate: dict, reason: str, rule: str, decision: dict | None,
@@ -2851,8 +2887,11 @@ def _run(run: dict) -> dict:
             notes.append(f"Left out {len(other)} code finding(s) about other elements' marks: {'; '.join(f.subject for f in other[:3])}.")
         if code_docs:
             notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
+        # Same test column_schedule.findings uses to find a schedule page.
+        schedule_pages = _pages_whose_text(scope, r"column\s+locations")
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
-                                  for p in scope.get("pages", []) if _sizes_columns(open_page, p)})
+                                  for p in scope.get("pages", [])
+                                  if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
@@ -2878,7 +2917,10 @@ def _run(run: dict) -> dict:
                     n += 1
         # Dimensions a detail prints as "SEE PLAN": listed for every review, so
         # whether the plan gives them never depends on the model noticing.
+        see_plan = _pages_whose_text(scope, r"see\s+(plans?|civil|arch)")  # what review_aids._DEFERRED reads
         for p in scope.get("pages", []):
+            if (p["documentId"], p["pageNumber"]) not in see_plan:
+                continue
             try:
                 page = open_page(p["documentId"], p["pageNumber"])
                 text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
@@ -3251,6 +3293,8 @@ def _run(run: dict) -> dict:
                 # medium, and a project's own question files as "custom".
                 decision = dict(decision, confidence="medium" if decision["confidence"] == "high" else decision["confidence"])
             saved_as = dict(candidate, checkId="custom") if library.get(candidate["checkId"], {}).get("source") == "custom" else candidate
+            decision = dict(decision, subject=readable(decision["subject"], evidence), question=readable(decision["question"], evidence))
+            reasoning = readable(reasoning, evidence)
             wrote = _save_candidate(conn, run, fp, saved_as, decision, items, reasoning, question_source=source) > 0
             diagnostics.event(
                 "finding_saved" if wrote else "finding_found_again", fingerprint=fp, candidate=candidate,
@@ -3280,6 +3324,9 @@ def _run(run: dict) -> dict:
         if cid in results:
             results[cid]["foundAgain"] = sorted(set(fps))
     for entry in aside:
+        for key in ("issue", "reason", "subject", "question", "element", "location"):
+            if isinstance(entry.get(key), str):
+                entry[key] = readable(entry[key], evidence)
         # A project's own question is saved as "custom", as an accepted one is.
         entry["checkType"] = "custom" if library.get(entry["checkId"], {}).get("source") == "custom" else entry["checkId"]
         if entry["checkId"] in results:
@@ -3321,7 +3368,7 @@ def _run(run: dict) -> dict:
         progress=100,
         usage=json.dumps(usage.as_json()),
         thinkingSent=json.dumps(usage.thinking_sent()),
-        notes=json.dumps(notes),
+        notes=json.dumps([readable(n, evidence) for n in notes]),
         checkResults=json.dumps(results),
         coverage=json.dumps(coverage),
         evidenceManifest=json.dumps([ev.manifest(batch_of.get(ev.id)) for ev in evidence.values()]),

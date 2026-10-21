@@ -215,6 +215,25 @@ describe("sheet suggestions for an element", () => {
     expect(suggestSheets(["Struct plan", "pile cap schedule"], leland).sheets).toEqual(["S2.20", "S0.01"]);
   });
 
+  it("prefers the sheet whose title names the work, and a code or finishes plan last", () => {
+    // Leland's level B2: a composite plan first in page order, the foundation plan
+    // after it, and an architectural life safety plan before the floor plan.
+    const titled = (n: string, d: LibrarySheet["discipline"], page: number, title: string): LibrarySheet => ({
+      ...sheet(n, d, "plan", page), level: "LEVEL B2", titleBlock: `SHEET NUMBER SHEET TITLE ${n} ${title}`,
+    });
+    const b2 = [
+      titled("S2.20", "structural", 15, "COMPOSITE FLOOR PLAN - LEVEL B2"),
+      titled("S2.30-A", "structural", 24, "BASEMENT 2 - FOUNDATION PLAN - AREA A"),
+      titled("A0.31", "architectural", 40, "LIFE SAFETY PLAN - LEVEL B2 © 2024 Kirksey"),
+      titled("A2.20", "architectural", 60, "COMPOSITE FLOOR PLAN - LEVEL B2"),
+    ];
+    expect(suggestSheets(["Struct foundation plan", "Arch plans"], b2).sheets).toEqual(["S2.30-A", "A2.20"]);
+    // The stage's words count too: "Deep Foundations" names the foundation plan.
+    expect(suggestSheets(["Struct plans"], b2, Infinity, "Pile caps", "Deep Foundations").sheets).toEqual(["S2.30-A"]);
+    // Nothing named: page order, as before, but never the life safety plan first.
+    expect(suggestSheets(["Struct plans", "Arch plans"], b2, Infinity, "Beams").sheets).toEqual(["S2.20", "A2.20"]);
+  });
+
   it("never suggests a sheet twice, and one per entry unless capped", () => {
     const r = suggestSheets(["Struct", "Struct plan", "Arch", "Arch plans", "MEP", "Struct"], set);
     expect(new Set(r.sheets).size).toBe(r.sheets.length);

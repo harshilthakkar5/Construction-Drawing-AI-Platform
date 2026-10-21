@@ -229,8 +229,9 @@ function CreateRfiDialog({
   const suggested = useMemo(() => {
     const all = new Set<string>();
     for (const [id] of chosen) {
-      const e = elements.find((x) => x.id === id);
-      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name).sheets.forEach((s) => all.add(s));
+      const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
+      const e = pkg?.elements.find((x) => x.id === id);
+      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name, pkg?.name).sheets.forEach((s) => all.add(s));
     }
     return [...all];
   }, [picks, elements, sheets]);

@@ -5,6 +5,7 @@ import type { RfiPackageDto, RfiPackageItemRef, RfiPackageStatus } from "@cdip/s
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { rfiPackageQueue } from "../queues.js";
+import { packageStale, type PackageJob } from "../rfiPackageRules.js";
 import { presignGetObject } from "../s3.js";
 
 /**
@@ -40,14 +41,22 @@ const createBody = z
 
 type PackageRow = Awaited<ReturnType<typeof prisma.rfiPackage.findFirstOrThrow>>;
 
-/** A package presumed dead: queued or running with nothing written for this
- * long. Rendering a sheet takes seconds; this is a worker that stopped. */
-export const STALE_PACKAGE_MS = 10 * 60 * 1000;
+export { STALE_PACKAGE_MS } from "../rfiPackageRules.js";
 
-export async function toPackageDto(row: PackageRow, now = new Date()): Promise<RfiPackageDto> {
+async function packageJob(id: string): Promise<PackageJob | undefined> {
+  try {
+    const job = await rfiPackageQueue.getJob(`rfi-package-${id}`);
+    return job ? { state: await job.getState(), processedOn: job.processedOn ?? null } : null;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function toPackageDto(row: PackageRow, now = new Date(), job?: PackageJob): Promise<RfiPackageDto> {
   let status = row.status as RfiPackageStatus;
   let error = row.error;
-  if ((status === "queued" || status === "running") && now.getTime() - row.createdAt.getTime() > STALE_PACKAGE_MS) {
+  const live = status === "queued" || status === "running";
+  if (live && packageStale(status, row.createdAt, job === undefined ? await packageJob(row.id) : job, now)) {
     status = "failed";
     error = error ?? "the worker did not finish this package; request it again";
   }

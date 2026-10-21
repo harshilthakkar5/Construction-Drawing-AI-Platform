@@ -60,9 +60,18 @@ _POINTER = re.compile(r"\b(?:SEE|REFER|REF|SIM|SIMILAR|TYP|ABOVE|BELOW)\b")
 
 def level_of(text: str | None) -> str | None:
     """"LEVEL 14", "LEVEL 5" out of a title; None when it names none."""
-    found = _LEVEL.search((text or "").upper())
-    # "LEVEL 01" and "LEVEL 1" are one floor.
-    return f"LEVEL {re.sub(r'^0+(?=[0-9])', '', found.group(1))}" if found else None
+    upper = (text or "").upper()
+    strip = lambda n: re.sub(r"^0+(?=[0-9])", "", n)  # "LEVEL 01" and "LEVEL 1" are one floor
+    # Rules mirrored by levelOf (fixtures/sheet-level.json): a basement is LEVEL Bn
+    # however it is written, and a LOWER/UPPER level is not the plain one.
+    basement = re.search(r"\bBASEMENT\s+(?:LEVEL\s+)?([0-9]{1,2})\b", upper)
+    if basement:
+        return f"LEVEL B{strip(basement.group(1))}"
+    qualified = re.search(r"\b(LOWER|UPPER)\s+LEVEL\s*([0-9]{1,3})\b", upper)
+    if qualified:
+        return f"{qualified.group(1)} LEVEL {strip(qualified.group(2))}"
+    found = _LEVEL.search(upper)
+    return f"LEVEL {strip(found.group(1))}" if found else None
 
 
 # What a drawing title calls itself. "LEVEL 13 ROOF DECK CONCRETE HEIGHTS" is a
