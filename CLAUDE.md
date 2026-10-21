@@ -2807,6 +2807,12 @@ BY OTHERS settles who designs an element, not its size or place: `delegated` tur
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
 Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands.
+Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
+problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
+with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
+omitted the field for a whole batch, and the parser's default had turned RFI 008 — question written — into a rejection.
+Still open: the 002 re-check cited S2.31-A for showing the piers, and a citation makes a rejection stand even when the
+cited text prints no offset; the code cannot yet tell a citation of the value from a citation of the element.
 
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead
