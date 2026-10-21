@@ -1099,7 +1099,19 @@ _DEFERS = re.compile(
 _SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
-def contested(decision: dict | None, shown: set[str]) -> bool:
+def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
+    """The evidence ids shown to verification, plus the code-made aids of the
+    PAGES they are on. Discovery saw "6/S4.01 prints this dimension as SEE
+    PLAN"; a verifier shown only the cited crops of S4.01 decided the pier was
+    centred from a centreline mark on another detail (Leland RFI 002). An aid
+    is still never support: `guard` rejects a problem resting on aids alone."""
+    pages = {(evidence[e].document_id, evidence[e].page_number) for e in ids if e in evidence}
+    extra = [e for e, ev in evidence.items()
+             if ev.kind == "aid" and e not in ids and (ev.document_id, ev.page_number) in pages]
+    return sorted(set(ids) | set(extra), key=lambda e: int(e[2:]))
+
+
+def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
     twice this way ("dimensions belong to forming plans (such as S2.102)") on a
@@ -1114,6 +1126,12 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
         return False
     if _SPEC_GOVERNED.search(decision.get("reason") or ""):
         return False
+    # A problem ABOUT a deferred value ("the details give the offset only as
+    # SEE PLAN") is settled only by evidence printing that value: "nothing
+    # shows the plan lacks it" is not that. Leland RFI 002 was proposed in two
+    # Claude runs and rejected both times on exactly that reason.
+    if candidate and _DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"):
+        return True
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
         return True
@@ -1126,7 +1144,7 @@ def contested(decision: dict | None, shown: set[str]) -> bool:
 # A rejection resting on who designs the element: "BY OTHERS", "BY SPECIALTY
 # RETENTION SYSTEM SUBCONTRACTOR", "delegated design".
 _BY_OTHERS = re.compile(
-    r"\bby\s+others\b|\bby\s+(?:the\s+)?(?:specialty\s+|specialist\s+)?(?:[\w-]+\s+){0,3}?(?:sub)?contractor\b"
+    r"\bby\s+others\b|\b(?:by|to)\s+(?:the\s+)?(?:specialty\s+|specialist\s+)?(?:[\w-]+\s+){0,3}?(?:sub)?contractor\b"
     r"|\bdelegated[\s-]+design\b|\bdesign[\s-]+build\b",
     re.I,
 )
@@ -1190,6 +1208,17 @@ def overruled(candidate: dict, decision: dict) -> dict:
                 confidence="low", priority="normal")
 
 
+def _implied_decision(item: dict) -> str:
+    """The verdict of a reply that left out `decision`. Sonnet 5.5 did, for
+    every item of a batch: a kept problem is the one with a written question
+    and no rejection basis (the prompt asks for a basis on every rejection),
+    so Leland RFI 008 — "the size and location of the wall and piers are not
+    printed anywhere", with its question written — was read as a rejection."""
+    question = isinstance(item.get("question"), str) and item["question"].strip()
+    basis = isinstance(item.get("basis"), str) and item["basis"].strip()
+    return "keep" if question and not basis else "reject"
+
+
 def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
     """index -> decision. An index outside the batch is dropped, and one
     answered TWICE drops both: two verdicts for one problem means neither can
@@ -1212,7 +1241,7 @@ def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
             twice.add(index)
             continue
         seen[index] = {
-            "decision": _choice(item.get("decision"), ("keep", "reject"), "reject"),
+            "decision": _choice(item.get("decision"), ("keep", "reject"), _implied_decision(item)),
             "reason": _text(item.get("reason"), 300),
             "subject": _text(item.get("subject"), 90),
             "question": _text(item.get("question"), 700),
@@ -2994,6 +3023,7 @@ def _run(run: dict) -> dict:
         # 5. Verification — only the evidence each problem cites (and found).
         if to_verify:
             cited = sorted({e for c in to_verify for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
+            cited = with_page_aids(cited, evidence)
             cited_images = [evidence[e] for e in cited if evidence[e].visual]
             body = "\n".join(_evidence_block(evidence[e]) for e in cited)
             problems = json.dumps(
@@ -3005,7 +3035,7 @@ def _run(run: dict) -> dict:
                 f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}",
                 lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
-            shown = set(cited)
+            shown = {e for e in cited if evidence[e].kind != "aid"}  # an aid never answers a problem
             recheck: list[tuple[dict, dict]] = []
             for i, candidate in enumerate(to_verify):
                 label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
@@ -3021,7 +3051,7 @@ def _run(run: dict) -> dict:
                                           rule="by others settles who designs an element, not its size or place")
                         accept(candidate, kept_for_coordination(candidate, decision))
                         continue
-                    if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown):
+                    if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown, candidate):
                         recheck.append((candidate, decision))
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
@@ -3065,7 +3095,7 @@ def _run(run: dict) -> dict:
                         in_scope.add(hit["chunkId"])
                         candidate["searched"].append(ev.id)
                 again = [c for c, _ in recheck]
-                cited2 = sorted({e for c in again for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:]))
+                cited2 = with_page_aids(sorted({e for c in again for e in c["evidenceIds"] + c["searched"]}, key=lambda e: int(e[2:])), evidence)
                 problems2 = json.dumps(
                     [{"index": i, **{k: c[k] for k in ("checkId", "kind", "element", "location", "issue", "why", "evidenceIds", "searched")},
                       "rejectedBecause": d["reason"]} for i, (c, d) in enumerate(recheck)],
@@ -3085,7 +3115,7 @@ def _run(run: dict) -> dict:
                         # Kept only because the system pushed back on the first
                         # rejection: never more than medium.
                         accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
-                    elif decision is not None and not contested(decision, set(cited2)):
+                    elif decision is not None and not contested(decision, {e for e in cited2 if evidence[e].kind != "aid"}, candidate):
                         set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                           reason=decision["reason"] or "rejected", rule="model, re-checked with the project searched")

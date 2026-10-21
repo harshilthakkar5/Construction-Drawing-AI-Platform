@@ -699,6 +699,7 @@ def test_a_by_others_rejection_of_a_geometry_question_is_kept_low():
     kept = rfi_review.kept_for_coordination(_WALL, reject)
     assert kept["decision"] == "keep" and kept["confidence"] == "low"
     assert "another party" in kept["question"] and "submittal" in kept["question"]
+    assert rfi_review.delegated(dict(reject, reason="S4.10 detail 13 assigns both to the specialty retention subcontractor."), _WALL)
     assert not re.search(r"\d", kept["question"].replace("13/S4.10", "").replace("2.31", "").replace("XA", ""))
 
 
@@ -752,3 +753,38 @@ def test_a_sheet_with_no_deferred_dimension_gets_no_aid():
     page.insert_text((100, 100), "T.O.C.", fontsize=8)
     page.insert_text((100, 112), "SEE PLAN", fontsize=8)
     assert review_aids.deferred_dimensions(page, "S4.01") is None
+
+
+def test_a_verdict_with_no_decision_field_is_read_from_its_shape():
+    """Sonnet 5.5 left `decision` out of a whole batch; RFI 008 had its question written."""
+    raw = json.dumps({"decisions": [
+        {"index": 0, "reason": "Not printed anywhere.", "basis": "", "subject": "Wall size", "question": "What is the wall thickness?"},
+        {"index": 1, "reason": "Generic.", "basis": "not_visible", "question": ""},
+        {"index": 2, "reason": "Generic.", "basis": "", "question": ""},
+        {"index": 3, "decision": "reject", "reason": "Shown on S4.10.", "basis": "", "question": "What is it?"},
+    ]})
+    d = rfi_review.parse_decisions(raw, 4)
+    assert [d[i]["decision"] for i in range(4)] == ["keep", "reject", "reject", "reject"]
+
+
+def test_verification_is_shown_the_aids_of_the_pages_it_reads():
+    def ev(i, kind, page):
+        return rfi_review.Evidence(id=f"ev{i}", kind=kind, document_id="d", page_number=page, combined_page_number=page,
+                                   sheet_number=f"S{page}", side=None, bbox=None, text="x")
+    evidence = {e.id: e for e in (ev(1, "text", 74), ev(2, "aid", 74), ev(3, "aid", 78), ev(4, "text", 25))}
+    assert rfi_review.with_page_aids(["ev1", "ev4"], evidence) == ["ev1", "ev2", "ev4"]
+    assert rfi_review.with_page_aids([], evidence) == []
+
+
+def test_a_rejection_of_a_deferred_value_problem_must_show_the_value():
+    """Leland RFI 002: "the details give the offset only as SEE PLAN, and the plans show none"."""
+    problem = {"issue": "The wall-at-pier details give the offset only as 'SEE PLAN'. The plans show no pier offset dimensions.",
+               "why": ""}
+    unsupported = {"decision": "reject", "basis": "not_visible", "answeredBy": [],
+                   "reason": "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."}
+    assert rfi_review.contested(unsupported, {"ev1"}, problem)
+    assert not rfi_review.contested(unsupported, {"ev1"})  # the old reading, wording only
+    # Citing evidence that prints the value settles it.
+    assert not rfi_review.contested(dict(unsupported, answeredBy=["ev1"]), {"ev1"}, problem)
+    # A problem not about a deferred value is judged as before.
+    assert not rfi_review.contested(unsupported, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
