@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightIcon, CornerDownRightIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_CHECK_LABELS,
   RFI_CUSTOM_QUESTION_CHARS,
@@ -203,6 +203,34 @@ export function LibraryPicker({
   );
 }
 
+/** One checkbox for a whole list: ticked when all are chosen, a dash when
+ * some are; clicking selects all, or clears all when all are chosen. */
+export function AllBox({
+  count,
+  total,
+  onChange,
+  label = "Select all",
+  className = "",
+}: {
+  count: number;
+  total: number;
+  onChange: (on: boolean) => void;
+  label?: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = count > 0 && count < total;
+  }, [count, total]);
+  return (
+    <label className={`flex cursor-pointer items-center gap-1.5 select-none ${className}`}>
+      <input ref={ref} type="checkbox" className="size-3.5" checked={total > 0 && count === total} disabled={!total}
+        onChange={() => onChange(count < total)} />
+      {label}
+    </label>
+  );
+}
+
 export function QuestionTree({
   projectId,
   element,
@@ -338,14 +366,12 @@ export function QuestionTree({
         <p className={`${t} font-medium`}>
           {roomy ? "Questions" : "2 · Questions"} <span className="text-muted-foreground font-normal">({selected.filter((id) => all.some((q) => q.id === id)).length} of {all.length})</span>
         </p>
-        <span className={`flex gap-2 ${small}`}>
-          <button type="button" className="hover:underline" onClick={() => toggle(all.map((q) => q.id), true)}>
-            All
-          </button>
-          <button type="button" className="hover:underline" onClick={() => toggle(all.map((q) => q.id), false)}>
-            None
-          </button>
-        </span>
+        <AllBox
+          className={small}
+          count={selected.filter((id) => all.some((q) => q.id === id)).length}
+          total={all.length}
+          onChange={(on) => toggle(all.map((q) => q.id), on)}
+        />
       </div>
       <div className={`flex flex-col gap-3 overflow-y-auto pr-1 ${t} ${roomy ? "" : "max-h-96"}`}>
         {ordered.map(([group, qs]) => (
