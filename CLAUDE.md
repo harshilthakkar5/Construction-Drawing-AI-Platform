@@ -2921,7 +2921,11 @@ kept (`CE-04-01-Q03`), every row imported ON — red-filled rows (the client's "
 user's request (21 Oct: 120 elements, 572 questions); `active` stays in the format for an element switched off,
 universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
 not the client's) ties items to the original 17 questions and to code checks, and an import that
-drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
+drops a linked id fails. `ADDED` in the importer holds questions of OURS the workbook does not ask,
+appended to an element with ids `-X01..` and `added: true` (a re-import keeps them): CE-01-02-X01 and
+CE-08-01-X01 ask whether every level has its plan and run `missing_plan_level`, whose finding is about
+the SET and is kept whatever sheets the review read (`rfi_review.SET_CODE_CHECKS`) — no element review
+could find UT Law RFI 007 before. A project's own questions are rows in `rfi_custom_questions`, under an
 element or as follow-ups under any question of it, to any depth (`GET/POST/PATCH/DELETE
 /projects/:id/rfis/library`, `apps/api/src/rfiLibrary.ts` builds the tree). Nothing runs these
 questions yet — that is Phase 4. Phase 3 is the picker (`components/LibraryPicker.tsx`, the

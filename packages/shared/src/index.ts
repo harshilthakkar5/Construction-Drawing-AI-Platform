@@ -1965,6 +1965,8 @@ export interface RfiLibraryFile {
     active: boolean;
     catalogue: RfiReviewCheckId[];
     codeChecks: RfiCheckType[];
+    /** Ours, not the client's workbook (rfiLibraryImport ADDED). */
+    added?: boolean;
   }[];
   /** U-01..: asked of every element, `{element}` filled with its name. */
   universal: { id: string; category: string; template: string; codeChecks: RfiCheckType[] }[];

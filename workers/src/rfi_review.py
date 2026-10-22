@@ -545,6 +545,11 @@ _TRUST_RULES = (
 # project, filtered to the review's sheets; element_marks / column_schedule on
 # the sheets themselves). Grid naming and the column overlay run as G01 / C01.
 TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", "tag_value_conflict", "missing_plan_level")
+# Checks whose finding is about the SET, kept whatever sheets the review read:
+# a level missing from a series stands on the sheet index and the plans either
+# side of the gap, and "is there a plan for every level" cannot be answered by
+# the one to four sheets a review picked.
+SET_CODE_CHECKS = ("missing_plan_level",)
 PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
@@ -676,7 +681,8 @@ def _sizes_columns(open_page, p: dict) -> bool:
 def library_code_findings(project_id: str, scope: dict, check_types: set[str], open_page) -> tuple[list, list[str]]:
     """The code checks a review's questions link to, on the review's sheets
     only. Text checks read the whole project (a mark's schedule is usually on
-    another sheet) and keep only findings standing on a reviewed page."""
+    another sheet) and keep only findings standing on a reviewed page — except
+    SET_CODE_CHECKS, whose findings are about the set as a whole."""
     wanted = check_types & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)
     if not wanted:
         return [], []
@@ -687,7 +693,7 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     text = wanted & set(TEXT_CODE_CHECKS)
     if text:
         found, more = rfi_checks.run_all(pages, chunks, None, only=text)
-        findings += [f for f in found if on_mine(f)]
+        findings += [f for f in found if f.check_type in SET_CODE_CHECKS or on_mine(f)]
         notes += more
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import column_schedule

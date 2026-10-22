@@ -29,7 +29,7 @@ const offFile = {
 describe("the shipped library (the client's workbook)", () => {
   it("has every element and question on, the client's red rows included", () => {
     expect(file.elements.filter((e) => e.active)).toHaveLength(120);
-    expect(file.questions.filter((q) => q.active)).toHaveLength(572);
+    expect(file.questions.filter((q) => q.active && !q.added)).toHaveLength(572);
     expect(file.packages.filter((p) => !p.active)).toEqual([]);
   });
 
@@ -125,7 +125,7 @@ describe("readLibrary (the importer)", () => {
   }
 
   it("imports red rows ON, their questions with them, and keeps the links", async () => {
-    const lib = await readLibrary(await workbook(), { "CE-01-01-Q01": { codeChecks: ["grid_mismatch"] } });
+    const lib = await readLibrary(await workbook(), { "CE-01-01-Q01": { codeChecks: ["grid_mismatch"] } }, []);
     expect(lib.packages).toEqual([{ id: "01", name: "Setup", active: true }, { id: "02", name: "Subgrade", active: true }]);
     expect(lib.elements.map((e) => [e.id, e.active])).toEqual([["CE-01-01", true], ["CE-02-01", true]]);
     expect(lib.elements[0]!.compareAcross).toEqual(["Arch plans", "Struct plans"]);
@@ -134,8 +134,24 @@ describe("readLibrary (the importer)", () => {
     expect(lib.universal.map((x) => x.id)).toEqual(["U-01"]);
   });
 
+  it("appends our own questions, marked, and refuses one on an element the workbook dropped", async () => {
+    const ours = { id: "CE-01-01-X01", elementId: "CE-01-01", category: "Missing", text: "Every level?", whereToLook: [], codeChecks: ["missing_plan_level" as const] };
+    const lib = await readLibrary(await workbook(), {}, [ours]);
+    const q = lib.questions.find((x) => x.id === "CE-01-01-X01");
+    expect(q).toMatchObject({ elementId: "CE-01-01", added: true, active: true, codeChecks: ["missing_plan_level"] });
+    expect(lib.questions.find((x) => x.id === "CE-01-01-Q01")?.added).toBeUndefined();
+    await expect(readLibrary(await workbook(), {}, [{ ...ours, elementId: "CE-09-09" }])).rejects.toThrow(/CE-09-09/);
+    await expect(readLibrary(await workbook(), {}, [{ ...ours, id: "CE-01-01-Q01" }])).rejects.toThrow(/already uses/);
+  });
+
+  it("ships a question asking whether every level has its plan, answered by the missing-level check", () => {
+    const ours = file.questions.filter((q) => q.added);
+    expect(ours.map((q) => q.id).sort()).toEqual(["CE-01-02-X01", "CE-08-01-X01"]);
+    expect(ours.every((q) => q.codeChecks.includes("missing_plan_level"))).toBe(true);
+  });
+
   it("refuses a link to an id the new workbook dropped", async () => {
-    await expect(readLibrary(await workbook(), { "CE-09-09": { catalogue: ["G01"] } })).rejects.toThrow(/CE-09-09/);
+    await expect(readLibrary(await workbook(), { "CE-09-09": { catalogue: ["G01"] } }, [])).rejects.toThrow(/CE-09-09/);
   });
 });
 
