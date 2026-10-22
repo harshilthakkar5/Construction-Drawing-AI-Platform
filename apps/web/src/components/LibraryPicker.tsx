@@ -416,6 +416,7 @@ export function SheetPicker({
   suggested,
   onChange,
   roomy = false,
+  heading,
 }: {
   projectId: string;
   sheets: LibrarySheet[];
@@ -424,6 +425,7 @@ export function SheetPicker({
   onChange: (sheets: string[]) => void;
   /** Larger text and thumbnails, for the Create RFI dialog. */
   roomy?: boolean;
+  heading?: string;
 }) {
   const t = roomy ? "text-sm" : "text-xs";
   const [typed, setTyped] = useState("");
@@ -448,9 +450,9 @@ export function SheetPicker({
   const sameAsSuggested = suggested.length > 0 && suggested.every((s) => value.includes(s)) && value.length === suggested.length;
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex min-w-0 flex-col gap-2">
       <p className={`${t} font-medium`}>
-        {roomy ? "Sheets to read" : "3 · Sheets to read"} <span className="text-muted-foreground font-normal">(as many as you need)</span>
+        {heading ?? (roomy ? "Sheets to read" : "3 · Sheets to read")} <span className="text-muted-foreground font-normal">(as many as you need)</span>
       </p>
       {value.length > 0 && (
         <ul className="flex flex-wrap gap-2">

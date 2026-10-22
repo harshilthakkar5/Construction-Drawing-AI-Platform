@@ -2974,6 +2974,7 @@ one by one, never the server's project-wide accept-all, which would take every s
 An RFI accepted by mistake goes back with "Back to review" (`POST /rfis/generated/from-rfi/:rfiId/return`):
 only an RFI made from a finding, draft or open, unanswered; the RFI is VOIDED (its number is never
 freed, it may already be quoted) and the finding is pending again, in one transaction.
+The work column opens on RFIs (`store.workTab`). The RFI log's default filter is "All but voided": an RFI sent "Back to review" is VOIDED by design (its number may be quoted) and its finding is pending again under its Create RFI card or the chat list, so voided rows sit behind a "N voided hidden. Show" link instead of cluttering the log. "Add manually" pins as many sheets as wanted through the same `SheetPicker` (search + checkboxes) the Create RFI dialog uses; only pages with a read sheet number can be picked there.
 The marked-up PDF preview is a Radix Dialog: it opens from inside other dialogs, and the old overlay,
 portalled outside them, made a click or scroll in the PDF close the parent dialog and itself with it.
 
