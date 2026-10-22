@@ -104,5 +104,19 @@ export const useAppStore = create<AppState>((set) => ({
   workTab: "rfis",
   setWorkTab: (workTab) => set({ workTab }),
   openRfiSetId: null,
-  setOpenRfiSetId: (openRfiSetId) => set({ openRfiSetId }),
+  // An open RFI is a browser history entry, so the Back button closes it.
+  setOpenRfiSetId: (openRfiSetId) => {
+    if (openRfiSetId) {
+      window.history.pushState({ rfiSet: openRfiSetId }, "");
+      set({ openRfiSetId });
+    } else if (window.history.state?.rfiSet) {
+      window.history.back(); // the popstate listener below clears it
+    } else {
+      set({ openRfiSetId: null });
+    }
+  },
 }));
+
+window.addEventListener("popstate", (event) => {
+  useAppStore.setState({ openRfiSetId: (event.state as { rfiSet?: string } | null)?.rfiSet ?? null });
+});
