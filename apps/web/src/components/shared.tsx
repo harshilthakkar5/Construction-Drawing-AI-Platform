@@ -1,4 +1,4 @@
-import { CalendarIcon, Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
+import { ArrowUpRightIcon, CalendarIcon, Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -250,6 +250,33 @@ export function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A sheet reference that opens it in the viewer: the sheet number in mono, the page beside it. */
+export function SheetLink({
+  sheet,
+  page,
+  onOpen,
+  title,
+}: {
+  sheet: string | null;
+  page: number | null;
+  onOpen: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={page === null}
+      title={title ?? (page === null ? "This sheet is no longer in the project" : `Open page ${page}`)}
+      className="border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary focus-visible:ring-ring/50 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 align-middle font-mono text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-60"
+    >
+      {sheet ?? `page ${page}`}
+      {sheet && page !== null && <span className="text-muted-foreground font-normal">p.{page}</span>}
+      <ArrowUpRightIcon className="size-3" />
+    </button>
   );
 }
 

@@ -3226,8 +3226,10 @@ dark mode is a variable swap — the `.dark` class on `<html>`, driven by
 `components/theme-provider.tsx` (light / dark / system, persisted). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
-`PageLoading`); charts read their colours from `charts/palette.ts`, which resolves to those same
-tokens. The shadcn sources target React 19 — on this app's React 18, any component used as a
+`PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an
+outlined mono chip with the page and an arrow); charts read their colours from `charts/palette.ts`, which resolves to those same
+tokens. Type is IBM Plex Sans (UI) + IBM Plex Mono (sheet numbers, marks), self-hosted through
+`@fontsource` in `main.tsx` so a LAN or offline install needs no font CDN. The shadcn sources target React 19 — on this app's React 18, any component used as a
 Radix `asChild` trigger (`Button`, `SidebarMenuButton`, `Input`, `Textarea`) must keep its
 `forwardRef`.
 

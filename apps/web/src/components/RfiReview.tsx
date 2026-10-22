@@ -29,7 +29,7 @@ import {
 } from "@cdip/shared";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { api } from "@/api";
-import { ConfirmDialog, Notice, Spinner } from "@/components/shared";
+import { ConfirmDialog, Notice, SheetLink, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -98,11 +98,6 @@ const checkLabel = (checkType: string) =>
   (RFI_CHECK_LABELS as Record<string, string>)[checkType] ??
   RFI_REVIEW_CHECKS.find((c) => c.id === checkType)?.label ??
   (/^CE-\d/.test(checkType) ? `Library question ${checkType}` : checkType);
-
-function evidenceLabel(e: RfiEvidenceDto): string {
-  const page = e.combinedPageNumber ?? e.pageNumber;
-  return e.sheetNumber ? `${e.sheetNumber} · page ${page}` : `page ${page}`;
-}
 
 const tokens = (n: number) => n.toLocaleString();
 
@@ -946,15 +941,12 @@ function EvidenceLine({
   const page = evidence.combinedPageNumber;
   return (
     <li className="text-xs">
-      <button
-        type="button"
-        className="text-primary hover:underline disabled:no-underline disabled:opacity-60"
-        disabled={page === null}
-        onClick={() => onOpen(page, evidence.bbox ?? undefined)}
-      >
-        {evidence.verification === "not_verified" ? "Not verified, check: " : context ? "Checked against " : ""}
-        {evidenceLabel(evidence)}
-      </button>
+      {evidence.verification === "not_verified" ? "Not verified, check: " : context ? "Checked against " : ""}
+      <SheetLink
+        sheet={evidence.sheetNumber}
+        page={page ?? evidence.pageNumber}
+        onOpen={() => onOpen(page, evidence.bbox ?? undefined)}
+      />
       {evidence.kind === "page" || evidence.kind === "crop" ? (
         <span className="text-muted-foreground">
           {" "}
