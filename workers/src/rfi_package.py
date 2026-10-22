@@ -48,7 +48,7 @@ from generated import rfi_package_key
 
 log = logutil.get("rfi_package")
 
-RED = (0.9, 0.0, 0.0)
+RED = (220 / 255, 38 / 255, 38 / 255)  # #DC2626, the app's cloud red
 # Context (a supporting note, a typical detail, an occurrence nobody verified)
 # is outlined in this, dashed, never clouded: a cloud says "the problem is
 # HERE", and a referenced note is not where the problem is.

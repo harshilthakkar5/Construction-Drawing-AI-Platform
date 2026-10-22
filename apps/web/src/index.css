@@ -58,6 +58,12 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chat: var(--chat);
+  --color-chat-answer: var(--chat-answer);
+  --color-chat-input: var(--chat-input);
+  --color-blueprint: var(--blueprint);
+  --color-logo: var(--logo);
+  --color-logo-foreground: var(--logo-foreground);
 
   /* Self-hosted (@fontsource in main.tsx), so LAN and offline installs need no font CDN. */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -100,6 +106,15 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Surfaces that had no token of their own. Neutral values are what these
+     surfaces already used, so the neutral palette looks exactly as before. */
+  --chat: var(--card);
+  --chat-answer: var(--card);
+  --chat-input: transparent;
+  --blueprint: oklch(0.145 0 0);
+  --logo: var(--primary);
+  --logo-foreground: var(--primary-foreground);
 
   /* Categorical series — see charts/palette.ts for the ordering rules. */
   --chart-1: oklch(0.646 0.222 41.116);
@@ -161,6 +176,80 @@
   --status-uploaded: oklch(0.685 0.156 254);
   --status-failed: oklch(0.704 0.191 22.216);
   --status-empty: oklch(0.65 0 0);
+}
+
+/* "Teal" palette (default; switchable back to the neutral one in the theme menu).
+   Applied by data-palette on <html>, so it overrides :root and .dark above. */
+html[data-palette="teal"] {
+  --background: #f0f7f7;
+  --foreground: #10262b;
+  --card: #ffffff;
+  --card-foreground: #10262b;
+  --popover: #ffffff;
+  --popover-foreground: #10262b;
+  --primary: #22656a;
+  --primary-foreground: #ffffff;
+  --secondary: #e3f0ef;
+  --secondary-foreground: #17454a;
+  --muted: #e9f2f1;
+  --muted-foreground: #5a7276;
+  --accent: #e3f0ef;
+  --accent-foreground: #17454a;
+  --border: #dce8e7;
+  --input: #dce8e7;
+  --ring: #22656a;
+
+  --sidebar: #e9f2f1;
+  --sidebar-foreground: #10262b;
+  --sidebar-primary: #22656a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e3f0ef;
+  --sidebar-accent-foreground: #17454a;
+  --sidebar-border: #dce8e7;
+  --sidebar-ring: #22656a;
+
+  --chat: #edf5f4;
+  --chat-answer: #ffffff;
+  --chat-input: #f5faf9;
+  --blueprint: #173d43;
+  --logo: #e3f0ef;
+  --logo-foreground: #22656a;
+}
+
+html[data-palette="teal"].dark {
+  --background: #111b24;
+  --foreground: #e3efee;
+  --card: #182a30;
+  --card-foreground: #e3efee;
+  --popover: #182a30;
+  --popover-foreground: #e3efee;
+  --primary: #78c6bc;
+  --primary-foreground: #0e2226;
+  --secondary: #254247;
+  --secondary-foreground: #e3efee;
+  --muted: #1d343b;
+  --muted-foreground: #93adac;
+  --accent: #254247;
+  --accent-foreground: #e3efee;
+  --border: #23393f;
+  --input: #213a41;
+  --ring: #78c6bc;
+
+  --sidebar: #14252c;
+  --sidebar-foreground: #e3efee;
+  --sidebar-primary: #78c6bc;
+  --sidebar-primary-foreground: #0e2226;
+  --sidebar-accent: #254247;
+  --sidebar-accent-foreground: #e3efee;
+  --sidebar-border: #23393f;
+  --sidebar-ring: #78c6bc;
+
+  --chat: #16282e;
+  --chat-answer: #1d343b;
+  --chat-input: #213a41;
+  --blueprint: #173d43;
+  --logo: #e3f0ef;
+  --logo-foreground: #22656a;
 }
 
 @layer base {

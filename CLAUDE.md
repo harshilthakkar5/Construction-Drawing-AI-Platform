@@ -3223,7 +3223,12 @@ Every colour is a semantic token defined for both themes in `apps/web/src/index.
 (`background`, `card`, `muted`, `primary`, `border`, `sidebar`, `destructive`, `success`,
 `warning`, plus `chart-1..5` and `status-*` for data viz). Components never carry a raw hex, and
 dark mode is a variable swap — the `.dark` class on `<html>`, driven by
-`components/theme-provider.tsx` (light / dark / system, persisted). Build UI out of the
+`components/theme-provider.tsx` (light / dark / system, persisted). A PALETTE is chosen
+separately (`html[data-palette]`, `cdip-palette`, set in `main.tsx` before the first paint): "teal"
+(default; the client's palette, `#22656A` / `#78C6BC` primaries) overrides the tokens of the original
+"neutral" one, which stays selectable from the same menu. Surfaces that had no token now do —
+`chat`, `chat-answer`, `chat-input`, `blueprint` (login panel), `logo` — with neutral values equal to
+what they drew before. Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an

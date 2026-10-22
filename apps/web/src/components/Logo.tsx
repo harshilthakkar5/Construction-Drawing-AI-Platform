@@ -9,7 +9,7 @@ export function LogoMark({ className }: { className?: string }) {
     <svg
       viewBox="0 0 34 34"
       aria-hidden
-      className={cn("bg-primary text-primary-foreground size-9 shrink-0 rounded-lg", className)}
+      className={cn("bg-logo text-logo-foreground size-9 shrink-0 rounded-lg", className)}
     >
       {/* plan grid */}
       <g stroke="currentColor" strokeOpacity="0.35" strokeWidth="1">

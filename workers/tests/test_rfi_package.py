@@ -119,7 +119,7 @@ def test_the_cloud_lands_on_the_evidence_and_the_callout_on_the_sheet(rotation):
     kinds = {a.type[1]: a for a in sheet.annots()}
     assert set(kinds) == {"Polygon", "FreeText", "Line"}
     cloud = kinds["Polygon"]
-    assert cloud.border["clouds"] == 2 and tuple(round(c, 1) for c in cloud.colors["stroke"]) == rp.RED
+    assert cloud.border["clouds"] == 2 and all(abs(a - b) < 0.01 for a, b in zip(cloud.colors["stroke"], rp.RED))
     # The cloud is round the word itself — read back by clipping the drawing,
     # not by comparing the cloud with the box it was made from.
     assert "C-6" in _clouded_words(sheet)
