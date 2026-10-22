@@ -594,7 +594,7 @@ def library_checks(scope: dict) -> dict[str, dict]:
     out = {}
     for q in lib.get("questions") or []:
         out[q["id"]] = {
-            "label": f"{element.get('name') or 'Element'} — {q.get('category') or 'your question'}",
+            "label": f"{element.get('name') or 'Element'}: {q.get('category') or 'your question'}",
             "originalQuestion": q["text"],
             "requiredObservations": record or ["what the question asks about, as printed"],
             "comparisonRules": "Compare the same element across the sheets given (plan, schedule, section, detail); "
@@ -1601,7 +1601,7 @@ def occurrence_wording(verdict: OccurrenceVerdict) -> tuple[str, str]:
     def line(o) -> str:
         off = ", ".join(o.unresolved())
         on = [a.name for a in (o.x, o.y) if a is not None and a.state == "centred"]
-        return f"{o.where()} — off grid line {off}" + (f" (centred on {', '.join(on)})" if on else "")
+        return f"{o.where()}, off grid line {off}" + (f" (centred on {', '.join(on)})" if on else "")
 
     occs = [o for _, o in verdict.supported]
     if len(occs) == 1:
@@ -1642,7 +1642,7 @@ def occurrence_evidence(verdict: OccurrenceVerdict) -> list[dict]:
             "sheetNumber": p.get("sheetNumber"),
             "bbox": {"x": o.unrotated.x0, "y": o.unrotated.y0, "width": o.unrotated.width, "height": o.unrotated.height},
             "chunkId": None,
-            "quote": _clip(o.summary() if verified else f"NOT VERIFIED — {o.summary()}", 220),
+            "quote": _clip(o.summary() if verified else f"NOT VERIFIED: {o.summary()}", 220),
             "role": "finding" if verified else "context",
             "evidenceId": None,
             "kind": "occurrence",
@@ -1663,7 +1663,7 @@ def occurrence_reasoning(verdict: OccurrenceVerdict) -> str:
     if verdict.resolved:
         parts.append("Removed (centred on grid lines both ways): " + "; ".join(o.where() for _, o in verdict.resolved) + ".")
     if verdict.unknown:
-        parts.append("Not verified — a person must check: " + "; ".join(f"{o.where()} ({o.reason})" for _, o in verdict.unknown) + ".")
+        parts.append("Not verified, check on the sheet: " + "; ".join(f"{o.where()} ({o.reason})" for _, o in verdict.unknown) + ".")
     parts.append(
         "Measured from the PDF geometry near each column only; schedules, enlarged plans and details elsewhere were "
         "not searched by measurement."
@@ -1691,7 +1691,7 @@ def uncovered_occurrences(measured: dict[tuple[str, int], OccurrencePage], cover
             if o.status == column_locate.LOCATED or (doc, page_no, o.ident) in covered:
                 continue
             why = (
-                "measured off grid and not raised by this review — confirm a dimension, note or detail locates it"
+                "measured off grid and not raised by this review. Confirm a dimension, note or detail locates it"
                 if o.status == column_locate.OFF_GRID else f"needs manual verification: {o.reason}"
             )
             out.append({"checkId": "C03", "field": f"location of {o.where()} on {sheet}", "reason": why})
@@ -1820,8 +1820,8 @@ def _ask(
             tries = 1 + len(CALL_RETRY_DELAYS)
             raise StageFailed(
                 stage,
-                f"the {stage} call to the model failed {tries} times in a row — see the worker log "
-                "for the provider's error (a 503 or 429 is the provider being busy: start the review again later)",
+                f"the {stage} call to the model failed {tries} times in a row. The worker log has the provider's "
+                "error; a 503 or 429 means the provider is busy, so start the review again later",
             )
         stage_usage.add(reply)
         parsed = parse(reply.text)
@@ -2304,7 +2304,7 @@ def already_found(status: str, origin: str, rfi_number: int | None, rfi_status: 
         tail = " (voided)" if rfi_status == "void" else ""
         return f"already RFI {rfi_number:03d}{tail} in the RFI log"
     if status == "dismissed":
-        return "dismissed earlier — restore it under “Dismissed” in Needs your review to accept it"
+        return "dismissed earlier. To accept it, restore it under “Dismissed” in Needs your review"
     if origin == "deterministic_scan":
         return "already waiting in Needs your review (found by Find RFIs in drawings)"
     return "already waiting in Needs your review"
@@ -2688,7 +2688,7 @@ def _diag_start(run: dict):
         return None
     rec.write_json("evidence/pages.json", {
         "indexing": "pageNumber is ONE-based within its file; combinedPageNumber is ONE-based across the project",
-        "sheetRevision": "unknown — this system does not read the revision from the title block",
+        "sheetRevision": "unknown (this system does not read the revision from the title block)",
         "pages": [
             {"pageId": r[0], "documentId": r[1], "filename": r[2], "documentUploadVersion": r[3], "pageNumber": r[4],
              "combinedPageNumber": r[5], "sheetNumber": r[6], "rotation": r[7], "pdfWidthPt": r[8],

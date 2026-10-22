@@ -327,8 +327,8 @@ class Occurrence:
         tail = {
             LOCATED: "located by the grid in both directions, so no offset dimension is needed",
             OFF_GRID: "off grid with no locating dimension printed near it",
-        }.get(self.status, "not settled by measurement — a person must check" if not self.dimensions_near else self.reason)
-        return f"{self.where()}: {axes} — {tail}"
+        }.get(self.status, "not settled by measurement; check it on the sheet" if not self.dimensions_near else self.reason)
+        return f"{self.where()}: {axes}. {tail[:1].upper()}{tail[1:]}"
 
     def unresolved(self) -> list[str]:
         """The grid lines this occurrence is OFF (the coordinates a dimension
@@ -372,7 +372,7 @@ def settle(occ: Occurrence) -> Occurrence:
             occ.status = UNKNOWN
             occ.reason = (
                 f"off grid line {', '.join(occ.unresolved())}, but a printed dimension "
-                f"({occ.dimensions_near[0]}) is near it and may locate it — a person must check"
+                f"({occ.dimensions_near[0]}) is near it and may locate it; check it on the sheet"
             )
         elif any(s in (FACE, UNCERTAIN, NO_GRID) for s in states):
             occ.status = OFF_GRID
@@ -383,7 +383,7 @@ def settle(occ: Occurrence) -> Occurrence:
     else:
         unsettled = [a for a in (occ.x, occ.y) if a.state != CENTRED]
         occ.status = UNKNOWN
-        occ.reason = "; ".join(a.describe(occ.pt_per_ft) for a in unsettled) + " — not settled by measurement"
+        occ.reason = "; ".join(a.describe(occ.pt_per_ft) for a in unsettled) + "; not settled by measurement"
     return occ
 
 

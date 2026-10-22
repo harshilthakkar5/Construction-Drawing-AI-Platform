@@ -260,23 +260,22 @@ def comparable_alignments(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) ->
     if a.level and b.level and a.level != b.level:
         return [], (
             f"Column comparison: {a.label} ({a.level.title()}) and {b.label} ({b.level.title()}) show different "
-            "levels, so their columns were not compared — columns stop, move and change size between floors "
-            "by design."
+            "levels, so their columns were not compared: columns change between floors by design."
         )
     same_discipline = bool(a.page.discipline) and a.page.discipline == b.page.discipline
     if same_discipline and any(abs(al.scale - 1) <= 1e-6 for al in alignments):
         kept = [al for al in alignments if abs(al.scale - 1) > 1e-6]
         return kept, (
             f"Column comparison: {a.label} and {b.label} are both {a.page.discipline} sheets at the same scale, so "
-            "they were not compared — when one discipline draws an area twice at one scale (a floor plan beside a "
-            "life-safety, ceiling or exhibit plan), each leaves out what the other shows by design."
+            "they were not compared. Such pairs (a floor plan beside a life-safety, ceiling or exhibit plan) "
+            "each leave out what the other shows by design."
         )
     kept = [al for al in alignments if abs(al.scale - 1) > 1e-6 or (a.level and a.level == b.level)]
     if len(kept) < len(alignments):
         return kept, (
             f"Column comparison: {a.label} and {b.label} line up at the same scale, but "
             + ("neither names" if not (a.level or b.level) else "only one names")
-            + " its level in a plan title, so they were not compared — two same-scale plans are usually two "
+            + " its level in a plan title, so they were not compared: two same-scale plans are usually two "
             "different floors."
         )
     return kept, None
@@ -302,12 +301,12 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
         where = f"{a.label} {detail}" if detail else a.label
         notes.append(
             f"Column comparison: {where} laid over {b.label} ({ratio_text}, scale ratio "
-            f"{al.scale:g}) — {matched} columns line up, {len(diffs)} differ."
+            f"{al.scale:g}): {matched} columns line up, {len(diffs)} differ."
         )
         if len(every) > MAX_DIFF_SHARE * matched:
             notes.append(
-                f"Column comparison: {where} over {b.label} was set aside — {len(every)} differences "
-                f"against {matched} matching columns means the two probably do not show the same area."
+                f"Column comparison: {where} over {b.label} was set aside: {len(every)} differences "
+                f"against {matched} matching columns, so they probably do not show the same area."
             )
             continue
         if not diffs:

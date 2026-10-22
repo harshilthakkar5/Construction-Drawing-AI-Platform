@@ -198,17 +198,17 @@ def kept_out_note(excluded: dict[str, int], read: int,
     stored reason ("by a person", "filename", "form text") says who switched it."""
     parts = []
     if excluded.get("notProcessed"):
-        parts.append(f"{excluded['notProcessed']} page(s) belong to a document still processing — wait until the "
-                     "Docs tab shows it completed, then close this plan and plan again")
+        parts.append(f"{excluded['notProcessed']} page(s) belong to a document still processing. When the Docs tab "
+                     "shows it completed, close this plan and plan again")
     if excluded.get("excludedFromRfi"):
         named = "; ".join(f'"{name}" ({reason or "no reason recorded"})' for name, reason in excluded_documents[:3])
         more = f" and {len(excluded_documents) - 3} more" if len(excluded_documents) > 3 else ""
-        which = f" — {named}{more}" if named else ""
+        which = f" ({named}{more})" if named else ""
         parts.append(f"{excluded['excludedFromRfi']} page(s) belong to a document excluded from RFI analysis{which}. "
-                     "If it is a drawing set rather than an issued RFI, tick \"RFI review input\" for it in the Docs "
+                     "If it is a drawing set, not an issued RFI, tick \"RFI review input\" for it in the Docs "
                      "tab, then close this plan and plan again")
     if excluded.get("superseded"):
-        parts.append(f"{excluded['superseded']} page(s) are old revisions replaced by a newer upload (correct to leave out)")
+        parts.append(f"{excluded['superseded']} page(s) are old revisions replaced by a newer upload (correctly left out)")
     if not parts:
         return None
     lead = "No page could be read: " if read == 0 else "Kept out of this scan: "
@@ -245,12 +245,12 @@ def no_pairs_note(skipped: dict[str, list[str]], top: int = 3, scope=None) -> st
                      if why not in (OUTSIDE_SCOPE, OUTSIDE_SCOPE_PAIR)),
                     key=lambda kv: (-len(kv[1]), kv[0]))[:top]
     if scope is not None and not (scope.a == scan_scope.ALL and scope.b == scan_scope.ALL):
-        lead = (f"No sheet pair fits this comparison ({scan_scope.describe(scope)}), so there is nothing for the AI "
-                "to compare. A pair is two plans of the same level at a common scale, one from each chosen "
-                "discipline — or, within one discipline, an enlarged plan with its overall plan.")
+        lead = (f"No sheet pair fits this comparison ({scan_scope.describe(scope)}), so the AI has nothing to "
+                "compare. A pair is two plans of one level at a common scale, one per chosen discipline, "
+                "or an enlarged plan with its overall plan.")
     else:
-        lead = ("No two sheets could be paired and lined up, so there is nothing for the AI to compare. "
-                "The full scan compares plans of the same level from two disciplines, or an enlarged plan with its "
+        lead = ("No two sheets could be paired and lined up, so the AI has nothing to compare. "
+                "The scan compares plans of one level from two disciplines, or an enlarged plan with its "
                 "overall plan.")
     lines = [lead]
     if ranked:

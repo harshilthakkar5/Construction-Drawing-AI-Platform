@@ -217,7 +217,7 @@ def gaps(series: dict[tuple[str | None, str], Series], index: list[IndexEntry] |
                     notes.append(
                         f"{display(name)} - Level {level} is listed in the sheet index as {entry.sheet}, "
                         f"which is not in the upload, along with {len(absent) - 1} other "
-                        f"{display(name)} sheet(s) — upload the rest of the set to check it.")
+                        f"{display(name)} sheet(s). Upload the rest of the set to check it.")
                 continue
             others = [o for (d, n), o in series.items()
                       if d == discipline and o is not s and level in o.levels

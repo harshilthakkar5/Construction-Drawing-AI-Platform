@@ -434,7 +434,7 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
         shown = ", ".join(f"{x} / {y}" for x, y in sorted(other_scale)[:6])
         notes.append(
             f"Grid check: {len(other_scale)} sheet pair(s) print different drawing scales and were not "
-            f"compared ({shown}{'…' if len(other_scale) > 6 else ''}) — an enlarged plan and an overall plan "
+            f"compared ({shown}{'…' if len(other_scale) > 6 else ''}): an enlarged plan and an overall plan "
             "line up on paper only by coincidence."
         )
     if several_views:

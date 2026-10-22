@@ -932,7 +932,7 @@ def test_the_summary_tells_nothing_new_from_nothing_wrong():
     """The real run: 20 possible problems, 5 rejected before the close look,
     13 on it, one kept and rejected by a rule, one kept and already dismissed.
     "0 findings" alone said none of that."""
-    dismissed = "dismissed earlier — restore it under “Dismissed” in Needs your review to accept it"
+    dismissed = "dismissed earlier. To accept it, restore it under “Dismissed” in Needs your review"
     tiles = [
         ("done", "issues", [{"verdict": {"decision": "reject", "reason": "x"}}] * 18
          + [{"verdict": {"decision": "keep", "subject": "C-10.S", "foundAgain": dismissed, "fingerprint": "fp1"}},
@@ -1090,7 +1090,7 @@ def test_a_scoped_run_asks_only_its_questions_and_files_the_persons_own_as_custo
         summary, = conn.execute("SELECT summary FROM rfi_full_scans WHERE id = %s", (seed["scan"],)).fetchone()
         answers = [r[0] for r in conn.execute(
             'SELECT answers FROM rfi_full_scan_tiles WHERE "scanId" = %s ORDER BY "tileIndex"', (seed["scan"],))]
-    assert (check_type, confidence) == ("custom", "medium") and reasoning.startswith(f'Your question: "{own}" — ')
+    assert (check_type, confidence) == ("custom", "medium") and reasoning.startswith(f'Your question: "{own}": ')
     # G01 was not asked, so its answer is dropped; Q1 is "issues" only where one was shown.
     assert answers == [{"C01": "agree", "Q1": "agree"}, {"C01": "agree", "Q1": "issues"}, {"C01": "agree", "Q1": "agree"}]
     assert summary["byQuestion"]["Q1"] == {"issues": 1, "agree": 2, "notShown": 0, "unclear": 0, "findings": 1}

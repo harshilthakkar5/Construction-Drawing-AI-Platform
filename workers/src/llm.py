@@ -367,7 +367,7 @@ def _system_blocks(system: str | list[dict], cache: bool) -> list[dict]:
 def _check_labels(images, image_labels) -> None:
     if image_labels is not None and len(image_labels) != len(images or []):
         raise ValueError(
-            f"{len(image_labels)} image labels for {len(images or [])} images — a label on the "
+            f"{len(image_labels)} image labels for {len(images or [])} images: a label on the "
             "wrong image is the misplacement labels exist to prevent"
         )
 
