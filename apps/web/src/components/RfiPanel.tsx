@@ -6,6 +6,7 @@ import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { api } from "@/api";
 import { FileSpreadsheetIcon, PlusIcon, SparklesIcon, Undo2Icon } from "lucide-react";
 import { RfiReview } from "@/components/RfiReview";
+import { SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
 import { DatePicker, Modal, Notice, TextArea, TextField } from "@/components/shared";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +21,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
-
-const NO_SHEET = "none";
 
 /**
  * The RFI tab: find them, review them, keep a log of them.
@@ -98,6 +97,8 @@ export function RfiPanel({ projectId }: { projectId: string }) {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["rfis", projectId] });
 
+  // A voided RFI keeps its number but is no longer asked; "All" leaves it out, "Voided" shows it.
+  const shown = statusFilter === "all" ? rfis.data?.filter((r) => r.status !== "voided") : rfis.data;
   const counts = rfis.data?.reduce<Record<string, number>>((acc, rfi) => {
     acc[rfi.status] = (acc[rfi.status] ?? 0) + 1;
     return acc;
@@ -121,7 +122,7 @@ export function RfiPanel({ projectId }: { projectId: string }) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="all">All but voided</SelectItem>
             {RFI_STATUSES.map((status) => (
               <SelectItem key={status} value={status}>
                 {STATUS_CHIP[status].label}
@@ -156,7 +157,7 @@ export function RfiPanel({ projectId }: { projectId: string }) {
       {rfis.isLoading && <p className="text-muted-foreground text-sm">Loading RFIs…</p>}
       {rfis.error && <Notice tone="error">{(rfis.error as Error).message}</Notice>}
 
-      {rfis.data?.length === 0 && (
+      {shown?.length === 0 && (
         <p className="text-muted-foreground py-6 text-center text-sm">
           {statusFilter === "all"
             ? "No RFIs in the log yet. Accept a finding above, or add one manually."
@@ -165,7 +166,7 @@ export function RfiPanel({ projectId }: { projectId: string }) {
       )}
 
       <ul className="flex flex-col gap-1">
-        {rfis.data?.map((rfi) => (
+        {shown?.map((rfi) => (
           <li key={rfi.id}>
             <button
               type="button"
@@ -209,6 +210,12 @@ export function RfiPanel({ projectId }: { projectId: string }) {
           </li>
         ))}
       </ul>
+      {statusFilter === "all" && !!counts?.voided && (
+        <button type="button" className="text-muted-foreground hover:text-foreground mt-1 px-2 text-xs underline-offset-2 hover:underline"
+          onClick={() => setStatusFilter("voided")}>
+          {counts.voided} voided {counts.voided === 1 ? "RFI" : "RFIs"} hidden. Show
+        </button>
+      )}
 
       {composing && (
         <ComposeRfi
@@ -257,9 +264,11 @@ function ComposeRfi({
   const [question, setQuestion] = useState("");
   const [priority, setPriority] = useState<RfiPriority>("normal");
   const [dueAt, setDueAt] = useState("");
-  const [pageKey, setPageKey] = useState("");
+  const [sheetNumbers, setSheetNumbers] = useState<string[]>([]);
+  const sheets = useLibrarySheets(projectId);
 
-  const selected = pages.find((p) => `${p.documentId}:${p.pageNumber}` === pageKey);
+  // The first page carrying each chosen sheet number, in the order they were picked.
+  const selected = sheetNumbers.flatMap((n) => pages.find((p) => p.sheetNumber === n) ?? []);
 
   const create = useMutation({
     mutationFn: (issue: boolean) =>
@@ -268,11 +277,9 @@ function ComposeRfi({
         question,
         priority,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-        discipline: selected?.discipline ?? null,
+        discipline: selected[0]?.discipline ?? null,
         issue,
-        locations: selected
-          ? [{ documentId: selected.documentId, pageNumber: selected.pageNumber }]
-          : [],
+        locations: selected.map((p) => ({ documentId: p.documentId, pageNumber: p.pageNumber })),
       }),
     onSuccess: onCreated,
   });
@@ -339,23 +346,11 @@ function ComposeRfi({
             <DatePicker value={dueAt} onChange={setDueAt} label="Due date" placeholder="No due date" />
           </div>
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="rfi-sheet">Sheet</Label>
-          {/* A Radix item cannot have the value "", so "no sheet" is NO_SHEET here and "" in state. */}
-          <Select value={pageKey || NO_SHEET} onValueChange={(v) => setPageKey(v === NO_SHEET ? "" : v)}>
-            <SelectTrigger id="rfi-sheet" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="max-h-72">
-              <SelectItem value={NO_SHEET}>No sheet (general question)</SelectItem>
-              {pages.map((page) => (
-                <SelectItem key={`${page.documentId}:${page.pageNumber}`} value={`${page.documentId}:${page.pageNumber}`}>
-                  {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
-                  {page.sheetNumber ? ` (page ${page.combinedPageNumber})` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="grid min-w-0 gap-2">
+          <SheetPicker projectId={projectId} sheets={sheets} value={sheetNumbers} suggested={[]} onChange={setSheetNumbers} roomy heading="Sheets" />
+          {sheetNumbers.length === 0 && (
+            <p className="text-muted-foreground text-xs">No sheet picked: a general question.</p>
+          )}
           <p className="text-muted-foreground text-xs">
             The sheet number and page are recorded as they are now, so the RFI still reads
             correctly if the drawing is later revised or removed.
@@ -458,7 +453,7 @@ function RfiDetail({
                 disabled={busy}
                 onClick={() => transition.mutate(status)}
               >
-                {TRANSITION_LABEL[status] ?? status}
+                {data.status === "draft" && status === "open" ? "Raise draft RFI" : (TRANSITION_LABEL[status] ?? status)}
               </Button>
             ))}
           {canGoBack && (

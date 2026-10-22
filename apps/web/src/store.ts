@@ -76,7 +76,7 @@ export const useAppStore = create<AppState>((set) => ({
       highlight: null,
       selectedPortionId: null,
       pageFilter: null,
-      workTab: "summary",
+      workTab: "rfis",
     }),
   selectedPortionId: null,
   selectPortion: (portionId) => set({ selectedPortionId: portionId }),
@@ -97,6 +97,6 @@ export const useAppStore = create<AppState>((set) => ({
             ? { combinedPageNumber, bbox }
             : null,
     })),
-  workTab: "summary",
+  workTab: "rfis",
   setWorkTab: (workTab) => set({ workTab }),
 }));
