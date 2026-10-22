@@ -400,7 +400,7 @@ export function CheckPicker({
                   />
                   <span>
                     <span className="font-medium">
-                      {check.id} {check.label}
+                      <span className="font-mono">{check.id}</span> {check.label}
                     </span>
                     <span className="text-muted-foreground block">“{check.originalQuestion}”</span>
                     {note?.(check.id) && <span className="text-warning block">{note(check.id)}</span>}
@@ -564,7 +564,7 @@ function Outcomes({ projectId, run }: { projectId: string; run: RfiReviewRunDto 
                 <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", outcome.tone)}>{outcome.label}</span>
                 <span>
                   <span className="font-medium">
-                    {check.id} {check.label}
+                    <span className="font-mono">{check.id}</span> {check.label}
                   </span>
                   {result?.reason && <span className="text-muted-foreground block">{result.reason}</span>}
                   {result?.gaps.map((gap) => (
@@ -649,7 +649,7 @@ function Inventory({ run }: { run: RfiReviewRunDto }) {
           <li key={i}>
             <span className="font-medium">{item.entity}</span>
             {item.location && <span className="text-muted-foreground"> at {item.location}</span>}
-            <span className="text-muted-foreground"> · {item.checkId}</span>
+            <span className="text-muted-foreground"> · <span className="font-mono">{item.checkId}</span></span>
             <ul className="text-muted-foreground pl-3">
               {item.fields.map((f) => (
                 <li key={f.name}>

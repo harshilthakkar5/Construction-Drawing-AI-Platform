@@ -382,7 +382,7 @@ export function ChatPanel({
                         {/* The sheet number alone: the page already has its own
                             badge beside this, and `label` carries it too, so
                             rendering the label whole read "S-004 — page 4 p.4". */}
-                        {s.sheetNumber?.trim() || s.filename}
+                        {s.sheetNumber?.trim() ? <span className="sheet-reference">{s.sheetNumber.trim()}</span> : s.filename}
                         {/* A description cites a sheet whose words it does not
                             quote. Without this marker, clicking through and
                             finding none of the sentence on the page reads as a

@@ -3228,8 +3228,11 @@ primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an
 outlined mono chip with the page and an arrow); charts read their colours from `charts/palette.ts`, which resolves to those same
-tokens. Type is IBM Plex Sans (UI) + IBM Plex Mono (sheet numbers, marks), self-hosted through
-`@fontsource` in `main.tsx` so a LAN or offline install needs no font CDN. Density follows the
+tokens. Type (`index.css`, `main.tsx`, self-hosted through `@fontsource` so a LAN or offline install needs
+no font CDN): IBM Plex Sans 400/400-italic/500/600/700 for the UI (`--font-sans`) and for headings
+(`--font-heading`: h1–h4 and card/dialog/sheet titles, -0.02em letter spacing); IBM Plex Mono
+400/500/600 (`--font-mono`) for sheet references (`.sheet-reference`, used by `SheetLink` and the
+chat's source chips), code check IDs (G01, C01), and token counters. Density follows the
 screen: `index.css` sets the ROOT size by CSS width (≥1600: 100%, 1366–1599 or ≤820 tall: 93.75%,
 768–1365: 87.5%, phones 100%), and every size is rem, so one rule shrinks the whole app — CSS
 width already includes Windows display scaling (a 1080p laptop at 150% is 1280 wide, where the

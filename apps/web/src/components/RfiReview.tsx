@@ -773,12 +773,12 @@ function ScanUsage({
             )}
           </dd>
           <dt>Input</dt>
-          <dd className="text-foreground tabular-nums">
+          <dd className="text-foreground font-mono">
             {tokens(usage.inputTokens)}
             {usage.cacheReadTokens > 0 && ` (+${tokens(usage.cacheReadTokens)} cached)`}
           </dd>
           <dt>Output</dt>
-          <dd className="text-foreground tabular-nums">
+          <dd className="text-foreground font-mono">
             {tokens(usage.outputTokens)}
             {usage.thinkingTokens !== null && usage.thinkingTokens > 0 && (
               <span className="text-muted-foreground">
