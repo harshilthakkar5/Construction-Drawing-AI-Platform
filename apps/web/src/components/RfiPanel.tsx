@@ -453,7 +453,7 @@ function RfiDetail({
                 disabled={busy}
                 onClick={() => transition.mutate(status)}
               >
-                {TRANSITION_LABEL[status] ?? status}
+                {data.status === "draft" && status === "open" ? "Raise draft RFI" : (TRANSITION_LABEL[status] ?? status)}
               </Button>
             ))}
           {canGoBack && (
