@@ -14,6 +14,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { api } from "@/api";
+import { DatePicker } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -711,21 +712,9 @@ function HistoryList({
         </Select>
         {custom && (
           <span className="flex items-center gap-1.5">
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              aria-label="From date"
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            />
+            <DatePicker value={from} onChange={setFrom} label="From date" placeholder="From" size="sm" className="text-xs" />
             <span className="text-muted-foreground text-xs">to</span>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              aria-label="To date"
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            />
+            <DatePicker value={to} onChange={setTo} label="To date" placeholder="To" size="sm" className="text-xs" />
           </span>
         )}
         <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={onClose}>

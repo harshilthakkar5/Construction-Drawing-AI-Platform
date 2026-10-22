@@ -238,12 +238,19 @@ export function RfiReview({ projectId }: { projectId: string }) {
       refreshAll();
     },
   });
+  // The RFIs tab lists only findings sent from the chat here: a Create RFI's
+  // findings are listed under that RFI, not twice.
+  const candidates = (pending.data?.candidates ?? []).filter((c) => mode !== "targeted" || c.origin === "chat");
   const acceptAll = useMutation({
-    mutationFn: (min: RfiConfidence) => api.acceptAllRfiCandidates(projectId, min),
+    // In the targeted tab, accept only the high findings THIS list shows: the
+    // server's accept-all would also take every Create RFI's hidden ones.
+    mutationFn: async (min: RfiConfidence) => {
+      if (mode !== "targeted") return api.acceptAllRfiCandidates(projectId, min);
+      for (const c of candidates.filter((x) => x.confidence === "high")) await api.acceptRfiCandidate(projectId, c.id);
+    },
     onSuccess: refreshAll,
   });
 
-  const candidates = pending.data?.candidates ?? [];
   const stepTwo = scan.data?.fullScanId ? fullScan.data?.scans.find((s) => s.id === scan.data!.fullScanId) : null;
   const wider = suggestWiderScan(scan.data, stepTwo);
   const scanEverything = () => {
@@ -420,6 +427,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold">
               Needs your review <span className="text-muted-foreground">({candidates.length})</span>
+              {mode === "targeted" && <span className="text-muted-foreground ml-1.5 text-xs font-normal">from chat</span>}
             </h4>
             {highCount > 0 && (
               <Button
@@ -449,7 +457,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {scan.data?.status === "completed" && candidates.length === 0 && (
+      {mode !== "targeted" && scan.data?.status === "completed" && candidates.length === 0 && (
         <p className="text-muted-foreground mt-3 text-center text-xs">
           Nothing waiting for review.
           {scan.data.findings === 0

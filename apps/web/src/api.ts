@@ -512,6 +512,13 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
+  /** Undo an accept: the RFI is voided (its number kept) and its finding is pending again. */
+  returnRfiToReview: (projectId: string, rfiId: string) =>
+    request<{ returned: true; candidateId: string }>(`/projects/${projectId}/rfis/generated/from-rfi/${rfiId}/return`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
   restoreRfiCandidate: (projectId: string, candidateId: string) =>
     request<{ restored: true }>(`/projects/${projectId}/rfis/generated/${candidateId}/restore`, {
       method: "POST",

@@ -4,9 +4,10 @@ import type { ManifestEntryDto, RfiDto, RfiPriority, RfiStatus } from "@cdip/sha
 import { RFI_PRIORITIES, RFI_STATUSES } from "@cdip/shared";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { api } from "@/api";
-import { FileSpreadsheetIcon, PlusIcon, SparklesIcon } from "lucide-react";
+import { FileSpreadsheetIcon, PlusIcon, SparklesIcon, Undo2Icon } from "lucide-react";
 import { RfiReview } from "@/components/RfiReview";
-import { Modal, Notice, TextArea, TextField } from "@/components/shared";
+import { DatePicker, Modal, Notice, TextArea, TextField } from "@/components/shared";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
+
+const NO_SHEET = "none";
 
 /**
  * The RFI tab: find them, review them, keep a log of them.
@@ -317,45 +320,42 @@ function ComposeRfi({
         />
         <div className="grid grid-cols-2 gap-3">
           <div className="grid gap-2">
-            <label className="text-sm font-medium" htmlFor="rfi-priority">
-              Priority
-            </label>
-            <select
-              id="rfi-priority"
-              className="border-input bg-background rounded-md border px-3 py-2 text-sm"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as RfiPriority)}
-            >
-              {RFI_PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="rfi-priority">Priority</Label>
+            <Select value={priority} onValueChange={(v) => setPriority(v as RfiPriority)}>
+              <SelectTrigger id="rfi-priority" className="w-full capitalize">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RFI_PRIORITIES.map((p) => (
+                  <SelectItem key={p} value={p} className="capitalize">
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <TextField label="Due date" type="date" value={dueAt} onChange={setDueAt} />
+          <div className="grid gap-2">
+            <Label>Due date</Label>
+            <DatePicker value={dueAt} onChange={setDueAt} label="Due date" placeholder="No due date" />
+          </div>
         </div>
         <div className="grid gap-2">
-          <label className="text-sm font-medium" htmlFor="rfi-sheet">
-            Sheet
-          </label>
-          <select
-            id="rfi-sheet"
-            className="border-input bg-background rounded-md border px-3 py-2 text-sm"
-            value={pageKey}
-            onChange={(e) => setPageKey(e.target.value)}
-          >
-            <option value="">No sheet (general question)</option>
-            {pages.map((page) => (
-              <option
-                key={`${page.documentId}:${page.pageNumber}`}
-                value={`${page.documentId}:${page.pageNumber}`}
-              >
-                {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
-                {page.sheetNumber ? ` (page ${page.combinedPageNumber})` : ""}
-              </option>
-            ))}
-          </select>
+          <Label htmlFor="rfi-sheet">Sheet</Label>
+          {/* A Radix item cannot have the value "", so "no sheet" is NO_SHEET here and "" in state. */}
+          <Select value={pageKey || NO_SHEET} onValueChange={(v) => setPageKey(v === NO_SHEET ? "" : v)}>
+            <SelectTrigger id="rfi-sheet" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value={NO_SHEET}>No sheet (general question)</SelectItem>
+              {pages.map((page) => (
+                <SelectItem key={`${page.documentId}:${page.pageNumber}`} value={`${page.documentId}:${page.pageNumber}`}>
+                  {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
+                  {page.sheetNumber ? ` (page ${page.combinedPageNumber})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-muted-foreground text-xs">
             The sheet number and page are recorded as they are now, so the RFI still reads
             correctly if the drawing is later revised or removed.
@@ -425,9 +425,23 @@ function RfiDetail({
     onSuccess: settle,
   });
 
+  // Accepted by mistake: back to "Needs your review". The number is kept (voided), never reused.
+  const backToReview = useMutation({
+    mutationFn: () => api.returnRfiToReview(projectId, rfiId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["rfi", projectId, rfiId] });
+      void queryClient.invalidateQueries({ queryKey: ["rfi-sets", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["rfi-set", projectId] });
+      onChanged();
+      onClose();
+    },
+  });
+
   const data = rfi.data;
-  const busy = transition.isPending || submitAnswer.isPending;
-  const error = transition.error ?? submitAnswer.error ?? addLocation.error ?? removeLocation.error;
+  const busy = transition.isPending || submitAnswer.isPending || backToReview.isPending;
+  const error = transition.error ?? submitAnswer.error ?? addLocation.error ?? removeLocation.error ?? backToReview.error;
+  const canGoBack = data?.source === "generated" && (data.status === "draft" || data.status === "open") && !data.answer;
 
   return (
     <Modal
@@ -447,6 +461,17 @@ function RfiDetail({
                 {TRANSITION_LABEL[status] ?? status}
               </Button>
             ))}
+          {canGoBack && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => backToReview.mutate()}
+              title={`Accepted by mistake? The finding goes back to "Needs your review" and RFI #${data.number} is voided (its number is not reused).`}
+            >
+              <Undo2Icon />
+              Back to review
+            </Button>
+          )}
           <MarkedUpPdfButton projectId={projectId} items={[{ type: "rfi", id: rfiId }]} size="default" />
           <Button variant="outline" onClick={onClose}>
             Close
@@ -517,22 +542,19 @@ function RfiDetail({
                 </li>
               ))}
             </ul>
-            <select
-              className="border-input bg-background mt-2 w-full rounded-md border px-2 py-1 text-xs"
-              value=""
-              onChange={(e) => e.target.value && addLocation.mutate(e.target.value)}
-              aria-label="Pin another sheet"
-            >
-              <option value="">Pin another sheet…</option>
-              {pages.map((page) => (
-                <option
-                  key={`${page.documentId}:${page.pageNumber}`}
-                  value={`${page.documentId}:${page.pageNumber}`}
-                >
-                  {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
-                </option>
-              ))}
-            </select>
+            {/* Always shows its placeholder: picking a sheet pins it, and the list resets. */}
+            <Select value="" onValueChange={(v) => addLocation.mutate(v)}>
+              <SelectTrigger size="sm" className="mt-2 w-full text-xs" aria-label="Pin another sheet">
+                <SelectValue placeholder="Pin another sheet…" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {pages.map((page) => (
+                  <SelectItem key={`${page.documentId}:${page.pageNumber}`} value={`${page.documentId}:${page.pageNumber}`}>
+                    {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </section>
 
           <Separator />

@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAppStore } from "@/store";
 import {FolderBookmark} from "lucide-react"
@@ -212,18 +213,18 @@ export function DashboardPage() {
                 ))}
               </ToggleGroup>
               {/* Narrow cards get the same control as a plain select. */}
-              <select
-                aria-label="Activity range"
-                className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 @[540px]/chart:hidden h-8 rounded-md border px-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
-                value={days}
-                onChange={(event) => setDays(Number(event.target.value))}
-              >
-                {RANGES.map((range) => (
-                  <option key={range.days} value={range.days}>
-                    {range.label}
-                  </option>
-                ))}
-              </select>
+              <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+                <SelectTrigger size="sm" aria-label="Activity range" className="@[540px]/chart:hidden">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGES.map((range) => (
+                    <SelectItem key={range.days} value={String(range.days)}>
+                      {range.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </CardAction>
           </CardHeader>
           <CardContent>
