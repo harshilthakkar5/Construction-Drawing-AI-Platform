@@ -2967,8 +2967,10 @@ cancels a user's earlier unstarted plans when it is NOT planning for a set, or p
 RFI would cancel 11 of its own plans. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
-A set's findings are listed ONLY under that set: each card opens as a slider (`SetFindings`, the same
-cached `rfi-set` query the full-view popup reads) and the RFIs tab's "Needs your review" lists only
+A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
+(`store.openRfiSetId`; the log and the chat list hide until "RFIs" is clicked) showing `SetFindings`, the same
+cached `rfi-set` query the full-view popup reads. A finding card shows its subject; the question, reasons and
+sources sit under "Show details". The work column's section header is sticky and the RFIs tab's "Needs your review" lists only
 findings sent from the chat (`origin = chat`). Its "Accept all high" therefore accepts the visible ones
 one by one, never the server's project-wide accept-all, which would take every set's hidden findings.
 An RFI accepted by mistake goes back with "Back to review" (`POST /rfis/generated/from-rfi/:rfiId/return`):

@@ -49,6 +49,9 @@ interface AppState {
    * someone to Settings. */
   workTab: WorkTab;
   setWorkTab: (tab: WorkTab) => void;
+  /** The named RFI open in the RFIs tab ("RFIs / <name>"); null = the list. */
+  openRfiSetId: string | null;
+  setOpenRfiSetId: (id: string | null) => void;
 }
 
 export type WorkTab = "documents" | "summary" | "rfis" | "settings";
@@ -77,6 +80,7 @@ export const useAppStore = create<AppState>((set) => ({
       selectedPortionId: null,
       pageFilter: null,
       workTab: "rfis",
+      openRfiSetId: null,
     }),
   selectedPortionId: null,
   selectPortion: (portionId) => set({ selectedPortionId: portionId }),
@@ -99,4 +103,6 @@ export const useAppStore = create<AppState>((set) => ({
     })),
   workTab: "rfis",
   setWorkTab: (workTab) => set({ workTab }),
+  openRfiSetId: null,
+  setOpenRfiSetId: (openRfiSetId) => set({ openRfiSetId }),
 }));
