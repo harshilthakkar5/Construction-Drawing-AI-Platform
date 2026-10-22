@@ -371,7 +371,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
         >
           <Card className="gap-0 py-4" data-tour="summary">
             <Tabs value={workTab} onValueChange={(tab) => setWorkTab(tab as WorkTab)}>
-              <div className="flex items-center gap-2 px-4">
+              {/* Sticky: the section menu and full view stay in reach while the column scrolls. */}
+              <div className="bg-card sticky top-0 z-10 -mt-4 flex items-center gap-2 rounded-t-xl px-4 pt-4 pb-2">
                 {/* The sections live behind a three-dots menu; the open one is named beside it. */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -400,7 +401,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
               </div>
               {/* One tab: picking a category swaps the summary above it, so
                   splitting them made you flip back and forth to read it. */}
-              <TabsContent value="summary" className="mt-4">
+              <TabsContent value="summary" className="mt-2">
                 <SummaryPanel projectId={projectId} />
                 <Separator className="my-4" />
                 <div data-tour="categories">
@@ -411,13 +412,13 @@ export function ProjectView({ projectId }: { projectId: string }) {
                   <PortionsPanel projectId={projectId} />
                 </div>
               </TabsContent>
-              <TabsContent value="documents" className="mt-4">
+              <TabsContent value="documents" className="mt-2">
                 <DocumentsPanel projectId={projectId} />
               </TabsContent>
-              <TabsContent value="rfis" className="mt-4">
+              <TabsContent value="rfis" className="mt-2">
                 <RfiPanel projectId={projectId} />
               </TabsContent>
-              <TabsContent value="settings" className="mt-4">
+              <TabsContent value="settings" className="mt-2">
                 <ProjectSettings projectId={projectId} />
               </TabsContent>
             </Tabs>

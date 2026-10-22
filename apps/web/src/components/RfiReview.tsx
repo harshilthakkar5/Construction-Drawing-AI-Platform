@@ -11,6 +11,7 @@ import {
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
+  InfoIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -173,6 +174,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
     enabled: showDismissed,
   });
 
+  const openSet = useAppStore((s) => s.openRfiSetId);
   const refreshAll = () => {
     void queryClient.invalidateQueries({ queryKey: ["rfi-usage", projectId] });
     void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
@@ -417,7 +419,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
       </div>
       )}
 
-      {candidates.length > 0 && (
+      {candidates.length > 0 && !openSet && (
         <div className="mt-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold">
@@ -871,9 +873,9 @@ export function CandidateCard({
         )}
       </div>
       <p className="mt-1.5 text-sm font-medium">{candidate.subject}</p>
-      <p className={cn("text-muted-foreground mt-1 text-sm leading-relaxed", !open && "line-clamp-3")}>{candidate.question}</p>
       {open && (
         <>
+          <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{candidate.question}</p>
           {candidate.corroboration && (
             <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
               <span className="text-foreground font-medium">Confirmed: </span>
@@ -902,6 +904,7 @@ export function CandidateCard({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
+        <InfoIcon className="size-3.5" />
         {open ? "Hide details" : `Show details (${candidate.evidence.length} ${candidate.evidence.length === 1 ? "source" : "sources"})`}
         <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
       </button>

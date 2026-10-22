@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDownIcon, ChevronRightIcon, Maximize2Icon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, FileQuestionIcon, Maximize2Icon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_SET_MAX_ELEMENTS,
@@ -21,8 +21,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store";
 
 /** elementId → the question ids chosen under it. */
 type Picks = Record<string, string[]>;
@@ -125,19 +125,64 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
   });
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<{ id: string; errors: RfiSetDetailDto["planErrors"] } | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const openId = useAppStore((s) => s.openRfiSetId);
+  const setOpenId = useAppStore((s) => s.setOpenRfiSetId);
+  // A deleted set, or one that has not loaded yet, falls back to the list.
+  const current = sets.data?.find((s) => s.id === openId) ?? null;
 
   return (
     <section className="flex flex-col gap-3">
+      {/* Breadcrumb routing: "RFIs" is the list, "RFIs / <name>" one RFI. */}
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-semibold">
-          RFIs {!!sets.data?.length && <span className="text-muted-foreground font-normal">({sets.data.length})</span>}
-        </h3>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <PlusIcon /> Create RFI
-        </Button>
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-base font-semibold">
+          {current ? (
+            <button
+              type="button"
+              onClick={() => setOpenId(null)}
+              className="text-muted-foreground hover:text-foreground flex shrink-0 items-center gap-1.5 transition-colors"
+              title="Back to all RFIs"
+            >
+              <ClipboardListIcon className="size-4" />
+              RFIs
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <ClipboardListIcon className="text-muted-foreground size-4" />
+              RFIs {!!sets.data?.length && <span className="text-muted-foreground font-normal">({sets.data.length})</span>}
+            </span>
+          )}
+          {current && (
+            <>
+              <ChevronRightIcon className="text-muted-foreground size-4 shrink-0" />
+              <span className="flex min-w-0 items-center gap-1.5" aria-current="page">
+                <FileQuestionIcon className="text-primary size-4 shrink-0" />
+                <span className="truncate">{current.name}</span>
+              </span>
+            </>
+          )}
+        </nav>
+        {current ? (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={`Open ${current.name} in full view`}
+            title="Full view: elements, price, start and findings"
+            onClick={() => setOpen({ id: current.id, errors: [] })}
+          >
+            <Maximize2Icon />
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <PlusIcon /> Create RFI
+          </Button>
+        )}
       </div>
-      {sets.isLoading ? (
+      {current ? (
+        <div className="flex flex-col gap-3">
+          <SetSummary set={current} />
+          <SetFindings projectId={projectId} setId={current.id} onFinished={onFinished} />
+        </div>
+      ) : sets.isLoading ? (
         <Spinner />
       ) : sets.error ? (
         <Notice tone="error">{(sets.error as Error).message}</Notice>
@@ -148,60 +193,19 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {sets.data.map((s) => {
-            const status = setStatus(s.runs);
-            const elements = s.items.length;
-            const cost = usd(s.costLowUsd, s.costHighUsd);
-            return (
-              <li key={s.id}>
-                <Collapsible
-                  open={expanded === s.id}
-                  onOpenChange={(o) => setExpanded(o ? s.id : null)}
-                  className="bg-card rounded-lg border"
-                >
-                  <div className="flex items-start gap-2 p-3">
-                    <CollapsibleTrigger asChild>
-                      <button type="button" className="flex min-w-0 flex-1 flex-col gap-1.5 text-left">
-                        <div className="flex items-center gap-2">
-                          <ChevronDownIcon
-                            className={cn("text-muted-foreground size-4 shrink-0 transition-transform", expanded === s.id && "rotate-180")}
-                          />
-                          <span className="truncate text-sm font-semibold">{s.name}</span>
-                          <Badge variant={status.tone} className="ml-auto shrink-0">{status.label}</Badge>
-                        </div>
-                        <span className="text-muted-foreground pl-6 text-xs">
-                          {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
-                          {cost ? ` · est. ${cost}` : ""}
-                        </span>
-                        <span className="pl-6 text-xs">
-                          {s.findings ? (
-                            <>
-                              <strong>{s.findings}</strong> finding{s.findings === 1 ? "" : "s"}
-                              {s.pending ? `, ${s.pending} to review` : ""}
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">No findings yet</span>
-                          )}
-                        </span>
-                      </button>
-                    </CollapsibleTrigger>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`Open ${s.name} in full view`}
-                      title="Full view: elements, price, start and findings"
-                      onClick={() => setOpen({ id: s.id, errors: [] })}
-                    >
-                      <Maximize2Icon />
-                    </Button>
-                  </div>
-                  <CollapsibleContent className="border-t p-3">
-                    <SetFindings projectId={projectId} setId={s.id} onFinished={onFinished} />
-                  </CollapsibleContent>
-                </Collapsible>
-              </li>
-            );
-          })}
+          {sets.data.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => setOpenId(s.id)}
+                className="bg-card hover:bg-accent/50 flex w-full items-start gap-2 rounded-lg border p-3 text-left transition-colors"
+              >
+                <FileQuestionIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                <SetSummary set={s} title />
+                <ChevronRightIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+              </button>
+            </li>
+          ))}
         </ul>
       )}
       {creating && (
@@ -224,6 +228,35 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
         />
       )}
     </section>
+  );
+}
+
+/** A named RFI's status, size, price and findings: the list row, and the head of its page. */
+function SetSummary({ set: s, title }: { set: RfiSetDto; title?: boolean }) {
+  const status = setStatus(s.runs);
+  const elements = s.items.length;
+  const cost = usd(s.costLowUsd, s.costHighUsd);
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        {title && <span className="truncate text-sm font-semibold">{s.name}</span>}
+        <Badge variant={status.tone} className={cn("shrink-0", title && "ml-auto")}>{status.label}</Badge>
+      </div>
+      <span className="text-muted-foreground text-xs">
+        {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
+        {cost ? ` · est. ${cost}` : ""}
+      </span>
+      <span className="text-xs">
+        {s.findings ? (
+          <>
+            <strong>{s.findings}</strong> finding{s.findings === 1 ? "" : "s"}
+            {s.pending ? `, ${s.pending} to review` : ""}
+          </>
+        ) : (
+          <span className="text-muted-foreground">No findings yet</span>
+        )}
+      </span>
+    </div>
   );
 }
 

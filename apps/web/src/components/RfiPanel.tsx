@@ -82,6 +82,8 @@ export function RfiPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<RfiStatus | "all">("all");
   const [composing, setComposing] = useState(false);
+  // An open named RFI is its own page: the log waits behind "RFIs" in its breadcrumb.
+  const openSet = useAppStore((s) => s.openRfiSetId);
   const [openRfiId, setOpenRfiId] = useState<string | null>(null);
 
   const rfis = useQuery({
@@ -107,6 +109,8 @@ export function RfiPanel({ projectId }: { projectId: string }) {
   return (
     <div className="px-4">
       <RfiReview projectId={projectId} />
+      {!openSet && (
+      <>
 
       {/* One row: the log, its filter as a dropdown like every other filter
           in the app, and the two actions — which drop their labels when the
@@ -215,6 +219,8 @@ export function RfiPanel({ projectId }: { projectId: string }) {
           onClick={() => setStatusFilter("voided")}>
           {counts.voided} voided {counts.voided === 1 ? "RFI" : "RFIs"} hidden. Show
         </button>
+      )}
+      </>
       )}
 
       {composing && (
