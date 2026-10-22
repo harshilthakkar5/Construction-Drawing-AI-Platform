@@ -314,7 +314,7 @@ export function ChatPanel({
       <div
         ref={scrollRef}
         className={cn(
-          "flex-1 space-y-4 overflow-y-auto p-3",
+          "bg-chat flex-1 space-y-4 overflow-y-auto p-3",
           // Full page is much wider than the middle pane; an unbounded line
           // length is hard to read, so the thread keeps a column.
           expanded && "mx-auto w-full max-w-3xl px-6 py-6",
@@ -348,7 +348,7 @@ export function ChatPanel({
                 className={`max-w-full rounded-2xl rounded-tl-sm border px-3.5 py-2.5 ${
                   turn.failed
                     ? "border-destructive/30 bg-destructive/10"
-                    : "border-border bg-card"
+                    : "border-border bg-chat-answer"
                 }`}
               >
                 {turn.failed ? (
@@ -429,7 +429,7 @@ export function ChatPanel({
 
         {ask.isPending && (
           <Row avatar={<AssistantAvatar />}>
-            <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-3.5 py-3">
+            <div className="rounded-2xl rounded-tl-sm border border-border bg-chat-answer px-3.5 py-3">
               <TypingDots />
             </div>
           </Row>
@@ -447,7 +447,7 @@ export function ChatPanel({
         }}
       >
         <Input
-          className={cn("min-w-0 flex-1", expanded && "max-w-2xl")}
+          className={cn("bg-chat-input min-w-0 flex-1", expanded && "max-w-2xl")}
           placeholder="Ask about the drawings…"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}

@@ -17,7 +17,7 @@ const delay = (seconds: number) => ({ "--delay": `${seconds}s` }) as CSSProperti
 
 export function BlueprintArt({ variant }: { variant: BlueprintVariant }) {
   return (
-    <div className="relative h-full w-full overflow-hidden bg-neutral-950">
+    <div className="relative h-full w-full overflow-hidden bg-blueprint">
       {/* graph paper */}
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
         <defs>
