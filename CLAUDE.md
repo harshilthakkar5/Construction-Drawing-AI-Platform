@@ -3229,7 +3229,13 @@ primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an
 outlined mono chip with the page and an arrow); charts read their colours from `charts/palette.ts`, which resolves to those same
 tokens. Type is IBM Plex Sans (UI) + IBM Plex Mono (sheet numbers, marks), self-hosted through
-`@fontsource` in `main.tsx` so a LAN or offline install needs no font CDN. The shadcn sources target React 19 — on this app's React 18, any component used as a
+`@fontsource` in `main.tsx` so a LAN or offline install needs no font CDN. Density follows the
+screen: `index.css` sets the ROOT size by CSS width (≥1600: 100%, 1366–1599 or ≤820 tall: 93.75%,
+768–1365: 87.5%, phones 100%), and every size is rem, so one rule shrinks the whole app — CSS
+width already includes Windows display scaling (a 1080p laptop at 150% is 1280 wide, where the
+app used to look "zoomed in"). Percentages keep a user's own browser text size. The work and chat
+columns default to a share of the window (`ProjectView.fitWidth`) and are saved only when a
+divider is DRAGGED (keys `-v2`: the old ones were written on every load and froze 400/384px). The shadcn sources target React 19 — on this app's React 18, any component used as a
 Radix `asChild` trigger (`Button`, `SidebarMenuButton`, `Input`, `Textarea`) must keep its
 `forwardRef`.
 
