@@ -171,6 +171,20 @@
   #root {
     height: 100%;
   }
+  /* Density by screen. Every size is in rem, so the root size scales the whole app.
+     Widths are CSS pixels, which already include Windows display scaling: a 1080p
+     laptop at 150% is 1280 wide. Percentages keep the user's own browser text size.
+     Phones keep full size for touch targets (and iOS zooms inputs under 16px). */
+  @media (min-width: 768px) and (max-width: 1599px), (min-width: 768px) and (max-height: 820px) {
+    html {
+      font-size: 93.75%;
+    }
+  }
+  @media (min-width: 768px) and (max-width: 1365px) {
+    html {
+      font-size: 87.5%;
+    }
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);

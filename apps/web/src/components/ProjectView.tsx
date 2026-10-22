@@ -75,9 +75,15 @@ const WORK_TABS: { value: WorkTab; label: string; Icon: typeof FilesIcon }[] = [
  *
  * Both dividers are draggable and the widths persist per browser.
  */
-const SIDEBAR_KEY = "cdip-sidebar-width";
-const CHAT_KEY = "cdip-chat-width";
+// v2: the old keys were written on every load, so they hold the old fixed defaults
+// even where nobody dragged; widths are now saved only when a divider is dragged.
+const SIDEBAR_KEY = "cdip-sidebar-width-v2";
+const CHAT_KEY = "cdip-chat-width-v2";
 const CHAT_HIDDEN_KEY = "cdip-chat-hidden";
+
+/** A default column width that leaves the drawings room on a small laptop. */
+const fitWidth = (share: number, min: number, max: number) =>
+  Math.round(Math.min(max, Math.max(min, window.innerWidth * share)));
 
 function stored(key: string, fallback: number) {
   const value = Number(localStorage.getItem(key));
@@ -203,8 +209,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
     setSetupOpen(!setupSkipped(projectId) && !setup.complete);
   }, [setupOpen, setup.loading, setup.complete, projectId]);
 
-  const [sidebarWidth, setSidebarWidth] = useState(() => stored(SIDEBAR_KEY, 400));
-  const [chatWidth, setChatWidth] = useState(() => stored(CHAT_KEY, 384));
+  const [sidebarWidth, setSidebarWidth] = useState(() => stored(SIDEBAR_KEY, fitWidth(0.26, 300, 420)));
+  const [chatWidth, setChatWidth] = useState(() => stored(CHAT_KEY, fitWidth(0.24, 280, 400)));
   const [chatHidden, setChatHidden] = useState(
     () => localStorage.getItem(CHAT_HIDDEN_KEY) === "1",
   );
@@ -241,8 +247,14 @@ export function ProjectView({ projectId }: { projectId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [focus]);
 
-  useEffect(() => localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth)), [sidebarWidth]);
-  useEffect(() => localStorage.setItem(CHAT_KEY, String(chatWidth)), [chatWidth]);
+  const resizeSidebar = (width: number) => {
+    setSidebarWidth(width);
+    localStorage.setItem(SIDEBAR_KEY, String(width));
+  };
+  const resizeChat = (width: number) => {
+    setChatWidth(width);
+    localStorage.setItem(CHAT_KEY, String(width));
+  };
   useEffect(
     () => localStorage.setItem(CHAT_HIDDEN_KEY, chatHidden ? "1" : "0"),
     [chatHidden],
@@ -414,7 +426,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
         {!only && (
           <DragDivider
             width={sidebarWidth}
-            onResize={setSidebarWidth}
+            onResize={resizeSidebar}
             min={300}
             max={620}
             title="Drag to resize the work column"
@@ -441,7 +453,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
         {!only && visible("chat") && (
           <DragDivider
             width={chatWidth}
-            onResize={setChatWidth}
+            onResize={resizeChat}
             min={280}
             max={800}
             title="Drag to resize the chat pane / viewer"
