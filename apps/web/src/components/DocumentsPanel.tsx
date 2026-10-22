@@ -133,7 +133,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
             <div className="truncate text-muted-foreground">{name}</div>
             {progress === "error" ? (
               <div className="text-destructive">
-                upload failed — select the file again to resume
+                upload failed: select the file again to resume
               </div>
             ) : (
               <Progress className="mt-1 h-1.5" value={Math.round(progress * 100)} />
@@ -216,7 +216,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                     <Button
                       variant="link"
                       className="ml-auto h-auto gap-1.5 p-0 text-xs"
-                      title="Re-run processing — already-finished pages are skipped, so it resumes where it stopped"
+                      title="Re-run processing. Finished pages are skipped, so it resumes where it stopped."
                       disabled={retry.isPending}
                       onClick={() => retry.mutate(doc.id)}
                     >

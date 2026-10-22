@@ -478,7 +478,7 @@ function friendlyError(message: string, isRegister: boolean): string {
   if (message.includes("401") || message.includes("invalid credentials")) {
     return "That email or password is not right. Check both and try again.";
   }
-  if (message.includes("409")) return "That email is already registered — try logging in.";
+  if (message.includes("409")) return "That email is already registered. Try logging in.";
   if (message.includes("429")) return "Too many attempts. Wait a minute and try again.";
   if (message.includes("validation failed") || message.includes("400")) {
     return isRegister

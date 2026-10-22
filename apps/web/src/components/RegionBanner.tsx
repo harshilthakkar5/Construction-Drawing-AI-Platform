@@ -97,7 +97,7 @@ export function RegionBanner({
             className="text-warning hidden shrink-0 text-xs underline xl:inline"
             onClick={() => setEditing(true)}
           >
-            {empty} empty — adjust
+            {empty} empty, adjust
           </button>
         )}
         <Button
@@ -108,7 +108,7 @@ export function RegionBanner({
           disabled={!region.data && !hasProcessedDocument}
           title={
             region.data
-              ? `Title-block region v${region.data.version} — drag the box again to re-read every sheet number`
+              ? `Title-block region v${region.data.version}. Drag the box again to re-read every sheet number.`
               : hasProcessedDocument
                 ? "Draw a box over one sheet's number; it is applied to every page to sort the drawings into disciplines"
                 : "Upload a PDF and let it finish processing first"
@@ -191,7 +191,7 @@ export function RegionBanner({
                   {region.data.scrapedPages} sheets read
                   {region.data.notFoundPages > 0 && (
                     <>
-                      {" — "}
+                      {". "}
                       <button className="underline" onClick={() => setEditing(true)}>
                         {region.data.notFoundPages} came back empty, adjust the box
                       </button>

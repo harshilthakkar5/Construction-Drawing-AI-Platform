@@ -75,13 +75,13 @@ const CONFIDENCE: Record<
   low: {
     label: "Low",
     variant: "secondary",
-    hint: "Often genuine, often boilerplate or a sheet simply not uploaded — worth a look.",
+    hint: "Could be real, boilerplate, or a sheet not uploaded. Worth a look.",
   },
 };
 
 /** Which part of the scan found it — one list, so every finding says. */
 const ORIGIN: Record<string, { label: string; hint: string }> = {
-  chat: { label: "From chat", hint: "Sent from a chat answer, pinned to the sheets it cited — AI-worded, check it on the sheet" },
+  chat: { label: "From chat", hint: "From a chat answer, pinned to the sheets it cited. AI-worded: check it on the sheet." },
   deterministic_scan: {
     label: "Code check",
     hint: "Found by step 1, the code checks: from the drawings' own text and geometry, no AI judgement.",
@@ -129,7 +129,7 @@ function thinkingLabel(sent: string): string {
 function scanSummary(scan: RfiScanDto): string {
   const when = scan.finishedAt ? new Date(scan.finishedAt).toLocaleString() : "";
   const found = `${scan.findings} ${scan.findings === 1 ? "finding" : "findings"}`;
-  return `Last ${scan.fresh ? "full rescan" : "scan"} ${when} — ${found}`;
+  return `Last ${scan.fresh ? "full rescan" : "scan"}${when ? ` ${when}` : ""}: ${found}`;
 }
 
 export function RfiReview({ projectId }: { projectId: string }) {
@@ -324,17 +324,17 @@ export function RfiReview({ projectId }: { projectId: string }) {
         {!scan.data && !scan.isLoading && (
           <p className="text-muted-foreground text-xs leading-relaxed">
             One scan, two steps. <strong className="text-foreground">1 · Code checks</strong> read every
-            sheet — including words drawn as shapes, by OCR — for references to sheets not in the set, marks
-            with no row in their schedule, notes left open (TBD), one equipment tag with two ratings, and a
-            grid named two ways.{" "}
+            sheet (OCR included, for words drawn as shapes) for references to sheets not in the set, marks
+            missing from their schedule, open notes (TBD), one equipment tag with two ratings, and a grid
+            named two ways.{" "}
             {fullScanOffered && (
               <>
-                <strong className="text-foreground">2 · AI sheet comparison</strong> is prepared at the same
-                time and is optional: you see its price before anything is spent — or set a spend limit in
-                Settings, and it starts by itself whenever it costs less.{" "}
+                <strong className="text-foreground">2 · AI sheet comparison</strong> is optional and prepared
+                at the same time. You see its price before anything is spent, or set a spend limit in Settings
+                to start it automatically when it costs less.{" "}
               </>
             )}
-            Every finding is written up as an RFI question for you to accept or dismiss.
+            Each finding becomes an RFI question for you to accept or dismiss.
           </p>
         )}
 
@@ -395,8 +395,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
             {scan.data?.scope && !scan.data.fullScanId && !scanning &&
             scan.data.scope.checkIds.length === 0 && scan.data.scope.customQuestions.length === 0 ? (
               <p className="text-muted-foreground text-xs">
-                <strong className="text-foreground">2 · AI sheet comparison</strong> — not prepared: this scan
-                asked no question of it.
+                <strong className="text-foreground">2 · AI sheet comparison</strong>: not prepared, because this
+                scan asked it no questions.
               </p>
             ) : (
               <RfiFullScan projectId={projectId} onFinished={refreshAll} scope={scopeToSend(scope)} />
@@ -454,7 +454,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
           Nothing waiting for review.
           {scan.data.findings === 0
             ? " The scan found no gaps these checks can see."
-            : " Every finding has been accepted or dismissed — use Rescan from scratch to look at them again."}
+            : " Every finding has been accepted or dismissed. Use Rescan from scratch to see them again."}
         </p>
       )}
 
@@ -491,8 +491,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
                 voided.
               </p>
               <p className="mt-2">
-                RFIs already in the log are left exactly as they are — they have numbers, so they
-                are never proposed twice. This uses AI calls for every finding it re-words.
+                RFIs already in the log stay as they are and are never proposed twice. Each re-worded
+                finding costs an AI call.
               </p>
             </>
           }
@@ -583,7 +583,7 @@ function WiderScanOffer({
         </strong>{" "}
         ({scopeLine(scope)}).{" "}
         {reason === "no_pairs"
-          ? "The AI had nothing to compare — the plan's notes say why each sheet was left out."
+          ? "The AI had nothing to compare. The plan's notes say why each sheet was left out."
           : "That does not prove the drawings agree" +
             (notJudged > 0 ? `: ${notJudged} area${notJudged === 1 ? " was" : "s were"} not judged.` : ".")}
       </p>
@@ -645,7 +645,7 @@ function queueLine(queue: RfiScanDto["queue"]): string {
   if (queue.running > 0)
     parts.push(`${queue.running} other scan${queue.running === 1 ? " is" : "s are"} running now`);
   if (queue.ahead > 0) parts.push(`${queue.ahead} ${queue.ahead === 1 ? "is" : "are"} waiting ahead of this one`);
-  if (parts.length === 0) return "Nothing is ahead of it — if it does not start within a minute, check that the worker is running.";
+  if (parts.length === 0) return "Nothing is ahead of it. If it does not start within a minute, check that the worker is running.";
   return `${parts.join(" and ")}. The worker takes one scan at a time (RFI_SCAN_CONCURRENCY), so this one starts when ${
     queue.running + queue.ahead === 1 ? "that one finishes" : "those finish"
   }.`;
@@ -698,7 +698,7 @@ function ScanProgressView({ scan }: { scan: RfiScanDto }) {
             ? "This scan is no longer in the worker's queue (Redis was cleared or the job was removed), so it will never start. It frees itself after 30 minutes; or restart the worker and scan again."
             : queued
             ? `No worker has picked this scan up for ${minutes(now - beat)}. Check that the worker is running.`
-            : `No update from the worker for ${minutes(now - beat)}. It may be busy on one large page, or stopped — check the worker's log.`}
+            : `No update from the worker for ${minutes(now - beat)}. It may be busy on a large page, or stopped. Check the worker's log.`}
         </Notice>
       )}
     </div>
@@ -780,8 +780,8 @@ function ScanUsage({
             {usage.thinkingTokens !== null && usage.thinkingTokens > 0 && (
               <span className="text-muted-foreground">
                 {" "}
-                — {tokens(usage.thinkingTokens)} thinking,{" "}
-                {tokens(Math.max(0, usage.outputTokens - usage.thinkingTokens))} answer
+                ({tokens(usage.thinkingTokens)} thinking,{" "}
+                {tokens(Math.max(0, usage.outputTokens - usage.thinkingTokens))} answer)
               </span>
             )}
             {usage.thinkingTokens === null && usage.calls > 0 && (
@@ -845,7 +845,7 @@ export function CandidateCard({
               variant="outline"
               title="Found by the AI comparison only; the code did not measure it. Check it on the sheet before accepting."
             >
-              AI only — check on the sheet
+              AI only: check on the sheet
             </Badge>
           )
         )}
@@ -944,20 +944,20 @@ function EvidenceLine({
         disabled={page === null}
         onClick={() => onOpen(page, evidence.bbox ?? undefined)}
       >
-        {evidence.verification === "not_verified" ? "Not verified — check: " : context ? "Checked against " : ""}
+        {evidence.verification === "not_verified" ? "Not verified, check: " : context ? "Checked against " : ""}
         {evidenceLabel(evidence)}
       </button>
       {evidence.kind === "page" || evidence.kind === "crop" ? (
         <span className="text-muted-foreground">
           {" "}
-          — {evidence.kind === "page" ? "whole sheet" : "drawing close-up"}
+          ({evidence.kind === "page" ? "whole sheet" : "drawing close-up"})
           {evidence.observation ? `: ${evidence.observation}` : ""}
         </span>
       ) : (
-        <span className="text-muted-foreground"> — “{evidence.quote}”</span>
+        <span className="text-muted-foreground">: “{evidence.quote}”</span>
       )}
       {evidence.kind === "description" && (
-        <span className="text-muted-foreground"> (AI description — weakest evidence)</span>
+        <span className="text-muted-foreground"> (AI description, the weakest evidence)</span>
       )}
     </li>
   );

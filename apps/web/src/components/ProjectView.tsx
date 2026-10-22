@@ -334,7 +334,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
                         <CircleHelpIcon />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Show me around — replay the tour</TooltipContent>
+                    <TooltipContent side="bottom">Replay the tour</TooltipContent>
                   </Tooltip>
                 }
               />

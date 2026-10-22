@@ -84,8 +84,8 @@ export function SummaryConfirm({
         </ToggleGroup>
         <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
           Up to {SUMMARY_DETAILS[detail].points} highlights and a{" "}
-          {SUMMARY_DETAILS[detail].overview} overview. Bigger sizes cost more in the
-          rollups only — page summaries are shared and reused at one size.
+          {SUMMARY_DETAILS[detail].overview} overview. Bigger sizes only cost more in
+          the rollups. Page summaries are reused at one size.
         </p>
       </div>
 
@@ -103,8 +103,8 @@ export function SummaryConfirm({
         <>
           {nothingToDo ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              There is nothing to summarize here — this discipline has no pages
-              with extracted text yet.
+              Nothing to summarize: this discipline has no pages with extracted
+              text yet.
             </p>
           ) : (
             <>
@@ -173,7 +173,7 @@ export function SummaryConfirm({
                 The call count is exact; the length of each answer is estimated
                 from previous runs, so the real cost will differ somewhat.
                 {estimate.thinking && estimate.thinking !== "off" && (
-                  <> Thinking is billed as output and is not included — expect more.</>
+                  <> Thinking is billed as output and not included, so expect more.</>
                 )}
               </p>
             </>

@@ -484,7 +484,7 @@ export function SheetPicker({
         <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
         <Input
           value={typed}
-          placeholder="Search sheets — number, discipline, level or title, e.g. S2.105, foundation plan, level 2"
+          placeholder="Search by sheet number, discipline, level or title (e.g. S2.105, foundation plan, level 2)"
           className={`${roomy ? "h-10" : "h-8"} pl-8 ${t}`}
           aria-label="Search sheets"
           onChange={(e) => setTyped(e.target.value)}
@@ -529,7 +529,7 @@ export function SheetPicker({
               );
             })}
             {hits.length > SHEET_HITS && (
-              <li className="text-muted-foreground px-2.5 py-1.5 text-xs">{hits.length - SHEET_HITS} more — add a word to narrow it.</li>
+              <li className="text-muted-foreground px-2.5 py-1.5 text-xs">{hits.length - SHEET_HITS} more. Add a word to narrow it.</li>
             )}
           </ul>
         ) : (

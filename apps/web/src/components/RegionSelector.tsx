@@ -289,7 +289,7 @@ export function RegionSelector({
             )}
             {pages.length === 0 && !manifest.isLoading && (
               <p className="text-sm text-muted-foreground">
-                No rendered pages yet — upload a PDF and let it finish processing first.
+                No rendered pages yet. Upload a PDF and let it finish processing.
               </p>
             )}
           </div>

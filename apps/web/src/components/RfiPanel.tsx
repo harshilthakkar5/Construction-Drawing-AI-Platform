@@ -345,14 +345,14 @@ function ComposeRfi({
             value={pageKey}
             onChange={(e) => setPageKey(e.target.value)}
           >
-            <option value="">No sheet — a general question</option>
+            <option value="">No sheet (general question)</option>
             {pages.map((page) => (
               <option
                 key={`${page.documentId}:${page.pageNumber}`}
                 value={`${page.documentId}:${page.pageNumber}`}
               >
                 {page.sheetNumber ?? `Page ${page.combinedPageNumber}`}
-                {page.sheetNumber ? ` — page ${page.combinedPageNumber}` : ""}
+                {page.sheetNumber ? ` (page ${page.combinedPageNumber})` : ""}
               </option>
             ))}
           </select>
@@ -431,7 +431,7 @@ function RfiDetail({
 
   return (
     <Modal
-      title={data ? `RFI #${data.number} — ${data.subject}` : "RFI"}
+      title={data ? `RFI #${data.number}: ${data.subject}` : "RFI"}
       onClose={onClose}
       className="sm:max-w-2xl"
       footer={
@@ -483,7 +483,7 @@ function RfiDetail({
             <h4 className="mb-2 text-sm font-semibold">Where on the drawings</h4>
             {data.locations.length === 0 && (
               <p className="text-muted-foreground text-xs">
-                Not pinned to a sheet — nothing for a reader to open.
+                Not pinned to a sheet, so there is nothing to open.
               </p>
             )}
             <ul className="flex flex-col gap-1">
@@ -498,7 +498,7 @@ function RfiDetail({
                     disabled={loc.combinedPageNumber === null}
                   >
                     {loc.sheetNumber ?? loc.filename ?? "sheet"}
-                    {loc.combinedPageNumber !== null && ` — page ${loc.combinedPageNumber}`}
+                    {loc.combinedPageNumber !== null && ` (page ${loc.combinedPageNumber})`}
                   </button>
                   {loc.drawingRevised && (
                     <Badge variant="warning" title="A newer revision of this sheet exists">
@@ -573,7 +573,7 @@ function RfiDetail({
               </div>
             ) : data.status === "draft" ? (
               <p className="text-muted-foreground text-xs">
-                Raise this RFI before answering it — a draft has not been issued to anyone yet.
+                Raise this RFI before answering it. A draft has not been issued yet.
               </p>
             ) : (
               <p className="text-muted-foreground text-xs">No answer was recorded.</p>

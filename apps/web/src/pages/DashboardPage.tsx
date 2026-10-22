@@ -146,21 +146,21 @@ export function DashboardPage() {
         <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
           <StatCard
             label="Projects"
-            value={String(data?.totals.projects ?? "—")}
+            value={String(data?.totals.projects ?? "…")}
             icon={<FolderKanbanIcon className="size-4" />}
             headline={data?.totals.projects === 1 ? "One active project" : "Active projects"}
             hint={data ? `${data.recentProjects.length} opened recently` : undefined}
           />
           <StatCard
             label="Drawings processed"
-            value={String(data?.totals.documents ?? "—")}
+            value={String(data?.totals.documents ?? "…")}
             icon={<FileStackIcon className="size-4" />}
             headline={data ? `${compactNumber(data.totals.pages)} pages extracted` : undefined}
             hint="Across every project you can see"
           />
           <StatCard
             label="Tokens used"
-            value={data ? compactNumber(data.tokens.totalTokens) : "—"}
+            value={data ? compactNumber(data.tokens.totalTokens) : "…"}
             icon={<SparklesIcon className="size-4" />}
             badge={
               trend === null ? undefined : (
@@ -180,7 +180,7 @@ export function DashboardPage() {
           />
           <StatCard
             label="Chat messages"
-            value={data ? compactNumber(data.totals.chatMessages) : "—"}
+            value={data ? compactNumber(data.totals.chatMessages) : "…"}
             icon={<MessagesSquareIcon className="size-4" />}
             headline={data ? `${compactNumber(data.totals.chunks)} indexed chunks` : undefined}
             hint="Every answer is cited back to a chunk"
@@ -317,7 +317,7 @@ export function DashboardPage() {
                 <CardDescription>Documents, pages and token spend</CardDescription>
               </CardHeader>
               <CardContent className="text-muted-foreground py-8 text-center text-sm">
-                No projects yet — create one to start uploading drawings.
+                No projects yet. Create one to start uploading drawings.
               </CardContent>
             </Card>
           )}
