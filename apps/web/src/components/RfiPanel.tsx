@@ -7,7 +7,7 @@ import { api } from "@/api";
 import { FileSpreadsheetIcon, PlusIcon, SparklesIcon, Undo2Icon } from "lucide-react";
 import { RfiReview } from "@/components/RfiReview";
 import { SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
-import { DatePicker, Modal, Notice, TextArea, TextField } from "@/components/shared";
+import { DatePicker, Modal, Notice, SheetLink, TextArea, TextField } from "@/components/shared";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -509,17 +509,11 @@ function RfiDetail({
             <ul className="flex flex-col gap-1">
               {data.locations.map((loc) => (
                 <li key={loc.id} className="flex items-center gap-2 text-sm">
-                  <button
-                    type="button"
-                    className="text-primary hover:underline"
-                    onClick={() =>
-                      requestJump(loc.combinedPageNumber, loc.bbox ?? undefined)
-                    }
-                    disabled={loc.combinedPageNumber === null}
-                  >
-                    {loc.sheetNumber ?? loc.filename ?? "sheet"}
-                    {loc.combinedPageNumber !== null && ` (page ${loc.combinedPageNumber})`}
-                  </button>
+                  <SheetLink
+                    sheet={loc.sheetNumber ?? loc.filename}
+                    page={loc.combinedPageNumber}
+                    onOpen={() => requestJump(loc.combinedPageNumber, loc.bbox ?? undefined)}
+                  />
                   {loc.drawingRevised && (
                     <Badge variant="warning" title="A newer revision of this sheet exists">
                       revised
