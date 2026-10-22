@@ -10526,6 +10526,41 @@
    "active": true,
    "catalogue": [],
    "codeChecks": []
+  },
+  {
+   "id": "CE-01-02-X01",
+   "elementId": "CE-01-02",
+   "category": "Documentation / Missing Info",
+   "text": "Does every plan series (forming, framing, floor plans) have a plan for each level it covers, with no level missing from the set or listed in the sheet index but not issued?",
+   "whereToLook": [
+    "Sheet index",
+    "Struct plans",
+    "Arch plans"
+   ],
+   "codeChecks": [
+    "missing_plan_level"
+   ],
+   "parentId": null,
+   "active": true,
+   "catalogue": [],
+   "added": true
+  },
+  {
+   "id": "CE-08-01-X01",
+   "elementId": "CE-08-01",
+   "category": "Documentation / Missing Info",
+   "text": "Is there a forming or framing plan for every elevated level, with no level skipped in the plan series?",
+   "whereToLook": [
+    "Sheet index",
+    "Struct framing plans"
+   ],
+   "codeChecks": [
+    "missing_plan_level"
+   ],
+   "parentId": null,
+   "active": true,
+   "catalogue": [],
+   "added": true
   }
  ],
  "universal": [

@@ -322,8 +322,8 @@ export function ChatPanel({
         {turns.length === 0 && (
           <Row avatar={<SparkAvatar />}>
             <div className="rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground">
-              Ask about the drawings — answers cite their sources, and clicking a source jumps the
-              viewer to the exact page.
+              Ask about the drawings. Answers cite their sources; click one to jump to the exact
+              page.
             </div>
           </Row>
         )}
@@ -370,12 +370,12 @@ export function ChatPanel({
                         onClick={() => requestJump(s.combinedPageNumber, s.bbox)}
                         title={
                           s.kind === "description"
-                            ? `${s.label} — a description of what this drawing shows, not text from it`
+                            ? `${s.label}: a description of what this drawing shows, not text from it`
                             : s.kind === "gridmarks"
                               ? gridLabelKind(s.discipline) === "tags"
-                                ? `${s.label} — which tag (room, unit, door…) is printed at which grid crossing, measured from the drawing`
-                                : `${s.label} — which mark is printed at which grid crossing, measured from the drawing`
-                              : `${s.label} — jump there and highlight the cited region`
+                                ? `${s.label}: which tag (room, unit, door…) sits at which grid crossing, measured from the drawing`
+                                : `${s.label}: which mark sits at which grid crossing, measured from the drawing`
+                              : `${s.label}: jump there and highlight the cited region`
                         }
                       >
                         {/* The sheet number alone: the page already has its own
@@ -830,7 +830,7 @@ function SendToReview({
               Cancel
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">Pinned to the sheets this answer cites. Medium confidence — check it on the sheet.</p>
+          <p className="text-[11px] text-muted-foreground">Pinned to the sheets this answer cites. Medium confidence: check it on the sheet.</p>
           {send.error && <p className="text-xs text-destructive">{(send.error as Error).message}</p>}
         </div>
       )}

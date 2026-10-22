@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
@@ -275,8 +276,8 @@ export function RfiTargetedReview({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Work through the question library element by element — grids first. You see the pages, the
-        questions and the cost before anything is sent to the AI.
+        Work through the question library element by element, grids first. You see the pages, questions
+        and cost before anything is sent to the AI.
       </p>
 
       {mode === "library" ? (
@@ -356,8 +357,8 @@ export function RfiTargetedReview({
         {RFI_REVIEW_DEPTHS[depth].label} · {thinking} care
         {settings.maxInputTokens ? ` · ${settings.maxInputTokens.toLocaleString()} input tokens a call` : ""}
       </SettingsLine>
-      {model?.available === false && <Notice tone="error">The model in Settings has no API key on this server — pick another there.</Notice>}
-      {!(inputOk && thinkingOk) && <Notice tone="error">A token limit in Settings is outside what this server allows — fix it there.</Notice>}
+      {model?.available === false && <Notice tone="error">The model in Settings has no API key on this server. Pick another in Settings.</Notice>}
+      {!(inputOk && thinkingOk) && <Notice tone="error">A token limit in Settings is outside what this server allows. Fix it in Settings.</Notice>}
 
       <Button size="sm" disabled={!canPlan || plan.isPending} onClick={() => plan.mutate(request())}>
         {plan.isPending ? <Spinner /> : <SearchIcon />}
@@ -390,12 +391,11 @@ export function CheckPicker({
             {RFI_REVIEW_CHECKS.filter((c) => c.sourceSection === section).map((check) => (
               <li key={check.id}>
                 <label className="flex items-start gap-2 text-xs">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     className="mt-0.5"
                     checked={value.includes(check.id)}
-                    onChange={(e) =>
-                      onChange(e.target.checked ? [...value, check.id] : value.filter((id) => id !== check.id))
+                    onCheckedChange={(v) =>
+                      onChange(v === true ? [...value, check.id] : value.filter((id) => id !== check.id))
                     }
                   />
                   <span>
@@ -525,7 +525,7 @@ function PlannedQuestions({ run }: { run: RfiReviewRunDto }) {
               <span className={cn(plan?.selected && "font-medium")}>
                 {id} {checkOf(id)?.label}
               </span>
-              {!plan?.selected && " — not run"}
+              {!plan?.selected && " (not run)"}
               {plan?.applicability === "applicable" && plan.selected && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">applies</Badge>}
               {plan?.reason && <span className="text-muted-foreground block">{plan.reason}</span>}
             </li>
@@ -544,7 +544,7 @@ function headline(run: RfiReviewRunDto): string {
   }
   const again = Object.values(run.checkResults ?? {}).filter((r) => r.outcome === "candidate_found").length;
   if (again > 0) {
-    return "Nothing new: what this run found was already found before. “The questions” below says where each one is — the RFI log, Needs your review, or Dismissed.";
+    return "Nothing new: everything this run found was found before. “The questions” below says where each one is (the RFI log, Needs your review, or Dismissed).";
   }
   return "No problems were confirmed on these pages.";
 }
@@ -617,7 +617,7 @@ function Coverage({ run }: { run: RfiReviewRunDto }) {
             <ul className="list-disc pl-4">
               {gaps.map((g, i) => (
                 <li key={i}>
-                  {g.checkId ? `${g.checkId} — a ${g.need} sheet` : `The ${g.need}`}: {g.reason}
+                  {g.checkId ? `${g.checkId} (a ${g.need} sheet)` : `The ${g.need}`}: {g.reason}
                 </li>
               ))}
             </ul>
@@ -629,7 +629,7 @@ function Coverage({ run }: { run: RfiReviewRunDto }) {
             <ul className="list-disc pl-4">
               {c.searchLog.map((s, i) => (
                 <li key={i}>
-                  {s.query} — {s.found} found ({s.stage})
+                  {s.query}: {s.found} found ({s.stage})
                 </li>
               ))}
             </ul>
@@ -699,7 +699,7 @@ function OtherModelPrice({ projectId, run }: { projectId: string; run: RfiReview
             ))}
         </SelectContent>
       </Select>
-      {estimate.data && <span>{range(estimate.data)} — plan again with that model to use it</span>}
+      {estimate.data && <span>{range(estimate.data)}. Plan again with that model to use it.</span>}
       {estimate.error && <span className="text-destructive">{(estimate.error as Error).message}</span>}
     </div>
   );
@@ -814,7 +814,7 @@ function RunView({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Review of {targetLabel(run)}</span>
         <Badge variant={run.status === "failed" || run.status === "stale" ? "destructive" : "secondary"}>
-          {run.status === "planned" ? "plan — not started" : run.status}
+          {run.status === "planned" ? "plan, not started" : run.status}
         </Badge>
         <span className="text-muted-foreground text-[11px]">
           {run.model} · {run.depth} · questions {run.catalogueVersion}

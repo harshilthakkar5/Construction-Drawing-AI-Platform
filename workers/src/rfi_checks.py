@@ -465,15 +465,15 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
         shown = ", ".join(raw_form[r] for r in not_uploaded[:12]) + ("…" if len(not_uploaded) > 12 else "")
         if index is None:
             notes.append(
-                f"Sheet-reference check: the drawings refer to {len(not_uploaded)} sheet(s) that are not in "
-                f"this upload ({shown}). No sheet index (drawing list) was uploaded, so a sheet that was never "
-                "issued cannot be told from one that was simply not uploaded, and none is proposed as an RFI. "
+                f"Sheet-reference check: the drawings refer to {len(not_uploaded)} sheet(s) not in "
+                f"this upload ({shown}). No sheet index (drawing list) was uploaded, so a sheet never issued "
+                "cannot be told from one not uploaded, and none is proposed as an RFI. "
                 "Upload the cover sheet with the drawing list, or the rest of the set, to check them."
             )
         else:
             notes.append(
                 f"Sheet-reference check: {len(not_uploaded)} referenced sheet(s) are listed in the sheet index "
-                f"but were not uploaded ({shown}). They exist in the issued set, so they are not RFIs — upload "
+                f"but were not uploaded ({shown}). They are in the issued set, so they are not RFIs. Upload "
                 "them to review what they show."
             )
     for ref in not_uploaded:
@@ -518,13 +518,12 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
     if unread:
         notes.append(
             f"{unread} page(s) have no sheet number read. A reference to one of "
-            "them would look missing, so sheet-reference findings are marked "
-            "medium rather than high confidence."
+            "them would look missing, so sheet-reference findings are medium confidence, not high."
         )
     if ocr_only:
         notes.append(
             f"Reference check: {ocr_only} sheet reference(s) were read only by OCR (words drawn as shapes) and "
-            "were not checked — a misread character invents a sheet number, so OCR text never raises a "
+            "were not checked. One misread character invents a sheet number, so OCR text never raises a "
             "missing-sheet RFI."
         )
     return _cap("dangling_reference", findings, notes), notes
@@ -591,10 +590,18 @@ def _writes_dotted(family: str, text: str) -> bool:
 # heading; its columns may spread either side of a centred title.
 SCHEDULE_BODY_BELOW_PT = 700.0
 SCHEDULE_BODY_SIDE_PT = 400.0
+# ...but only from a heading block that IS a heading: a title line or two. A
+# chunk can be a whole cluster of a sheet (Leland S0.12: 2,724 x 649pt holding
+# the KICKER BRACE ANGLE SCHEDULE, which lists lengths and no marks), and
+# "under" that is half the sheet — its notes' ASTM A325 and an embed plate
+# table's PLATE "A1" became the schedule's marks, and A8 "missing" from it.
+SCHEDULE_HEADING_MAX_PT = (2 * SCHEDULE_BODY_SIDE_PT, 120.0)
 
 
 def _under_heading(heading: dict | None, body: dict | None) -> bool:
     if not heading or not body:
+        return False
+    if heading["width"] > SCHEDULE_HEADING_MAX_PT[0] or heading["height"] > SCHEDULE_HEADING_MAX_PT[1]:
         return False
     hx0, hy0 = heading["x"], heading["y"]
     hx1, hy1 = hx0 + heading["width"], hy0 + heading["height"]
@@ -813,10 +820,9 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
 
     if not schedule_pages:
         notes.append(
-            "Schedule check found no schedule in this project's text (no chunk "
-            "carrying a schedule heading that names a mark family — PILE CAP "
-            "SCHEDULE for PC marks — and at least two of its marks), so no mark "
-            "could be checked against one."
+            "Schedule check: no schedule found in this project's text (a heading "
+            "naming a mark family, such as PILE CAP SCHEDULE for PC marks, with "
+            "at least two of its marks), so no mark was checked."
         )
         return [], notes
 
@@ -1375,7 +1381,7 @@ def mark_ocr(finding: Finding) -> None:
         finding.confidence = "medium"
     finding.facts["readByOcr"] = read
     finding.question += (
-        f" (The text on {', '.join(read)} is drawn as shapes and was read by OCR — check it against the sheet.)"
+        f" (The text on {', '.join(read)} is drawn as shapes and was read by OCR. Check it against the sheet.)"
     )
 
 

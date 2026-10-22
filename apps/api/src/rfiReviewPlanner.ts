@@ -27,6 +27,7 @@ import {
   type RfiScanUsageDto,
 } from "@cdip/shared";
 import { prisma } from "./db.js";
+import type { QueueJob } from "./queueJobs.js";
 import { library, resolveLibraryChoice, type LibraryScope } from "./rfiLibrary.js";
 import { DEFAULT_RFI_REVIEW_GEMINI_MODEL, DEFAULT_RFI_REVIEW_MODEL, keyFor, rfiReviewModel, rfiReviewProvider } from "./llm.js";
 import { retrieveChunkIds, type RetrievalResult } from "./retrieval.js";
@@ -52,6 +53,7 @@ import {
   titleMentions,
   titlePattern,
   titleReferences,
+  disciplineNotUploaded,
   MAX_TITLE_REFERENCES,
   type Box,
   type CandidateChunk,
@@ -333,7 +335,7 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
     }
     if (pageIds.length > MAX_ELEMENT_PAGES) {
       throw new PlanError(
-        `"${target.value}" is marked on ${pageIds.length} sheets — say which level or area you mean`,
+        `"${target.value}" is marked on ${pageIds.length} sheets. Say which level or area you mean.`,
         409,
         { choices: choicesFor(pageIds, byId) },
       );
@@ -368,11 +370,11 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
         knownSheets: sheets.slice(0, 40),
         hint: sheets.length
           ? "Use a sheet number exactly as it is printed in the title block."
-          : "No sheet numbers have been read yet — mark the title-block region first.",
+          : "No sheet numbers have been read yet. Mark the title-block region first.",
       });
     }
     const kept = found.filter((p) => !excluded.has(p.id));
-    if (!kept.length) throw new PlanError(`every page of "${value}" was removed — keep at least one`, 400);
+    if (!kept.length) throw new PlanError(`every page of "${value}" was removed. Keep at least one.`, 400);
     if (found.length > 1) ambiguous.push(value);
     sides.push({ label: value, pages: kept.map(asPage) });
   }
@@ -602,6 +604,10 @@ export async function planReview(
   let titleForced = 0;
   for (const { ref, from } of titleRefs.values()) {
     const label = `${ref.discipline ? `${ref.discipline} ` : ""}${ref.title.toLowerCase()}`;
+    if (disciplineNotUploaded(ref, all.filter((p) => !excluded.has(p.id)))) {
+      notes.push(`${from} refers to the ${label}; no ${ref.discipline} sheet is in this project, so it was not uploaded rather than missing.`);
+      continue;
+    }
     const found = await resolveTitle(ref, all, excluded, targetLevel);
     if ("reason" in found) {
       evidenceGaps.push({ checkId: null, need: label, reason: `${from} refers to it; ${found.reason}` });
@@ -815,7 +821,7 @@ function checkPlanOf(row: RunRow): Record<string, RfiCheckPlanDto> {
   );
 }
 
-export function toReviewDto(row: RunRow, candidates: number, now = new Date()): RfiReviewRunDto {
+export function toReviewDto(row: RunRow, candidates: number, now = new Date(), job?: QueueJob): RfiReviewRunDto {
   const scope = (row.scope ?? {}) as unknown as ReviewScope & { ambiguous?: string[] };
   const chunkCount = new Map<string, number>();
   for (const c of scope.chunks ?? []) chunkCount.set(c.pageId, (chunkCount.get(c.pageId) ?? 0) + 1);
@@ -835,7 +841,7 @@ export function toReviewDto(row: RunRow, candidates: number, now = new Date()): 
   let status = row.status as RfiReviewStatus;
   let error = row.error;
   // A worker that died mid-run would otherwise leave "running" forever.
-  if ((status === "queued" || status === "running") && !reviewIsActive(row, now)) {
+  if ((status === "queued" || status === "running") && !reviewIsActive(row, now, job)) {
     status = "failed";
     error = error ?? "the worker stopped responding during this review; start a new plan to run it again";
   }

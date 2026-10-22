@@ -192,7 +192,7 @@ rfiFullScanRouter.post("/:scanId/start", summaryLimiter, async (req, res) => {
   }
   if (scan.status !== "planned") return void res.status(409).json({ error: `this scan is ${shownStatus(scan, new Date()).status}, not planned` });
   const tiles = (await tileCounts([scan.id])).get(scan.id);
-  if (!tiles?.total) return void res.status(409).json({ error: "this plan has no sheet pairs to look at — read its notes for why" });
+  if (!tiles?.total) return void res.status(409).json({ error: "this plan has no sheet pairs to compare. Its notes say why." });
 
   const models = reviewModelOptions();
   const provider = body.provider ?? models.default.provider;
@@ -245,7 +245,7 @@ rfiFullScanRouter.post("/:scanId/resume", summaryLimiter, async (req, res) => {
   const shown = shownStatus(scan, new Date());
   const tiles = (await tileCounts([scan.id])).get(scan.id) ?? { total: 0, done: 0, failed: 0 };
   if (!canResume(shown.status, tiles)) {
-    return void res.status(409).json({ error: `a ${shown.status} scan cannot be resumed${shown.status === "stale" ? " — plan a new one" : ""}` });
+    return void res.status(409).json({ error: `a ${shown.status} scan cannot be resumed${shown.status === "stale" ? ". Plan a new one." : ""}` });
   }
   if (!scan.model || !scan.provider) return void res.status(409).json({ error: "this scan was never started" });
   if (!process.env[keyFor(scan.provider === "gemini" ? "gemini" : "claude")]) {

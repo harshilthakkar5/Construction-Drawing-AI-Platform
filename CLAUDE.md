@@ -83,6 +83,9 @@ worker venv):
   PaddleOCR is optional locally — the OCR wrapper degrades gracefully if it isn't installed, as
   does the Haiku classifier fallback when `ANTHROPIC_API_KEY` is unset)
 - Python tests: `cd workers && python -m pytest tests/ -q` (dev deps in `requirements-dev.txt`)
+  — `benchmarks/rfi_eval.py … --code-only` scores only what a code check made (a run whose AI calls
+  went to a stand-in: point `ANTHROPIC_BASE_URL` / `VOYAGE_BASE_URL` at a local stub and set the keys
+  to dummies — the env files never override a variable already set)
   — `RFI_REVIEW_TEST_PDF` (the S2.105/A3.01 set) with `RFI_TEST_DATABASE_URL` runs the targeted review end to end
   — set `RFI_TEST_DATABASE_URL` to a MIGRATED database to also run the rfi-scan job against real
   SQL (`tests/test_rfi_scan.py`); without it those tests skip
@@ -2408,7 +2411,11 @@ heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted b
 gets 1-55%), the worker's own line ("OCR on page 41 of 103: M0.02 …"), run time and last update, and
 a warning after 3 quiet minutes. A rescan that read shape text ran an hour behind one spinner before
 this. Staleness is now measured from the HEARTBEAT (`rfiScanRules.scanIsActive`): from the start
-time, a healthy hour-long OCR scan was "dead" at 30 minutes. Writes are throttled to one per 2s per
+time, a healthy hour-long OCR scan was "dead" at 30 minutes. Reviews and packages had the queued half of the same mistake: a review WAITING its turn has no
+heartbeat and was timed from its plan, so a twelve-element named RFI on one busy worker showed most of
+its reviews "the worker stopped responding". A QUEUED review or package now asks BullMQ for its job
+(`queueJobs.jobAlive`, `queuedReviewJobs`, `rfiPackageRules.packageStale`: waiting is alive, gone or
+failed is dead, a package STARTED over 10 minutes ago is dead); running reviews keep the heartbeat. Writes are throttled to one per 2s per
 step and a failed write is a log line, never a failed scan.
 A scan can be STOPPED (`POST /scan/stop`, the Stop button beside the scanning one). Before it existed
 a scan could not be ended at all, and it came back by itself: a worker that dies mid-job leaves its
@@ -2481,7 +2488,10 @@ false one is a question someone has to answer:
     rejected SR-25 "missing from the level schedule" and S8 "missing from the door schedule".
     A heading's ROWS may be separate text blocks: rows printed under it (`_under_heading`, 700pt
     down, 400pt either side) count with it — JETRIGHT's S1.02 prints "FOOTING SCHEDULE" 79pt above
-    its F5.0 … F11.0B block, and the check reported "no schedule" on a set with one. A dot BETWEEN
+    its F5.0 … F11.0B block, and the check reported "no schedule" on a set with one. Only a COMPACT
+    heading block gathers rows (`SCHEDULE_HEADING_MAX_PT`): Leland S0.12's KICKER BRACE ANGLE
+    SCHEDULE sits in a 2,724 x 649pt chunk, "under" it was half the sheet, and an embed plate's
+    PLATE "A1" and a note's ASTM A325 made A8 "missing" from a schedule that lists no marks. A dot BETWEEN
     digits (F6.0) is matched only when the family's schedule writes its own marks that way
     (`_writes_dotted`), and then a plain F10 is not F1.0; a dot after the LETTERS (grid F.7) never
     is. Opening those schedules exposed three more false families, each now a rule: a schedule
@@ -2581,7 +2591,14 @@ are not open items; sheet numbers may carry THREE decimals (S2.106 — the old t
 made every UT Law structural sheet invisible to the index and to references, and let the wording
 guard pass an invented one); "INDEX TO DRAWINGS" is an index heading; and a line with two names
 (structural 2.3/2.4) agrees with either in the grid merge (`rfi_grid.line_aliases`), which had
-split RFI 002 into three. A template question is refreshed to the current template on re-scan.
+split RFI 002 into three. Such a line is now written with BOTH names ("3.2 = 2.3/2.4") from the moment
+a sheet pair is compared: which name a pair matched depended on fractions of a point, so the offline
+sweep filed the one dispute under a different fingerprint each run (found in one pass, "new" in the
+next, and once without A3.01). Every sheet is collected; `MAX_EVIDENCE` is applied when the finding
+is written, one piece per sheet first, alternating namings, most renamed lines first
+(`_pick_evidence`). A lone fingerprint seen on 3+ sheets is written as the merged dispute, and a
+merged dispute is fingerprinted by its two DISCIPLINES only — with the renamed lines in it, every
+review (which compares its own sheets) and the scan (all sheets) filed the same dispute as new. A template question is refreshed to the current template on re-scan.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
@@ -2693,7 +2710,8 @@ discovery by `maxInputTokens` into at most `maxBatches` calls (the rest is writt
 `needs_evidence` disposition that triggers a bounded project search logged in
 `coverage.searchLog`) and verification (only cited + searched evidence). The code's rules follow:
 an evidence id the server did not issue is dropped, description-only or aid-only support is
-rejected, a conflict needs two pages, and a question may not contain an identifier or ANY digit
+rejected, an evidence id the model wrote into prose is shown as its SHEET (`readable`: subject, question,
+why-flagged, set-asides, notes — lowercase `ev12` only, so a drawing's tag EV1 stays), a conflict needs two pages, and a question may not contain an identifier or ANY digit
 run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern).
 `maxTotalTokens` is checked BEFORE each call and stops the run `partial` with what it found saved.
 Usage rows carry `reviewRunId`/`stage`/`attempt` (`usage.tagged`, a ContextVar). G01 runs the
@@ -2745,6 +2763,17 @@ Two same-scale sheets of ONE discipline are never overlaid either: on the full U
 (Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
 plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
 disciplines; an enlarged plan over its overall plan is unaffected.
+`plan_match.differences` reports a difference only where it can be true, and each rule is a false
+finding from the offline sweep of every library element (Leland S2.30-A/B and A2.30-A/B over
+S2.20/A2.20): inside the area the matched columns span plus one typical spacing (`COVER_BAYS`; a
+detail's ink took in another area whose columns the enlarged plan does not draw, 45-60 ft from any
+match); never "does not show" where the other sheet draws a column-sized box in ANY style, filled or
+only outlined (`_drawn_at`); boxes that overlap are one column, and a box inside the other is not a
+resize when the rest is another piece of its fill (a line cutting a pier's fill in two) or the bigger
+fill holds an outline of the other's size (a fill taking in a strip beside the column, `_outlined`).
+"Moved" keeps its own evidence and is not area-limited. Every disagreement is still returned
+(`reported=False`) and counted for `MAX_DIFF_SHARE` — filtering them first let A3.01 over A1.01,
+27 disagreements on 13 matches, through as a finding. Identical lines merge ("(at 2 places)").
 
 Each question also says which sheet KINDS besides plans carry its answer (`views` in the catalogue:
 F04 a schedule, FL04 a section, O01 an elevation). The planner forces in one the review would
@@ -2754,7 +2783,10 @@ otherwise lack (referred to by the target, else found by that question's search)
 ("REFER TO ARCHITECTURAL SLAB DIMENSIONAL CONTROL PLAN FOR ALL … OPENING DIMENSIONS" — the RFI 006
 miss) are followed too (`titleReferences`): the page carrying that title, same level first, else the
 sheet a sheet index lists for it, else a gap saying exactly why, which reasoning may raise as a
-`missing` problem. The full scan compares plans only and its plan says which chosen questions need
+`missing` problem. A discipline's whole SET is not a title ("SEE ELECTRICAL PLANS", "SEE ENGINEERING PLANS" are
+skipped like "SEE KEY PLAN"), and a titled drawing of a discipline with NO sheet in the project is a
+note, never a gap (`disciplineNotUploaded`): gaps reach verification as `<not_in_project>`, which says
+never to reject a problem deferred to one, so "not uploaded" was turning into RFIs. The full scan compares plans only and its plan says which chosen questions need
 other kinds (`scan_scope.views_note`).
 
 The planner reads a page's level with `pageLevel` (`rfiReviewRules.ts`): the title-block box first,
@@ -2775,7 +2807,10 @@ before its first call, reading the grid of its 9 sheets 23 times. `page_memo` ke
 results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
 page: grid bubbles, `styled_systems` (also in Redis, versioned by `grid.STYLED_VERSION`, which a test
 holds equal to `rfi_scan.GRID_CACHE_VERSION`), column elements, `column_locate.locate` and unmarked
-elements; every hit is a deep copy because callers fill fields in. `cached_pdf` keeps the original
+elements; every hit is a deep copy because callers fill fields in. Aids that look for particular words open only the pages whose STORED text has them
+(`_pages_whose_text`: "Column Locations" for the column-schedule rule, SEE PLAN/CIVIL/ARCH for the
+deferred dimensions) — opening every reviewed page for them was two thirds of preparation; checked on
+all 648 Leland + UT Law pages to drop no aid. `cached_pdf` keeps the original
 PDFs on the worker's disk (`RFI_PDF_CACHE_MB`). Measured: 70 s cold, 11 s on the next review of the
 same sheets, identical results. By element planning also searches in the library's OWN words
 (`libraryQueries`, one search per question category): 28 of 62 elements link to none of the 17
@@ -2886,7 +2921,11 @@ kept (`CE-04-01-Q03`), every row imported ON — red-filled rows (the client's "
 user's request (21 Oct: 120 elements, 572 questions); `active` stays in the format for an element switched off,
 universal questions (U-01..) expanded per element as `<element>-U-01`. `LINKS` in the importer (ours,
 not the client's) ties items to the original 17 questions and to code checks, and an import that
-drops a linked id fails. A project's own questions are rows in `rfi_custom_questions`, under an
+drops a linked id fails. `ADDED` in the importer holds questions of OURS the workbook does not ask,
+appended to an element with ids `-X01..` and `added: true` (a re-import keeps them): CE-01-02-X01 and
+CE-08-01-X01 ask whether every level has its plan and run `missing_plan_level`, whose finding is about
+the SET and is kept whatever sheets the review read (`rfi_review.SET_CODE_CHECKS`) — no element review
+could find UT Law RFI 007 before. A project's own questions are rows in `rfi_custom_questions`, under an
 element or as follow-ups under any question of it, to any depth (`GET/POST/PATCH/DELETE
 /projects/:id/rfis/library`, `apps/api/src/rfiLibrary.ts` builds the tree). Nothing runs these
 questions yet — that is Phase 4. Phase 3 is the picker (`components/LibraryPicker.tsx`, the
@@ -2894,7 +2933,10 @@ targeted review's first mode "By element"): element → questions (+ the project
 1–4 sheets, suggested by `suggestSheets` in `@cdip/shared` from the element's Compare Across words
 (`compareAcrossNeeds`; a kind alone like "pile cap schedule" belongs to the discipline before it,
 anything naming no discipline — Geotech, Specs, vendors — is reported as not a drawing), preferring
-a plan that names a level and keeping one level; the manifest now carries `sheetKind`/`level` for it.
+a plan that names a level and keeping one level; the manifest now carries `sheetKind`/`level` for it. Within a kind, a sheet whose TITLE (the title-block reading, `titleScore`) shares words with the
+Compare Across entry, the element or its stage ("Deep Foundations" → FOUNDATION PLAN) comes first,
+and a code or finishes plan (life safety, egress, RCP, finishes, furniture, signage) last: page order
+alone handed every Leland foundation element the composite floor plan and the life safety plan.
 Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
 asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
 chosen question has none. Phase 4 (`rfi_review.library_checks`): the plan request carries
@@ -2995,7 +3037,12 @@ wall failures on a set whose walls line up 5 times out of 6 here. The OCR pass r
 A 103-page client set then paired NOTHING (33 plans, 11 levels read): `sheet_facts.level_in` only knew
 "LEVEL n". Numbered floors in words ("FIRST FLOOR", "2ND FLOOR", "FLOOR 2") now read as "LEVEL n";
 named floors (ground, basement n, mezzanine, roof) read as their name and pair only with the same
-name, since GROUND is level 1 in the US and 0 in the UK (`FACTS_VERSION` 3). The no-pairs note names
+name, since GROUND is level 1 in the US and 0 in the UK (`FACTS_VERSION` 3). A NUMBERED basement is one level however it is written — "BASEMENT 2", "BASEMENT LEVEL 2" and
+"LEVEL B2" all read `LEVEL B2` in all three readers (`sheet_facts.level_in`, `rfi_columns.level_of`,
+the API's `levelOf`; the last two share `fixtures/sheet-level.json`), and "LOWER LEVEL 1" is not
+"LEVEL 1". The scan reads the TITLE BLOCK's level first (`title_block_level`, the words after "SHEET
+TITLE"), as the planner's `pageLevel` already did: Leland's S2.30-B is "BASEMENT 2 - FOUNDATION PLAN"
+in its title block over a drawing titled "LEVEL 2 - FOUNDATION PLAN" (`FACTS_VERSION` 6). The no-pairs note names
 the top reasons with counts, and an unpaired plan says whether it lacked a discipline, a partner
 discipline on its level, or a common scale.
 The same set's first plan said "Read 0 pages … 103 kept out": `live_pages` drops old revisions,

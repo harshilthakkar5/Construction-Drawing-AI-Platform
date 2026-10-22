@@ -87,7 +87,7 @@ export function SupportPage() {
 
               {submit.isSuccess && (
                 <Notice tone="ok">
-                  Thanks — your message is with the team. We'll reply by email.
+                  Thanks, your message is with the team. We'll reply by email.
                 </Notice>
               )}
               {submit.isError && <Notice tone="error">{(submit.error as Error).message}</Notice>}

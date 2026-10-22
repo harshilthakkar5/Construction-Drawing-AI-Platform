@@ -578,6 +578,21 @@ def test_a_line_with_two_names_does_not_split_the_dispute():
     findings, _ = grid_mismatches(pages, systems)
     assert len(findings) == 1, [f.question for f in findings]
     assert set(findings[0].facts["sheets"]) == {"S2.105", "A3.01", "S0.302"}
+    # The line is written with both its names, and the finding is the same
+    # whichever sheet pair is met first: it used to be "3 = 2" one run and
+    # "3 = 2.4" the next, two fingerprints for one dispute.
+    assert "3 = 2/2.4" in findings[0].question, findings[0].question
+    again, _ = grid_mismatches(pages[::-1], systems[::-1])
+    assert [f.fingerprint for f in again] == [findings[0].fingerprint]
+    # A review sees the sheets it was given and the scan sees them all: one
+    # more sheet in the comparison is still the same dispute, not a new RFI.
+    more_pages = pages + [page("s3", "S0.303", "structural", 4)]
+    # S0.303 alone shows one more line, the architect's 1 = structural 0.5.
+    more = [systems[0], GridSystem("a", "grey 18pt", {}, shifted(dict(ARCH_ROWS, **{"1": 1600.0}), -30)), systems[2],
+            GridSystem("s3", "blue 27pt", {}, shifted(dict(renamed, **{"0.5": 1600.0}), 20))]
+    wider, _ = grid_mismatches(more_pages, more)
+    assert "1 = 0.5" in wider[0].question and "1 = 0.5" not in findings[0].question
+    assert [f.fingerprint for f in wider] == [findings[0].fingerprint]
 
 
 def test_an_elevation_is_never_compared_with_a_plan():
@@ -594,3 +609,15 @@ def test_an_elevation_is_never_compared_with_a_plan():
     pages = {p.id: p for p in (plan, elev, unknown)}
     assert not _comparable(a, b, pages)
     assert _comparable(a, c, pages)  # kind not read yet: compared as before
+
+
+def test_evidence_shows_both_namings_and_one_item_per_sheet_first():
+    """A dispute on 13 sheets fits 5 pieces of evidence. They used to be the
+    first 5 collected: A3.01 three times and no structural sheet at all."""
+    def item(sheet, n, lines):
+        return {"documentId": "d", "pageNumber": n, "sheetNumber": sheet, "quote": f"{sheet} {lines}", "_labels": ["x"] * lines}
+
+    arch = [item("A3.01", 1, 27), item("A3.01", 1, 10), item("A3.01", 1, 9), item("A3.02", 2, 27), item("A3.03", 3, 5)]
+    struct = [item("S1.101", 4, 20), item("S2.105", 5, 27)]
+    picked = [e["sheetNumber"] for e in rfi_grid._pick_evidence([arch, struct])]
+    assert picked == ["A3.01", "S2.105", "A3.02", "S1.101", "A3.03"]

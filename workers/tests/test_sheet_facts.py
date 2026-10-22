@@ -73,7 +73,7 @@ def test_classify_kind(titles, has_grid, kind):
         # US and level 0 in the UK, so it is never turned into a number.
         (["GROUND FLOOR PLAN"], "GROUND FLOOR"),
         (["ROOF FRAMING PLAN"], "ROOF"),
-        (["BASEMENT 2 PLAN"], "BASEMENT 2"),
+        (["BASEMENT 2 PLAN"], "LEVEL B2"),
         (["MEZZANINE PLAN"], "MEZZANINE"),
         (["LOWER LEVEL PLAN"], "LOWER LEVEL"),
         (["ENLARGED FLOOR PLAN"], None),
@@ -142,3 +142,27 @@ def test_the_client_sheets_read_as_their_titles_say():
     assert (s2105["kind"], s2105["level"], s2105["scales"]) == ("plan", "LEVEL 5", [9.0])
     assert (a301["kind"], a301["level"], a301["scales"]) == ("plan", "LEVEL 2", [9.0])
     assert len(s2105["grid"]["x"]) >= 6 and not s2105["grid"]["repeats"]
+
+
+@pytest.mark.parametrize("text, level", [
+    # One basement floor written three ways is one level.
+    ("BASEMENT 2 - FOUNDATION PLAN - AREA B", "LEVEL B2"),
+    ("BASEMENT LEVEL 02 PLAN", "LEVEL B2"),
+    ("COMPOSITE FLOOR PLAN - LEVEL B2", "LEVEL B2"),
+    ("BASEMENT PLAN", "BASEMENT"),  # no number: a name, pairs only with itself
+    # A qualified level is not the plain one.
+    ("LOWER LEVEL 1 FLOOR PLAN", "LOWER LEVEL 1"),
+    ("LEVEL 1 FLOOR PLAN", "LEVEL 1"),
+])
+def test_basement_and_qualified_levels(text, level):
+    assert sf.level_in(text) == level
+
+
+def test_the_title_block_names_the_level_before_the_drawing_titles():
+    # Leland S2.30-B: title block "BASEMENT 2", drawing titled "LEVEL 2 - FOUNDATION PLAN".
+    box = "A B A B N SHEET NUMBER SHEET TITLE S2.30-B BASEMENT 2 - FOUNDATION PLAN - AREA B"
+    assert sf.title_block_level(box) == "LEVEL B2"
+    # Revision notes before the label never name the level.
+    assert sf.title_block_level("REV 3 LEVEL 5 COMMENTS SHEET TITLE S1.01 FOUNDATION PLAN") is None
+    # A box drawn tight round the sheet number names none, so the drawing titles decide.
+    assert sf.title_block_level("Checked By S2.105 Checker") is None

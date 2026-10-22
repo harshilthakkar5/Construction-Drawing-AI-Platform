@@ -1965,6 +1965,8 @@ export interface RfiLibraryFile {
     active: boolean;
     catalogue: RfiReviewCheckId[];
     codeChecks: RfiCheckType[];
+    /** Ours, not the client's workbook (rfiLibraryImport ADDED). */
+    added?: boolean;
   }[];
   /** U-01..: asked of every element, `{element}` filled with its name. */
   universal: { id: string; category: string; template: string; codeChecks: RfiCheckType[] }[];
@@ -2175,11 +2177,34 @@ export function headingScore(sheet: LibrarySheet, subject: { words: readonly str
  * `outside` the documents that are not drawings (specs, geotech, vendors).
  * A suggestion, never a choice: the person edits it.
  */
+// Words that say which discipline or kind of drawing, not what it shows.
+const TITLE_NOISE = new Set(
+  ("STRUCT STRUCTURAL ARCH ARCHITECTURAL CIVIL MEP MECH MECHANICAL ELEC ELECTRICAL PLUMB PLUMBING FP FIRE GEOTECH " +
+    "PLAN PLANS SCHEDULE SCHEDULES SECTION SECTIONS DETAIL DETAILS ELEVATION ELEVATIONS SHEET SHEETS DRAWING DRAWINGS " +
+    "AND OR OF THE ON IN TO FOR WITH AT BY ALL TYPICAL GENERAL").split(" "),
+);
+const subjectWords = (...texts: string[]): string[] =>
+  [...new Set(texts.flatMap((t) => (t.toUpperCase().match(/[A-Z]{3,}/g) ?? []).map(stem)))].filter((w) => !TITLE_NOISE.has(w));
+/** How many of the subject's words the sheet's own title carries. */
+export function titleScore(sheet: LibrarySheet, words: readonly string[]): number {
+  if (!sheet.titleBlock || !words.length) return 0;
+  const tokens = new Set((sheetTitleFrom(sheet.titleBlock, sheet.sheetNumber).toUpperCase().match(/[A-Z]+/g) ?? []).map(stem));
+  return words.filter((w) => tokens.has(w)).length;
+}
+/** Plans drawn for code, finishes or furniture: they carry no coordination
+ * geometry, so a picker that took the first plan in page order handed a
+ * structural question the life safety plan. Ranked after every other plan. */
+const NOT_COORDINATION = /\b(?:LIFE\s+SAFETY|EGRESS|CODE|REFLECTED\s+CEILING|RCP|FINISH(?:ES)?|FURNITURE|FURNISHINGS?|SIGNAGE|ACCESSIBILITY|DEMOLITION|KEY\s+PLAN)\b/;
+const notCoordination = (s: LibrarySheet) =>
+  s.titleBlock ? NOT_COORDINATION.test(sheetTitleFrom(s.titleBlock, s.sheetNumber).toUpperCase()) : false;
+
 export function suggestSheets(
   compareAcross: readonly string[],
   sheets: readonly LibrarySheet[],
   max = Infinity,
   elementName = "",
+  /** The element's stage ("Deep Foundations"): its words point at the drawing too. */
+  stageName = "",
 ): { sheets: string[]; missing: string[]; outside: string[] } {
   const { needs, outside } = compareAcrossNeeds(compareAcross);
   const picked: string[] = [];
@@ -2205,12 +2230,19 @@ export function suggestSheets(
     // plans, and "the first schedule sheet" was S0.01, general notes, for columns.
     const subject = need.kinds.includes("schedule") ? scheduleSubject(need.entry, elementName) : { words: [], all: true };
     const named = (s: LibrarySheet) => headingScore(s, subject);
-    const rank = (s: LibrarySheet) => [-named(s), named(s) ? 0 : kindRank(s), level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber];
+    // Then the sheet whose TITLE names what the entry, element or stage is about
+    // ("Struct foundation plan", "Deep Foundations" → FOUNDATION PLAN), and a
+    // code or finishes plan last; page order only breaks what is left.
+    const words = subjectWords(need.entry, elementName, stageName);
+    const rank = (s: LibrarySheet) => [
+      -named(s), named(s) ? 0 : kindRank(s), -titleScore(s, words), notCoordination(s) ? 1 : 0,
+      level && s.level === level ? 0 : s.level ? 1 : 2, s.combinedPageNumber,
+    ];
     const pick = of
       .filter((s) => (kindRank(s) >= 0 || named(s) > 0) && !picked.includes(s.sheetNumber))
       .sort((a, b) => {
         const [x, y] = [rank(a), rank(b)];
-        return x[0]! - y[0]! || x[1]! - y[1]! || x[2]! - y[2]! || x[3]! - y[3]!;
+        return x.reduce((d, v, i) => d || v - y[i]!, 0);
       })[0];
     if (pick && picked.length < max) {
       picked.push(pick.sheetNumber);

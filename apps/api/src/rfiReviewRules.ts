@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { jobAlive, type QueueJob } from "./queueJobs.js";
 import {
   RFI_REVIEW_CHECKS,
   RFI_REVIEW_CHECK_IDS,
@@ -109,7 +110,7 @@ export function selectRfiChecks(
       reason = why ?? "every original question runs; discovery reports if this one does not apply";
     } else if (mode === "custom") {
       selected = custom.includes(check.id);
-      reason = selected ? "chosen by you" : "not chosen — pick it in Custom or run All original questions";
+      reason = selected ? "chosen by you" : "not chosen. Pick it in Custom or run All original questions";
     } else if (why) {
       selected = true;
       reason = why;
@@ -118,7 +119,7 @@ export function selectRfiChecks(
       reason = "the target does not say which elements it shows, so every objective runs";
     } else {
       selected = false;
-      reason = "nothing in the target points at it — choose it in Custom or run All original questions";
+      reason = "nothing in the target points at it. Pick it in Custom or run All original questions";
     }
     plan[check.id] = { selected, applicability, reason };
     if (selected) {
@@ -150,9 +151,17 @@ export function checkQuery(checkId: RfiReviewCheckId, anchors: readonly string[]
 /** "LEVEL 14", "LEVEL 5" out of a title — the one piece of a title a
  * same-level correspondence is matched on. Null when the title names none. */
 export function levelOf(text: string | null | undefined): string | null {
-  const found = /\bLEVEL\s*([0-9]{1,3}|[A-Z]{1,2}\d?)\b/.exec((text ?? "").toUpperCase());
-  // "LEVEL 01" and "LEVEL 1" are one floor.
-  return found ? `LEVEL ${(found[1] ?? "").replace(/^0+(?=\d)/, "")}` : null;
+  const upper = (text ?? "").toUpperCase();
+  const strip = (n: string) => n.replace(/^0+(?=\d)/, ""); // "LEVEL 01" and "LEVEL 1" are one floor
+  // A basement is LEVEL Bn however it is written ("BASEMENT 2", "BASEMENT LEVEL 2",
+  // "LEVEL B2"); read as "LEVEL 2" it paired a basement plan with the second floor.
+  const basement = /\bBASEMENT\s+(?:LEVEL\s+)?([0-9]{1,2})\b/.exec(upper);
+  if (basement) return `LEVEL B${strip(basement[1] ?? "")}`;
+  // "LOWER LEVEL 1" is not "LEVEL 1".
+  const qualified = /\b(LOWER|UPPER)\s+LEVEL\s*([0-9]{1,3})\b/.exec(upper);
+  if (qualified) return `${qualified[1]} LEVEL ${strip(qualified[2] ?? "")}`;
+  const found = /\bLEVEL\s*([0-9]{1,3}|[A-Z]{1,2}\d?)\b/.exec(upper);
+  return found ? `LEVEL ${strip(found[1] ?? "")}` : null;
 }
 
 /** A page's level: what its title-block box says, else what the scan read off
@@ -258,8 +267,21 @@ const TITLE_REFERENCE = new RegExp(
     String.raw`((?:(?!${TITLE_STOP}\b)[A-Z][A-Z&/-]+\s+){1,5}(?:PLANS?|SCHEDULES?))\b`,
   "g",
 );
-// "SEE KEY PLAN" points at the thumbnail every sheet carries.
-const GENERIC_TITLE_WORDS = new Set(["KEY", "TYPICAL"]);
+// "SEE KEY PLAN" points at the thumbnail every sheet carries, and "SEE
+// ELECTRICAL PLANS" / "SEE ENGINEERING PLANS" at a whole set of drawings, not one
+// titled drawing: read as titles they put a gap in nearly every review plan.
+const GENERIC_TITLE_WORDS = new Set([
+  "KEY", "TYPICAL", ...Object.keys(NAMED_DISCIPLINES),
+  "ENGINEERING", "ENGINEER'S", "ENGINEERS", "MEP", "CONSULTANT", "CONSULTANTS", "CONSULTANT'S",
+  "SHOP", "VENDOR", "VENDORS", "MANUFACTURER", "MANUFACTURERS", "MANUFACTURER'S", "CONTRACT", "CONSTRUCTION",
+]);
+
+/** A reference to one discipline's drawing in a project holding none of that
+ * discipline's sheets: not uploaded, which is not the same as not issued — a
+ * note, never a gap that makes a review raise RFIs about it. Pure. */
+export function disciplineNotUploaded(ref: TitleReference, pages: readonly { discipline: string | null }[]): boolean {
+  return !!ref.discipline && !pages.some((p) => p.discipline === ref.discipline);
+}
 export const MAX_TITLE_REFERENCES = 5;
 
 export function titleReferences(text: string): TitleReference[] {
@@ -403,7 +425,7 @@ export function libraryQueries(library: ReviewScope["library"]): { label: string
     byCategory.set(key, [...(byCategory.get(key) ?? []), q.text]);
   }
   return [...byCategory].map(([category, texts]) => ({
-    label: `${library.element.name} — ${category}`,
+    label: `${library.element.name}: ${category}`,
     query: [library.element.name, library.element.variants, ...texts].filter(Boolean).join(" ").slice(0, 600),
   }));
 }
@@ -538,7 +560,7 @@ export function rankScope(input: RankInput): ReviewScope {
     const visual = role !== "related" ? true : visualLeft > 0;
     if (visual) visualLeft--;
     const crops = visual ? cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage) : [];
-    if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only — beyond the ${caps.visualPages} rendered pages of this depth` });
+    if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only, beyond the ${caps.visualPages} rendered pages of this depth` });
     return { ...page, role, reason, visual, crops };
   });
 
@@ -673,7 +695,7 @@ export function estimateReview(scope: ReviewScope, settings: EstimateSettings, c
     costHighUsd: settings.priced ? cost(Math.round(inputTokens * 1.2), outputTokens + thinkingPerCall * calls) : null,
     model: settings.model,
     provider: settings.provider,
-    pricingVersion: settings.priced ? settings.pricingVersion : "no published price for this model — cost unknown",
+    pricingVersion: settings.priced ? settings.pricingVersion : "no published price for this model, cost unknown",
     planningCostUsd: settings.planning.costUsd,
     planningTokens: settings.planning.tokens,
     assumptions,
@@ -693,8 +715,14 @@ export const STALE_REVIEW_MS = 15 * 60 * 1000;
 export function reviewIsActive(
   run: { status: RfiReviewStatus; createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null },
   now: Date,
+  /** The queue's view of a QUEUED review's job; undefined when not asked. A
+   * review waiting its turn has no heartbeat yet, and timed from its plan it
+   * was reported "the worker stopped responding" while still in the queue —
+   * most of a twelve-element RFI on one busy worker. */
+  job?: QueueJob,
 ): boolean {
   if (run.status !== "queued" && run.status !== "running") return false;
+  if (run.status === "queued" && job !== undefined) return jobAlive(job);
   const since = (run.heartbeatAt ?? run.startedAt ?? run.createdAt).getTime();
   return now.getTime() - since < STALE_REVIEW_MS;
 }
@@ -745,8 +773,8 @@ export function comparability(
   if (!sameTarget) caveats.push("the two runs reviewed different targets");
   if (!sameChecks) caveats.push("the two runs ran different checks");
   if (!sameRevisions) caveats.push("the drawings changed between the two runs");
-  if (!sameCoverage) caveats.push("one run was partial — it looked at less");
-  if (!caveats.length) caveats.push("same target, checks and drawings — the difference is the model and settings, not the inputs. It says nothing about which found more");
+  if (!sameCoverage) caveats.push("one run was partial, so it looked at less");
+  if (!caveats.length) caveats.push("same target, checks and drawings: the difference is the model and settings. It says nothing about which found more");
   return { sameTarget, sameChecks, sameRevisions, sameCoverage, caveats };
 }
 

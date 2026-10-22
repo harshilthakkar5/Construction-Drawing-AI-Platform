@@ -363,6 +363,16 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
         )
         reps = reps[:MAX_SYSTEMS]
 
+    # A line with two names (S2.105's "2.3" at one end, "2.4" at the other) is
+    # one line: which name a pair of sheets matched depended on fractions of a
+    # point, so one dispute was filed under different fingerprints run to run.
+    # Every name is written with both ("2.3/2.4") before it is compared or kept.
+    aliases = line_aliases(systems, by_page)
+
+    def canon(system: GridSystem, name: str) -> str:
+        pair = next((g for g in aliases.get(_discipline(by_page[system.page_id]), ()) if name in g), None)
+        return "/".join(sorted(pair)) if pair else name
+
     # fingerprint -> accumulating finding
     found: dict[str, dict] = {}
     other_scale: set[tuple[str, str]] = set()
@@ -383,7 +393,8 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
             fixed = 0.0 if same_page else None
             for axis in ("along_x", "along_y"):
                 alignment = align(getattr(a, axis), getattr(b, axis), fixed)
-                renamed = _renamed(alignment)
+                raw = [(x, y) for x, y in _renamed(alignment) if canon(a, x) != canon(b, y)]
+                renamed = [(canon(a, x), canon(b, y)) for x, y in raw]
                 if not renamed:
                     continue
                 # Identity of the DISAGREEMENT, whichever sheet is listed
@@ -405,23 +416,25 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
                 entry["same_page"] = entry["same_page"] or same_page
                 for system, side in ((a, 0), (b, 1)):
                     place = (system.page_id, system.style)
-                    if place in entry["places"] or len(entry["evidence"]) >= MAX_EVIDENCE:
+                    # Every sheet is kept here, so the RFI can name them all;
+                    # MAX_EVIDENCE applies when the finding is written.
+                    if place in entry["places"]:
                         continue
                     entry["places"].add(place)
-                    labels = [pair[side] for pair in renamed]
+                    labels = [pair[side] for pair in raw]
                     name = _system_name(system, by_page, same_page)
                     item = _evidence(system, by_page[system.page_id], labels, name, axis)
                     # Which naming this sheet carries, for the merge: a
                     # plumbing plan drawn on the architect's grid belongs with
                     # the architectural sheets, whatever its own discipline.
-                    item["_labels"] = labels
+                    item["_labels"] = [pair[side] for pair in renamed]
                     entry["evidence"].append(item)
 
     if other_scale:
         shown = ", ".join(f"{x} / {y}" for x, y in sorted(other_scale)[:6])
         notes.append(
             f"Grid check: {len(other_scale)} sheet pair(s) print different drawing scales and were not "
-            f"compared ({shown}{'…' if len(other_scale) > 6 else ''}) — an enlarged plan and an overall plan "
+            f"compared ({shown}{'…' if len(other_scale) > 6 else ''}): an enlarged plan and an overall plan "
             "line up on paper only by coincidence."
         )
     if several_views:
@@ -429,7 +442,7 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
             "Grid check: " + ", ".join(sorted(several_views)[:6]) + " show the same grid label in two places "
             "(several views on one sheet), so their grids were not compared with other sheets."
         )
-    groups, singles = _merge_by_discipline(found, by_page, line_aliases(systems, by_page))
+    groups, singles = _merge_by_discipline(found, by_page, aliases)
     findings: list[Finding] = [_merged_finding(group, by_page) for group in groups]
     for fp, entry in singles.items():
         a, b, renamed = entry["a"], entry["b"], entry["renamed"]
@@ -478,7 +491,7 @@ def grid_mismatches(pages: list[Page], systems: list[GridSystem]) -> tuple[list[
                 confidence=confidence,
                 subject=subject,
                 question=question,
-                evidence=[_public(e) for e in entry["evidence"]],
+                evidence=[_public(e) for e in _pick_evidence([entry["evidence"]])],
                 facts={
                     "sheets": [name_a, name_b],
                     "axis": word,
@@ -547,7 +560,8 @@ def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page],
     groups = []
     for (left, right), members in by_pair.items():
         # Biggest disagreement first: it sets the mapping the others must match.
-        members.sort(key=lambda m: -len(m[1]["renamed"]))
+        # Ties by fingerprint, so the same sheets give the same finding every run.
+        members.sort(key=lambda m: (-len(m[1]["renamed"]), m[0]))
         fwd: dict[str, str] = {}
         back: dict[str, str] = {}
         merged: list[dict] = []
@@ -564,12 +578,49 @@ def _merge_by_discipline(found: dict[str, dict], pages: dict[str, Page],
                 fwd.setdefault(l, r)
                 back.setdefault(r, l)
             merged.append((fp, entry))
-        if len(merged) == 1:
+        # One fingerprint seen on three or more sheets is still the whole
+        # dispute (the same renaming between A3.01 and S2.105 and S0.302):
+        # it is written as one, naming every sheet.
+        if len(merged) == 1 and len(entry_sheets(merged[0][1])) < 3:
             fp, entry = merged[0]
             singles[fp] = entry
         elif merged:
             groups.append({"left": left, "right": right, "members": [e for _, e in merged], "mapping": fwd})
     return groups, singles
+
+
+def _sheet_order(item: dict) -> tuple:
+    # The sheet showing the most renamed lines first: it states the most of the dispute.
+    return (-len(item.get("_labels") or ()), item.get("sheetNumber") or "", item["pageNumber"], item.get("quote") or "")
+
+
+def _pick_evidence(sides: list[list[dict]]) -> list[dict]:
+    """At most MAX_EVIDENCE items, taking turns between the namings and one per
+    sheet before any sheet twice, so both namings and as many sheets as fit
+    are shown — the same ones every run."""
+    queues = [sorted(side, key=_sheet_order) for side in sides]
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for repeat in (False, True):
+        progress = True
+        while progress and len(out) < MAX_EVIDENCE:
+            progress = False
+            for q in queues:
+                for item in q:
+                    sheet = (item["documentId"], item["pageNumber"])
+                    if item in out or (sheet in seen and not repeat):
+                        continue
+                    out.append(item)
+                    seen.add(sheet)
+                    progress = True
+                    break
+                if len(out) >= MAX_EVIDENCE:
+                    break
+    return out
+
+
+def entry_sheets(entry: dict) -> set[tuple]:
+    return {(e["documentId"], e["pageNumber"]) for e in entry["evidence"]}
 
 
 def _public(item: dict) -> dict:
@@ -602,11 +653,12 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
     by_place = {(p.document_id, p.page_number): p for p in pages.values()}
     sheets: dict[str, list[str]] = {left: [], right: []}
     borrowed: dict[str, bool] = {left: False, right: False}  # a sheet of another discipline on this naming
-    evidence: list[dict] = []
+    by_side: dict[str | None, list[dict]] = {left: [], right: [], None: []}
     places: set = set()
     for entry in group["members"]:
         for item in entry["evidence"]:
             page = by_place.get((item["documentId"], item["pageNumber"]))
+            side = None
             if page is not None:
                 label = page_label(page)
                 side = _naming_side(page, item, left, right, mapping)
@@ -614,16 +666,17 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
                     sheets[side].append(label)
                     borrowed[side] = borrowed[side] or _discipline(page) != side
             place = (item["documentId"], item["pageNumber"], item["quote"])
-            if place not in places and len(evidence) < MAX_EVIDENCE:
+            if place not in places:
                 places.add(place)
-                evidence.append(_public(item))
+                by_side[side].append(item)
+    evidence = [_public(e) for e in _pick_evidence([by_side[left], by_side[right], by_side[None]])]
 
     def listed(names: list[str]) -> str:
         return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
     def order(label: str) -> tuple:
         try:
-            return (0, -float(label))
+            return (0, -float(label.split("/")[0]))
         except ValueError:
             return (1, label)
 
@@ -647,7 +700,11 @@ def _merged_finding(group: dict, pages: dict[str, Page]) -> Finding:
     )
     return Finding(
         check_type=CHECK_TYPE,
-        fingerprint=fingerprint(CHECK_TYPE, "disciplines", left, right, *sorted(f"{l}~{r}" for l, r in mapping.items())),
+        # The dispute is the two disciplines' namings, not the lines one run
+        # happened to see: a review compares the sheets it was given, the scan
+        # every sheet, and with the lines in it each saw a "new" dispute.
+        # There is at most one merged dispute per pair (`_merge_by_discipline`).
+        fingerprint=fingerprint(CHECK_TYPE, "disciplines", left, right),
         confidence="high" if len(mapping) >= 3 else "medium",
         subject=f"Grid {word} lines named differently in the {left} and {right} drawings",
         question=question,

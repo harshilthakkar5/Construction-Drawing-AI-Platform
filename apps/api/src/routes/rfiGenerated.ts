@@ -183,7 +183,7 @@ rfiGeneratedRouter.post("/scan", summaryLimiter, async (req, res) => {
   });
   if (documents === 0) {
     return void res.status(409).json({
-      error: "no processed drawings in this project yet — upload them and wait for processing to finish",
+      error: "no processed drawings yet. Upload them and wait for processing to finish.",
     });
   }
 

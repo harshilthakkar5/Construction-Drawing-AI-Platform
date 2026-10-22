@@ -236,7 +236,7 @@ function UploadStep({ projectId, progress }: { projectId: string; progress: Prog
       </div>
       {!progress.processed && progress.uploaded && (
         <p className="text-muted-foreground text-xs">
-          The next step needs one processed page to draw the box on  this usually takes a
+          The next step needs one processed page to draw the box on. This usually takes a
           minute or two per document.
         </p>
       )}
@@ -248,7 +248,7 @@ function RegionStep({ projectId, progress }: { projectId: string; progress: Prog
   return (
     <StepCard
       title="Mark the title block"
-      description="Drag one box over a sheet number. It is applied to every page of every PDF  that one box is what sorts the set into disciplines."
+      description="Drag one box over a sheet number. It is applied to every page of every PDF and sorts the set into disciplines."
       state={
         <Badge variant={progress.hasRegion ? "success" : "secondary"}>
           {progress.hasRegion
@@ -295,7 +295,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
   return (
     <StepCard
       title="Categorise the sheets"
-      description="Each sheet number is read out of the box you drew and mapped to a discipline. Nothing is summarized yet  that stays your call, per category."
+      description="Each sheet number is read from your box and mapped to a discipline. Nothing is summarized until you ask, per category."
       state={
         <Badge
           variant={
@@ -305,7 +305,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
           {progress.scraped
             ? found > 0
               ? `${found} categor${found === 1 ? "y" : "ies"} detected`
-              : "No categories detected — try adjusting the box"
+              : "No categories detected. Try adjusting the box."
             : region
               ? `Scanning sheets… ${scanned}/${totalPages || "?"}`
               : "Waiting for a region"}

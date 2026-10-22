@@ -545,6 +545,11 @@ _TRUST_RULES = (
 # project, filtered to the review's sheets; element_marks / column_schedule on
 # the sheets themselves). Grid naming and the column overlay run as G01 / C01.
 TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", "tag_value_conflict", "missing_plan_level")
+# Checks whose finding is about the SET, kept whatever sheets the review read:
+# a level missing from a series stands on the sheet index and the plans either
+# side of the gap, and "is there a plan for every level" cannot be answered by
+# the one to four sheets a review picked.
+SET_CODE_CHECKS = ("missing_plan_level",)
 PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
@@ -589,7 +594,7 @@ def library_checks(scope: dict) -> dict[str, dict]:
     out = {}
     for q in lib.get("questions") or []:
         out[q["id"]] = {
-            "label": f"{element.get('name') or 'Element'} — {q.get('category') or 'your question'}",
+            "label": f"{element.get('name') or 'Element'}: {q.get('category') or 'your question'}",
             "originalQuestion": q["text"],
             "requiredObservations": record or ["what the question asks about, as printed"],
             "comparisonRules": "Compare the same element across the sheets given (plan, schedule, section, detail); "
@@ -645,6 +650,22 @@ def credited(finding, linked: dict[str, list[str]], element: dict) -> list[str]:
     return [c for c in linked.get(finding.check_type, []) if c in CHECKS or mark_is_element(finding, element)]
 
 
+def _pages_whose_text(scope: dict, pattern: str) -> set[tuple[str, int]]:
+    """The reviewed pages whose stored text matches `pattern` (a Postgres
+    regex, any case): the only ones worth OPENING for an aid that looks for
+    those words. Reading every reviewed page's layout for a column schedule
+    and for "SEE PLAN" took two thirds of a review's preparation."""
+    pairs = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+    if not pairs:
+        return set()
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT "documentId", "pageNumber" FROM pages WHERE "documentId" = ANY(%s) AND text ~* %s',
+            (sorted({d for d, _ in pairs}), pattern),
+        ).fetchall()
+    return {(d, n) for d, n in rows} & pairs
+
+
 def _sizes_columns(open_page, p: dict) -> bool:
     """Whether a reviewed page is a column schedule that sizes its columns. A
     failure reading it is a no: the rule it feeds may only reject."""
@@ -660,7 +681,8 @@ def _sizes_columns(open_page, p: dict) -> bool:
 def library_code_findings(project_id: str, scope: dict, check_types: set[str], open_page) -> tuple[list, list[str]]:
     """The code checks a review's questions link to, on the review's sheets
     only. Text checks read the whole project (a mark's schedule is usually on
-    another sheet) and keep only findings standing on a reviewed page."""
+    another sheet) and keep only findings standing on a reviewed page — except
+    SET_CODE_CHECKS, whose findings are about the set as a whole."""
     wanted = check_types & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)
     if not wanted:
         return [], []
@@ -671,7 +693,7 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     text = wanted & set(TEXT_CODE_CHECKS)
     if text:
         found, more = rfi_checks.run_all(pages, chunks, None, only=text)
-        findings += [f for f in found if on_mine(f)]
+        findings += [f for f in found if f.check_type in SET_CODE_CHECKS or on_mine(f)]
         notes += more
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import column_schedule
@@ -1367,6 +1389,26 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
 MAX_SET_ASIDE = 5  # per question
 
 
+# The ids the server issues to evidence ("ev12"): the model cites them, and a
+# reader must never see one. Lowercase only — a drawing's tag is printed in
+# capitals ("EV1", an electric vehicle charger) and is left alone.
+_EVIDENCE_ID = re.compile(r"\bev(\d+)\b")
+
+
+def readable(text: str | None, evidence: dict) -> str | None:
+    """`text` with every evidence id the model wrote replaced by the sheet it
+    is on ("per ev12" → "per S4.00"). Pure. An id the run did not issue, or
+    evidence with no sheet number, reads "the drawing"."""
+    if not text:
+        return text
+
+    def sheet(m: re.Match) -> str:
+        ev = evidence.get(m.group(0))
+        return getattr(ev, "sheet_number", None) or "the drawing"
+
+    return _EVIDENCE_ID.sub(sheet, text)
+
+
 def set_aside_entry(candidate: dict, reason: str, rule: str, decision: dict | None,
                     evidence: dict[str, Evidence], observations: list[dict]) -> dict:
     """A proposal verification or a guard turned away, kept for a PERSON to
@@ -1559,7 +1601,7 @@ def occurrence_wording(verdict: OccurrenceVerdict) -> tuple[str, str]:
     def line(o) -> str:
         off = ", ".join(o.unresolved())
         on = [a.name for a in (o.x, o.y) if a is not None and a.state == "centred"]
-        return f"{o.where()} — off grid line {off}" + (f" (centred on {', '.join(on)})" if on else "")
+        return f"{o.where()}, off grid line {off}" + (f" (centred on {', '.join(on)})" if on else "")
 
     occs = [o for _, o in verdict.supported]
     if len(occs) == 1:
@@ -1600,7 +1642,7 @@ def occurrence_evidence(verdict: OccurrenceVerdict) -> list[dict]:
             "sheetNumber": p.get("sheetNumber"),
             "bbox": {"x": o.unrotated.x0, "y": o.unrotated.y0, "width": o.unrotated.width, "height": o.unrotated.height},
             "chunkId": None,
-            "quote": _clip(o.summary() if verified else f"NOT VERIFIED — {o.summary()}", 220),
+            "quote": _clip(o.summary() if verified else f"NOT VERIFIED: {o.summary()}", 220),
             "role": "finding" if verified else "context",
             "evidenceId": None,
             "kind": "occurrence",
@@ -1621,7 +1663,7 @@ def occurrence_reasoning(verdict: OccurrenceVerdict) -> str:
     if verdict.resolved:
         parts.append("Removed (centred on grid lines both ways): " + "; ".join(o.where() for _, o in verdict.resolved) + ".")
     if verdict.unknown:
-        parts.append("Not verified — a person must check: " + "; ".join(f"{o.where()} ({o.reason})" for _, o in verdict.unknown) + ".")
+        parts.append("Not verified, check on the sheet: " + "; ".join(f"{o.where()} ({o.reason})" for _, o in verdict.unknown) + ".")
     parts.append(
         "Measured from the PDF geometry near each column only; schedules, enlarged plans and details elsewhere were "
         "not searched by measurement."
@@ -1649,7 +1691,7 @@ def uncovered_occurrences(measured: dict[tuple[str, int], OccurrencePage], cover
             if o.status == column_locate.LOCATED or (doc, page_no, o.ident) in covered:
                 continue
             why = (
-                "measured off grid and not raised by this review — confirm a dimension, note or detail locates it"
+                "measured off grid and not raised by this review. Confirm a dimension, note or detail locates it"
                 if o.status == column_locate.OFF_GRID else f"needs manual verification: {o.reason}"
             )
             out.append({"checkId": "C03", "field": f"location of {o.where()} on {sheet}", "reason": why})
@@ -1778,8 +1820,8 @@ def _ask(
             tries = 1 + len(CALL_RETRY_DELAYS)
             raise StageFailed(
                 stage,
-                f"the {stage} call to the model failed {tries} times in a row — see the worker log "
-                "for the provider's error (a 503 or 429 is the provider being busy: start the review again later)",
+                f"the {stage} call to the model failed {tries} times in a row. The worker log has the provider's "
+                "error; a 503 or 429 means the provider is busy, so start the review again later",
             )
         stage_usage.add(reply)
         parsed = parse(reply.text)
@@ -2097,7 +2139,7 @@ def plan_overlay(scope: dict, open_page, *, columns: bool, pair_windows: int, st
                 out.findings += found
                 out.notes += notes
             for al in alignments:
-                lined_up.append((a, b, al, plan_match.differences(al, a.geometry, b.geometry), sa, sb))
+                lined_up.append((a, b, al, [d for d in plan_match.differences(al, a.geometry, b.geometry) if d.reported], sa, sb))
     if not lined_up:
         out.notes.append(
             "Column overlay: no two rendered sheets lined up (it needs three or more columns drawn the "
@@ -2262,7 +2304,7 @@ def already_found(status: str, origin: str, rfi_number: int | None, rfi_status: 
         tail = " (voided)" if rfi_status == "void" else ""
         return f"already RFI {rfi_number:03d}{tail} in the RFI log"
     if status == "dismissed":
-        return "dismissed earlier — restore it under “Dismissed” in Needs your review to accept it"
+        return "dismissed earlier. To accept it, restore it under “Dismissed” in Needs your review"
     if origin == "deterministic_scan":
         return "already waiting in Needs your review (found by Find RFIs in drawings)"
     return "already waiting in Needs your review"
@@ -2646,7 +2688,7 @@ def _diag_start(run: dict):
         return None
     rec.write_json("evidence/pages.json", {
         "indexing": "pageNumber is ONE-based within its file; combinedPageNumber is ONE-based across the project",
-        "sheetRevision": "unknown — this system does not read the revision from the title block",
+        "sheetRevision": "unknown (this system does not read the revision from the title block)",
         "pages": [
             {"pageId": r[0], "documentId": r[1], "filename": r[2], "documentUploadVersion": r[3], "pageNumber": r[4],
              "combinedPageNumber": r[5], "sheetNumber": r[6], "rotation": r[7], "pdfWidthPt": r[8],
@@ -2851,8 +2893,11 @@ def _run(run: dict) -> dict:
             notes.append(f"Left out {len(other)} code finding(s) about other elements' marks: {'; '.join(f.subject for f in other[:3])}.")
         if code_docs:
             notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
+        # Same test column_schedule.findings uses to find a schedule page.
+        schedule_pages = _pages_whose_text(scope, r"column\s+locations")
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
-                                  for p in scope.get("pages", []) if _sizes_columns(open_page, p)})
+                                  for p in scope.get("pages", [])
+                                  if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
         visuals = image_evidence(scope, open_page, start=len(texts) + 1)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
@@ -2878,7 +2923,10 @@ def _run(run: dict) -> dict:
                     n += 1
         # Dimensions a detail prints as "SEE PLAN": listed for every review, so
         # whether the plan gives them never depends on the model noticing.
+        see_plan = _pages_whose_text(scope, r"see\s+(plans?|civil|arch)")  # what review_aids._DEFERRED reads
         for p in scope.get("pages", []):
+            if (p["documentId"], p["pageNumber"]) not in see_plan:
+                continue
             try:
                 page = open_page(p["documentId"], p["pageNumber"])
                 text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
@@ -3251,6 +3299,8 @@ def _run(run: dict) -> dict:
                 # medium, and a project's own question files as "custom".
                 decision = dict(decision, confidence="medium" if decision["confidence"] == "high" else decision["confidence"])
             saved_as = dict(candidate, checkId="custom") if library.get(candidate["checkId"], {}).get("source") == "custom" else candidate
+            decision = dict(decision, subject=readable(decision["subject"], evidence), question=readable(decision["question"], evidence))
+            reasoning = readable(reasoning, evidence)
             wrote = _save_candidate(conn, run, fp, saved_as, decision, items, reasoning, question_source=source) > 0
             diagnostics.event(
                 "finding_saved" if wrote else "finding_found_again", fingerprint=fp, candidate=candidate,
@@ -3280,6 +3330,9 @@ def _run(run: dict) -> dict:
         if cid in results:
             results[cid]["foundAgain"] = sorted(set(fps))
     for entry in aside:
+        for key in ("issue", "reason", "subject", "question", "element", "location"):
+            if isinstance(entry.get(key), str):
+                entry[key] = readable(entry[key], evidence)
         # A project's own question is saved as "custom", as an accepted one is.
         entry["checkType"] = "custom" if library.get(entry["checkId"], {}).get("source") == "custom" else entry["checkId"]
         if entry["checkId"] in results:
@@ -3321,7 +3374,7 @@ def _run(run: dict) -> dict:
         progress=100,
         usage=json.dumps(usage.as_json()),
         thinkingSent=json.dumps(usage.thinking_sent()),
-        notes=json.dumps(notes),
+        notes=json.dumps([readable(n, evidence) for n in notes]),
         checkResults=json.dumps(results),
         coverage=json.dumps(coverage),
         evidenceManifest=json.dumps([ev.manifest(batch_of.get(ev.id)) for ev in evidence.values()]),

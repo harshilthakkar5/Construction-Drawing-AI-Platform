@@ -179,7 +179,7 @@ export function ProjectsPage() {
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {dashboard.data.projects.length === 0
-                ? "No projects yet — create one to start uploading drawings."
+                ? "No projects yet. Create one to start uploading drawings."
                 : "No projects match those filters."}
             </CardContent>
           </Card>
@@ -452,7 +452,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
             <DialogDescription>
-              A project holds one drawing set  upload its PDFs once it exists.
+              A project holds one drawing set. Upload its PDFs once it exists.
             </DialogDescription>
           </DialogHeader>
           <TextField

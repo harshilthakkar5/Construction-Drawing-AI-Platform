@@ -20,7 +20,7 @@ export function toRanges(pages: number[]): [number, number][] {
 /** "1, 3–18". Beyond `maxParts` runs it trims to "…+N more". */
 export function formatRanges(pages: number[], maxParts = 3): string {
   const parts = toRanges(pages).map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`));
-  if (parts.length === 0) return "—";
+  if (parts.length === 0) return "none";
   if (parts.length <= maxParts) return parts.join(", ");
   return `${parts.slice(0, maxParts).join(", ")} +${parts.length - maxParts} more`;
 }

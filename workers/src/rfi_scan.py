@@ -943,10 +943,10 @@ class ScanProgress:
 # make a streak.
 OCR_FAILURE_STREAK = 3
 OCR_FAILURE_HELP = (
-    "Restart the worker. If it still fails it is almost always memory: give the worker more "
-    "(WORKER_MEM_LIMIT, and on Windows the Docker VM's memory in .wslconfig), set OCR_DET_LIMIT=960, or "
-    "lower OCR_MAX_PAGES_PER_SCAN; a CPU without AVX — e.g. an x86 image under emulation on an Apple-silicon Mac "
-    "— cannot run PaddlePaddle at all, so run the worker on an x86 machine or set OCR_ENABLED=false."
+    "Restart the worker. If it still fails, it is almost always memory: give the worker more "
+    "(WORKER_MEM_LIMIT; on Windows also the Docker VM's memory in .wslconfig), set OCR_DET_LIMIT=960, or "
+    "lower OCR_MAX_PAGES_PER_SCAN. A CPU without AVX (such as an x86 image emulated on an Apple-silicon Mac) "
+    "cannot run PaddlePaddle: run the worker on an x86 machine or set OCR_ENABLED=false."
 )
 
 
@@ -1068,7 +1068,7 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
     if unread:
         notes.append(
             f"OCR is not available on this worker, so {unread} page(s) whose words are drawn as shapes or "
-            "pasted as pictures were NOT read — the checks cannot see their text. Install PaddleOCR and its "
+            "pasted as pictures were NOT read, so the checks cannot see their text. Install PaddleOCR and its "
             "models (workers/Dockerfile) and scan again."
         )
     return notes

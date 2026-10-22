@@ -15,6 +15,7 @@ import { ModeToggle } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Input as TextInput } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
@@ -192,11 +193,10 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
 
             {isRegister && (
               <label className="flex items-start gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                <Checkbox
+                  className="mt-0.5"
                   checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
+                  onCheckedChange={(v) => setAgreed(v === true)}
                   required
                 />
                 <span>
@@ -478,7 +478,7 @@ function friendlyError(message: string, isRegister: boolean): string {
   if (message.includes("401") || message.includes("invalid credentials")) {
     return "That email or password is not right. Check both and try again.";
   }
-  if (message.includes("409")) return "That email is already registered — try logging in.";
+  if (message.includes("409")) return "That email is already registered. Try logging in.";
   if (message.includes("429")) return "Too many attempts. Wait a minute and try again.";
   if (message.includes("validation failed") || message.includes("400")) {
     return isRegister

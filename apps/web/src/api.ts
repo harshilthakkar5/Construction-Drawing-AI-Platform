@@ -128,7 +128,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 401 && !CREDENTIAL_PATHS.some((p) => path.startsWith(p))) {
     authToken.clear();
-    throw new UnauthorizedError("session expired  sign in again");
+    throw new UnauthorizedError("session expired, sign in again");
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -137,7 +137,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = body;
     try {
       const parsed = JSON.parse(body) as { error?: string; fix?: string };
-      detail = [parsed.error, parsed.fix].filter(Boolean).join(" — ") || body;
+      detail = [parsed.error, parsed.fix].filter(Boolean).join(". ") || body;
     } catch {
       // not JSON — keep the raw text
     }

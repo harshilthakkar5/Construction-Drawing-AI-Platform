@@ -19,6 +19,7 @@ import { CheckPicker } from "@/components/RfiTargetedReview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
@@ -86,7 +87,7 @@ function notDrawnBy(a: RfiScanSide, b: RfiScanSide, id: RfiReviewCheckId): strin
   if (!who) return null;
   const missing = [a, b].filter((s) => s !== "all" && !who.includes(s));
   if (!missing.length) return null;
-  return `${[...new Set(missing)].map(sideLabel).join(" and ")} sheets do not usually draw this — expect “not shown”.`;
+  return `${[...new Set(missing)].map(sideLabel).join(" and ")} sheets do not usually draw this, so expect “not shown”.`;
 }
 
 export function ScanScopeForm({
@@ -156,7 +157,7 @@ export function ScanScopeForm({
       )}
       {stale.length > 0 && (
         <p className="text-warning">
-          This project has no {stale.map((s) => sideLabel(s as RfiScanSide)).join(" or ")} sheets now — choose
+          This project has no {stale.map((s) => sideLabel(s as RfiScanSide)).join(" or ")} sheets now. Choose
           another discipline.
         </p>
       )}
@@ -231,25 +232,23 @@ export function ScanScopeForm({
         )}
         {own.length > 0 && (
           <p className="text-muted-foreground">
-            Asked of the AI comparison only. A finding from your own question is never above medium
-            confidence — no code check was written for it.
+            Only the AI comparison answers these, so their findings are at most medium confidence.
           </p>
         )}
       </div>
 
       <label className="flex items-start gap-2">
-        <input
-          type="checkbox"
+        <Checkbox
           className="mt-0.5"
           checked={value.projectChecks}
           disabled={disabled}
-          onChange={(e) => set({ projectChecks: e.target.checked })}
+          onCheckedChange={(v) => set({ projectChecks: v === true })}
         />
         <span>
           Also run the whole-project checks
           <span className="text-muted-foreground block">
             Sheets referenced but missing, marks with no schedule row, notes left TBD, one tag with two
-            ratings. Free — no AI decides them.
+            ratings. Free: code decides these, not AI.
           </span>
         </span>
       </label>

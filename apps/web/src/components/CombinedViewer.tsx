@@ -366,7 +366,7 @@ export function CombinedViewer({
                 e.combinedPageNumber === currentPage && "border-primary ring-ring/40 ring-2",
               )}
               onClick={() => requestJump(e.combinedPageNumber)}
-              title={`${e.filename} — page ${e.pageNumber}`}
+              title={`${e.filename}, page ${e.pageNumber}`}
             >
               {e.hasImage ? (
                 <img

@@ -143,7 +143,7 @@ export function RfiFullScan({
         <Badge variant="secondary">Optional · priced</Badge>
         {availability === "beta" && (
           <Badge variant="outline" title="Not yet measured against real RFIs. Review every finding before accepting it.">
-            Beta — accuracy not measured yet
+            Beta: accuracy not measured yet
           </Badge>
         )}
       </div>
@@ -163,11 +163,10 @@ export function RfiFullScan({
         <div className="flex flex-col gap-2">
           {!scan && (
             <p className="text-muted-foreground text-xs leading-relaxed">
-              Pairs every sheet that should agree — the same level drawn by two disciplines, and each
-              enlarged plan with its overall plan — and shows them to the AI area by area. Each possible
-              problem is checked again close up, and only what passes the code's rules is listed for you.
-              “Find RFIs in drawings” prepares this for free; you see the cost and set a budget before
-              anything is sent to the AI.
+              Shows the AI, area by area, every pair of sheets that should agree: the same level drawn by
+              two disciplines, and each enlarged plan with its overall plan. Each possible problem is
+              checked again close up, and only what passes the code's rules is listed. “Find RFIs in
+              drawings” prepares this for free; you see the cost and set a budget before anything is sent.
             </p>
           )}
           {scan?.status === "stale" && <Notice tone="error">{scan.error ?? "The drawings changed since this scan was planned."}</Notice>}
@@ -202,7 +201,7 @@ function AutoStartLine({ scan }: { scan: RfiFullScanDto }) {
   if (scan.status !== "planned") return null;
   return (
     <p className="bg-warning/10 text-warning rounded-md px-3 py-2 text-xs leading-relaxed" role="status">
-      Waiting for you — not started by itself because {auto.reason ?? "it is over your limit"}. Check the price below and
+      Waiting for you: not started automatically because {auto.reason ?? "it is over your limit"}. Check the price below and
       press Start, or raise the spend limit above.
     </p>
   );
@@ -288,9 +287,9 @@ function Planned({
 
       {scan.tiles.settled ? (
         <p className="text-muted-foreground text-xs">
-          The code compared {scan.tiles.total + scan.tiles.settled} areas itself and settled {scan.tiles.settled} of
-          them (one sheet blank there, or one sheet an exact copy of the other), so only {scan.tiles.total} go to the
-          AI — and each one goes with what the code already found or measured there.
+          The code checked {scan.tiles.total + scan.tiles.settled} areas itself and settled {scan.tiles.settled} (one
+          sheet blank, or one an exact copy of the other), so only {scan.tiles.total} go to the AI, each with what the
+          code found or measured there.
         </p>
       ) : null}
 
@@ -316,7 +315,7 @@ function Planned({
             {scan.skipped.map((s) => (
               <li key={s.reason}>
                 <span className="font-medium">{s.count}×</span> {s.reason}
-                {s.examples.length > 0 && <span className="text-muted-foreground"> — {s.examples.join(", ")}</span>}
+                {s.examples.length > 0 && <span className="text-muted-foreground"> ({s.examples.join(", ")})</span>}
               </li>
             ))}
           </ul>
@@ -393,7 +392,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
         </strong>{" "}
         from {scan.tiles.done} of {scan.tiles.total} areas · spent{" "}
         {scan.spent.costUsd !== null ? money(scan.spent.costUsd) : `${tokens(scan.spent.inputTokens + scan.spent.outputTokens)} tokens`}
-        {scan.findings > 0 ? " — they are in “Needs your review” below." : "."}
+        {scan.findings > 0 ? ". They are in “Needs your review” below." : "."}
       </p>
       {scan.summary?.byQuestion && <QuestionResults results={scan.summary.byQuestion} scope={scan.scope} />}
       {scan.summary && <Outcome summary={scan.summary} />}
@@ -402,7 +401,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
           <Notice tone="error">
             {scan.status === "failed"
               ? `The scan stopped: ${scan.error ?? "unknown error"}.`
-              : "The scan stopped before it finished — usually the budget. Everything it found is saved."}
+              : "The scan stopped early, usually because of the budget. Everything it found is saved."}
           </Notice>
           <label className="flex flex-wrap items-center gap-2">
             <span>New budget ($)</span>
@@ -495,8 +494,8 @@ function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> 
         <div>
           <span className="text-foreground font-medium">
             {confirms.length} confirmed a code finding
-          </span>{" "}
-          — the AI found the same problem as the code checks, so that finding is now high confidence:
+          </span>
+          : the AI found the same problem as the code, so it is now high confidence:
           <ul className="list-disc pl-5">
             {confirms.map((f) => (
               <li key={f.fingerprint ?? f.subject}>“{f.subject}”</li>
@@ -508,8 +507,8 @@ function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> 
         <div>
           <span className="text-foreground font-medium">
             {summary.foundAgain.length} already on file
-          </span>{" "}
-          — kept on the close look, not added again and not restored:
+          </span>
+          : confirmed on the close look, but not added again or restored:
           <ul className="list-disc pl-5">
             {summary.foundAgain.map((f) => (
               <li key={f.fingerprint ?? f.subject}>
@@ -530,7 +529,7 @@ function Outcome({ summary }: { summary: NonNullable<RfiFullScanDto["summary"]> 
       {areas.length > 0 && <p>Areas: {areas.join(" · ")}.</p>}
       {gaps > 0 && (
         <p>
-          {gaps} area{gaps === 1 ? " was" : "s were"} not judged — a gap in this scan, not agreement.
+          {gaps} area{gaps === 1 ? " was" : "s were"} not judged. That is a gap in this scan, not agreement.
         </p>
       )}
       {summary.pagesRead !== null && (

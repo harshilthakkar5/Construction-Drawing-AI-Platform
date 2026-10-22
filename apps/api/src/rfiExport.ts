@@ -209,7 +209,7 @@ export function buildEvidenceRows(
       // Flagged rather than hidden: the pin is still where it was, but the
       // sheet under it has a newer revision, so the reader must not treat the
       // rectangle as current without looking.
-      "Drawing Revised": loc.drawingRevised ? "YES — re-pin needed" : "",
+      "Drawing Revised": loc.drawingRevised ? "YES, re-pin needed" : "",
       "Open In Viewer": viewerLink(baseUrl, projectId, rfi.number, loc.combinedPageNumber),
     };
   });
@@ -222,7 +222,7 @@ export function checkLabel(checkType: string | null): string {
 
 export function sourceLabel(rfi: Pick<RfiDto, "source" | "checkType">): string {
   if (rfi.source !== "generated") return "manual";
-  return rfi.checkType ? `generated — ${checkLabel(rfi.checkType)}` : "generated";
+  return rfi.checkType ? `generated: ${checkLabel(rfi.checkType)}` : "generated";
 }
 
 /**

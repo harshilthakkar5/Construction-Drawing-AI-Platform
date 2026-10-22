@@ -76,7 +76,7 @@ documentsRouter.post("/", async (req, res) => {
       where: { id: replacesDocumentId, projectId },
     });
     if (previous.supersededAt) {
-      return void res.status(409).json({ error: "document is already superseded — replace the latest revision" });
+      return void res.status(409).json({ error: "this document has a newer revision. Replace the latest one." });
     }
     revision = previous.revision + 1;
   }
@@ -174,7 +174,7 @@ documentsRouter.post("/:documentId/upload/:uploadId/complete", async (req, res) 
   } catch (err) {
     console.error("malware scan failed", err);
     await prisma.document.update({ where: { id: documentId }, data: { status: "failed" } });
-    return void res.status(502).json({ error: "malware scan unavailable — upload rejected" });
+    return void res.status(502).json({ error: "upload rejected: the malware scan is unavailable" });
   }
   if (verdict === "infected") {
     await deleteObject(key).catch(() => {});
@@ -200,7 +200,7 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
     where: { id: documentId, projectId },
   });
   if (document.supersededAt) {
-    return void res.status(409).json({ error: "document is superseded — reprocess the latest revision" });
+    return void res.status(409).json({ error: "this document has a newer revision. Reprocess the latest one." });
   }
   if (document.status === "completed") {
     return void res.status(409).json({ error: "document already completed" });
@@ -209,8 +209,7 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
   // it — retrying would 404 forever. The only fix is deleting + re-uploading.
   if (!(await objectExists(document.spacesKey))) {
     return void res.status(409).json({
-      error:
-        "original PDF is missing from storage (upload never completed or was rejected) — delete this document and upload the file again",
+      error: "the original PDF is missing (the upload did not finish or was rejected). Delete this document and upload it again.",
     });
   }
   await prisma.document.update({ where: { id: documentId }, data: { status: "uploaded" } });

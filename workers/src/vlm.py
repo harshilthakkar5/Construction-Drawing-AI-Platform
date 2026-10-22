@@ -1035,7 +1035,7 @@ def crop_decision(page: fitz.Page) -> CropDecision:
         # 27 images of a scanned sheet and get 27 illegible answers, and the
         # cost is identical to the case where it works.
         return CropDecision(
-            False, "the page has no vector text — a scan crops to empty pixels", 0
+            False, "the page has no vector text, and a scan crops to empty pixels", 0
         )
     plan = crop_plan(page)
     boxes = plan.boxes
@@ -1050,7 +1050,7 @@ def crop_decision(page: fitz.Page) -> CropDecision:
         )
         return CropDecision(
             False,
-            f"{counted} is over VLM_CROP_MAX ({CROP_MAX}) — that is "
+            f"{counted} is over VLM_CROP_MAX ({CROP_MAX}): "
             f"{len(boxes)} images for ONE page against 1 for the whole sheet. Raise "
             "VLM_CROP_MAX deliberately if that spend is intended",
             len(boxes),

@@ -21,7 +21,7 @@ describe("libraryQueries", () => {
       element: { id: "CE-05-01", name: "Elevator pits", variants: "Single, double", attributes: "", triggers: "" },
       questions: [q("a", "Elevation", "Is the top of pit slab elevation specified?"), q("b", "Elevation", "Is the pit depth given?"), q("c", null, "Is the sump shown?")],
     });
-    expect(out.map((s) => s.label)).toEqual(["Elevator pits — Elevation", "Elevator pits — your questions"]);
+    expect(out.map((s) => s.label)).toEqual(["Elevator pits: Elevation", "Elevator pits: your questions"]);
     expect(out[0]!.query).toBe("Elevator pits Single, double Is the top of pit slab elevation specified? Is the pit depth given?");
     expect(libraryQueries(undefined)).toEqual([]);
   });

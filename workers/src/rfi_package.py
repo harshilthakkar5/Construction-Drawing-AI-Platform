@@ -113,7 +113,7 @@ class Item:
 
     @property
     def callout_heading(self) -> str:
-        return f"RFI {self.number:03d}" if self.number is not None and not self.draft else "DRAFT RFI — not issued"
+        return f"RFI {self.number:03d}" if self.number is not None and not self.draft else "DRAFT RFI (not issued)"
 
     @property
     def sheets(self) -> list[str]:
@@ -311,7 +311,7 @@ def mark_sheet(
     findings = [m for m in marks if m.role != "context"]
     if findings and not clouds_u:
         flags.append(
-            f"{sheet}: the cited evidence covers a broad area, so the exact location is NOT pinpointed — review the "
+            f"{sheet}: the cited evidence covers a broad area, so the exact location is NOT pinpointed. Review the "
             + ("outlined area." if broad else "whole sheet.")
         )
     elif whole or broad:
@@ -325,15 +325,15 @@ def mark_sheet(
         cloud.set_info(title="RFI review", content=item.callout_heading, subject="Cloud")
         cloud.update()
     for r in broad:
-        _outline(page, r, RED, width, "AREA CITED — NOT PINPOINTED", fs)
+        _outline(page, r, RED, width, "AREA CITED, NOT PINPOINTED", fs)
     for r, label in context:
-        _outline(page, r, CONTEXT, max(1.0, width * 0.6), label or "CONTEXT — referenced, not the issue location", fs * 0.7)
+        _outline(page, r, CONTEXT, max(1.0, width * 0.6), label or "CONTEXT: referenced, not the issue location", fs * 0.7)
 
     if findings:
         heading = item.callout_heading
         body = f"{heading}\n{item.question}"
         if not clouds_u:
-            body += "\n(Location on this sheet not pinpointed — see the cover.)"
+            body += "\n(Location on this sheet not pinpointed: see the cover.)"
     else:
         # A sheet that only carries context: a typical detail, a general
         # note. Saying the question here would read as though the column
@@ -447,7 +447,7 @@ def _flow(out: fitz.Document, page: fitz.Page, y: float, text: str, item: "Item"
     for line in wrap(_plain(text), chars):
         if y > 770:
             page = out.new_page(width=LETTER.width, height=LETTER.height)
-            _text(page, 576, 40, f"{item.title} — continued", size=12, bold=True, right=True)
+            _text(page, 576, 40, f"{item.title} (continued)", size=12, bold=True, right=True)
             y = 70
         page.insert_text((40, y), line, fontsize=size, fontname="helv", color=color)
         y += size * 1.25
@@ -478,7 +478,7 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
     if item.revision:
         _box_text(page, fitz.Rect(382, 171, 590, 202), item.revision, size=8)
     else:
-        _text(page, 382, 180, "Unknown - not read from the title block", size=9)
+        _text(page, 382, 180, "Unknown (not read from the title block)", size=9)
 
     heading = "BIM RFI Description:" if not item.draft else "Proposed RFI Description:"
     _text(page, 26, 220, heading, size=12, bold=True)
@@ -495,7 +495,7 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
         y += _box_text(page, fitz.Rect(40, y, 572, 760), m, size=8.5, color=(0.7, 0.1, 0.1)) + 2
     note = None
     if item.draft:
-        note = "DRAFT — proposed by the RFI review and not issued. A person must accept it before it has an RFI number."
+        note = "DRAFT: proposed by the RFI review, not issued. It gets an RFI number only when a person accepts it."
         if item.reasoning:
             note += f" Why flagged: {item.reasoning}"
 
@@ -728,7 +728,7 @@ def _marks_from_evidence(evidence) -> list[Mark]:
         role = "context" if e.get("role") == "context" else "finding"
         label = None
         if role == "context":
-            label = "NOT VERIFIED — check this occurrence" if e.get("verification") == "not_verified" else None
+            label = "NOT VERIFIED: check this occurrence" if e.get("verification") == "not_verified" else None
         out.append(Mark(e.get("documentId"), int(e["pageNumber"]), e.get("combinedPageNumber"),
                         e.get("sheetNumber"), e.get("bbox"), e.get("observation"), role=role, label=label,
                         kind=e.get("kind")))

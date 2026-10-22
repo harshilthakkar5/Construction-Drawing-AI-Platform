@@ -765,7 +765,7 @@ def _stale(run: Run) -> str | None:
     if now != before:
         return (
             "the drawings changed since this scan was planned (a document was added, replaced, removed or "
-            "excluded), so its tiles no longer point at the right pages — plan a new scan"
+            "excluded), so its areas no longer match the pages. Plan a new scan"
         )
     return None
 
@@ -960,7 +960,7 @@ def _first_look_direct(run: Run, sheets: Sheets, tiles: list[dict], total: int, 
             return None, "the model call failed twice"
         look = parse_first_look(reply.text, run.allowed)
         if look is None:
-            _diag_parsed(trace, None, "the reply was not the JSON asked for — asked once more")
+            _diag_parsed(trace, None, "the reply was not the JSON asked for; asked once more")
             reply = run.ask("discovery", system, user + "\n\nRespond with ONLY the JSON object described.",
                             images, labels, DISCOVERY_TOKENS * 2, discovery_thinking(), trace)
             look = parse_first_look(reply.text if reply else None, run.allowed)
@@ -1047,7 +1047,7 @@ def _first_look_batch(run: Run, sheets: Sheets, tiles: list[dict], total: int, s
         for cid, tile in by_id.items():
             look = parse_first_look(answers.get(cid), run.allowed)
             if look is None:
-                _diag_parsed(traces.get(cid), None, "the batch returned no usable answer for this tile — asked directly")
+                _diag_parsed(traces.get(cid), None, "the batch returned no usable answer for this tile; asked directly")
                 # One direct call for what the batch did not return usably.
                 reply = run.ask("discovery", system, prompts[cid], images[cid], labels[cid], DISCOVERY_TOKENS * 2,
                                 discovery_thinking(), traces.get(cid))
@@ -1107,7 +1107,7 @@ def close_look(run: Run, sheets: Sheets) -> None:
         reply = run.ask("verification", system, user, images, labels, VERIFY_TOKENS, verify_thinking(), trace)
         verdict = parse_verdict(reply.text if reply else None)
         if verdict is None and reply is not None:
-            _diag_parsed(trace, None, "the verdict was not the JSON asked for — asked once more", what="verdict")
+            _diag_parsed(trace, None, "the verdict was not the JSON asked for; asked once more", what="verdict")
             reply = run.ask("verification", system, user + "\n\nRespond with ONLY the JSON object described.",
                             images, labels, VERIFY_TOKENS * 2, verify_thinking(), trace)
             verdict = parse_verdict(reply.text if reply else None)
@@ -1466,8 +1466,8 @@ def level_claim_unsupported(text: str, material: str) -> str | None:
         return None
     if _LEVEL_EVIDENCE.search(material or ""):
         return None
-    return ("it claims a difference in height or elevation, and neither close-up prints an elevation, slope, "
-            "step or section — on a plan, a line moving across the sheet moves in plan, not up or down")
+    return ("it claims a difference in height or elevation, but neither close-up prints an elevation, slope, "
+            "step or section. A plan shows position, not height")
 
 
 def rule_out(pair: dict, verdict: dict | None, material: str, facts: tuple[dict | None, dict | None] = (None, None)) -> str | None:
@@ -1545,7 +1545,7 @@ def settle(run: Run, sheets: Sheets, item: dict, ctx: dict, verdict: dict | None
         })
     reasoning = verdict["reason"] or f"{pair['a'].get('sheetNumber')}: {issue['whatA']} / {pair['b'].get('sheetNumber')}: {issue['whatB']}"
     if own:
-        reasoning = f'Your question: "{own}" — {reasoning}'
+        reasoning = f'Your question: "{own}": {reasoning}'
 
     # Phase 4: the code and the AI read a drawing differently, so a problem
     # both report at one place is worth more than either alone (agreement.py).
@@ -1737,7 +1737,7 @@ def _diag_start(scan: dict):
         return None
     rec.write_json("evidence/pages.json", {
         "indexing": "pageNumber is ONE-based within its file; combinedPageNumber is ONE-based across the project",
-        "sheetRevision": "unknown — this system does not read the revision from the title block",
+        "sheetRevision": "unknown (this system does not read the revision from the title block)",
         "pages": [
             {"pageId": p[0], "documentId": p[1], "filename": p[2], "documentUploadVersion": p[3], "pageNumber": p[4],
              "combinedPageNumber": p[5], "sheetNumber": p[6], "rotation": p[7], "pdfWidthPt": p[8],
@@ -1757,7 +1757,7 @@ def _diag_start(scan: dict):
         },
         "outputSchema": {
             "discovery": "JSON described in the system prompt: {issues:[{checkId, kind, element, whatA, whatB, boxA, boxB, "
-                         "confidence}]} — not enforced by the API; Gemini is asked for application/json",
+                         "confidence}]}, not enforced by the API; Gemini is asked for application/json",
             "verification": "JSON described in the system prompt: {decision, reason, subject, question, confidence, priority}",
         },
         "maxOutputTokens": {"discovery": DISCOVERY_TOKENS, "verification": VERIFY_TOKENS,

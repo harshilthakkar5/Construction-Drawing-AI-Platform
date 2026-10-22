@@ -186,3 +186,11 @@ def test_rfi_006_is_scored_as_a_finding_the_drawings_answer():
     result = rfi_eval.score(case, [raised], tuple(case["elements"]))
     assert result["expected"] == 0 and len(result["falsePositives"]) == 1
     assert rfi_eval.score(case, [dict(raised, checkType="CE-04-12-Q01")], tuple(case["elements"]))["falsePositives"] == []
+
+
+def test_code_only_keeps_what_a_code_check_made():
+    types = rfi_eval.code_check_types()
+    assert {"unsized_column", "grid_mismatch", "open_item_note"} <= types
+    found = [{"checkType": "unsized_column"}, {"checkType": "CE-07-01-Q01"}, {"checkType": "C01"},
+             {"checkType": "custom"}, {"checkType": "chat"}, {"checkType": "grid_mismatch"}]
+    assert [c["checkType"] for c in rfi_eval.code_only(found, types)] == ["unsized_column", "grid_mismatch"]

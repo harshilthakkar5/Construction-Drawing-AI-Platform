@@ -126,7 +126,7 @@ summariesRouter.post("/project", summaryLimiter, async (req, res) => {
   });
   if (ready === 0) {
     return void res.status(409).json({
-      error: "generate at least one discipline summary first — the project summary rolls those up",
+      error: "generate at least one discipline summary first. The project summary combines them.",
     });
   }
 

@@ -13,6 +13,10 @@
  * LINKS is ours, not the client's: which of the original 17 questions and
  * which code checks answer each element or question. It lives here so a
  * re-import keeps it; a link to an id the new workbook dropped fails the import.
+ *
+ * ADDED is ours too: questions the workbook does not ask, appended to an
+ * element and marked `added`. Ids end in -X01.. so they never collide with
+ * the client's -Q01..; an element the workbook dropped fails the import.
  */
 import { writeFileSync } from "node:fs";
 import { LIBRARY_URL } from "./rfiLibrary.js";
@@ -21,6 +25,29 @@ import ExcelJS from "exceljs";
 import type { RfiCheckType, RfiLibraryFile, RfiReviewCheckId } from "@cdip/shared";
 
 type Link = { catalogue?: RfiReviewCheckId[]; codeChecks?: RfiCheckType[] };
+type Added = { id: string; elementId: string; category: string; text: string; whereToLook: string[]; codeChecks: RfiCheckType[] };
+
+/** Questions of ours. No question in the workbook asks whether every level has
+ * its plan, so the client's RFI 007 ("provide the forming plan at level 6") was
+ * found by the project scan and by no element review. */
+export const ADDED: Added[] = [
+  {
+    id: "CE-01-02-X01",
+    elementId: "CE-01-02",
+    category: "Documentation / Missing Info",
+    text: "Does every plan series (forming, framing, floor plans) have a plan for each level it covers, with no level missing from the set or listed in the sheet index but not issued?",
+    whereToLook: ["Sheet index", "Struct plans", "Arch plans"],
+    codeChecks: ["missing_plan_level"],
+  },
+  {
+    id: "CE-08-01-X01",
+    elementId: "CE-08-01",
+    category: "Documentation / Missing Info",
+    text: "Is there a forming or framing plan for every elevated level, with no level skipped in the plan series?",
+    whereToLook: ["Sheet index", "Struct framing plans"],
+    codeChecks: ["missing_plan_level"],
+  },
+];
 
 /** id → { catalogue: original question ids, codeChecks: RFI_CHECK_LABELS keys }. */
 export const LINKS: Record<string, Link> = {
@@ -145,7 +172,11 @@ function rows(sheet: ExcelJS.Worksheet): ExcelJS.Row[] {
   return out;
 }
 
-export async function readLibrary(path: string, links: Record<string, Link> = LINKS): Promise<RfiLibraryFile> {
+export async function readLibrary(
+  path: string,
+  links: Record<string, Link> = LINKS,
+  added: Added[] = ADDED,
+): Promise<RfiLibraryFile> {
   const book = new ExcelJS.Workbook();
   await book.xlsx.readFile(path);
   const need = (name: string): ExcelJS.Worksheet => {
@@ -178,7 +209,7 @@ export async function readLibrary(path: string, links: Record<string, Link> = LI
   });
   const byId = new Map(elements.map((e) => [e.id, e]));
 
-  const questions = rows(need("Question Bank")).map((r) => {
+  const questions: RfiLibraryFile["questions"] = rows(need("Question Bank")).map((r) => {
     const id = text(r.getCell(1));
     const element = byId.get(text(r.getCell(2)));
     if (!element) throw new Error(`question ${id}: unknown element "${text(r.getCell(2))}"`);
@@ -203,6 +234,13 @@ export async function readLibrary(path: string, links: Record<string, Link> = LI
       template: text(r.getCell(3)),
       codeChecks: links[text(r.getCell(1))]?.codeChecks ?? [],
     }));
+
+  for (const q of added) {
+    const element = byId.get(q.elementId);
+    if (!element) throw new Error(`added question ${q.id}: the workbook has no element ${q.elementId}`);
+    if (questions.some((x) => x.id === q.id)) throw new Error(`added question ${q.id}: the workbook already uses that id`);
+    questions.push({ ...q, parentId: null, active: element.active, catalogue: [], added: true });
+  }
 
   const ids = new Set([...byId.keys(), ...questions.map((q) => q.id), ...universal.map((u) => u.id)]);
   const stale = Object.keys(links).filter((id) => !ids.has(id));

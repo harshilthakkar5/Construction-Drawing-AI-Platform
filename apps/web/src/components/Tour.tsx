@@ -202,7 +202,7 @@ export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="summary"]',
     title: "Summary and categories",
-    body: "The project summary sits here, with every statement citing the sheet it came from click one to jump the viewer to that page and highlight the source.",
+    body: "The project summary sits here, with every statement citing the sheet it came from. Click one to jump the viewer to that page and highlight the source.",
   },
   {
     target: '[data-tour="categories"]',
@@ -212,12 +212,12 @@ export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="generate-summary"]',
     title: "Summaries are yours to start",
-    body: "Nothing is summarized automatically  it costs tokens, so each category has its own button and tells you the estimated cost before it spends anything.",
+    body: "Nothing is summarized automatically. Each category has its own button and shows the estimated cost before it spends any tokens.",
   },
   {
     target: '[data-tour="quick-actions"]',
     title: "Quick actions",
-    body: "One box over a sheet number is what sorts the set into disciplines — define it, edit it or re-scan it here. Unfinished setup and this walkthrough live in the same group.",
+    body: "One box over a sheet number sorts the set into disciplines. Define, edit or re-scan it here, next to unfinished setup and this walkthrough.",
   },
   {
     target: '[data-tour="viewer-toolbar"]',

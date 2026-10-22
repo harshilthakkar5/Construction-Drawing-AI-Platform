@@ -320,12 +320,12 @@ def test_the_cover_says_the_revision_is_unknown_and_never_cuts_the_audit_short()
     sheets = ", ".join(f"S{n}.{n:03d}" for n in range(1, 120))
     item = rp.Item("candidate", "x", None, "S", "Q?", None, None, None, None, "P", draft=True,
                    marks=[rp.Mark("d", 1, 1, "S9.999", {"x": 100, "y": 100, "width": 40, "height": 20})],
-                   reasoning=f"Not verified - a person must check: C-3. Sheets read in this review (119): {sheets}.")
+                   reasoning=f"Not verified, check on the sheet: C-3. Sheets read in this review (119): {sheets}.")
     out, _ = rp.render([item], lambda d: doc)
     text = "".join(out[i].get_text() for i in range(out.page_count) if "DRAFT RFI" in out[i].get_text())
-    assert "Unknown - not read from the title block" in text
+    assert "Unknown (not read from the title block)" in text
     flat = " ".join(text.split())
-    assert "S119.119." in flat and "Not verified - a person must check: C-3." in flat
+    assert "S119.119." in flat and "Not verified, check on the sheet: C-3." in flat
 
 
 # --- the client's sheet ----------------------------------------------------------------------

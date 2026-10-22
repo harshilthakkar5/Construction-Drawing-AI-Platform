@@ -44,7 +44,7 @@ export interface ChunkSourceRecord {
 export interface NumberedSource extends ChunkSourceRecord {
   /** 1-based citation number, ordered by first appearance in the answer. */
   index: number;
-  /** Clickable label, e.g. "S201.pdf — page 17". */
+  /** Clickable label, e.g. "S201.pdf, page 17". */
   label: string;
 }
 
@@ -118,7 +118,7 @@ export function extractCitedChunkIds(answer: string): string[] {
  */
 export function sourceLabel(record: ChunkSourceRecord): string {
   const sheet = record.sheetNumber?.trim();
-  return `${sheet || record.filename} — page ${record.combinedPageNumber}`;
+  return `${sheet || record.filename}, page ${record.combinedPageNumber}`;
 }
 
 /**

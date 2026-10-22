@@ -34,9 +34,15 @@ def start() -> None:
         return
 
     port = int(os.environ.get("WORKER_METRICS_PORT", "9465"))
+    try:
+        start_http_server(port)
+    except OSError as exc:
+        # A second worker on one machine finds the port taken. Metrics are an
+        # aid, never a reason not to process jobs: run without them, and say how.
+        log.warning("metrics disabled: port %d is unavailable (%s); set WORKER_METRICS_PORT to a free port", port, exc)
+        return
     reader = PrometheusMetricReader()
     metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
-    start_http_server(port)
 
     meter = metrics.get_meter("cdip-worker")
     _job_duration = meter.create_histogram(

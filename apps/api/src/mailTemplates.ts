@@ -40,7 +40,7 @@ export function passwordResetMail(to: string, name: string, link: string, ttlMin
     link,
     "",
     `The link works once and expires in ${ttlMinutes} minutes.`,
-    "If this wasn't you, ignore this email — your password is unchanged.",
+    "If this wasn't you, ignore this email. Your password is unchanged.",
   ].join("\n");
 
   return {
@@ -58,7 +58,7 @@ export function passwordResetMail(to: string, name: string, link: string, ttlMin
        </p>
        <p style="font-size:13px;color:#6b7280;line-height:1.6">
          The link works once and expires in ${ttlMinutes} minutes.<br>
-         If this wasn't you, ignore this email — your password is unchanged.
+         If this wasn't you, ignore this email. Your password is unchanged.
        </p>
        <p style="font-size:12px;color:#9ca3af;word-break:break-all">${escapeHtml(link)}</p>`,
     ),
@@ -95,7 +95,7 @@ export function supportAckMail(to: string, name: string, subject: string) {
   const text = [
     `Hi ${name},`,
     "",
-    "Thanks — we've got your message and will reply to this address.",
+    "Thanks, we've got your message and will reply to this address.",
     "",
     `Subject: ${subject}`,
   ].join("\n");
@@ -106,7 +106,7 @@ export function supportAckMail(to: string, name: string, subject: string) {
     text,
     html: layout(
       "We received your message",
-      `<p style="font-size:14px;line-height:1.6">Hi ${escapeHtml(name)}, thanks — we've got your
+      `<p style="font-size:14px;line-height:1.6">Hi ${escapeHtml(name)}, thanks, we've got your
          message and will reply to this address.</p>
        <p style="font-size:13px;color:#6b7280">Subject: ${escapeHtml(subject)}</p>`,
     ),

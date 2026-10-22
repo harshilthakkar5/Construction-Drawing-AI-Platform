@@ -241,7 +241,7 @@ describe("buildEvidenceRows", () => {
   it("names the check behind a generated RFI", () => {
     const generated = rfi({ source: "generated", checkType: "unscheduled_mark" });
     expect(buildEvidenceRows(generated, "p", "")[0]!.Source).toBe(
-      "generated — Mark with no row in its schedule",
+      "generated: Mark with no row in its schedule",
     );
   });
 
@@ -429,7 +429,7 @@ describe("sourceLabel", () => {
 
   it("falls back to the raw key for a check the labels do not know", () => {
     expect(sourceLabel({ source: "generated", checkType: "future_check" })).toBe(
-      "generated — future_check",
+      "generated: future_check",
     );
   });
 });

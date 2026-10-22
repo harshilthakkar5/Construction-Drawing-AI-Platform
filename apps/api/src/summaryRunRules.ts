@@ -54,8 +54,8 @@ export function summaryRunIsDead(portion: PortionRunState, now: Date = new Date(
 }
 
 export const DEAD_RUN_MESSAGE =
-  "The summary run stopped without finishing (the worker restarted or crashed). " +
-  "Pages it had already summarized are kept — generate it again to finish.";
+  "The summary run stopped before finishing (the worker restarted or crashed). " +
+  "Pages already summarized are kept. Generate it again to finish.";
 
 /** What the UI should be told: a dead run reads as failed, with the reason. */
 export function effectiveSummaryState(

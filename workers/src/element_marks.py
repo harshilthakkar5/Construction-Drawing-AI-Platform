@@ -229,7 +229,7 @@ def find_unmarked(marks: list[tuple[str, Rect]], strokes: list[tuple[tuple, Rect
         # the wall line over it): pieces closer than one symbol are one element.
         candidates = _merge(candidates, span[3])
         if len(candidates) > MAX_UNMARKED:
-            notes.append(f"{len(candidates)} symbols look like the {fam} elements but carry no mark — "
+            notes.append(f"{len(candidates)} symbols look like the {fam} elements but carry no mark: "
                          "too many to be omissions, so none is reported.")
             continue
         found += candidates

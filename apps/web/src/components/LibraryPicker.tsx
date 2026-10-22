@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 /** What a person picked in the library: one element, its questions, the sheets to read. */
 export interface LibraryChoice {
@@ -100,14 +101,14 @@ export function LibraryPicker({
   const element = elements.find((e) => e.id === value.elementId);
   const pkg = library.data?.packages.find((p) => p.elements.some((e) => e.id === value.elementId));
   const sheets = useLibrarySheets(projectId);
-  const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name) : null;
+  const suggestion = element ? suggestSheets(element.compareAcross, sheets, Infinity, element.name, pkg?.name) : null;
 
   const pickElement = (id: string) => {
     const next = elements.find((e) => e.id === id);
     if (!next) return;
     // Every built-in question of the element to start with; the person narrows it.
     const questionIds = next.questions.filter((q) => q.source === "library").map((q) => q.id);
-    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets, Infinity, next.name).sheets });
+    set({ elementId: id, questionIds, sheets: value.sheets.length ? value.sheets : suggestSheets(next.compareAcross, sheets, Infinity, next.name, library.data?.packages.find((p) => p.elements.includes(next))?.name).sheets });
   };
   // A choice remembered from an element the library no longer has starts over.
   useEffect(() => {
@@ -221,14 +222,10 @@ export function AllBox({
   label?: string;
   className?: string;
 }) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = count > 0 && count < total;
-  }, [count, total]);
+  const state = total > 0 && count === total ? true : count > 0 ? "indeterminate" : false;
   return (
     <label className={`flex cursor-pointer items-center gap-1.5 select-none ${className}`}>
-      <input ref={ref} type="checkbox" className="size-3.5" checked={total > 0 && count === total} disabled={!total}
-        onChange={() => onChange(count < total)} />
+      <Checkbox checked={state} disabled={!total} onCheckedChange={() => onChange(count < total)} />
       {label}
     </label>
   );
@@ -312,11 +309,10 @@ export function QuestionTree({
       <div className="group flex items-start gap-2">
         {depth > 0 && <CornerDownRightIcon className="text-muted-foreground mt-0.5 size-3 shrink-0" />}
         <label className="flex min-w-0 flex-1 items-start gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             className="mt-0.5"
             checked={selected.includes(q.id)}
-            onChange={(e) => toggle([q.id], e.target.checked)}
+            onCheckedChange={(v) => toggle([q.id], v === true)}
           />
           <span className="min-w-0">
             {q.text}
@@ -488,7 +484,7 @@ export function SheetPicker({
         <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
         <Input
           value={typed}
-          placeholder="Search sheets — number, discipline, level or title, e.g. S2.105, foundation plan, level 2"
+          placeholder="Search by sheet number, discipline, level or title (e.g. S2.105, foundation plan, level 2)"
           className={`${roomy ? "h-10" : "h-8"} pl-8 ${t}`}
           aria-label="Search sheets"
           onChange={(e) => setTyped(e.target.value)}
@@ -512,7 +508,7 @@ export function SheetPicker({
               return (
                 <li key={s.sheetNumber}>
                   <label className={`hover:bg-accent/50 flex cursor-pointer items-center gap-2.5 px-2.5 py-1.5 ${on ? "bg-primary/5" : ""}`}>
-                    <input type="checkbox" className="size-4 shrink-0" checked={on} onChange={() => toggleSheet(s.sheetNumber)} />
+                    <Checkbox checked={on} onCheckedChange={() => toggleSheet(s.sheetNumber)} />
                     <img src={api.pageThumbUrl(projectId, s.combinedPageNumber)} alt="" loading="lazy"
                       className={`${roomy ? "h-10 w-14" : "h-8 w-11"} shrink-0 rounded-sm border object-cover`} />
                     <span className="flex min-w-0 flex-col">
@@ -533,7 +529,7 @@ export function SheetPicker({
               );
             })}
             {hits.length > SHEET_HITS && (
-              <li className="text-muted-foreground px-2.5 py-1.5 text-xs">{hits.length - SHEET_HITS} more — add a word to narrow it.</li>
+              <li className="text-muted-foreground px-2.5 py-1.5 text-xs">{hits.length - SHEET_HITS} more. Add a word to narrow it.</li>
             )}
           </ul>
         ) : (

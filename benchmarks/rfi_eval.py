@@ -52,6 +52,20 @@ from pathlib import Path
 CASES = Path(__file__).with_name("rfi_eval_cases.json")
 
 
+def code_check_types() -> set[str]:
+    """Every check the CODE decides (rfi_checks.CHECK_TYPES), never a model's."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workers" / "src"))
+    import rfi_checks
+
+    return set(rfi_checks.CHECK_TYPES) | set(rfi_checks.REVIEW_CHECK_TYPES)
+
+
+def code_only(candidates: list[dict], types: set[str]) -> list[dict]:
+    """The candidates a code check made. Pure. Scoring these alone measures the
+    checks without the model — e.g. a run whose AI calls went to a stand-in."""
+    return [c for c in candidates if c["checkType"] in types]
+
+
 def _norm(sheet: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", sheet.upper())
 
@@ -233,6 +247,8 @@ def main() -> int:
     source.add_argument("--fullscan", help="rfi_full_scans.id to score (the full AI scan)")
     source.add_argument("--project-reviews", help="projects.id: score every By element review of the project")
     parser.add_argument("--case", default="rfi-002", help="a case id, or several separated by commas")
+    parser.add_argument("--code-only", action="store_true",
+                        help="score only findings a code check made, not the model's (an offline or stub run)")
     args = parser.parse_args()
     cases = {c["id"]: c for c in json.loads(CASES.read_text())["cases"]}
     wanted = [c.strip() for c in args.case.split(",") if c.strip()]
@@ -242,6 +258,8 @@ def main() -> int:
         return 2
     if args.project_reviews:
         runs, candidates = load_project_reviews(args.project_reviews)
+        if args.code_only:
+            candidates = code_only(candidates, code_check_types())
         print(f"{len(runs)} element(s) reviewed, {len(candidates)} candidate(s) saved or found again")
         failed = 0
         for case_id in wanted:
@@ -259,6 +277,8 @@ def main() -> int:
               f"{t['rejected']} rejected, {t['overruled']} rejection(s) overruled")
         return 1 if failed else 0
     candidates = load_candidates(args.run, args.scan, args.fullscan)
+    if args.code_only:
+        candidates = code_only(candidates, code_check_types())
     failed = 0
     for case_id in wanted:
         failed += report(score(cases[case_id], candidates), len(candidates))

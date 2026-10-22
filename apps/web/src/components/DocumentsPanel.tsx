@@ -7,6 +7,7 @@ import { ConfirmDialog, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { STATUS_COLORS } from "@/charts/palette";
 import { uploadPdf } from "@/upload";
 
@@ -132,7 +133,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
             <div className="truncate text-muted-foreground">{name}</div>
             {progress === "error" ? (
               <div className="text-destructive">
-                upload failed — select the file again to resume
+                upload failed: select the file again to resume
               </div>
             ) : (
               <Progress className="mt-1 h-1.5" value={Math.round(progress * 100)} />
@@ -197,11 +198,10 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                         : (doc.rfiExclusionReason ?? "Kept out of RFI review input")
                     }
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={doc.includeInRfiAnalysis}
                       disabled={rfiAnalysis.isPending}
-                      onChange={(e) => rfiAnalysis.mutate({ documentId: doc.id, include: e.target.checked })}
+                      onCheckedChange={(v) => rfiAnalysis.mutate({ documentId: doc.id, include: v === true })}
                       aria-label={`Use ${doc.filename} in RFI reviews`}
                     />
                     RFI review input
@@ -216,7 +216,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                     <Button
                       variant="link"
                       className="ml-auto h-auto gap-1.5 p-0 text-xs"
-                      title="Re-run processing — already-finished pages are skipped, so it resumes where it stopped"
+                      title="Re-run processing. Finished pages are skipped, so it resumes where it stopped."
                       disabled={retry.isPending}
                       onClick={() => retry.mutate(doc.id)}
                     >

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("worker.sheet_facts")
 
-FACTS_VERSION = 5  # 2: kinked leaders; 3: floors named as words; 4: short labels never set the title size, bubbles drawn as segment rings; 5: letter+number grid labels (A2, B7)
+FACTS_VERSION = 6  # 2: kinked leaders; 3: floors named as words; 4: short labels never set the title size, bubbles drawn as segment rings; 5: letter+number grid labels (A2, B7); 6: BASEMENT n = LEVEL Bn, title block first
 
 # Mirrors SHEET_KINDS in @cdip/shared; test_sheet_facts reads the TypeScript.
 SHEET_KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", "notes", "cover", "other")
@@ -61,6 +61,8 @@ _NOT_A_TITLE = re.compile(r"\b(?:SEE|REFER|REF|PER|KEY\s+PLAN|PLAN\s+NOTES?|LEGE
 
 _LEVEL = re.compile(r"\bLEVELS?\s*([0-9]{1,3}|[A-Z]{1,2}\d?)\b(?:\s*(?:-|TO|THRU|THROUGH)\s*([0-9]{1,3})\b)?")
 _DRAWING_KIND = re.compile(r"\b(?:PLANS?|EXHIBITS?|FRAMING|FORMING|LAYOUT|DIAGRAMS?)\b")
+_BASEMENT_N = re.compile(r"\bBASEMENT\s+(?:LEVEL\s+)?([0-9]{1,2})\b")
+_QUALIFIED_LEVEL = re.compile(r"\b(LOWER|UPPER)\s+LEVEL\s*([0-9]{1,3})\b")
 
 
 def _norm_level(token: str) -> str:
@@ -83,7 +85,7 @@ _FLOOR_N = re.compile(r"\bFLOOR\s+([0-9]{1,3})\b")
 _NAMED_LEVELS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(?:GROUND|GRADE)\s+(?:FLOOR|LEVEL)\b"), "GROUND FLOOR"),
     (re.compile(r"\b(?:LOWER|UPPER)\s+(?:GROUND\s+)?LEVEL\b"), None),  # filled from the match
-    (re.compile(r"\bBASEMENT(?:\s+(?:LEVEL\s+)?([0-9]{1,2}))?\b"), "BASEMENT"),
+    (re.compile(r"\bBASEMENT\b"), "BASEMENT"),  # a numbered basement is LEVEL Bn, above
     (re.compile(r"\bMEZZANINE\b"), "MEZZANINE"),
     (re.compile(r"\bPENTHOUSE\b"), "PENTHOUSE"),
     (re.compile(r"\bROOF\b"), "ROOF"),
@@ -100,6 +102,16 @@ def level_in(text: str | None) -> str | None:
     spellings reads as "LEVEL n", and a floor with a NAME (ground, basement,
     roof…) reads as that name and pairs only with the same name."""
     upper = " ".join((text or "").upper().split())
+    # One basement floor written three ways is ONE level: "BASEMENT 2",
+    # "BASEMENT LEVEL 2" and "LEVEL B2". Read as "LEVEL 2", a basement plan
+    # paired with the second floor.
+    m = _BASEMENT_N.search(upper)
+    if m:
+        return f"LEVEL B{_norm_level(m.group(1))}"
+    # "LOWER LEVEL 1" is not "LEVEL 1": a qualified level pairs only with itself.
+    m = _QUALIFIED_LEVEL.search(upper)
+    if m:
+        return f"{m.group(1)} LEVEL {_norm_level(m.group(2))}"
     m = _LEVEL.search(upper)
     if m:
         first = _norm_level(m.group(1))
@@ -117,10 +129,18 @@ def level_in(text: str | None) -> str | None:
             continue
         if name is None:
             return " ".join(m.group(0).split())
-        if name == "BASEMENT" and m.group(1):
-            return f"BASEMENT {_norm_level(m.group(1))}"
         return name
     return None
+
+
+def title_block_level(region_text: str | None) -> str | None:
+    """The level the title-block reading names: the words after "SHEET TITLE"
+    when the box carries that label (the rest of a box is revision notes and
+    stamps), else the whole reading. None when it names none — a box drawn
+    tight round the sheet number usually does."""
+    text = " ".join((region_text or "").split())
+    at = text.upper().rfind("SHEET TITLE")
+    return level_in(text[at + len("SHEET TITLE"):] if at >= 0 else text)
 
 
 def title_level(titles: list[str]) -> str | None:
@@ -276,7 +296,11 @@ def read_page(page, region_text: str | None = None) -> dict:
         # title under the drawing does: S1.101's big title breaks after
         # "Foundation Plan - Level" and its view title reads "Foundation
         # Plan - Level 1". Still exactly ONE level or none.
-        "level": title_level(titles) or title_level([text for _, text in sized]),
+        # The title block first, as the planner reads it (rfiReviewRules.pageLevel):
+        # it names the SHEET, while a drawing title can disagree with it — Leland's
+        # S2.30-B is "BASEMENT 2 - FOUNDATION PLAN" in its title block over a
+        # drawing titled "LEVEL 2 - FOUNDATION PLAN".
+        "level": title_block_level(region_text) or title_level(titles) or title_level([text for _, text in sized]),
         "scales": sorted({round(s, 3) for s in plan_match.page_scales(clean)}),
         "grid": grid_summary,
     }

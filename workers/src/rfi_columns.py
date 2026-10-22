@@ -60,9 +60,18 @@ _POINTER = re.compile(r"\b(?:SEE|REFER|REF|SIM|SIMILAR|TYP|ABOVE|BELOW)\b")
 
 def level_of(text: str | None) -> str | None:
     """"LEVEL 14", "LEVEL 5" out of a title; None when it names none."""
-    found = _LEVEL.search((text or "").upper())
-    # "LEVEL 01" and "LEVEL 1" are one floor.
-    return f"LEVEL {re.sub(r'^0+(?=[0-9])', '', found.group(1))}" if found else None
+    upper = (text or "").upper()
+    strip = lambda n: re.sub(r"^0+(?=[0-9])", "", n)  # "LEVEL 01" and "LEVEL 1" are one floor
+    # Rules mirrored by levelOf (fixtures/sheet-level.json): a basement is LEVEL Bn
+    # however it is written, and a LOWER/UPPER level is not the plain one.
+    basement = re.search(r"\bBASEMENT\s+(?:LEVEL\s+)?([0-9]{1,2})\b", upper)
+    if basement:
+        return f"LEVEL B{strip(basement.group(1))}"
+    qualified = re.search(r"\b(LOWER|UPPER)\s+LEVEL\s*([0-9]{1,3})\b", upper)
+    if qualified:
+        return f"{qualified.group(1)} LEVEL {strip(qualified.group(2))}"
+    found = _LEVEL.search(upper)
+    return f"LEVEL {strip(found.group(1))}" if found else None
 
 
 # What a drawing title calls itself. "LEVEL 13 ROOF DECK CONCRETE HEIGHTS" is a
@@ -251,23 +260,22 @@ def comparable_alignments(a: Sheet, b: Sheet, alignments: list[pm.Alignment]) ->
     if a.level and b.level and a.level != b.level:
         return [], (
             f"Column comparison: {a.label} ({a.level.title()}) and {b.label} ({b.level.title()}) show different "
-            "levels, so their columns were not compared — columns stop, move and change size between floors "
-            "by design."
+            "levels, so their columns were not compared: columns change between floors by design."
         )
     same_discipline = bool(a.page.discipline) and a.page.discipline == b.page.discipline
     if same_discipline and any(abs(al.scale - 1) <= 1e-6 for al in alignments):
         kept = [al for al in alignments if abs(al.scale - 1) > 1e-6]
         return kept, (
             f"Column comparison: {a.label} and {b.label} are both {a.page.discipline} sheets at the same scale, so "
-            "they were not compared — when one discipline draws an area twice at one scale (a floor plan beside a "
-            "life-safety, ceiling or exhibit plan), each leaves out what the other shows by design."
+            "they were not compared. Such pairs (a floor plan beside a life-safety, ceiling or exhibit plan) "
+            "each leave out what the other shows by design."
         )
     kept = [al for al in alignments if abs(al.scale - 1) > 1e-6 or (a.level and a.level == b.level)]
     if len(kept) < len(alignments):
         return kept, (
             f"Column comparison: {a.label} and {b.label} line up at the same scale, but "
             + ("neither names" if not (a.level or b.level) else "only one names")
-            + " its level in a plan title, so they were not compared — two same-scale plans are usually two "
+            + " its level in a plan title, so they were not compared: two same-scale plans are usually two "
             "different floors."
         )
     return kept, None
@@ -286,21 +294,22 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
     notes: list[str] = []
     ratio_text = "at the same scale" if not alignments or abs(alignments[0].scale - 1) < 1e-6 else "enlarged"
     for al in alignments:
-        diffs = pm.differences(al, a.geometry, b.geometry)
+        every = pm.differences(al, a.geometry, b.geometry)
+        diffs = [d for d in every if d.reported]
         matched = len(al.inliers)
         detail = a.details.get(al.detail)
         where = f"{a.label} {detail}" if detail else a.label
         notes.append(
             f"Column comparison: {where} laid over {b.label} ({ratio_text}, scale ratio "
-            f"{al.scale:g}) — {matched} columns line up, {len(diffs)} differ."
+            f"{al.scale:g}): {matched} columns line up, {len(diffs)} differ."
         )
-        if not diffs:
-            continue
-        if len(diffs) > MAX_DIFF_SHARE * matched:
+        if len(every) > MAX_DIFF_SHARE * matched:
             notes.append(
-                f"Column comparison: {where} over {b.label} was set aside — {len(diffs)} differences "
-                f"against {matched} matching columns means the two probably do not show the same area."
+                f"Column comparison: {where} over {b.label} was set aside: {len(every)} differences "
+                f"against {matched} matching columns, so they probably do not show the same area."
             )
+            continue
+        if not diffs:
             continue
         if kinds is not None:
             diffs = [d for d in diffs if d.kind in kinds]
@@ -313,6 +322,11 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
             for sheet, rect, quote in spots:
                 if len(evidence) < MAX_EVIDENCE:
                     evidence.append(_evidence(sheet, rect, quote))
+        # Two columns described alike (same size, same nearest grid) are one line.
+        counts = {}
+        for line in lines:
+            counts[line] = counts.get(line, 0) + 1
+        lines = [line if n == 1 else f"{line} (at {n} places)" for line, n in counts.items()]
         shown = "; ".join(lines[:MAX_LISTED])
         if len(lines) > MAX_LISTED:
             shown += f"; and {len(lines) - MAX_LISTED} more"
@@ -321,7 +335,7 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
         question = (
             f"{a.label} and {b.label} show the same area"
             + (" at the same scale" if same_scale else f" ({a.label} enlarged)")
-            + f", and {matched} columns line up, but {len(diffs)} do not: {shown}. "
+            + f", and {matched} columns line up, but {len(diffs)} {'does' if len(diffs) == 1 else 'do'} not: {shown}. "
             "Please confirm the correct column locations and sizes, and which drawing will be revised."
         )
         confidence = "high" if matched >= 4 and len(diffs) <= matched // 2 else "medium"

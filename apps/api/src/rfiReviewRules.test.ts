@@ -13,6 +13,7 @@ import {
   pageLevel,
   titleMentions,
   titleReferences,
+  disciplineNotUploaded,
   rankCorrespondence,
   drawsGrid,
   mentions,
@@ -560,9 +561,22 @@ describe("titleReferences", () => {
       "REFER TO ARCHITECTURAL DRAWINGS AND DETAILS FOR DIMENSIONAL CONTROL OF MASONRY",
       "SEE STRUCTURAL GENERAL NOTES",
       "SEE 5/S-501",
+      // a whole discipline's set, not one titled drawing
+      "SEE ELECTRICAL PLANS FOR ALL CONDUIT",
+      "COORDINATE SLEEVES, SEE ENGINEERING PLANS",
+      "SEE MEP PLANS",
     ]) {
       expect(titleReferences(text), text).toEqual([]);
     }
+    // ...while a titled drawing of that discipline still counts.
+    expect(titleReferences("SEE ELECTRICAL SITE PLAN")).toEqual([{ title: "SITE PLAN", discipline: "electrical" }]);
+  });
+
+  it("calls a drawing of a discipline with no sheets in the project not uploaded", () => {
+    const ref = { title: "SLAB DIMENSIONAL CONTROL PLAN", discipline: "architectural" };
+    expect(disciplineNotUploaded(ref, [{ discipline: "structural" }])).toBe(true);
+    expect(disciplineNotUploaded(ref, [{ discipline: "structural" }, { discipline: "architectural" }])).toBe(false);
+    expect(disciplineNotUploaded({ title: "FOUNDATION PLAN", discipline: null }, [{ discipline: "structural" }])).toBe(false);
   });
 });
 
@@ -603,5 +617,28 @@ describe("titleReferences on a second set", () => {
   it("matches an abbreviated title against the sheet's full one", () => {
     expect(titleReferences("SEE COL SCHEDULE")).toEqual([{ title: "COL SCHEDULE", discipline: null }]);
     expect(titleMentions("COLUMN SCHEDULE", "COL SCHEDULE")).toEqual([{ kind: "title" }]);
+  });
+});
+
+describe("reviewIsActive asks the queue about a queued review", () => {
+  const planned = new Date("2026-10-21T10:00:00Z");
+  const run = { status: "queued" as const, createdAt: planned, startedAt: null, heartbeatAt: null };
+  const hourLater = new Date(planned.getTime() + 60 * 60 * 1000);
+
+  it("keeps a review waiting its turn alive, however long ago it was planned", () => {
+    expect(reviewIsActive(run, hourLater, { state: "waiting", processedOn: null })).toBe(true);
+    expect(reviewIsActive(run, hourLater, { state: "active", processedOn: hourLater.getTime() })).toBe(true);
+  });
+
+  it("calls it dead when its job is gone or failed, and uses time when the queue was not asked", () => {
+    expect(reviewIsActive(run, hourLater, null)).toBe(false);
+    expect(reviewIsActive(run, hourLater, { state: "failed", processedOn: 1 })).toBe(false);
+    expect(reviewIsActive(run, hourLater)).toBe(false);
+    expect(reviewIsActive(run, new Date(planned.getTime() + 60_000))).toBe(true);
+  });
+
+  it("judges a running review by its heartbeat, as before", () => {
+    const beat = new Date(hourLater.getTime() - 30_000);
+    expect(reviewIsActive({ ...run, status: "running", heartbeatAt: beat }, hourLater, null)).toBe(true);
   });
 });

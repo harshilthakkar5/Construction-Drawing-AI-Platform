@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /** elementId → the question ids chosen under it. */
@@ -107,7 +108,7 @@ const REVIEW_LABEL: Record<RfiReviewStatus, string> = {
   partial: "Done (partly)",
   failed: "Failed",
   cancelled: "Cancelled",
-  stale: "Drawings changed — price again",
+  stale: "Drawings changed, price again",
 } as Record<RfiReviewStatus, string>;
 
 /**
@@ -229,8 +230,9 @@ function CreateRfiDialog({
   const suggested = useMemo(() => {
     const all = new Set<string>();
     for (const [id] of chosen) {
-      const e = elements.find((x) => x.id === id);
-      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name).sheets.forEach((s) => all.add(s));
+      const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
+      const e = pkg?.elements.find((x) => x.id === id);
+      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name, pkg?.name).sheets.forEach((s) => all.add(s));
     }
     return [...all];
   }, [picks, elements, sheets]);
@@ -316,7 +318,7 @@ function CreateRfiDialog({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-semibold">3 · Elements</p>
               <span className="text-muted-foreground text-sm">
-                Choose a stage — every element and question under it is selected, then narrow it down.
+                Pick a stage to select all its elements and questions, then narrow it down.
               </span>
             </div>
             <SearchBox value={query} onChange={setQuery}
@@ -378,7 +380,7 @@ function CreateRfiDialog({
           <span className={cn("text-sm", tooMany ? "text-destructive" : "text-muted-foreground")}>
             {chosen.length} element{chosen.length === 1 ? "" : "s"} · {questionCount} question{questionCount === 1 ? "" : "s"} ·{" "}
             {chosenSheets.length} sheet{chosenSheets.length === 1 ? "" : "s"}
-            {tooMany ? ` — at most ${RFI_SET_MAX_ELEMENTS} elements in one RFI` : " · each element is its own review"}
+            {tooMany ? ` · at most ${RFI_SET_MAX_ELEMENTS} elements in one RFI` : " · each element is its own review"}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>
@@ -466,8 +468,8 @@ function SearchResults({
                         {questions.map((q) => (
                           <li key={q.id}>
                             <label className="flex cursor-pointer items-start gap-2 text-sm">
-                              <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={chosen.includes(q.id)}
-                                onChange={(e) => onQuestion(element.id, q.id, e.target.checked)} />
+                              <Checkbox className="mt-0.5" checked={chosen.includes(q.id)}
+                                onCheckedChange={(v) => onQuestion(element.id, q.id, v === true)} />
                               <span>{q.text}</span>
                             </label>
                           </li>
@@ -481,7 +483,7 @@ function SearchResults({
           </section>
         );
       })}
-      {more && <p className="text-muted-foreground text-sm">More match — add a word to narrow the search.</p>}
+      {more && <p className="text-muted-foreground text-sm">More results. Add a word to narrow the search.</p>}
     </div>
   );
 }
@@ -574,12 +576,10 @@ function PackageDialog({
             return (
               <div key={e.id} className={cn("rounded-lg border", on ? "bg-card" : "bg-muted/30")}>
                 <div className="flex items-center gap-3 p-3">
-                  <input
-                    type="checkbox"
-                    className="size-4"
+                  <Checkbox
                     checked={on > 0}
                     aria-label={`Include ${e.name}`}
-                    onChange={(ev) => setFor(e.id, ev.target.checked ? allQuestions(e) : [])}
+                    onCheckedChange={(v) => setFor(e.id, v === true ? allQuestions(e) : [])}
                   />
                   <button
                     type="button"
@@ -758,7 +758,7 @@ function RfiSetDialog({
               </div>
               {planned.length > 0 && (
                 <p className="text-muted-foreground -mt-3 text-sm">
-                  Nothing has been sent to the AI yet. The price is a range — token counts are estimated before a run.
+                  Nothing has been sent to the AI yet. The price is a range because token counts are estimated.
                 </p>
               )}
               {(plan.error || start.error || remove.error) && (
@@ -800,7 +800,7 @@ function RfiSetDialog({
                 {pending.length === 0 ? (
                   <p className="text-muted-foreground text-sm">
                     {active > 0
-                      ? "Reviews are running — findings appear here as each one finishes."
+                      ? "Reviews are running. Findings appear here as each one finishes."
                       : d.candidates.length
                         ? "Every finding has been decided."
                         : "No findings yet."}
@@ -821,7 +821,7 @@ function RfiSetDialog({
                 )}
                 {decidedCount > 0 && (
                   <p className="text-muted-foreground text-xs">
-                    {decidedCount} already decided — accepted ones are in the RFI log.
+                    {decidedCount} already decided. Accepted ones are in the RFI log.
                   </p>
                 )}
                 {(accept.error || dismiss.error) && <Notice tone="error">{((accept.error ?? dismiss.error) as Error).message}</Notice>}

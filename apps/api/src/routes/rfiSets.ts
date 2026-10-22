@@ -19,7 +19,7 @@ import { planReview, reviewModelOptions, toReviewDto } from "../rfiReviewPlanner
 import { setCost, setPlanRequest } from "../rfiSets.js";
 import { toCandidateDto } from "../rfiStore.js";
 import { customElementsOf } from "./rfiLibrary.js";
-import { planBody, startReview } from "./rfiReview.js";
+import { planBody, queuedReviewJobs, startReview } from "./rfiReview.js";
 
 /**
  * Named RFIs ("Create RFI"): a person names one, picks the sheets and the
@@ -92,11 +92,12 @@ async function detail(projectId: string, setId: string, errors: RfiSetDetailDto[
     where: { reviewRunId: { in: runs.map((r) => r.id) } },
     orderBy: [{ confidence: "asc" }, { createdAt: "asc" }],
   });
+  const jobs = await queuedReviewJobs(runs);
   const perRun = new Map<string, number>();
   for (const c of candidates) perRun.set(c.reviewRunId!, (perRun.get(c.reviewRunId!) ?? 0) + 1);
   return {
     ...summary!,
-    reviews: runs.map((r) => toReviewDto(r, perRun.get(r.id) ?? 0)),
+    reviews: runs.map((r) => toReviewDto(r, perRun.get(r.id) ?? 0, new Date(), jobs.get(r.id))),
     candidates: candidates.map(toCandidateDto),
     planErrors: errors,
   };

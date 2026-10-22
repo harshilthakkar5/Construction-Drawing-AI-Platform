@@ -515,7 +515,7 @@ def _text_of(block) -> str:
 
 
 def _request_markdown(call: Call, provider: str, attempt: int, entry, body: dict, images: list[dict]) -> str:
-    lines = [f"# {call.id} — {call.stage} — attempt {attempt}" + (f" — entry {entry}" if entry else ""), ""]
+    lines = [f"# {call.id} · {call.stage} · attempt {attempt}" + (f" · entry {entry}" if entry else ""), ""]
     lines.append(f"Provider: {provider}")
     settings = {k: body.get(k) for k in ("model", "max_tokens", "thinking", "output_config", "temperature") if k in body}
     if provider == "gemini":
@@ -552,7 +552,7 @@ def _request_markdown(call: Call, provider: str, attempt: int, entry, body: dict
             image = (item.get("source") or {}).get("[image]") or (item.get("inline_data") or {}).get("[image]")
         if image:
             info = by_file.get(image, {})
-            lines.append(f"[IMAGE {info.get('order')}] {image} — {info.get('widthPx')}x{info.get('heightPx')} px, "
+            lines.append(f"[IMAGE {info.get('order')}] {image}: {info.get('widthPx')}x{info.get('heightPx')} px, "
                          f"{info.get('bytes')} bytes")
             if info.get("source"):
                 lines.append("    source: " + json.dumps(info["source"], ensure_ascii=False, default=str))
@@ -623,30 +623,30 @@ EXCLUDED = [
     "the text of the model's private reasoning (thinking blocks and thought parts are marked, not kept)",
 ]
 
-README = """# RFI diagnostic export — {kind} {run_id}
+README = """# RFI diagnostic export: {kind} {run_id}
 
 Everything the AI was given and returned for this run, and what the code did
 with it. Start at manifest.json; every path below is relative to this folder.
 
-1. run/run.json — the request as the person made it (settings, limits, chosen
+1. run/run.json: the request as the person made it (settings, limits, chosen
    provider and model) and the documents in scope.
-2. evidence/pages.json — every page used: file, page number (ONE-based),
+2. evidence/pages.json: every page used: file, page number (ONE-based),
    combined page number, printed sheet number, rotation, size; sheet revision
    is 'unknown' (not extracted).
-3. calls/ — one folder per model call, numbered in the order calls STARTED.
+3. calls/: one folder per model call, numbered in the order calls STARTED.
    request.md is the readable version of request.json, which is the exact
    request handed to the provider SDK. Images are listed in the order sent,
    with the file under images/ and where the picture came from.
    response.md / response.json are the raw reply. meta.json says which stage
    asked, the settings, every attempt (a retry is a new attempt), and what
    the code did with the reply.
-4. postprocess.jsonl — every decision after a reply, one JSON per line, in
+4. postprocess.jsonl: every decision after a reply, one JSON per line, in
    order: parsed findings, rules that rejected one and why, findings saved or
    found again, evidence boxes and clouds.
-5. output/ — the findings this run saved (findings.json) and, when they could
+5. output/: the findings this run saved (findings.json) and, when they could
    be rendered, the marked-up RFI package (rfi-package.pdf).
 
 Not in this export: credentials, signed URLs and the model's private
-reasoning. Drawing content IS included — keep this folder as confidential as
+reasoning. Drawing content IS included: keep this folder as confidential as
 the drawings themselves.
 """

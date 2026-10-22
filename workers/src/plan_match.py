@@ -74,6 +74,9 @@ PLACE_TOL_FT = 0.5
 # An element with no partner within PLACE_TOL but one of the same size within
 # this is MOVED rather than missing.
 MOVED_FT = 6.0
+# A difference counts only within this many typical column spacings of the
+# area the matched columns span (see differences).
+COVER_BAYS = 1.0
 MIN_INLIERS = 3
 MIN_MARGIN = 2
 # Detail segmentation raster: points per pixel, and how far ink is joined.
@@ -570,6 +573,10 @@ class Difference:
     a: Element | None
     b: Element | None
     offset_ft: float = 0.0
+    # False: a disagreement outside the checked area, or where the other sheet
+    # draws something in its own style. Not a finding, but still counted when
+    # judging whether the alignment itself is right (rfi_columns.MAX_DIFF_SHARE).
+    reported: bool = True
 
 
 def _ft(pt: float, pt_per_ft: float) -> str:
@@ -583,7 +590,8 @@ def size_text(e: Element, pt_per_ft: float) -> str:
 
 
 def differences(al: Alignment, a: SheetGeometry, b: SheetGeometry) -> list[Difference]:
-    """What the two sheets disagree about inside one aligned detail.
+    """What the two sheets disagree about inside one aligned detail. Every
+    disagreement is returned; only those with `reported` are findings.
 
     Only column-SIZED elements take part (MIN/MAX_SIDE_FT at this detail's own
     scale, which the alignment has now told us), and only where the other
@@ -618,12 +626,42 @@ def differences(al: Alignment, a: SheetGeometry, b: SheetGeometry) -> list[Diffe
         if a.labels is None or label_at(a.labels, a.pt_per_px, x, y) == al.detail:
             theirs.append(e)
 
+    # The alignment and the drawing style are checked only where columns
+    # lined up. A detail's ink region can take in another area of the building
+    # (its grid lines run through it, its walls stop), and the same column
+    # can be drawn in another style there, so a difference counts only inside
+    # the area the matched columns span, grown by COVER_BAYS typical spacings.
+    matched = [(y.cx, y.cy) for _, y in al.inliers]
+    spacing = sorted(
+        min(math.hypot(x - u, y - v) for j, (u, v) in enumerate(matched) if j != i)
+        for i, (x, y) in enumerate(matched)
+    )
+    margin = COVER_BAYS * spacing[len(spacing) // 2] if len(spacing) > 1 else math.inf
+    hull = _hull(matched)
+
+    def covered(x: float, y: float) -> bool:
+        return _outside(hull, x, y) <= margin
+
+    def split(e: Element, o: Element) -> bool:
+        """One column measured in part: a line crossing a fill cuts it in two,
+        so the smaller box sits inside the bigger one and ANOTHER piece of its
+        fill lies in the rest of it. A resized column has slab there instead."""
+        big_b, small_b = al.rect_to_b(e.rect()), o.rect()
+        if _inside(small_b, big_b):  # B measured a part of it, or A's fill is wider than its outline
+            return _another_piece(b.page, o, big_b) or _outlined(a.page, e.rect(), o.w / al.scale, o.h / al.scale)
+        if _inside(big_b, small_b):  # A measured a part of it, or B's fill is wider than its outline
+            x0, y0 = al.to_a(small_b.x0, small_b.y0)
+            x1, y1 = al.to_a(small_b.x1, small_b.y1)
+            return _another_piece(a.page, e, fitz.Rect(x0, y0, x1, y1)) or _outlined(b.page, o.rect(), e.w * al.scale, e.h * al.scale)
+        return False
+
     out: list[Difference] = []
     claimed: set[int] = set()
     for e in mine:
         px, py = al.to_b(e.cx, e.cy)
         if not page_b.contains(fitz.Point(px, py)):
             continue
+        inside = covered(px, py)
         near = sorted(theirs, key=lambda o: math.hypot(o.cx - px, o.cy - py))
         here = [o for o in near if math.hypot(o.cx - px, o.cy - py) <= tol_b and id(o) not in claimed]
         if here:
@@ -631,8 +669,8 @@ def differences(al: Alignment, a: SheetGeometry, b: SheetGeometry) -> list[Diffe
             claimed.add(id(o))
             # A box at the very edge of an enlarged detail may be cut off by
             # the detail's window, which is not a size the drafter chose.
-            if not same_size(e, o, al.scale) and not _at_edge(e, edge, PLACE_TOL_FT * ptft_a):
-                out.append(Difference("size", e, o))
+            if not same_size(e, o, al.scale) and not _at_edge(e, edge, PLACE_TOL_FT * ptft_a) and not split(e, o):
+                out.append(Difference("size", e, o, reported=inside))
             continue
         moved = next(
             (o for o in near if id(o) not in claimed and same_size(e, o, al.scale)
@@ -643,12 +681,25 @@ def differences(al: Alignment, a: SheetGeometry, b: SheetGeometry) -> list[Diffe
         if moved is not None:
             claimed.add(id(moved))
             out.append(Difference("moved", e, moved, math.hypot(moved.cx - px, moved.cy - py) / ptft_b))
+            continue
+        # Boxes that overlap are one column. A line crossing a fill splits it,
+        # so one sheet may measure part of it: a box inside the other is that
+        # part, not a second size.
+        mapped = al.rect_to_b(e.rect())
+        over = next((o for o in near if id(o) not in claimed and _overlaps(mapped, o.rect())), None)
+        if over is not None:
+            claimed.add(id(over))
+            if not _at_edge(e, edge, PLACE_TOL_FT * ptft_a) and not split(e, over):
+                out.append(Difference("size", e, over, reported=inside))
         else:
-            out.append(Difference("only_a", e, None))
+            out.append(Difference("only_a", e, None, reported=inside and not _drawn_at(b.page, mapped)))
     for o in theirs:
         if id(o) in claimed or _has_partner(o, mine, al, tol_b):
             continue
-        out.append(Difference("only_b", None, o))
+        x0, y0 = al.to_a(o.x0, o.y0)
+        x1, y1 = al.to_a(o.x1, o.y1)
+        shown = covered(o.cx, o.cy) and not _drawn_at(a.page, fitz.Rect(x0, y0, x1, y1))
+        out.append(Difference("only_b", None, o, reported=shown))
     return out
 
 
@@ -671,6 +722,113 @@ def _at_edge(e: Element, box: fitz.Rect | None, tol: float) -> bool:
     return (
         e.x0 - box.x0 <= tol or box.x1 - e.x1 <= tol or e.y0 - box.y0 <= tol or box.y1 - e.y1 <= tol
     )
+
+
+def _overlaps(a: fitz.Rect, b: fitz.Rect) -> bool:
+    return min(a.x1, b.x1) > max(a.x0, b.x0) and min(a.y1, b.y1) > max(a.y0, b.y0)
+
+
+def _inside(a: fitz.Rect, b: fitz.Rect) -> bool:
+    t = SIZE_TOL_PT
+    return a.x0 >= b.x0 - t and a.y0 >= b.y0 - t and a.x1 <= b.x1 + t and a.y1 <= b.y1 + t
+
+
+def _shapes(page: fitz.Page) -> list[tuple[tuple, tuple | None]]:
+    """Every small drawn box on the page: ((x0, y0, x1, y1), fill) in display
+    space, fill None for an OUTLINE (a stroked rectangle or closed quad)."""
+
+    def compute():
+        matrix = page.rotation_matrix
+        out = []
+        for d in page.get_drawings():
+            items = d.get("items") or []
+            r = fitz.Rect(d["rect"]) * matrix
+            if max(r.width, r.height) > 200 or not items:
+                continue
+            if d.get("type") in ("f", "fs") and d.get("fill") is not None and len(items) == 1 and items[0][0] == "re":
+                out.append((tuple(r), tuple(round(c, 2) for c in d["fill"])))
+            elif d.get("type") in ("s", "fs") and (items[0][0] in ("re", "qu") or (len(items) >= 3 and all(t[0] == "l" for t in items))):
+                out.append((tuple(r), None))
+        return out
+
+    import page_memo
+
+    return page_memo.memo("shapes@1", page, compute)
+
+
+def _another_piece(page: fitz.Page, part: Element, whole: fitz.Rect) -> bool:
+    """A fill of `part`'s colour, other than `part`, inside `whole`."""
+    for r, fill in _shapes(page):
+        q = fitz.Rect(r)
+        if fill == part.fill and not _same_rect(q, part.rect()) and _overlaps(q, whole) and _inside(q, whole):
+            return True
+    return False
+
+
+def _outlined(page: fitz.Page, whole: fitz.Rect, w: float, h: float) -> bool:
+    """An outline of size w x h drawn inside `whole`: the column's own edge,
+    where its fill also takes in a strip beside it."""
+
+    def close(u: float, v: float) -> bool:
+        return abs(u - v) <= max(SIZE_TOL_PT, SIZE_TOL * max(u, v))
+
+    for r, fill in _shapes(page):
+        q = fitz.Rect(r)
+        if fill is None and _inside(q, whole) and close(q.width, w) and close(q.height, h):
+            return True
+    return False
+
+
+def _drawn_at(page: fitz.Page, foot: fitz.Rect) -> bool:
+    """Does the page draw a column-sized box (filled in ANY colour, or only
+    outlined) over most of this footprint? Then it shows something there in
+    its own style and "does not show" would be false."""
+    side = 2 * max(foot.width, foot.height)
+    for r, _ in _shapes(page):
+        q = fitz.Rect(r)
+        if max(q.width, q.height) > side or not _overlaps(q, foot):
+            continue
+        common = (q & foot).get_area()
+        if common >= 0.5 * min(q.get_area() or common, foot.get_area()):
+            return True
+    return False
+
+
+def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Convex hull, counter-clockwise (monotone chain)."""
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list = []
+    upper: list = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _outside(hull: list[tuple[float, float]], x: float, y: float) -> float:
+    """How far (x, y) lies outside the hull; 0 inside it."""
+    if len(hull) < 3:
+        return min((math.hypot(x - u, y - v) for u, v in hull), default=math.inf)
+    if all((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]) >= 0 for a, b in zip(hull, hull[1:] + hull[:1])):
+        return 0.0
+    return min(_to_segment(x, y, a, b) for a, b in zip(hull, hull[1:] + hull[:1]))
+
+
+def _to_segment(x, y, a, b) -> float:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / ((dx * dx + dy * dy) or 1.0)))
+    return math.hypot(x - a[0] - t * dx, y - a[1] - t * dy)
 
 
 def _has_partner(o: Element, mine: list[Element], al: Alignment, tol_b: float) -> bool:
