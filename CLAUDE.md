@@ -2591,7 +2591,14 @@ are not open items; sheet numbers may carry THREE decimals (S2.106 — the old t
 made every UT Law structural sheet invisible to the index and to references, and let the wording
 guard pass an invented one); "INDEX TO DRAWINGS" is an index heading; and a line with two names
 (structural 2.3/2.4) agrees with either in the grid merge (`rfi_grid.line_aliases`), which had
-split RFI 002 into three. A template question is refreshed to the current template on re-scan.
+split RFI 002 into three. Such a line is now written with BOTH names ("3.2 = 2.3/2.4") from the moment
+a sheet pair is compared: which name a pair matched depended on fractions of a point, so the offline
+sweep filed the one dispute under a different fingerprint each run (found in one pass, "new" in the
+next, and once without A3.01). Every sheet is collected; `MAX_EVIDENCE` is applied when the finding
+is written, one piece per sheet first, alternating namings, most renamed lines first
+(`_pick_evidence`). A lone fingerprint seen on 3+ sheets is written as the merged dispute, and a
+merged dispute is fingerprinted by its two DISCIPLINES only — with the renamed lines in it, every
+review (which compares its own sheets) and the scan (all sheets) filed the same dispute as new. A template question is refreshed to the current template on re-scan.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
