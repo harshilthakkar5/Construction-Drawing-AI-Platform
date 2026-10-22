@@ -457,7 +457,7 @@ function ProjectUsageTable({ projects }: { projects: DashboardDto["projects"] })
                 <TableCell className="text-right tabular-nums">
                   {p.pages.toLocaleString()}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
+                <TableCell className="text-right font-mono">
                   {p.tokens.totalTokens.toLocaleString()}
                 </TableCell>
                 <TableCell className="pr-4 text-right tabular-nums">

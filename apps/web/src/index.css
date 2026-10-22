@@ -60,8 +60,9 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* Self-hosted (@fontsource in main.tsx), so LAN and offline installs need no font CDN. */
-  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 :root {
@@ -189,6 +190,22 @@
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+  /* Section titles, card headers and modal titles. */
+  h1,
+  h2,
+  h3,
+  h4,
+  [data-slot="card-title"],
+  [data-slot="dialog-title"],
+  [data-slot="sheet-title"],
+  [data-slot="alert-dialog-title"] {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+  }
+  /* Sheet callouts and tags (S2.01, A1.04). */
+  .sheet-reference {
+    font-family: var(--font-mono);
   }
 }
 

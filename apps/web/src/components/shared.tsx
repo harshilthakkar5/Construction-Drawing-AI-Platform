@@ -271,7 +271,7 @@ export function SheetLink({
       onClick={onOpen}
       disabled={page === null}
       title={title ?? (page === null ? "This sheet is no longer in the project" : `Open page ${page}`)}
-      className="border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary focus-visible:ring-ring/50 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 align-middle font-mono text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-60"
+      className="border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary focus-visible:ring-ring/50 sheet-reference inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 align-middle text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-60"
     >
       {sheet ?? `page ${page}`}
       {sheet && page !== null && <span className="text-muted-foreground font-normal">p.{page}</span>}
