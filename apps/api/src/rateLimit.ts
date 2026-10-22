@@ -91,7 +91,7 @@ export const generalLimiter = limiter(
   "RATE_LIMIT_GENERAL_PER_MINUTE",
   60_000,
   600,
-  "too many requests — slow down",
+  "too many requests, slow down",
 );
 
 /**
@@ -108,7 +108,7 @@ export const floodLimiter = limiter(
   "RATE_LIMIT_FLOOD_PER_MINUTE",
   60_000,
   1200,
-  "too many requests — slow down",
+  "too many requests, slow down",
   { keyGenerator: ipKey },
 );
 
@@ -122,7 +122,7 @@ export const authLimiter = limiter(
   "RATE_LIMIT_AUTH_PER_15MIN",
   15 * 60_000,
   20,
-  "too many authentication attempts — try again later",
+  "too many sign-in attempts, try again later",
   { skipSuccessfulRequests: true, keyGenerator: ipKey },
 );
 
@@ -136,7 +136,7 @@ export const chatLimiter = limiter(
   "RATE_LIMIT_CHAT_PER_MINUTE",
   60_000,
   20,
-  "too many questions in a short time — wait a moment before asking again",
+  "too many questions, wait a moment and ask again",
 );
 
 /**
@@ -149,5 +149,5 @@ export const summaryLimiter = limiter(
   "RATE_LIMIT_SUMMARY_PER_HOUR",
   60 * 60_000,
   30,
-  "too many summary runs in an hour — wait before starting another",
+  "too many summary runs this hour, wait before starting another",
 );

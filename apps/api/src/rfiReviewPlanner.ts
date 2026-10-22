@@ -335,7 +335,7 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
     }
     if (pageIds.length > MAX_ELEMENT_PAGES) {
       throw new PlanError(
-        `"${target.value}" is marked on ${pageIds.length} sheets — say which level or area you mean`,
+        `"${target.value}" is marked on ${pageIds.length} sheets. Say which level or area you mean.`,
         409,
         { choices: choicesFor(pageIds, byId) },
       );
@@ -370,11 +370,11 @@ async function resolveTarget(target: RfiReviewTarget, all: PageRow[], excluded: 
         knownSheets: sheets.slice(0, 40),
         hint: sheets.length
           ? "Use a sheet number exactly as it is printed in the title block."
-          : "No sheet numbers have been read yet — mark the title-block region first.",
+          : "No sheet numbers have been read yet. Mark the title-block region first.",
       });
     }
     const kept = found.filter((p) => !excluded.has(p.id));
-    if (!kept.length) throw new PlanError(`every page of "${value}" was removed — keep at least one`, 400);
+    if (!kept.length) throw new PlanError(`every page of "${value}" was removed. Keep at least one.`, 400);
     if (found.length > 1) ambiguous.push(value);
     sides.push({ label: value, pages: kept.map(asPage) });
   }

@@ -131,8 +131,7 @@ rfisRouter.get("/export.xlsx", async (req, res) => {
   });
   if (rows.length > EXPORT_MAX) {
     return void res.status(413).json({
-      error: `this project has more than ${EXPORT_MAX} RFIs, which is past what this endpoint ` +
-        `builds in one request — filter the log or raise EXPORT_MAX and move it to a queued job`,
+      error: `this project has more than ${EXPORT_MAX} RFIs, too many to export at once. Filter the log first.`,
     });
   }
 
@@ -283,8 +282,7 @@ rfisRouter.patch("/:rfiId", async (req, res) => {
   const rewritesQuestion = body.subject !== undefined || body.question !== undefined;
   if (rewritesQuestion && !canEditQuestion(existing.status as RfiStatus)) {
     return void res.status(409).json({
-      error: `the question of an RFI that is ${existing.status} cannot be rewritten — ` +
-        "it would no longer match the answer on record",
+      error: `the question of an RFI that is ${existing.status} cannot be edited: it would no longer match the recorded answer`,
     });
   }
 
@@ -317,7 +315,7 @@ rfisRouter.post("/:rfiId/status", async (req, res) => {
 
   if (status === "answered") {
     return void res.status(400).json({
-      error: "answering an RFI records an answer — use POST /rfis/:rfiId/answer",
+      error: "use POST /rfis/:rfiId/answer to answer an RFI",
     });
   }
   if (!canTransition(from, status)) {

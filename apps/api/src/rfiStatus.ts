@@ -49,8 +49,7 @@ export function refusalReason(from: RfiStatus, to: RfiStatus): string | null {
   if (canTransition(from, to)) return null;
   if (from === to) return `this RFI is already ${from}`;
   if (from === "closed") {
-    return "this RFI is closed — a closed RFI is a finished exchange others have " +
-      "already quoted, so revisit it by raising a new RFI that references this number";
+    return "this RFI is closed. To revisit it, raise a new RFI that references this number";
   }
   if (from === "voided") return "this RFI was voided; its number stays reserved and is never reused";
   const allowed = TRANSITIONS[from];

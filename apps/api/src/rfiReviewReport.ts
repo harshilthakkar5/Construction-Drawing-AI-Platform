@@ -110,7 +110,7 @@ const targetText = (t: RfiReviewRunDto["target"]): string => {
 };
 
 const STATE: Record<string, string> = {
-  pending: "Draft candidate — not reviewed",
+  pending: "Draft candidate, not reviewed",
   accepted: "Accepted into the RFI log",
   dismissed: "Dismissed by a person",
 };
@@ -134,11 +134,11 @@ export function buildReviewReport(
       : [
           "Only candidates a person accepted into the RFI log are listed. Each carries the RFI number it was given; the log, not this report, is the record of what was issued.",
         ];
-  if (run.status === "partial") disclaimer.push("This review is PARTIAL: some evidence or checks were not completed — see Coverage.");
+  if (run.status === "partial") disclaimer.push("This review is PARTIAL: some evidence or checks were not completed. See Coverage.");
 
   return {
     kind,
-    title: kind === "draft" ? "RFI review — draft candidates" : "RFI review — accepted RFIs",
+    title: kind === "draft" ? "RFI review: draft candidates" : "RFI review: accepted RFIs",
     generatedAt: now.toISOString(),
     disclaimer,
     run: {
@@ -176,7 +176,7 @@ export function buildReviewReport(
       omittedPages: run.coverage.omittedPages,
       unresolvedReferences: run.coverage.unresolvedReferences,
       evidenceGaps: (run.coverage.evidenceGaps ?? []).map((g) =>
-        `${g.checkId ? `${g.checkId} — a ${g.need} sheet` : `the ${g.need}`}: ${g.reason}`,
+        `${g.checkId ? `${g.checkId} (${g.need} sheet)` : `the ${g.need}`}: ${g.reason}`,
       ),
       omissions: run.coverage.omissions,
       searchLog: run.coverage.searchLog,
@@ -327,7 +327,7 @@ export async function renderReviewReportPdf(
 
   w.heading(`The ${RFI_REVIEW_CHECKS.length} review questions`);
   for (const check of report.checks) {
-    w.text(`${check.id} (${check.section} Q${check.number}) — ${check.outcome.replace(/_/g, " ")}${check.candidates ? `, ${check.candidates} candidate(s)` : ""}`, 9.5, w.bold);
+    w.text(`${check.id} (${check.section} Q${check.number}): ${check.outcome.replace(/_/g, " ")}${check.candidates ? `, ${check.candidates} candidate(s)` : ""}`, 9.5, w.bold);
     w.text(check.originalQuestion, 8.5, w.font, 12, rgb(0.35, 0.35, 0.35));
     if (check.reason) w.text(check.reason, 8.5, w.font, 12);
     for (const gap of check.gaps) w.text(`Gap: ${gap}`, 8.5, w.font, 12);
@@ -345,7 +345,7 @@ export async function renderReviewReportPdf(
     if (cand.whyFlagged) w.text(`Why flagged: ${cand.whyFlagged}`, 9, w.font, 0, rgb(0.25, 0.25, 0.25));
     for (const ev of cand.evidence) {
       const where = `${ev.sheetNumber ?? "page"}${ev.pageNumber !== null ? ` p.${ev.pageNumber}` : ""}`;
-      w.text(`[${ev.evidenceId ?? "?"}] ${where}: ${ev.quote}${ev.observation ? ` — ${ev.observation}` : ""}`, 8.5, w.font, 12);
+      w.text(`[${ev.evidenceId ?? "?"}] ${where}: ${ev.quote}${ev.observation ? ` (${ev.observation})` : ""}`, 8.5, w.font, 12);
       if (ev.imageKey && embedded < MAX_REPORT_IMAGES) {
         const bytes = await imageBytes(ev.imageKey);
         if (bytes) {
@@ -366,8 +366,8 @@ export async function renderReviewReportPdf(
     }
   }
 
-  w.heading("Coverage — what was and was not looked at");
-  for (const p of report.scope.pages) w.text(`${p.sheetNumber ?? "?"} (page ${p.pageNumber}) — ${p.role}${p.rendered ? ", rendered" : ", text only"}: ${p.reason}`, 8.5);
+  w.heading("Coverage");
+  for (const p of report.scope.pages) w.text(`${p.sheetNumber ?? "?"} (page ${p.pageNumber}), ${p.role}${p.rendered ? ", rendered" : ", text only"}: ${p.reason}`, 8.5);
   if (report.scope.omittedPages.length) {
     w.text("Left out:", 9.5, w.bold);
     for (const p of report.scope.omittedPages) w.text(`${p.sheetNumber ?? "?"}: ${p.reason}`, 8.5, w.font, 12);

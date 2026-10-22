@@ -110,7 +110,7 @@ export function selectRfiChecks(
       reason = why ?? "every original question runs; discovery reports if this one does not apply";
     } else if (mode === "custom") {
       selected = custom.includes(check.id);
-      reason = selected ? "chosen by you" : "not chosen — pick it in Custom or run All original questions";
+      reason = selected ? "chosen by you" : "not chosen. Pick it in Custom or run All original questions";
     } else if (why) {
       selected = true;
       reason = why;
@@ -119,7 +119,7 @@ export function selectRfiChecks(
       reason = "the target does not say which elements it shows, so every objective runs";
     } else {
       selected = false;
-      reason = "nothing in the target points at it — choose it in Custom or run All original questions";
+      reason = "nothing in the target points at it. Pick it in Custom or run All original questions";
     }
     plan[check.id] = { selected, applicability, reason };
     if (selected) {
@@ -425,7 +425,7 @@ export function libraryQueries(library: ReviewScope["library"]): { label: string
     byCategory.set(key, [...(byCategory.get(key) ?? []), q.text]);
   }
   return [...byCategory].map(([category, texts]) => ({
-    label: `${library.element.name} — ${category}`,
+    label: `${library.element.name}: ${category}`,
     query: [library.element.name, library.element.variants, ...texts].filter(Boolean).join(" ").slice(0, 600),
   }));
 }
@@ -560,7 +560,7 @@ export function rankScope(input: RankInput): ReviewScope {
     const visual = role !== "related" ? true : visualLeft > 0;
     if (visual) visualLeft--;
     const crops = visual ? cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage) : [];
-    if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only — beyond the ${caps.visualPages} rendered pages of this depth` });
+    if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only, beyond the ${caps.visualPages} rendered pages of this depth` });
     return { ...page, role, reason, visual, crops };
   });
 
@@ -695,7 +695,7 @@ export function estimateReview(scope: ReviewScope, settings: EstimateSettings, c
     costHighUsd: settings.priced ? cost(Math.round(inputTokens * 1.2), outputTokens + thinkingPerCall * calls) : null,
     model: settings.model,
     provider: settings.provider,
-    pricingVersion: settings.priced ? settings.pricingVersion : "no published price for this model — cost unknown",
+    pricingVersion: settings.priced ? settings.pricingVersion : "no published price for this model, cost unknown",
     planningCostUsd: settings.planning.costUsd,
     planningTokens: settings.planning.tokens,
     assumptions,
@@ -773,8 +773,8 @@ export function comparability(
   if (!sameTarget) caveats.push("the two runs reviewed different targets");
   if (!sameChecks) caveats.push("the two runs ran different checks");
   if (!sameRevisions) caveats.push("the drawings changed between the two runs");
-  if (!sameCoverage) caveats.push("one run was partial — it looked at less");
-  if (!caveats.length) caveats.push("same target, checks and drawings — the difference is the model and settings, not the inputs. It says nothing about which found more");
+  if (!sameCoverage) caveats.push("one run was partial, so it looked at less");
+  if (!caveats.length) caveats.push("same target, checks and drawings: the difference is the model and settings. It says nothing about which found more");
   return { sameTarget, sameChecks, sameRevisions, sameCoverage, caveats };
 }
 

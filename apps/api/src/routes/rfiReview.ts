@@ -251,7 +251,7 @@ export async function startReview(projectId: string, runId: string, key: string)
   if (stale) {
     if ((await runFor(projectId, runId)).idempotencyKey === key) return refuse(409, {});
     await prisma.rfiReviewRun.updateMany({ where: { id: run.id, status: "planned" }, data: { status: "stale", error: stale } });
-    return { status: 409, body: { error: `${stale} — plan the review again`, replan: true } };
+    return { status: 409, body: { error: `${stale}. Plan the review again.`, replan: true } };
   }
 
   // The same approved scope twice at once would pay twice for one answer.

@@ -56,7 +56,7 @@ export function normalizeScope(
   if (a === "all" && b !== "all") [a, b] = [b, a];
   for (const s of [a, b]) {
     if (s !== "all" && !((sheetsBy[s] ?? 0) > 0)) {
-      return { error: `this project has no ${sideLabel(s)} sheets to compare — choose another discipline` };
+      return { error: `this project has no ${sideLabel(s)} sheets to compare. Choose another discipline.` };
     }
   }
   const asked = new Set(input.checkIds);

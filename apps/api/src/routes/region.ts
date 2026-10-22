@@ -71,7 +71,7 @@ regionRouter.put("/", async (req, res) => {
   if (!isPlausibleBox(body)) {
     return void res
       .status(400)
-      .json({ error: "region is too small to hold a title block — draw a larger box" });
+      .json({ error: "this box is too small for a title block. Draw a larger one." });
   }
   await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
 
@@ -172,7 +172,7 @@ regionRouter.get("/preview/:jobId", async (req, res) => {
 
   const job = await Job.fromId(scrapeRegionQueue, jobId);
   if (!job) {
-    return void res.status(404).json({ error: "preview not found — it may have expired" });
+    return void res.status(404).json({ error: "preview not found. It may have expired." });
   }
   // A job id is guessable; make sure it belongs to the project in the path so
   // one project cannot read another's scraped sheet numbers.
