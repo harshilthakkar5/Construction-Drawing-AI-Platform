@@ -515,6 +515,41 @@ rfiGeneratedRouter.post("/:candidateId/accept", async (req, res) => {
   }
 });
 
+/**
+ * Undo an accept: the finding goes back to "Needs your review". Accept
+ * allocated a number, and a number may already have been quoted, so it is
+ * never freed or reused: the RFI is VOIDED (it stays in the log, with this in
+ * its history) and the finding is unlinked from it. Only while nobody has
+ * worked on it: an RFI made from a finding, draft or open, with no answer.
+ * One transaction with conditional updates, like accept, so a double click
+ * cannot void the RFI and leave the finding accepted.
+ */
+rfiGeneratedRouter.post("/from-rfi/:rfiId/return", async (req, res) => {
+  const { projectId, rfiId } = projectParam.extend({ rfiId: z.string().uuid() }).parse(req.params);
+  const actor = currentUser(req);
+  const candidate = await prisma.rfiCandidate.findFirst({ where: { projectId, rfiId, status: "accepted" } });
+  if (!candidate) {
+    return void res.status(409).json({ error: "only an RFI accepted from a finding can go back to review" });
+  }
+  const done = await prisma.$transaction(async (tx) => {
+    const voided = await tx.rfi.updateMany({
+      where: { id: rfiId, projectId, status: { in: ["draft", "open"] }, answer: null },
+      data: { status: "voided" },
+    });
+    if (voided.count === 0) return false;
+    await tx.rfiCandidate.update({
+      where: { id: candidate.id },
+      data: { status: "pending", rfiId: null, decidedById: null, decidedAt: null },
+    });
+    return true;
+  });
+  if (!done) {
+    return void res.status(409).json({ error: "this RFI has been answered, closed or voided, so it stays in the log" });
+  }
+  await recordEvent(rfiId, actor.id, "returned_to_review", { candidateId: candidate.id });
+  res.json({ returned: true, candidateId: candidate.id });
+});
+
 /** Not an RFI. Remembered, so the next scan does not propose it again. */
 rfiGeneratedRouter.post("/:candidateId/dismiss", async (req, res) => {
   const { projectId, candidateId } = candidateParams.parse(req.params);

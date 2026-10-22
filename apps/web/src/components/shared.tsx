@@ -1,6 +1,8 @@
-import { Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
+import { CalendarIcon, Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
+import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMark } from "@/components/Logo";
@@ -270,5 +273,69 @@ export function FullViewButton({
       </TooltipTrigger>
       <TooltipContent side="bottom">{text}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** "YYYY-MM-DD" ⇄ a local Date, so a picked day never shifts with the time zone. */
+const toDay = (value: string): Date | undefined => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : undefined;
+};
+const fromDay = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * shadcn's date picker (Popover + Calendar). Takes and gives the same
+ * "YYYY-MM-DD" string a native date input did, "" for no date.
+ */
+export function DatePicker({
+  value,
+  onChange,
+  placeholder = "Pick a date",
+  label,
+  className,
+  size = "default",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  label?: string;
+  className?: string;
+  size?: "default" | "sm";
+}) {
+  const [open, setOpen] = useState(false);
+  const day = toDay(value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size={size}
+          aria-label={label}
+          className={cn("justify-start font-normal", !day && "text-muted-foreground", className)}
+        >
+          <CalendarIcon />
+          {day ? day.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : placeholder}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={day}
+          defaultMonth={day}
+          onSelect={(d) => {
+            onChange(d ? fromDay(d) : "");
+            setOpen(false);
+          }}
+        />
+        {day && (
+          <div className="border-t p-2">
+            <Button variant="ghost" size="sm" className="w-full" onClick={() => { onChange(""); setOpen(false); }}>
+              Clear
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

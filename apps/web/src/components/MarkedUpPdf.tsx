@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { DownloadIcon, FileSearchIcon, PencilRulerIcon, RotateCcwIcon } from "lucide-react";
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import type { RfiPackageDto, RfiPackageItemRef } from "@cdip/shared";
 import { api } from "@/api";
 import { Spinner } from "@/components/shared";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 /**
  * "Marked-up PDF": the RFI the way the team sends it — a cover form, then
@@ -84,28 +84,27 @@ export function MarkedUpPdfButton({
 }
 
 /**
- * The package in the browser's own PDF viewer, with Download beside Close —
- * the same full-screen frame as the title-block region dialog. Portalled to
- * <body> for the reason RegionSelector gives: an ancestor with a backdrop
- * filter would otherwise clip a `fixed` overlay to its own box.
+ * The package in the browser's own PDF viewer, with Download beside Close.
+ * A Radix Dialog, not a hand-made overlay: it opens from inside other dialogs
+ * (a Create RFI's findings, an RFI's details), and Radix stacks a nested
+ * dialog as a child layer. The old overlay was portalled outside the parent
+ * dialog, so a click, a scroll or the iframe taking focus counted as "outside"
+ * and closed the parent, taking the preview with it.
  */
 function MarkedUpPdfPreview({ pkg, onClose }: { pkg: RfiPackageDto; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Marked-up RFI preview">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-card shadow-xl">
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-2rem)]"
+      >
         <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <h2 className="font-semibold">Marked-up RFI</h2>
-            <p className="truncate text-xs text-muted-foreground">
+            <DialogTitle>Marked-up RFI</DialogTitle>
+            <DialogDescription className="truncate text-xs">
               {pkg.pages ? `${pkg.pages} pages · ` : ""}cover form, then the drawing sheets with clouds and callouts.
               The marks are PDF annotations you can edit in Bluebeam after downloading.
-            </p>
+            </DialogDescription>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>
@@ -133,8 +132,7 @@ function MarkedUpPdfPreview({ pkg, onClose }: { pkg: RfiPackageDto; onClose: () 
         ) : (
           <p className="p-6 text-sm text-muted-foreground">The preview is not available; download the PDF instead.</p>
         )}
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, Maximize2Icon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_SET_MAX_ELEMENTS,
@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 /** elementId → the question ids chosen under it. */
@@ -124,6 +125,7 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
   });
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<{ id: string; errors: RfiSetDetailDto["planErrors"] } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <section className="flex flex-col gap-3">
@@ -152,30 +154,51 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
             const cost = usd(s.costLowUsd, s.costHighUsd);
             return (
               <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpen({ id: s.id, errors: [] })}
-                  className="bg-card hover:bg-accent/50 flex w-full flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors"
+                <Collapsible
+                  open={expanded === s.id}
+                  onOpenChange={(o) => setExpanded(o ? s.id : null)}
+                  className="bg-card rounded-lg border"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">{s.name}</span>
-                    <Badge variant={status.tone}>{status.label}</Badge>
+                  <div className="flex items-start gap-2 p-3">
+                    <CollapsibleTrigger asChild>
+                      <button type="button" className="flex min-w-0 flex-1 flex-col gap-1.5 text-left">
+                        <div className="flex items-center gap-2">
+                          <ChevronDownIcon
+                            className={cn("text-muted-foreground size-4 shrink-0 transition-transform", expanded === s.id && "rotate-180")}
+                          />
+                          <span className="truncate text-sm font-semibold">{s.name}</span>
+                          <Badge variant={status.tone} className="ml-auto shrink-0">{status.label}</Badge>
+                        </div>
+                        <span className="text-muted-foreground pl-6 text-xs">
+                          {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
+                          {cost ? ` · est. ${cost}` : ""}
+                        </span>
+                        <span className="pl-6 text-xs">
+                          {s.findings ? (
+                            <>
+                              <strong>{s.findings}</strong> finding{s.findings === 1 ? "" : "s"}
+                              {s.pending ? `, ${s.pending} to review` : ""}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">No findings yet</span>
+                          )}
+                        </span>
+                      </button>
+                    </CollapsibleTrigger>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Open ${s.name} in full view`}
+                      title="Full view: elements, price, start and findings"
+                      onClick={() => setOpen({ id: s.id, errors: [] })}
+                    >
+                      <Maximize2Icon />
+                    </Button>
                   </div>
-                  <span className="text-muted-foreground text-xs">
-                    {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
-                    {cost ? ` · est. ${cost}` : ""}
-                  </span>
-                  <span className="text-xs">
-                    {s.findings ? (
-                      <>
-                        <strong>{s.findings}</strong> finding{s.findings === 1 ? "" : "s"}
-                        {s.pending ? `, ${s.pending} to review` : ""}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">No findings yet</span>
-                    )}
-                  </span>
-                </button>
+                  <CollapsibleContent className="border-t p-3">
+                    <SetFindings projectId={projectId} setId={s.id} onFinished={onFinished} />
+                  </CollapsibleContent>
+                </Collapsible>
               </li>
             );
           })}
@@ -692,15 +715,6 @@ function RfiSetDialog({
       onClose();
     },
   });
-  const decided = () => {
-    void queryClient.invalidateQueries({ queryKey: ["rfi-set", projectId, setId] });
-    void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
-    refresh();
-    onFinished();
-  };
-  const accept = useMutation({ mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id), onSuccess: decided });
-  const dismiss = useMutation({ mutationFn: (id: string) => api.dismissRfiCandidate(projectId, id), onSuccess: decided });
-
   // Reviews finishing refresh the project's lists too.
   const active = detail.data?.reviews.filter((r) => ACTIVE.includes(r.status)).length ?? 0;
   const wasActive = useRef(active);
@@ -719,7 +733,6 @@ function RfiSetDialog({
     planned.every((r) => r.estimate?.costHighUsd != null) ? planned.reduce((n, r) => n + (r.estimate!.costHighUsd ?? 0), 0) : null,
   );
   const pending = d?.candidates.filter((c) => c.status === "pending") ?? [];
-  const decidedCount = (d?.candidates.length ?? 0) - pending.length;
   const errorOf = (elementId: string) => errors.find((e) => e.elementId === elementId)?.error;
   const busy = plan.isPending || start.isPending || remove.isPending;
 
@@ -797,39 +810,72 @@ function RfiSetDialog({
                 <h4 className="text-sm font-semibold">
                   Findings {pending.length > 0 && <span className="text-muted-foreground font-normal">({pending.length} to review)</span>}
                 </h4>
-                {pending.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">
-                    {active > 0
-                      ? "Reviews are running. Findings appear here as each one finishes."
-                      : d.candidates.length
-                        ? "Every finding has been decided."
-                        : "No findings yet."}
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-2">
-                    {pending.map((c) => (
-                      <CandidateCard
-                        key={c.id}
-                        projectId={projectId}
-                        candidate={c}
-                        busy={accept.isPending || dismiss.isPending}
-                        onAccept={() => accept.mutate(c.id)}
-                        onDismiss={() => dismiss.mutate(c.id)}
-                      />
-                    ))}
-                  </ul>
-                )}
-                {decidedCount > 0 && (
-                  <p className="text-muted-foreground text-xs">
-                    {decidedCount} already decided. Accepted ones are in the RFI log.
-                  </p>
-                )}
-                {(accept.error || dismiss.error) && <Notice tone="error">{((accept.error ?? dismiss.error) as Error).message}</Notice>}
+                <SetFindings projectId={projectId} setId={setId} onFinished={onFinished} />
               </section>
             </>
           )}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * One Create RFI's findings waiting for a decision, with Accept and Dismiss.
+ * Shown in the card's slider and in its full view; both read the same cached
+ * set, so a decision in one shows in the other.
+ */
+function SetFindings({ projectId, setId, onFinished }: { projectId: string; setId: string; onFinished: () => void }) {
+  const queryClient = useQueryClient();
+  const detail = useQuery({
+    queryKey: ["rfi-set", projectId, setId],
+    queryFn: () => api.getRfiSet(projectId, setId),
+    refetchInterval: (q) => (q.state.data?.reviews.some((r) => ACTIVE.includes(r.status)) ? 3000 : false),
+  });
+  const decided = () => {
+    void queryClient.invalidateQueries({ queryKey: ["rfi-set", projectId, setId] });
+    void queryClient.invalidateQueries({ queryKey: ["rfi-sets", projectId] });
+    void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+    onFinished();
+  };
+  const accept = useMutation({ mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id), onSuccess: decided });
+  const dismiss = useMutation({ mutationFn: (id: string) => api.dismissRfiCandidate(projectId, id), onSuccess: decided });
+
+  const d = detail.data;
+  if (!d) return detail.error ? <Notice tone="error">{(detail.error as Error).message}</Notice> : <Spinner />;
+  const pending = d.candidates.filter((c) => c.status === "pending");
+  const decidedCount = d.candidates.length - pending.length;
+  const active = d.reviews.some((r) => ACTIVE.includes(r.status));
+  return (
+    <div className="flex flex-col gap-2">
+      {pending.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {active
+            ? "Reviews are running. Findings appear here as each one finishes."
+            : d.candidates.length
+              ? "Every finding has been decided."
+              : d.reviews.some((r) => r.status === "planned")
+                ? "Not started yet. Open the full view to see the price and start it."
+                : "No findings yet."}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {pending.map((c) => (
+            <CandidateCard
+              key={c.id}
+              projectId={projectId}
+              candidate={c}
+              busy={accept.isPending || dismiss.isPending}
+              onAccept={() => accept.mutate(c.id)}
+              onDismiss={() => dismiss.mutate(c.id)}
+            />
+          ))}
+        </ul>
+      )}
+      {decidedCount > 0 && (
+        <p className="text-muted-foreground text-xs">{decidedCount} already decided. Accepted ones are in the RFI log.</p>
+      )}
+      {(accept.error || dismiss.error) && <Notice tone="error">{((accept.error ?? dismiss.error) as Error).message}</Notice>}
+    </div>
   );
 }

@@ -2967,6 +2967,15 @@ cancels a user's earlier unstarted plans when it is NOT planning for a set, or p
 RFI would cancel 11 of its own plans. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
+A set's findings are listed ONLY under that set: each card opens as a slider (`SetFindings`, the same
+cached `rfi-set` query the full-view popup reads) and the RFIs tab's "Needs your review" lists only
+findings sent from the chat (`origin = chat`). Its "Accept all high" therefore accepts the visible ones
+one by one, never the server's project-wide accept-all, which would take every set's hidden findings.
+An RFI accepted by mistake goes back with "Back to review" (`POST /rfis/generated/from-rfi/:rfiId/return`):
+only an RFI made from a finding, draft or open, unanswered; the RFI is VOIDED (its number is never
+freed, it may already be quoted) and the finding is pending again, in one transaction.
+The marked-up PDF preview is a Radix Dialog: it opens from inside other dialogs, and the old overlay,
+portalled outside them, made a click or scroll in the PDF close the parent dialog and itself with it.
 
 ## Full AI scan — code pairs and lines up, the model only compares
 
