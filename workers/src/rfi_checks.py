@@ -591,10 +591,18 @@ def _writes_dotted(family: str, text: str) -> bool:
 # heading; its columns may spread either side of a centred title.
 SCHEDULE_BODY_BELOW_PT = 700.0
 SCHEDULE_BODY_SIDE_PT = 400.0
+# ...but only from a heading block that IS a heading: a title line or two. A
+# chunk can be a whole cluster of a sheet (Leland S0.12: 2,724 x 649pt holding
+# the KICKER BRACE ANGLE SCHEDULE, which lists lengths and no marks), and
+# "under" that is half the sheet — its notes' ASTM A325 and an embed plate
+# table's PLATE "A1" became the schedule's marks, and A8 "missing" from it.
+SCHEDULE_HEADING_MAX_PT = (2 * SCHEDULE_BODY_SIDE_PT, 120.0)
 
 
 def _under_heading(heading: dict | None, body: dict | None) -> bool:
     if not heading or not body:
+        return False
+    if heading["width"] > SCHEDULE_HEADING_MAX_PT[0] or heading["height"] > SCHEDULE_HEADING_MAX_PT[1]:
         return False
     hx0, hy0 = heading["x"], heading["y"]
     hx1, hy1 = hx0 + heading["width"], hy0 + heading["height"]

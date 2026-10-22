@@ -295,7 +295,8 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
     notes: list[str] = []
     ratio_text = "at the same scale" if not alignments or abs(alignments[0].scale - 1) < 1e-6 else "enlarged"
     for al in alignments:
-        diffs = pm.differences(al, a.geometry, b.geometry)
+        every = pm.differences(al, a.geometry, b.geometry)
+        diffs = [d for d in every if d.reported]
         matched = len(al.inliers)
         detail = a.details.get(al.detail)
         where = f"{a.label} {detail}" if detail else a.label
@@ -303,13 +304,13 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
             f"Column comparison: {where} laid over {b.label} ({ratio_text}, scale ratio "
             f"{al.scale:g}) — {matched} columns line up, {len(diffs)} differ."
         )
-        if not diffs:
-            continue
-        if len(diffs) > MAX_DIFF_SHARE * matched:
+        if len(every) > MAX_DIFF_SHARE * matched:
             notes.append(
-                f"Column comparison: {where} over {b.label} was set aside — {len(diffs)} differences "
+                f"Column comparison: {where} over {b.label} was set aside — {len(every)} differences "
                 f"against {matched} matching columns means the two probably do not show the same area."
             )
+            continue
+        if not diffs:
             continue
         if kinds is not None:
             diffs = [d for d in diffs if d.kind in kinds]
@@ -322,6 +323,11 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
             for sheet, rect, quote in spots:
                 if len(evidence) < MAX_EVIDENCE:
                     evidence.append(_evidence(sheet, rect, quote))
+        # Two columns described alike (same size, same nearest grid) are one line.
+        counts = {}
+        for line in lines:
+            counts[line] = counts.get(line, 0) + 1
+        lines = [line if n == 1 else f"{line} (at {n} places)" for line, n in counts.items()]
         shown = "; ".join(lines[:MAX_LISTED])
         if len(lines) > MAX_LISTED:
             shown += f"; and {len(lines) - MAX_LISTED} more"
@@ -330,7 +336,7 @@ def column_mismatches(a: Sheet, b: Sheet, alignments: list[pm.Alignment],
         question = (
             f"{a.label} and {b.label} show the same area"
             + (" at the same scale" if same_scale else f" ({a.label} enlarged)")
-            + f", and {matched} columns line up, but {len(diffs)} do not: {shown}. "
+            + f", and {matched} columns line up, but {len(diffs)} {'does' if len(diffs) == 1 else 'do'} not: {shown}. "
             "Please confirm the correct column locations and sizes, and which drawing will be revised."
         )
         confidence = "high" if matched >= 4 and len(diffs) <= matched // 2 else "medium"

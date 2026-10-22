@@ -2488,7 +2488,10 @@ false one is a question someone has to answer:
     rejected SR-25 "missing from the level schedule" and S8 "missing from the door schedule".
     A heading's ROWS may be separate text blocks: rows printed under it (`_under_heading`, 700pt
     down, 400pt either side) count with it — JETRIGHT's S1.02 prints "FOOTING SCHEDULE" 79pt above
-    its F5.0 … F11.0B block, and the check reported "no schedule" on a set with one. A dot BETWEEN
+    its F5.0 … F11.0B block, and the check reported "no schedule" on a set with one. Only a COMPACT
+    heading block gathers rows (`SCHEDULE_HEADING_MAX_PT`): Leland S0.12's KICKER BRACE ANGLE
+    SCHEDULE sits in a 2,724 x 649pt chunk, "under" it was half the sheet, and an embed plate's
+    PLATE "A1" and a note's ASTM A325 made A8 "missing" from a schedule that lists no marks. A dot BETWEEN
     digits (F6.0) is matched only when the family's schedule writes its own marks that way
     (`_writes_dotted`), and then a plain F10 is not F1.0; a dot after the LETTERS (grid F.7) never
     is. Opening those schedules exposed three more false families, each now a rule: a schedule
@@ -2753,6 +2756,17 @@ Two same-scale sheets of ONE discipline are never overlaid either: on the full U
 (Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
 plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
 disciplines; an enlarged plan over its overall plan is unaffected.
+`plan_match.differences` reports a difference only where it can be true, and each rule is a false
+finding from the offline sweep of every library element (Leland S2.30-A/B and A2.30-A/B over
+S2.20/A2.20): inside the area the matched columns span plus one typical spacing (`COVER_BAYS`; a
+detail's ink took in another area whose columns the enlarged plan does not draw, 45-60 ft from any
+match); never "does not show" where the other sheet draws a column-sized box in ANY style, filled or
+only outlined (`_drawn_at`); boxes that overlap are one column, and a box inside the other is not a
+resize when the rest is another piece of its fill (a line cutting a pier's fill in two) or the bigger
+fill holds an outline of the other's size (a fill taking in a strip beside the column, `_outlined`).
+"Moved" keeps its own evidence and is not area-limited. Every disagreement is still returned
+(`reported=False`) and counted for `MAX_DIFF_SHARE` — filtering them first let A3.01 over A1.01,
+27 disagreements on 13 matches, through as a finding. Identical lines merge ("(at 2 places)").
 
 Each question also says which sheet KINDS besides plans carry its answer (`views` in the catalogue:
 F04 a schedule, FL04 a section, O01 an elevation). The planner forces in one the review would

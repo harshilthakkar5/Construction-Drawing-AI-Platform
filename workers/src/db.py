@@ -8,6 +8,7 @@ apps/api/src/manifest.ts: documents ordered by ("createdAt", id), pages
 
 import hashlib
 import json
+import threading
 import uuid
 from contextlib import contextmanager
 
@@ -27,9 +28,19 @@ log = logutil.get("db")
 # max_connections.
 _pool = None
 _pool_unavailable = False
+# Jobs start on several threads at once; without the lock two of them built a
+# pool each, and the one overwritten was dropped with its connections open.
+_pool_lock = threading.Lock()
 
 
 def _get_pool():
+    if _pool is not None or _pool_unavailable:
+        return _pool
+    with _pool_lock:
+        return _make_pool()
+
+
+def _make_pool():
     global _pool, _pool_unavailable
     if _pool is not None or _pool_unavailable:
         return _pool

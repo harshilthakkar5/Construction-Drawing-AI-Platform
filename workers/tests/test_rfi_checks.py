@@ -911,3 +911,23 @@ def test_a_cut_off_sheet_number_is_not_a_mark():
     pages, chunks = mark_project([("p1", "WIND LOADS ON PC4.0", ["PC40"])], schedule_ids=("PC1", "PC2", "PC3"))
     pages.append(page("p9", "PC4.01"))
     assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_rows_under_a_sheet_sized_block_are_not_its_schedule():
+    """Leland S0.12: KICKER BRACE ANGLE SCHEDULE sits in a 2,724 x 649pt block
+    and lists lengths, no marks. Blocks "under" it took in the general notes
+    (ASTM A325) and an embed plate table (PLATE "A1", "A2"), so A8 on S5.31
+    was "missing from the kicker brace angle schedule". A compact heading
+    still gathers its rows (JETRIGHT, above)."""
+    pages = [
+        Page("p12", "doc", 12, 12, "S0.12", discipline="structural"),
+        Page("p31", "doc", 31, 31, "S5.31", discipline="structural"),
+    ]
+    heading = Chunk("h", "p12", "KICKER BRACE ANGLE SCHEDULE\nMAX 'L'\n2'-0\"\nL2X2X3/16\n",
+                    {"x": 648, "y": 70, "width": 2724, "height": 649})
+    plates = Chunk("e", "p12", 'PLATE "A1"\nPLATE "A2"\nBOLTS: ASTM A325\n',
+                   {"x": 1314, "y": 700, "width": 400, "height": 200}, ("A1", "A2", "A325"))
+    plan = Chunk("plan", "p31", "A8", {"x": 10, "y": 10, "width": 50, "height": 50}, ("A8",))
+    assert unscheduled_marks(pages, [heading, plates, plan])[0] == []
+    compact = Chunk("h", "p12", "KICKER BRACE ANGLE SCHEDULE\n", {"x": 1300, "y": 600, "width": 300, "height": 12})
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, [compact, plates, plan])[0]] == ["A8"]

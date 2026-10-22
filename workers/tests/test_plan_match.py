@@ -392,3 +392,86 @@ def test_the_review_overlay_skips_different_levels_end_to_end():
     out = rfi_review.plan_overlay(scope, lambda _doc, n: doc[n - 1], columns=True, pair_windows=2, start=1)
     assert out.findings == [] and out.pairs == []
     assert any("different levels" in n for n in out.notes)
+
+
+# --- one column seen in part; columns outside what the other sheet draws -----------------
+
+
+def test_a_column_cut_in_two_by_a_line_is_one_column_not_a_resize():
+    """S2.30-B draws a pier's fill in two pieces with a line between them, so
+    its column measured 1'-6" x 1'-0" against S2.20's 1'-6" x 2'-0" and was
+    reported missing from each sheet. A resized column has slab where the
+    other piece would be, and is still reported."""
+    def sliver(page, ox, oy, ptft):
+        page.draw_rect(fitz.Rect(ox + 20 * ptft, oy + 21.5 * ptft, ox + 22 * ptft, oy + 22 * ptft), fill=(1, 1, 1), color=None)
+
+    cut = [c for c in COLUMNS if c[:2] != (20, 20)] + [(20, 20, 2, 1.3)]
+    _, _, _, (findings, _) = compare(build(cut, extra=sliver))
+    assert findings == []
+    _, _, _, (findings, _) = compare(build(cut))
+    assert "is 2'-0\" x 1'-4\" on A3.35 and 2'-0\" x 2'-0\" on A3.27" in findings[0].question
+
+
+def test_a_column_far_from_every_column_that_lined_up_is_not_missing():
+    """A detail's ink can run into another area of the building that the plan
+    draws grid lines in but no columns (S2.30-B, Area B, against S2.20's
+    Area A columns 45-60 ft from any column that lined up)."""
+    near = [(4, 2, 2, 1), (15, 2, 2, 1), (27, 2, 2, 1), (36, 2, 2, 1), (5, 13, 2, 2), (17, 12, 2, 2)]
+    far = near + [(70, 22, 2, 2)]  # ~40 ft from the nearest; columns here are ~11 ft apart
+    _, _, alignments, (findings, _) = compare(build(near, far))
+    assert len(alignments) == 1 and findings == []
+    close = near + [(27, 12, 2, 2)]
+    _, _, _, (findings, _) = compare(build(near, close))
+    assert "A3.27 shows a 2'-0\" x 2'-0\" column" in findings[0].question
+
+
+def test_two_columns_described_alike_are_one_line_of_the_question():
+    two = COLUMNS[:-1]  # the overall plan's (50, 22) is missing from the enlarged one...
+    overall = COLUMNS + [(52.5, 22, 2, 2)]  # ...and so is its twin beside it
+    _, _, _, (findings, _) = compare(build(two, overall))
+    q = findings[0].question
+    assert "do not:" in q and q.count("A3.27 shows a 2'-0\" x 2'-0\" column") == 1, q
+    assert "(at 2 places)" in q
+
+
+def test_a_column_the_other_sheet_draws_only_as_an_outline_is_not_missing():
+    """A2.20 draws one column as a stroked box with no fill; A2.30-B fills it.
+    That sheet does show a column there, in its own style."""
+    def outline(page, ox, oy, ptft):
+        page.draw_rect(fitz.Rect(ox + 36 * ptft, oy + 20 * ptft, ox + 38 * ptft, oy + 22 * ptft), color=(0, 0, 0), width=0.5)
+
+    overall_doc = build(COLUMNS + [(36, 20, 2, 2)])
+    _, _, _, (findings, _) = compare(overall_doc)
+    assert "A3.35 shows a 2'-0\" x 2'-0\" column" in findings[0].question  # nothing drawn there: reported
+    doc = build(COLUMNS + [(36, 20, 2, 2)])
+    outline(doc[0], 300, 200, OVERALL)  # the overall plan outlines it
+    _, _, _, (findings, _) = compare(doc)
+    assert findings == []
+
+
+def test_a_fill_wider_than_the_columns_own_outline_is_not_a_resize():
+    """A2.30-B fills a column and a 2" strip beside it as ONE grey rectangle and
+    outlines the column itself; its size is the outline's."""
+    def strip_and_outline(page, ox, oy, ptft):
+        page.draw_rect(fitz.Rect(ox + 50 * ptft, oy + 22 * ptft, ox + 52 * ptft, oy + 24 * ptft), color=(0, 0, 0), width=0.5)
+
+    wide = [c for c in COLUMNS if c[:2] != (50, 22)] + [(49.6, 22, 2.4, 2)]
+    _, _, _, (findings, _) = compare(build(wide, extra=strip_and_outline))
+    assert findings == []
+    _, _, _, (findings, _) = compare(build(wide))
+    assert "is 2'-5\" x 2'-0\" on A3.35 and 2'-0\" x 2'-0\" on A3.27" in findings[0].question
+    assert "but 1 does not:" in findings[0].question
+
+
+def test_differences_that_are_not_reported_still_count_against_the_alignment(monkeypatch):
+    """A3.01 over A1.01 lined 13 columns up and disagreed about 27: the two do
+    not show the same area. Leaving the far-off disagreements out of the
+    findings must not leave them out of that judgement too."""
+    near = [(4, 2, 2, 1), (15, 2, 2, 1), (27, 2, 2, 1), (36, 2, 2, 1), (5, 13, 2, 2), (17, 12, 2, 2)]
+    far = near + [(70, 22, 2, 2)]
+    a, b, alignments, _ = compare(build(near, far))
+    every = pm.differences(alignments[0], a.geometry, b.geometry)
+    assert [d.reported for d in every] == [False]
+    monkeypatch.setattr(rc, "MAX_DIFF_SHARE", 0.1)
+    _, _, _, (findings, notes) = compare(build(near, far))
+    assert findings == [] and any("set aside" in n for n in notes)

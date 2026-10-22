@@ -2133,7 +2133,7 @@ def plan_overlay(scope: dict, open_page, *, columns: bool, pair_windows: int, st
                 out.findings += found
                 out.notes += notes
             for al in alignments:
-                lined_up.append((a, b, al, plan_match.differences(al, a.geometry, b.geometry), sa, sb))
+                lined_up.append((a, b, al, [d for d in plan_match.differences(al, a.geometry, b.geometry) if d.reported], sa, sb))
     if not lined_up:
         out.notes.append(
             "Column overlay: no two rendered sheets lined up (it needs three or more columns drawn the "
