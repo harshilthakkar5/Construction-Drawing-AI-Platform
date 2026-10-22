@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
@@ -390,12 +391,11 @@ export function CheckPicker({
             {RFI_REVIEW_CHECKS.filter((c) => c.sourceSection === section).map((check) => (
               <li key={check.id}>
                 <label className="flex items-start gap-2 text-xs">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     className="mt-0.5"
                     checked={value.includes(check.id)}
-                    onChange={(e) =>
-                      onChange(e.target.checked ? [...value, check.id] : value.filter((id) => id !== check.id))
+                    onCheckedChange={(v) =>
+                      onChange(v === true ? [...value, check.id] : value.filter((id) => id !== check.id))
                     }
                   />
                   <span>

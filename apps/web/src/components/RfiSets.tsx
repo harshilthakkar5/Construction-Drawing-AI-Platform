@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /** elementId → the question ids chosen under it. */
@@ -467,8 +468,8 @@ function SearchResults({
                         {questions.map((q) => (
                           <li key={q.id}>
                             <label className="flex cursor-pointer items-start gap-2 text-sm">
-                              <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={chosen.includes(q.id)}
-                                onChange={(e) => onQuestion(element.id, q.id, e.target.checked)} />
+                              <Checkbox className="mt-0.5" checked={chosen.includes(q.id)}
+                                onCheckedChange={(v) => onQuestion(element.id, q.id, v === true)} />
                               <span>{q.text}</span>
                             </label>
                           </li>
@@ -575,12 +576,10 @@ function PackageDialog({
             return (
               <div key={e.id} className={cn("rounded-lg border", on ? "bg-card" : "bg-muted/30")}>
                 <div className="flex items-center gap-3 p-3">
-                  <input
-                    type="checkbox"
-                    className="size-4"
+                  <Checkbox
                     checked={on > 0}
                     aria-label={`Include ${e.name}`}
-                    onChange={(ev) => setFor(e.id, ev.target.checked ? allQuestions(e) : [])}
+                    onCheckedChange={(v) => setFor(e.id, v === true ? allQuestions(e) : [])}
                   />
                   <button
                     type="button"

@@ -36,7 +36,6 @@ import { Progress } from "@/components/ui/progress";
 import { RfiFullScan } from "@/components/RfiFullScan";
 import { loadScope, saveScope, ScanScopeForm, scopeLine, scopeReady, scopeToSend } from "@/components/RfiScanScope";
 import { RfiSetsSection } from "@/components/RfiSets";
-import { RfiTargetedReview } from "@/components/RfiTargetedReview";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -260,11 +259,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
     <section className="mb-4">
       {mode === "targeted" ? (
         <div className="flex flex-col gap-4">
+          {/* "Quick review: one element" (RfiTargetedReview) is hidden: Create RFI covers it. */}
           <RfiSetsSection projectId={projectId} onFinished={refreshAll} />
-          <div className="bg-muted/40 rounded-lg border p-3">
-            <p className="mb-2 text-sm font-semibold">Quick review: one element</p>
-            <RfiTargetedReview projectId={projectId} onFinished={refreshAll} />
-          </div>
         </div>
       ) : (
       <div className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3">
@@ -827,6 +823,7 @@ export function CandidateCard({
   const confidence = CONFIDENCE[candidate.confidence];
   const found = candidate.evidence.filter((e) => e.role !== "context");
   const context = candidate.evidence.filter((e) => e.role === "context");
+  const [open, setOpen] = useState(false);
 
   return (
     <li className="bg-card rounded-md border p-3">
@@ -871,28 +868,40 @@ export function CandidateCard({
         )}
       </div>
       <p className="mt-1.5 text-sm font-medium">{candidate.subject}</p>
-      <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{candidate.question}</p>
-      {candidate.corroboration && (
-        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-          <span className="text-foreground font-medium">Confirmed: </span>
-          {candidate.corroboration.note}
-        </p>
+      <p className={cn("text-muted-foreground mt-1 text-sm leading-relaxed", !open && "line-clamp-3")}>{candidate.question}</p>
+      {open && (
+        <>
+          {candidate.corroboration && (
+            <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+              <span className="text-foreground font-medium">Confirmed: </span>
+              {candidate.corroboration.note}
+            </p>
+          )}
+          {candidate.reasoning && (
+            <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+              <span className="text-foreground font-medium">Why flagged: </span>
+              {candidate.reasoning}
+            </p>
+          )}
+          <ul className="mt-2 flex flex-col gap-1">
+            {found.map((e, i) => (
+              <EvidenceLine key={`f${i}`} evidence={e} onOpen={requestJump} />
+            ))}
+            {context.map((e, i) => (
+              <EvidenceLine key={`c${i}`} evidence={e} onOpen={requestJump} context />
+            ))}
+          </ul>
+        </>
       )}
-      {candidate.reasoning && (
-        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-          <span className="text-foreground font-medium">Why flagged: </span>
-          {candidate.reasoning}
-        </p>
-      )}
-
-      <ul className="mt-2 flex flex-col gap-1">
-        {found.map((e, i) => (
-          <EvidenceLine key={`f${i}`} evidence={e} onOpen={requestJump} />
-        ))}
-        {context.map((e, i) => (
-          <EvidenceLine key={`c${i}`} evidence={e} onOpen={requestJump} context />
-        ))}
-      </ul>
+      <button
+        type="button"
+        className="text-primary mt-1.5 flex items-center gap-1 text-xs hover:underline"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? "Hide details" : `Show details (${candidate.evidence.length} ${candidate.evidence.length === 1 ? "source" : "sources"})`}
+        <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
+      </button>
 
       <div className="mt-2 flex flex-wrap gap-2">
         <Button size="sm" onClick={onAccept} disabled={busy}>

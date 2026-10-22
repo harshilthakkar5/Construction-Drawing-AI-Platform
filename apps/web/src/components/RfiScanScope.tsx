@@ -19,6 +19,7 @@ import { CheckPicker } from "@/components/RfiTargetedReview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
@@ -238,12 +239,11 @@ export function ScanScopeForm({
       </div>
 
       <label className="flex items-start gap-2">
-        <input
-          type="checkbox"
+        <Checkbox
           className="mt-0.5"
           checked={value.projectChecks}
           disabled={disabled}
-          onChange={(e) => set({ projectChecks: e.target.checked })}
+          onCheckedChange={(v) => set({ projectChecks: v === true })}
         />
         <span>
           Also run the whole-project checks

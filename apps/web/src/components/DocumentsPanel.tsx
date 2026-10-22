@@ -7,6 +7,7 @@ import { ConfirmDialog, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { STATUS_COLORS } from "@/charts/palette";
 import { uploadPdf } from "@/upload";
 
@@ -197,11 +198,10 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                         : (doc.rfiExclusionReason ?? "Kept out of RFI review input")
                     }
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={doc.includeInRfiAnalysis}
                       disabled={rfiAnalysis.isPending}
-                      onChange={(e) => rfiAnalysis.mutate({ documentId: doc.id, include: e.target.checked })}
+                      onCheckedChange={(v) => rfiAnalysis.mutate({ documentId: doc.id, include: v === true })}
                       aria-label={`Use ${doc.filename} in RFI reviews`}
                     />
                     RFI review input
