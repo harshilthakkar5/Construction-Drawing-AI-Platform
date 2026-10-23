@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { UserDto } from "@cdip/shared";
 import { api } from "@/api";
-import { LogoMark, Wordmark } from "@/components/Logo";
+import { LogoMark } from "@/components/Logo";
 import { ModeToggle } from "@/components/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -180,7 +180,10 @@ function AppSidebar({ user, onSignOut }: { user: UserDto; onSignOut: () => void 
               <div className="flex shrink-0 items-center">
                 <LogoMark className="size-8" />
               </div>
-              <Wordmark className="flex-1" />
+              <div className="grid flex-1 text-left leading-tight">
+                <span className="truncate font-semibold">ArcAligned.AI</span>
+                <span className="text-muted-foreground truncate text-xs">Drawing intelligence</span>
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

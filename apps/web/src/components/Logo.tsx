@@ -34,25 +34,17 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-/** The ArcAligned wordmark with its tagline, then ".AI" in the app's own type. Sized in em: set a font size to scale it. */
+/** The ArcAligned wordmark with its tagline. Sized in em: set a font size to scale it. */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <span className="text-primary flex items-end gap-[0.12em]">
-        <Masked src={wordmarkName} ratio={289 / 62} label="ArcAligned" className="h-[1.75em]" />
-        {/* the wordmark's own colour, cap height and spacing; its baseline sits on the letters, above the underline */}
-        <span className="mb-[0.06em] text-[1.35em] leading-[0.75] font-medium tracking-[0.06em]">.AI</span>
-      </span>
+      <Masked src={wordmarkName} ratio={289 / 62} label="ArcAligned" className="text-primary h-[1.75em]" />
       <Masked src={wordmarkTagline} ratio={287 / 26} label="services that align success" className="text-muted-foreground h-[0.66em]" />
     </span>
   );
 }
 
-export function Logo({ compact = false }: { compact?: boolean }) {
-  return (
-    <span className="flex items-center gap-2.5">
-      <LogoMark className="size-12" />
-      {!compact && <Wordmark className="text-xl" />}
-    </span>
-  );
+/** The login screen's brand: the name alone. */
+export function Logo() {
+  return <Wordmark className="text-xl" />;
 }
