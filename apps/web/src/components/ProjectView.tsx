@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   CircleHelpIcon,
-  EllipsisVerticalIcon,
   FilesIcon,
   FileTextIcon,
   LayersIcon,
@@ -39,14 +38,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/pages/DashboardPage";
@@ -54,7 +47,7 @@ import { useAppStore, type WorkTab } from "@/store";
 
 const WORK_TABS: { value: WorkTab; label: string; Icon: typeof FilesIcon }[] = [
   { value: "documents", label: "Docs", Icon: FilesIcon },
-  { value: "summary", label: "Summary & categories", Icon: LayoutGridIcon },
+  { value: "summary", label: "Summary", Icon: LayoutGridIcon },
   { value: "rfis", label: "RFIs", Icon: MessageCircleQuestionIcon },
   { value: "settings", label: "Settings", Icon: SettingsIcon },
 ];
@@ -371,26 +364,21 @@ export function ProjectView({ projectId }: { projectId: string }) {
         >
           <Card className="gap-0 py-4" data-tour="summary">
             <Tabs value={workTab} onValueChange={(tab) => setWorkTab(tab as WorkTab)}>
-              {/* Sticky: the section menu and full view stay in reach while the column scrolls. */}
+              {/* Sticky: the section tabs and full view stay in reach while the column scrolls. */}
               <div className="bg-card sticky top-0 z-10 -mt-4 flex items-center gap-2 rounded-t-xl px-4 pt-4 pb-2">
-                {/* The sections live behind a three-dots menu; the open one is named beside it. */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-sm" aria-label="Choose a section">
-                      <EllipsisVerticalIcon />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
-                    {WORK_TABS.map(({ value, label, Icon }) => (
-                      <DropdownMenuItem key={value} onClick={() => setWorkTab(value)} data-active={workTab === value}>
-                        <Icon /> {label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
-                  {WORK_TABS.find((t) => t.value === workTab)?.label}
-                </h2>
+                {/* Sections as icon tabs, the open one highlighted. */}
+                <TabsList className="h-auto min-w-0 flex-1 justify-start gap-1 bg-transparent p-0">
+                  {WORK_TABS.map(({ value, label, Icon }) => (
+                    <TabsTrigger
+                      key={value}
+                      value={value}
+                      className="text-foreground/80 hover:bg-accent/60 data-[state=active]:bg-accent data-[state=active]:text-primary h-auto min-w-0 flex-col gap-1 rounded-lg px-1.5 py-2 text-xs font-semibold data-[state=active]:shadow-none dark:data-[state=active]:border-transparent"
+                    >
+                      <Icon />
+                      <span className="max-w-full truncate">{label}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
                 {wide && (
                   <FullViewButton
                     expanded={focus === "work"}

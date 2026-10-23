@@ -20,11 +20,15 @@ export type Theme = "light" | "dark" | "system";
 const STORAGE_KEY = "cdip-theme";
 
 /** Colour palette, separate from light/dark: "teal" is the new default, "neutral" the original. */
-export type Palette = "teal" | "neutral";
+export type Palette = "blueprint" | "teal" | "neutral";
 const PALETTE_KEY = "cdip-palette";
 /** The saved palette, read before the first paint (main.tsx) and by the provider. */
-export const readPalette = (): Palette => (localStorage.getItem(PALETTE_KEY) === "neutral" ? "neutral" : "teal");
+export const readPalette = (): Palette => {
+  const saved = localStorage.getItem(PALETTE_KEY);
+  return saved === "teal" || saved === "neutral" ? saved : "blueprint";
+};
 const PALETTES: { id: Palette; label: string }[] = [
+  { id: "blueprint", label: "Blueprint" },
   { id: "teal", label: "Teal" },
   { id: "neutral", label: "Neutral (original)" },
 ];

@@ -3200,7 +3200,7 @@ scrollbar. The work column is a container (`@container/work`), so the tab labels
 COLUMN's width, which the divider changes independently of the window's.
 
 The work column's sections are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
-(`components/ProjectSettings.tsx`), picked from a three-dots menu with the open one named beside it (`WORK_TABS`).
+(`components/ProjectSettings.tsx`), shown as an icon tab bar in the column's sticky header (`WORK_TABS`).
 The RFIs section shows only the targeted review's "By element" mode for now: the scan and the other review
 modes are still built, with their switches removed (`mode` is fixed in `RfiReview.tsx` / `RfiTargetedReview.tsx`). Settings holds the project's details and every RFI SETTING the
 RFIs tab used to carry beside the work — the targeted review's model, depth, care and token limits,
@@ -3226,11 +3226,15 @@ Every colour is a semantic token defined for both themes in `apps/web/src/index.
 `warning`, plus `chart-1..5` and `status-*` for data viz). Components never carry a raw hex, and
 dark mode is a variable swap — the `.dark` class on `<html>`, driven by
 `components/theme-provider.tsx` (light / dark / system, persisted). A PALETTE is chosen
-separately (`html[data-palette]`, `cdip-palette`, set in `main.tsx` before the first paint): "teal"
-(default; the client's palette, `#22656A` / `#78C6BC` primaries) overrides the tokens of the original
-"neutral" one, which stays selectable from the same menu. Surfaces that had no token now do —
-`chat`, `chat-answer`, `chat-input`, `blueprint` (login panel), `logo` — with neutral values equal to
-what they drew before. Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
+separately (`html[data-palette]`, `cdip-palette`, set in `main.tsx` before the first paint):
+"blueprint" (default; the ArcAligned logo's navy and cyan, `#15558F` / `#84D1F0` primaries), "teal"
+and the original "neutral" are all selectable from the same menu. Surfaces that had no token now do —
+`chat`, `chat-answer`, `chat-input`, `blueprint` (the auth panel's tint). The brand is image assets
+in `src/assets/brand` (built from the client's logo files): `LogoMark` stacks the blue strokes over a
+MASK whose grey ring and leg take the text colour, and `Wordmark` paints the "ArcAligned" lettering
+and its tagline as masks in `primary`/`muted-foreground` with ".AI" in Plex, sized in em. The auth
+screens' right half (`AuthArt`) is the client's building photo toned with `mix-blend-color` over
+`bg-blueprint`, drifting slowly under a grid and a scan line (off under reduced motion). Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an
