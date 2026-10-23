@@ -3232,7 +3232,8 @@ and the original "neutral" are all selectable from the same menu. Surfaces that 
 `chat`, `chat-answer`, `chat-input`, `blueprint` (the auth panel's tint). The brand is image assets
 in `src/assets/brand` (built from the client's logo files): `LogoMark` stacks the blue strokes over a
 MASK whose grey ring and leg take the text colour, and `Wordmark` paints the "ArcAligned" lettering
-and its tagline as masks in `primary`/`muted-foreground` with ".AI" in Plex, sized in em. The auth
+and its tagline as masks in `primary`/`muted-foreground`, sized in em. The login screen shows the
+wordmark alone (`Logo`); the sidebar shows the mark beside plain text "ArcAligned.AI". The auth
 screens' right half (`AuthArt`) is a still photo of a scaffolded tower and its cranes (Unsplash, free licence, `assets/brand/auth-tower.jpg`, stored greyscale and toned by `mix-blend-luminosity` over `bg-blueprint`) under one headline: "Find the RFI before the field does." No animation. Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
