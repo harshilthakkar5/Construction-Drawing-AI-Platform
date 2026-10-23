@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, FileQuestionIcon, Maximize2Icon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, FileQuestionIcon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RFI_SET_MAX_ELEMENTS,
@@ -161,17 +161,7 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
             </>
           )}
         </nav>
-        {current ? (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label={`Open ${current.name} in full view`}
-            title="Full view: elements, price, start and findings"
-            onClick={() => setOpen({ id: current.id, errors: [] })}
-          >
-            <Maximize2Icon />
-          </Button>
-        ) : (
+        {!current && (
           <Button size="sm" onClick={() => setCreating(true)}>
             <PlusIcon /> Create RFI
           </Button>
