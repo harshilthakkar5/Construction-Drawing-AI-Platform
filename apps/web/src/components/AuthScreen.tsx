@@ -9,7 +9,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import { api, authToken } from "@/api";
-import { BlueprintArt } from "@/components/BlueprintArt";
+import { AuthArt } from "@/components/AuthArt";
 import { Logo } from "@/components/Logo";
 import { ModeToggle } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 /**
- * Split auth layout: form on the left, an animated blueprint on the right
- * (a different drawing per mode). Phase 5 RBAC underneath — the bearer token
+ * Split auth layout: form on the left, the animated building art on the right.
+ * Phase 5 RBAC underneath — the bearer token
  * is kept in localStorage and attached to every API call.
  */
 export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void }) {
@@ -235,7 +235,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
       </div>
 
       <div className="hidden lg:block">
-        <BlueprintArt variant={isRegister ? "elevation" : "plan"} />
+        <AuthArt variant={isRegister ? "register" : "login"} />
       </div>
     </div>
   );

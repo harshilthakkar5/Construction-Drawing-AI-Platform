@@ -62,8 +62,6 @@
   --color-chat-answer: var(--chat-answer);
   --color-chat-input: var(--chat-input);
   --color-blueprint: var(--blueprint);
-  --color-logo: var(--logo);
-  --color-logo-foreground: var(--logo-foreground);
 
   /* Self-hosted (@fontsource in main.tsx), so LAN and offline installs need no font CDN. */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -113,8 +111,6 @@
   --chat-answer: var(--card);
   --chat-input: transparent;
   --blueprint: oklch(0.145 0 0);
-  --logo: var(--primary);
-  --logo-foreground: var(--primary-foreground);
 
   /* Categorical series — see charts/palette.ts for the ordering rules. */
   --chart-1: oklch(0.646 0.222 41.116);
@@ -212,8 +208,6 @@ html[data-palette="teal"] {
   --chat-answer: #ffffff;
   --chat-input: #f5faf9;
   --blueprint: #173d43;
-  --logo: #e3f0ef;
-  --logo-foreground: #22656a;
 }
 
 html[data-palette="teal"].dark {
@@ -248,8 +242,76 @@ html[data-palette="teal"].dark {
   --chat-answer: #1d343b;
   --chat-input: #213a41;
   --blueprint: #173d43;
-  --logo: #e3f0ef;
-  --logo-foreground: #22656a;
+}
+
+
+/* Blueprint (default): the ArcAligned logo's navy and cyan. */
+html[data-palette="blueprint"] {
+  --background: #f3f7fb;
+  --foreground: #182635;
+  --card: #ffffff;
+  --card-foreground: #182635;
+  --popover: #ffffff;
+  --popover-foreground: #182635;
+  --primary: #15558f;
+  --primary-foreground: #ffffff;
+  --secondary: #e4edf6;
+  --secondary-foreground: #123f6a;
+  --muted: #eaf0f6;
+  --muted-foreground: #5b6b7c;
+  --accent: #e1ebf5;
+  --accent-foreground: #123f6a;
+  --border: #dae3ed;
+  --input: #dae3ed;
+  --ring: #15558f;
+
+  --sidebar: #eaf1f8;
+  --sidebar-foreground: #182635;
+  --sidebar-primary: #15558f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dfe9f4;
+  --sidebar-accent-foreground: #123f6a;
+  --sidebar-border: #dae3ed;
+  --sidebar-ring: #15558f;
+
+  --chat: #eef3f9;
+  --chat-answer: #ffffff;
+  --chat-input: #f6f9fc;
+  --blueprint: #0f2c48;
+}
+
+html[data-palette="blueprint"].dark {
+  --background: #111b27;
+  --foreground: #e4edf5;
+  --card: #172938;
+  --card-foreground: #e4edf5;
+  --popover: #172938;
+  --popover-foreground: #e4edf5;
+  --primary: #84d1f0;
+  --primary-foreground: #0b1f30;
+  --secondary: #1f3a52;
+  --secondary-foreground: #e4edf5;
+  --muted: #1b3043;
+  --muted-foreground: #93a8bc;
+  --accent: #1f3a52;
+  --accent-foreground: #e4edf5;
+  --border: #22384b;
+  --input: #213a4f;
+  --ring: #84d1f0;
+
+  --sidebar: #142333;
+  --sidebar-foreground: #e4edf5;
+  --sidebar-primary: #84d1f0;
+  --sidebar-primary-foreground: #0b1f30;
+  --sidebar-accent: #1f3a52;
+  --sidebar-accent-foreground: #e4edf5;
+  --sidebar-border: #22384b;
+  --sidebar-ring: #84d1f0;
+
+  --chat: #152535;
+  --chat-answer: #1b3043;
+  --chat-input: #213a4f;
+  --blueprint: #0f2c48;
 }
 
 @layer base {
@@ -298,59 +360,36 @@ html[data-palette="teal"].dark {
   }
 }
 
-/* Blueprint line-draw used on the auth screens. Every animated path carries
-   pathLength="1", so one dash length works for strokes of any real length and
-   they all draw at the same rate. */
-@keyframes draw {
+/* Auth screens: the building photo drifts slowly and a scan line passes over it. */
+@keyframes auth-drift {
   from {
-    stroke-dashoffset: 1;
+    transform: scale(1.06) translate(0, 0);
   }
   to {
-    stroke-dashoffset: 0;
+    transform: scale(1.18) translate(-2%, -1.5%);
   }
 }
-@keyframes fade-in {
+@keyframes auth-scan {
   from {
-    opacity: 0;
+    transform: translateY(-6rem);
   }
   to {
-    opacity: 1;
+    transform: translateY(100vh);
   }
 }
-@keyframes sweep {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.25;
-  }
-  50% {
-    transform: translateY(-14px);
-    opacity: 0.6;
-  }
+.auth-drift {
+  animation: auth-drift 26s ease-in-out infinite alternate;
+}
+.auth-scan {
+  animation: auth-scan 9s linear infinite;
 }
 
-.bp-draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: draw 2.4s cubic-bezier(0.65, 0, 0.35, 1) forwards;
-  animation-delay: var(--delay, 0s);
-}
-.bp-fade {
-  opacity: 0;
-  animation: fade-in 1s ease forwards;
-  animation-delay: var(--delay, 0s);
-}
-.bp-sweep {
-  animation: sweep 6s ease-in-out infinite;
-}
-
-/* Respect reduced-motion: show the finished drawing, skip the animation. */
 @media (prefers-reduced-motion: reduce) {
-  .bp-draw,
-  .bp-fade,
-  .bp-sweep {
+  .auth-drift,
+  .auth-scan {
     animation: none;
-    stroke-dashoffset: 0;
-    opacity: 1;
+  }
+  .auth-scan {
+    display: none;
   }
 }
