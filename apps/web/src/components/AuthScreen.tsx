@@ -235,7 +235,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
       </div>
 
       <div className="hidden lg:block">
-        <AuthArt variant={isRegister ? "register" : "login"} />
+        <AuthArt />
       </div>
     </div>
   );

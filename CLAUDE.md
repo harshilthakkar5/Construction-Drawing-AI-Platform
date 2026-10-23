@@ -3233,10 +3233,7 @@ and the original "neutral" are all selectable from the same menu. Surfaces that 
 in `src/assets/brand` (built from the client's logo files): `LogoMark` stacks the blue strokes over a
 MASK whose grey ring and leg take the text colour, and `Wordmark` paints the "ArcAligned" lettering
 and its tagline as masks in `primary`/`muted-foreground` with ".AI" in Plex, sized in em. The auth
-screens' right half (`AuthArt`) is a blueprint sheet generated in SVG: a braced steel tower, a
-cantilevered wing, a braced block and a podium with grid bubbles, a connection detail and callouts,
-drawn layer by layer and then drifting under a scan line, in the palette's `blueprint-line` colour,
-below the one headline "Every question starts with the drawing." (all motion off under reduced motion). Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
+screens' right half (`AuthArt`) is a still SVG of a steel tower going up, seen from the ground — frame narrowing into the sky, scaffolding on the lower floors, a crane beside it — fading into mist in the palette's `blueprint-line` colour, under one headline: "Find the RFI before the field does." No animation. Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an
