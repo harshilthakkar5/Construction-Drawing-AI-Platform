@@ -175,7 +175,6 @@ function AppSidebar({ user, onSignOut }: { user: UserDto; onSignOut: () => void 
             <SidebarMenuButton
               size="lg"
               onClick={() => go("dashboard")}
-              className="group-data-[collapsible=icon]:p-1.5!"
             >
               {/* Wrapped: the menu-button variant forces direct-child svgs to 16px. */}
               <div className="flex shrink-0 items-center">

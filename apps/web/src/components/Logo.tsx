@@ -38,10 +38,10 @@ export function LogoMark({ className }: { className?: string }) {
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <span className="text-primary flex items-end gap-1">
+      <span className="text-primary flex items-end gap-[0.12em]">
         <Masked src={wordmarkName} ratio={289 / 62} label="ArcAligned" className="h-[1.75em]" />
-        {/* sits on the wordmark's letters, above its underline */}
-        <span className="text-foreground mb-[0.22em] text-[1.1em] leading-none font-bold tracking-tight">.AI</span>
+        {/* the wordmark's own colour, cap height and spacing; its baseline sits on the letters, above the underline */}
+        <span className="mb-[0.06em] text-[1.35em] leading-[0.75] font-medium tracking-[0.06em]">.AI</span>
       </span>
       <Masked src={wordmarkTagline} ratio={287 / 26} label="services that align success" className="text-muted-foreground h-[0.66em]" />
     </span>

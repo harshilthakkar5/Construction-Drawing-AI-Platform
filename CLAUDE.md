@@ -3233,8 +3233,9 @@ and the original "neutral" are all selectable from the same menu. Surfaces that 
 in `src/assets/brand` (built from the client's logo files): `LogoMark` stacks the blue strokes over a
 MASK whose grey ring and leg take the text colour, and `Wordmark` paints the "ArcAligned" lettering
 and its tagline as masks in `primary`/`muted-foreground` with ".AI" in Plex, sized in em. The auth
-screens' right half (`AuthArt`) is the client's building photo toned with `mix-blend-color` over
-`bg-blueprint`, drifting slowly under a grid and a scan line (off under reduced motion). Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
+screens' right half (`AuthArt`) is background only, no words: an isometric steel frame generated in
+SVG that draws itself floor by floor on a blueprint grid, then drifts under a scan line, in the
+palette's `blueprint-line` colour (all motion off under reduced motion). Marked-up PDF clouds are `#DC2626` (`rfi_package.RED`). Build UI out of the
 primitives in `components/ui` (shadcn, unmodified API) and the app furniture in
 `components/shared.tsx` (`PageHeader`, `TextField`, `Notice`, `Modal`, `ConfirmDialog`,
 `PageLoading`, `SheetLink` — the one way a sheet reference that opens the viewer is drawn: an

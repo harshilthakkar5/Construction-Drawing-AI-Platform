@@ -62,6 +62,7 @@
   --color-chat-answer: var(--chat-answer);
   --color-chat-input: var(--chat-input);
   --color-blueprint: var(--blueprint);
+  --color-blueprint-line: var(--blueprint-line);
 
   /* Self-hosted (@fontsource in main.tsx), so LAN and offline installs need no font CDN. */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -111,6 +112,7 @@
   --chat-answer: var(--card);
   --chat-input: transparent;
   --blueprint: oklch(0.145 0 0);
+  --blueprint-line: oklch(0.92 0 0);
 
   /* Categorical series — see charts/palette.ts for the ordering rules. */
   --chart-1: oklch(0.646 0.222 41.116);
@@ -208,6 +210,7 @@ html[data-palette="teal"] {
   --chat-answer: #ffffff;
   --chat-input: #f5faf9;
   --blueprint: #173d43;
+  --blueprint-line: #78c6bc;
 }
 
 html[data-palette="teal"].dark {
@@ -242,6 +245,7 @@ html[data-palette="teal"].dark {
   --chat-answer: #1d343b;
   --chat-input: #213a41;
   --blueprint: #173d43;
+  --blueprint-line: #78c6bc;
 }
 
 
@@ -278,6 +282,7 @@ html[data-palette="blueprint"] {
   --chat-answer: #ffffff;
   --chat-input: #f6f9fc;
   --blueprint: #0f2c48;
+  --blueprint-line: #84d1f0;
 }
 
 html[data-palette="blueprint"].dark {
@@ -312,6 +317,7 @@ html[data-palette="blueprint"].dark {
   --chat-answer: #1b3043;
   --chat-input: #213a4f;
   --blueprint: #0f2c48;
+  --blueprint-line: #84d1f0;
 }
 
 @layer base {
@@ -360,13 +366,23 @@ html[data-palette="blueprint"].dark {
   }
 }
 
-/* Auth screens: the building photo drifts slowly and a scan line passes over it. */
+/* Auth screens: the steel frame draws itself floor by floor, then drifts under a scan line. */
+@keyframes auth-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.auth-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: auth-draw 2.2s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
 @keyframes auth-drift {
   from {
-    transform: scale(1.06) translate(0, 0);
+    transform: scale(1) translate(0, 0);
   }
   to {
-    transform: scale(1.18) translate(-2%, -1.5%);
+    transform: scale(1.1) translate(-2%, -1.5%);
   }
 }
 @keyframes auth-scan {
@@ -386,8 +402,12 @@ html[data-palette="blueprint"].dark {
 
 @media (prefers-reduced-motion: reduce) {
   .auth-drift,
-  .auth-scan {
+  .auth-scan,
+  .auth-draw {
     animation: none;
+  }
+  .auth-draw {
+    stroke-dashoffset: 0;
   }
   .auth-scan {
     display: none;
