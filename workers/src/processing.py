@@ -31,6 +31,7 @@ import chunker
 import config
 import db
 import embeddings
+import grid
 import gridmarks
 import logutil
 import ocr
@@ -74,6 +75,11 @@ def _process_page(
     the page needed OCR."""
     page_number = index + 1
     page = pdf.load_page(index)
+    # A reviewer's markup is not the drawing: a stamp's words come back from
+    # get_text, and every note and cloud is drawn into the page render that OCR,
+    # the vision pass and the grid reader see. Removed on this in-memory copy
+    # only; the stored original keeps them.
+    grid.without_markup(page)
     # strip_nul: PostgreSQL rejects NUL (0x00) bytes, which PDF extraction
     # can produce with unusual font encodings.
     text = chunker.strip_nul(page.get_text("text")).strip()

@@ -2157,12 +2157,19 @@ export function scheduleSubject(entry: string, elementName = ""): { words: strin
 
 /** How strongly a sheet's schedule headings name the subject: 0 not at all,
  * 2 named, 3 named as CONCRETE (the library is a concrete scope). Pure. */
+// A drafter's other name for a word of a multi-word schedule subject: Leland
+// titles its pile cap schedule PIER CAP SCHEDULE. Never for a one-word subject,
+// where PILE alone means piles and must not take a pier schedule.
+const HEADING_SYNONYMS: Record<string, readonly string[]> = { PILE: ["PIER"] };
+
 export function headingScore(sheet: LibrarySheet, subject: { words: readonly string[]; all: boolean }): number {
   if (!subject.words.length) return 0;
   let best = 0;
   for (const h of sheet.headings ?? []) {
     const tokens = (h.match(/[A-Z]+/g) ?? []).map(stem);
-    const named = subject.all ? subject.words.every((w) => tokens.includes(w)) : subject.words.some((w) => tokens.includes(w));
+    const has = (w: string) =>
+      tokens.includes(w) || (subject.words.length > 1 && (HEADING_SYNONYMS[w] ?? []).some((s) => tokens.includes(s)));
+    const named = subject.all ? subject.words.every(has) : subject.words.some((w) => tokens.includes(w));
     if (named) best = Math.max(best, tokens.includes("CONCRETE") ? 3 : 2);
   }
   return best;

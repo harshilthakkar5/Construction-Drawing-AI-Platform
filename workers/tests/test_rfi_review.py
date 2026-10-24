@@ -828,3 +828,14 @@ def test_verification_is_told_which_referenced_drawings_are_not_in_the_project()
     assert "elevation" not in block  # a sheet-kind gap is a question's gap, not a missing drawing
     assert rfi_review.not_in_project_block({}) == ""
     assert "<not_in_project>" in rfi_review.verification_system()
+
+
+def test_grounded_accepts_a_printed_length_in_the_other_unit_and_nothing_looser():
+    """18" where the sheet prints 1'-6" is the same fact; a stray digit is not —
+    16" on the sheet must not ground "#4 bars at level 1"."""
+    assert rfi_review.grounded('Detail 4 shows a 1\'-4" (16") slab vs 8".', 'SLAB 1\'-4" THICK vs 8"')[0]
+    assert rfi_review.grounded('Column is 2\'-0" (24") square.', '24" X 24" COLUMN')[0]
+    assert rfi_review.grounded('Footing is 18" deep.', 'FOOTING 1\'-6" DEEP')[0]
+    assert not rfi_review.grounded('Detail 4 shows an 18" slab.', 'SLAB 1\'-4" THICK vs 8"')[0]
+    assert not rfi_review.grounded("Provide #4 bars at level 1.", 'SLAB 16" THICK')[0]
+    assert not rfi_review.grounded('Use 6 dowels.', 'PIER 36" DIA')[0]

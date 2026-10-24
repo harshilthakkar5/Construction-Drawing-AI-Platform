@@ -65,9 +65,10 @@ const UUID = "[0-9a-fA-F][0-9a-fA-F-]{34}[0-9a-fA-F]";
  * `[chunk:a chunk:b]` alike.
  */
 const CITATION_GROUP_RE = new RegExp(
-  `\\[\\s*chunk:\\s*${UUID}(?:\\s*[,;]?\\s*(?:chunk:)?\\s*${UUID})*\\s*\\]`,
+  `\`?\\[\\s*chunk:\\s*${UUID}(?:\\s*[,;]?\\s*(?:chunk:)?\\s*${UUID})*\\s*\\]\`?`,
   // Case-insensitive: a model that writes [CHUNK:…] must not leak a raw id
-  // just because it shouted.
+  // just because it shouted. A citation wrapped as code (`[chunk:…]`) takes its
+  // backticks with it, or they stand either side of the chip.
   "gi",
 );
 

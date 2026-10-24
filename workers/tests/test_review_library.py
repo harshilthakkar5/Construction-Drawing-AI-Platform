@@ -6,6 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import pytest  # noqa: E402
 import rfi_review as rr  # noqa: E402
 
 SCOPE = {
@@ -254,3 +255,73 @@ def test_a_sheet_without_enough_tags_or_without_rare_ones_gets_no_plan_close_up(
         page.insert_text((1500 + (i % 8) * 200, 1210 + (i // 8) * 250), "(-26'-2\")", fontsize=8)
     assert rr.plan_regions(page, 2) == []  # every tag typical
     assert rr.plan_regions(fitz.open().new_page(width=3456, height=2592), 2) == []
+
+
+# --- Accuracy pass (cleaned up from an outside patch) -------------------------
+
+
+def test_parse_length_reads_datums_unicode_quotes_and_hyphen_fractions():
+    assert rr.parse_length('EL. 104\'-6"') == 1254
+    assert rr.parse_length('T.O.S. -23\'-0"') == -276
+    assert rr.parse_length("1′-4-1/2″") == 16.5
+    assert rr.parse_length('+12\'-4"') == 148
+    assert rr.parse_length('8" min') == 8 and rr.parse_length('24" dia.') == 24
+    assert rr.parse_length('1/0"') is None  # a zero denominator is not a length
+
+
+def test_value_conflicts_matches_field_names_and_grid_pairs_written_differently():
+    """Leland RFI 007's shape: one detail says "pit slab thickness" at "Grid
+    BH/B7", another "thickness" at "B7-BH". Same element, same field."""
+    inv = [
+        _row("detail 3/S4.00", '8"', ["ev3"], field="pit slab thickness", location="Grid BH/B7"),
+        _row("detail 4/S4.00", "1'-4\"", ["ev4"], field="thickness", location="B7-BH"),
+    ]
+    [c] = rr.value_conflicts(inv)
+    assert set(c["evidenceIds"]) == {"ev3", "ev4"}
+    # the plural/abbreviated spellings are one field too
+    assert rr.same_field("Footing", "thk", "thickness") and rr.same_field("Footing", "thicknesses", "thickness")
+
+
+@pytest.mark.parametrize("a, b, entity, field_a, field_b", [
+    # two DIFFERENT measurements of a two-part element — the stripped names agree, the measurements do not
+    ('12"', '8"', "Elevator pit wall and slab", "wall thickness", "slab thickness"),
+    ('12"', '8"', "Elevator pit wall and slab", "wall thickness", "thickness"),
+    # a minimum and a maximum of one field
+    ('8" min', '12" max', "Slab", "thickness", "thickness"),
+    # a top and a bottom elevation filed under one field name
+    ('T.O.F. -2\'-0"', 'B.O.F. -4\'-0"', "Footing", "elevation", "elevation"),
+])
+def test_different_measurements_are_never_a_conflict(a, b, entity, field_a, field_b):
+    inv = [_row("detail 1", a, ["e1"], entity=entity, field=field_a), _row("detail 2", b, ["e2"], entity=entity, field=field_b)]
+    assert rr.value_conflicts(inv) == []
+
+
+def test_a_bare_elevation_and_an_el_prefixed_one_still_compare():
+    inv = [_row("plan", 'EL. 100\'-0"', ["e1"], entity="Footing", field="elevation"),
+           _row("detail", '98\'-0"', ["e2"], entity="Footing", field="elevation")]
+    assert len(rr.value_conflicts(inv)) == 1
+
+
+def test_title_synonyms_are_keyed_on_the_librarys_own_names():
+    assert ["PAD", "FOOTING"] in rr.element_title_words("Isolated / spread footings")
+    assert ["TIE", "BEAM"] in rr.element_title_words("Grade beams")
+    assert ["WELD", "PLATE"] in rr.element_title_words("Embed plates & weld plates")
+    assert ["ANCHOR", "ROD"] in rr.element_title_words("Anchor bolts")
+
+
+def test_a_bare_scale_ratio_or_nts_is_a_scale_line():
+    for line in ['3/4" = 1\'-0"', '1 1/2" = 1\'-0"', "N.T.S.", "NOT TO SCALE", "SCALE: 1/4\" = 1'-0\""]:
+        assert rr._SCALE_LINE.match(line), line
+    assert not rr._SCALE_LINE.match('SLAB 8" THICK')
+
+
+def test_mark_families_do_not_answer_the_wrong_element():
+    linked = {"unscheduled_mark": ["Q"]}
+    def mark(m):
+        return rr.rfi_checks.Finding("unscheduled_mark", m, "high", m, "?", [], facts={"mark": m})
+    wall_footings = {"name": "Continuous / strip / wall footings"}
+    assert rr.credited(mark("WF-2"), linked, wall_footings) == ["Q"]
+    assert rr.credited(mark("W-1"), linked, wall_footings) == []
+    assert rr.credited(mark("C-4"), linked, {"name": "Columns"}) == ["Q"]
+    assert rr.credited(mark("C-4"), linked, {"name": "Column blockouts / diamonds"}) == []
+    assert rr.credited(mark("C-4"), linked, {"name": "Drop panels / shear caps / column capitals"}) == []

@@ -84,3 +84,10 @@ def test_sizes_columns_only_for_a_schedule_read_reliably():
     assert cs.sizes_columns(schedule([("A1-AG", True), ("B5-BC", True), ("B7-BF", True), ("B6-BA", False)]))
     # mostly empty: not read as a schedule, so it answers nothing
     assert not cs.sizes_columns(schedule([("A1-AG", True), ("B6-BA", False), ("B6-BB", False)]))
+
+
+def test_round_and_pipe_columns_are_sizes_but_lumber_and_openings_are_not():
+    for size in ['24" DIA.', '24" dia', 'Ø30"', '24" ø', "PIPE 8 STD", '24"x24"']:
+        assert cs.SIZE.search(size), size
+    for not_size in ["2 X 4 BLOCKING", "3 x 12 OPENING", "#5 X 3'-0\" LONG"]:
+        assert not cs.SIZE.search(not_size), not_size

@@ -25,4 +25,13 @@ describe("libraryQueries", () => {
     expect(out[0]!.query).toBe("Elevator pits Single, double Is the top of pit slab elevation specified? Is the pit depth given?");
     expect(libraryQueries(undefined)).toEqual([]);
   });
+
+  it("searches with the element's attributes too: what its questions are about", async () => {
+    const { libraryQueries } = await import("./rfiReviewRules.js");
+    const [only] = libraryQueries({
+      element: { id: "CE-04-02", name: "Pile caps", variants: "", attributes: "Mark, size, depth, top elevation", triggers: "" },
+      questions: [{ id: "a", text: "Is every cap tagged?", category: "Marks", source: "library", codeChecks: [] }],
+    });
+    expect(only!.query).toBe("Pile caps Mark, size, depth, top elevation Is every cap tagged?");
+  });
 });

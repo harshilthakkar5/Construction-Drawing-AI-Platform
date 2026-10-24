@@ -2547,7 +2547,7 @@ false one is a question someone has to answer:
     and a marked set and a clean one must give the same answer (they now do: both sheets,
     identical fingerprints). Stripping is on the in-memory copy of a temp download only; it
     bumped `GRID_CACHE_VERSION` to 2. The same leak affects `get_text` at ingest (a FreeText
-    markup note lands in the chunks) and is NOT fixed there. `grid.bubbles` could not have
+    markup note lands in the chunks) and is now fixed there too: `processing._process_page` strips every annotation on its in-memory copy (a stamp's words come back from `get_text`, and every note is drawn into the render OCR and the vision pass read); the stored PDF keeps them. `grid.bubbles` could not have
     been reused — its 30-45pt window was set on one ARCH E1 sheet and saw NO grid on this 36x24
     set, and it refuses secondary labels like `F.7`, which is exactly where one naming put a line
     the other called `G`. Sizes are clustered, not bucketed: 26.9 beside 27.0 is one drafter's
@@ -2858,6 +2858,14 @@ and the code proposes a conflict where two sources print different LENGTHS for o
 are two elements; rows citing the same evidence are one source). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
+Matching was too literal and is now forgiving only where a mismatch cannot hide a difference (an outside
+patch proposed the loosening; three of its rules produced false conflicts and were rebuilt): a field name
+matches another that is it plus words of the element's own name ("pit slab thickness" = "thickness" on
+"Elevator pit slab", `same_field`) but never on an entity naming two things ("wall and slab"), a grid pair
+is one place either way round (`_location_key`: BH/B7 = B7-BH), and `parse_length` reads datums, ′/″ and
+1'-4-1/2" while `length_qualifier` keeps what a value is OF — a MIN never meets a MAX, a T.O.F. never a B.O.F.
+`grounded` accepts a length written in the other unit (18" for a printed 1'-6") only as a whole printed
+LENGTH (`_dimensions`), never digit by digit: "16"" on a sheet must not ground "#4 bars at level 1".
 Those values must be IN VIEW to be compared, and the planned close-ups were not: they are aimed at
 text pieces, and on a detail sheet one piece spans several details (Leland S4.00: 2,400pt wide), so
 S4.00's three close-ups showed a shear wall, waterproofing and dowels while the AI never read detail

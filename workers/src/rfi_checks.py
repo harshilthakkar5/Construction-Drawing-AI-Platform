@@ -625,13 +625,15 @@ _SEE_AFTER = re.compile(r"^\W{0,3}(?:[A-Z]+\s+){0,3}(?:SEE|REFER|REF\.?)\b")
 # element: "TYPE S-8 PAN HEAD STEEL SCREWS" is a screw, and was proposed as a
 # door missing from the door schedule.
 _FASTENER_AFTER = re.compile(
-    r"^\W{0,3}(?:[A-Z#/.-]+\s+){0,4}(?:SCREWS?|BOLTS?|NAILS?|ANCHORS?|WASHERS?|RIVETS?|FASTENERS?|STAPLES?|PINS?)\b"
+    r"^\W{0,3}(?:[A-Z#/.-]+\s+){0,4}(?:SCREWS?|BOLTS?|NAILS?|ANCHORS?|WASHERS?|RIVETS?|FASTENERS?|STAPLES?|PINS?|ELECTRODES?|WELDS?)\b"
     # ...or an insulation rating: "R-13 MIN.", "R-30 BATT INSULATION" sat
     # beside a railing schedule of R1..R6 and read as railings missing from it.
     r"|^\W{0,3}(?:MIN\b|MINIMUM|(?:[A-Z]+\s+){0,2}INSUL|BATT|C\.?I\.?\b|RIGID|CONTINUOUS\s+INSUL|THERMAL)"
     # ...or a steel section size: "L2 1/4X2 1/4X1/4" is an angle, "C12X20" a
     # channel, and neither is a mark in a schedule.
     r"|^(?:\s*\d+)?(?:\s*\d+/\d+)?\s*X\s*\d"
+    # ...or a sheet-metal gauge or a galvanized coating: "G90 GALV.", "16 GA."
+    r"|^\W{0,3}(?:GA\.?\b|GAUGE\b|GAGE\b|GALV|COATING\b)"
 )
 
 # A mark-shaped token in a FIRE-RATING LISTING is a listing number, not a drawn
@@ -643,8 +645,8 @@ _FASTENER_AFTER = re.compile(
 _LISTED_ITEM = r"(?:[A-Z]{1,2}-?\d{2,4},?\s*(?:OR\s+|AND\s+|&\s*)?)"
 _LISTING_BEFORE = re.compile(
     r"\bDESIGNS?\s*(?:NOS?\.?|NUMBERS?|#)?\s*" + _LISTED_ITEM + r"*$"
-    # ...or a published standard: "ASTM C578", "ASTM C955".
-    r"|\b(?:ASTM|ANSI|AASHTO|CSA)\s*" + _LISTED_ITEM + r"*$"
+    # ...or a published standard: "ASTM C578", "ASTM C955", "AWS D11", "UL U419".
+    r"|\b(?:ASTM|ANSI|AASHTO|CSA|AWS|ACI|AISC|NFPA|UL|ULC|ICC|ASHRAE|SMACNA)\s*" + _LISTED_ITEM + r"*$"
 )
 _LISTING_AFTER = re.compile(r"^\W{0,3}(?:(?:OR|AND|&)\s+)?" + _LISTED_ITEM + r"*SERIES\b")
 
@@ -653,13 +655,17 @@ _LISTING_AFTER = re.compile(r"^\W{0,3}(?:(?:OR|AND|&)\s+)?" + _LISTED_ITEM + r"*
 # room 100-EL1 (Elevator 1), "D6/A2.75" is detail D6 on sheet A2.75. Both read
 # as marks missing from a schedule on Leland.
 _ROOM_PREFIX = re.compile(r"\d[A-Z]?-$")
+# "GRID C3", "GRID LINE C3": a grid intersection named in a note, not a column mark.
+_GRID_PREFIX = re.compile(r"\bGRIDS?(?:\s+LINES?)?\s+$")
 _DETAIL_ON_SHEET = re.compile(r"^\s*/\s*[A-Z]{1,2}-?\d")
 
 
 def part_of_other_label(upper: str, start: int, end: int) -> bool:
-    """Whether the token at upper[start:end] is the tail of a room number or
-    the detail half of a detail/sheet callout. Pure."""
+    """Whether the token at upper[start:end] is the tail of a room number, a
+    grid intersection named after GRID, or the detail half of a detail/sheet
+    callout. Pure."""
     return bool(_ROOM_PREFIX.search(upper[max(0, start - 6) : start])
+                or _GRID_PREFIX.search(upper[max(0, start - 16) : start])
                 or _DETAIL_ON_SHEET.match(upper[end : end + 12]))
 
 
@@ -895,6 +901,10 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
         for mark, places in sorted(on_plans[family].items()):
             if mark in in_schedule or _mark_parts(mark)[1:] not in shapes or mark in callout_ids:
                 continue
+            # C-15.E / C-15.S: the scheduled column C-15 with an eccentric step
+            # or a slope within its height (UT Law's plan notes define both).
+            if family == "C" and mark[-1] in "ES" and mark[:-1] in in_schedule:
+                continue
             pattern = _mark_pattern(mark, dotted.get(family, False))
             evidence: list[dict] = []
             for page, chunk in places:
@@ -997,6 +1007,11 @@ _OTHER_PARTY = re.compile(
     # ERRC SYSTEM IS REQUIRED" — settled by a test on site, not by a designer.
     r"FIELD\s+TEST(?:S|ING)?)\b"
 )
+# An abbreviation legend's row ("TBD = TO BE DETERMINED") defines the marker; it
+# is not an open item.
+_ABBREV_DEFINITION = re.compile(
+    r"^\s*T\.?B\.?[DC]\.?\s*(?:=|:|-|–|—|\s{2,})\s*TO\s+BE\s+(?:DETERMINED|CONFIRMED)\.?\s*$", re.I
+)
 # A marker followed by the rule that decides it is not open: UT Law A1.09
 # reprints UL text, "Width to be determined on the basis of protection
 # thickness and column size".
@@ -1043,6 +1058,8 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
                 ruled += 1
                 continue
             quote = _quote(chunk.text, start, end)
+            if _ABBREV_DEFINITION.match(quote):
+                continue
             key = normalize(quote)
             if not key:
                 continue
@@ -1161,6 +1178,46 @@ _UNIT_NOUN = {
 # or two lines under it ("UP TO\nRTU-3\n80MBH"). A schedule row runs further,
 # and is cut at the next tag anyway.
 RATING_WINDOW_CHARS = 40
+# Words that make two ratings of one unit two different QUANTITIES of one piece
+# of equipment: "RTU-3 HEATING INPUT 100 MBH" on one sheet and "RTU-3 HEATING
+# OUTPUT 80 MBH" on another agree; each pair below is one such family.
+_RATING_QUALIFIER = re.compile(
+    r"\b(INPUT|OUTPUT|MIN(?:IMUM)?|MAX(?:IMUM)?|SUPPLY|EXHAUST|RETURN|OUTSIDE|SENSIBLE|TOTAL|LATENT|"
+    r"HEATING|COOLING|SUMMER|WINTER|PRIMARY|SECONDARY)\b"
+)
+_QUALIFIER_GROUPS = (
+    frozenset({"INPUT", "OUTPUT"}),
+    frozenset({"MIN", "MAX"}),
+    frozenset({"SUPPLY", "EXHAUST", "RETURN", "OUTSIDE"}),
+    frozenset({"SENSIBLE", "TOTAL", "LATENT"}),
+    frozenset({"HEATING", "COOLING"}),
+    frozenset({"SUMMER", "WINTER"}),
+    frozenset({"PRIMARY", "SECONDARY"}),
+)
+
+
+def rating_qualifiers(text: str, start: int, end: int) -> frozenset[str]:
+    """The qualifier words printed between a tag and its rating, or just after
+    the rating ("100 MBH INPUT"). Pure."""
+    window = text[start : end + 12].upper()
+    return frozenset({"MINIMUM": "MIN", "MAXIMUM": "MAX"}.get(w, w) for w in _RATING_QUALIFIER.findall(window))
+
+
+def different_quantities(qualifiers_by_value: dict[float, list[frozenset[str]]]) -> bool:
+    """Whether the values are different quantities rather than a disagreement:
+    every occurrence of every value names exactly one member of one qualifier
+    family, and at least two values name different members. Pure."""
+    for group in _QUALIFIER_GROUPS:
+        named: set[str] = set()
+        for occurrences in qualifiers_by_value.values():
+            per_value = {q for qs in occurrences for q in qs & group}
+            if not occurrences or len(per_value) != 1 or any(not (qs & group) for qs in occurrences):
+                break
+            named |= per_value
+        else:
+            if len(named) >= 2:
+                return True
+    return False
 
 
 def _rating_value(text: str) -> float:
@@ -1229,6 +1286,9 @@ def tag_value_conflicts(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
     findings: list[Finding] = []
     for (tag, unit), values in sorted(seen.items()):
         if len(values) < 2:
+            continue
+        if different_quantities({v: [rating_qualifiers(chunk.text, start, end) for _, chunk, _, start, end in places]
+                                 for v, places in values.items()}):
             continue
         sheets_of = {v: {page.id for page, *_ in places} for v, places in values.items()}
         all_sheets = set().union(*sheets_of.values())

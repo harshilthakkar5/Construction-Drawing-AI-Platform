@@ -330,6 +330,16 @@ TITLE_SYNONYMS: dict[tuple[str, ...], list[list[str]]] = {
     ("RETAINING", "WALL"): [["BASEMENT", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
     ("DRILLED", "PIER"): [["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"], ["CAISSON"]],
     ("BASEMENT", "WALL"): [["RETAINING", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+    # Keyed on the library's own names as element_title_words reads them
+    # ("Isolated / spread footings" → [ISOLATED], [SPREAD, FOOTING]).
+    ("ISOLATED",): [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+    ("SPREAD", "FOOTING"): [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+    ("GRADE", "BEAM"): [["TIE", "BEAM"]],
+    ("ELEVATED", "SLAB"): [["FLAT", "PLATE"], ["FLAT", "SLAB"]],
+    ("SLAB", "DEPRESSION"): [["SLAB", "STEP"], ["DEPRESSED", "SLAB"]],
+    ("TURNDOWN",): [["TURN", "DOWN"]],
+    ("ANCHOR", "BOLT"): [["ANCHOR", "ROD"]],
+    ("EMBED", "PLATE", "WELD", "PLATE"): [["EMBED", "PLATE"], ["EMBEDDED", "PLATE"], ["WELD", "PLATE"]],
 }
 
 
@@ -346,7 +356,11 @@ def element_title_words(name: str | None) -> list[list[str]]:
     return out
 
 
-_SCALE_LINE = re.compile(r"^\s*SCALE\b", re.I)
+# A detail's scale line: "SCALE: 3/4" = 1'-0"", or the bare ratio / N.T.S. some drafters print alone.
+_SCALE_LINE = re.compile(
+    r"^\s*(?:SCALE\b|\d+(?:/\d+)?(?:\s+\d+/\d+)?\s*\"\s*=\s*1'\s*-?\s*0\"|N\.?T\.?S\.?\b|NO\s+SCALE\b|NOT\s+TO\s+SCALE\b)",
+    re.I,
+)
 
 
 def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
@@ -625,9 +639,11 @@ MARK_ELEMENTS = (
     ("P", re.compile(r"\bpiles?\b(?!\s*caps?)|\bpiers?\b|caisson|drilled shafts?", re.I)),
     ("GB", re.compile(r"grade beam", re.I)),
     ("F", re.compile(r"footing", re.I)),
-    ("C", re.compile(r"column|pilaster", re.I)),
-    ("SW", re.compile(r"\bwalls?\b", re.I)),
-    ("W", re.compile(r"\bwalls?\b", re.I)),
+    ("WF", re.compile(r"wall footings?|strip footings?|continuous.*footings?", re.I)),
+    # "Column blockouts" and "column capitals" are not columns; "wall footings" are not walls.
+    ("C", re.compile(r"\bcolumns?\b(?!\s*(?:blockouts?|capitals?|footings?))|pilaster", re.I)),
+    ("SW", re.compile(r"\bwalls?\b(?!\s*footings?)", re.I)),
+    ("W", re.compile(r"\bwalls?\b(?!\s*footings?)", re.I)),
     ("B", re.compile(r"\bbeams?\b|girder", re.I)),
 )
 MARK_CHECKS = ("unmarked_element", "unscheduled_mark")
@@ -1025,51 +1041,129 @@ def parse_candidates(raw: str | None, known: set[str], checks: set[str]) -> tupl
 # that is exactly ONE length is compared — never a note or a bar spacing, where
 # a string difference is not a disagreement.
 
+# The datum before a length (EL. 104'-6", T.O.F. -2'-0") and the word after it
+# (8" MIN, 12" MAX) are kept as the value's QUALIFIER: a top of footing is not
+# a bottom, a minimum is not a maximum, and only like compares with like.
 _LENGTH = re.compile(
-    r"""^\s*(?P<sign>-)?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:\s+(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
-    r"""\s*(?:thick|thk\.?|deep|min\.?|\([^)]*\))?\s*$""",
+    r"""^\s*(?P<datum>(?:EL(?:EV(?:ATION)?)?|T\.?\s*O\.?\s*[A-Z]{0,3}|B\.?\s*O\.?\s*[A-Z]{0,3}|F\.?\s*F\.?\s*E)\.?\s*[=:]?\s*)?"""
+    r"""(?P<sign>[+-])?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:(?:\s+|-)(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
+    r"""\s*(?P<tail>thick|thk\.?|deep|wide|dia\.?|min\.?|max\.?|typ\.?|\([^)]*\))?\s*$""",
     re.I,
 )
+# The prime and double-prime a PDF may carry instead of ' and ".
+_QUOTES = str.maketrans({"′": "'", "’": "'", "‘": "'", "″": '"', "”": '"', "“": '"', "−": "-", "–": "-"})
+
+
+def _length_match(value: str | None):
+    m = _LENGTH.match((value or "").translate(_QUOTES)) if isinstance(value, str) else None
+    if not m or not (m["ft"] or m["in"]) or (m["den"] and int(m["den"]) == 0):
+        return None
+    return m
 
 
 def parse_length(value: str | None) -> float | None:
-    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2"); else None. Pure."""
-    m = _LENGTH.match(value or "")
-    if not m or not (m["ft"] or m["in"]):
+    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2",
+    1'-4-1/2", EL. 104'-6"); else None. Pure."""
+    m = _length_match(value)
+    if not m:
         return None
-    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] and int(m["den"]) else 0)
-    return -inches if m["sign"] else inches
+    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] else 0)
+    return -inches if m["sign"] == "-" else inches
+
+
+def length_qualifier(value: str | None) -> str:
+    """What a length is OF, beyond its field: "TOF", "BOF", "FFE" for a datum
+    (a bare EL. is just an elevation, so no qualifier), and "min"/"max". Pure."""
+    m = _length_match(value)
+    if not m:
+        return ""
+    datum = re.sub(r"[^A-Z]", "", (m["datum"] or "").upper())
+    datum = "" if datum.startswith("EL") else datum
+    tail = (m["tail"] or "").lower()
+    bound = "min" if tail.startswith("min") else "max" if tail.startswith("max") else ""
+    return f"{datum}|{bound}"
+
+
+_KEY_NOISE = {"the", "a", "an", "of", "at", "on", "in", "for", "to"}
+_FIELD_SYNONYMS = {"thk": "thickness", "thick": "thickness", "elev": "elevation", "el": "elevation", "dia": "diameter"}
+
+
+def _words(text: str | None) -> list[str]:
+    """Lower-case stems: plural s dropped (but not the ss of thickness), common
+    abbreviations spelled out, filler words gone."""
+    raw = re.findall(r"[a-z0-9]+", re.sub(r"\([^)]*\)", " ", (text or "").lower()))
+    stems = (re.sub(r"(?<!s)s$", "", re.sub(r"(?<=ss)es$", "", w)) for w in raw if w not in _KEY_NOISE)
+    return [_FIELD_SYNONYMS.get(w, w) for w in stems]
 
 
 def _key(text: str | None) -> str:
-    words = re.sub(r"\([^)]*\)", " ", (text or "").lower())
-    return " ".join(re.sub(r"s$", "", w) for w in re.findall(r"[a-z0-9]+", words))
+    return " ".join(_words(text))
+
+
+def _location_key(text: str | None) -> str:
+    """A location without its 'grid'/'line' noise, a grid pair in one order:
+    "Grid BH/B7" and "B7-BH" are one intersection."""
+    tokens = [t for t in re.findall(r"[a-z0-9.]+", re.sub(r"\([^)]*\)", " ", (text or "").lower()))
+              if t not in {"grid", "grids", "line", "lines", "intersection", "at", "near", "of"}]
+    return " ".join(sorted(tokens) if len(tokens) == 2 else tokens)
+
+
+def same_field(entity: str | None, a: str | None, b: str | None) -> bool:
+    """Whether two field names on one element name the same measurement: equal,
+    or one is the other plus words of the element's own name ("pit slab
+    thickness" and "thickness" on "Elevator pit slab"). Never on an entity that
+    names two things ("wall and slab"): there "wall thickness" and "slab
+    thickness" both lose their only distinguishing word. Pure."""
+    wa, wb = set(_words(a)), set(_words(b))
+    if not wa or not wb:
+        return False
+    if wa == wb:
+        return True
+    if re.search(r"\band\b|&|/|,|\+", entity or ""):
+        return False
+    small, big = (wa, wb) if len(wa) < len(wb) else (wb, wa)
+    return small < big and big - small <= set(_words(entity))
 
 
 def value_conflicts(inventory: list[dict]) -> list[dict]:
     """One element, one field, two SOURCES printing different lengths. Rows of
     one element are matched on the entity's words; two rows at different
-    locations are two elements, and two rows citing the same evidence are one
-    source. Pure."""
-    rows: dict[tuple[str, str], list[dict]] = {}
+    locations are two elements, two rows citing the same evidence are one
+    source, and two values of different kinds (minimum and maximum, top and
+    bottom) are not a disagreement. Pure."""
+    by_entity: dict[str, list[dict]] = {}
     for item in inventory:
         for f in item.get("fields") or []:
             inches = parse_length(f.get("value")) if f.get("state") == "supported" and not f.get("derived") else None
             if inches is None or not f.get("evidenceIds"):
                 continue
-            rows.setdefault((_key(item.get("entity")), _key(f.get("name"))), []).append(
-                {"item": item, "field": f, "inches": inches}
+            by_entity.setdefault(_key(item.get("entity")), []).append(
+                {"item": item, "field": f, "inches": inches, "kind": length_qualifier(f.get("value"))}
             )
+    # Grouped by field AS the comparison sees it: the first row's name stands for its group.
+    rows: dict[tuple[str, int], list[dict]] = {}
+    for entity, entries in by_entity.items():
+        heads: list[dict] = []
+        for e in entries:
+            name = e["field"].get("name")
+            head = next((i for i, h in enumerate(heads)
+                         if same_field(e["item"].get("entity"), h["field"].get("name"), name)), None)
+            if head is None:
+                heads.append(e)
+                head = len(heads) - 1
+            rows.setdefault((entity, head), []).append(e)
     out = []
-    for (entity, name), group in rows.items():
-        if not entity or not name:
+    for (entity, _), group in rows.items():
+        if not entity or not _key(group[0]["field"].get("name")):
             continue
         found = None
         for i, a in enumerate(group):
             for b in group[i + 1:]:
                 if abs(a["inches"] - b["inches"]) < 0.01 or set(a["field"]["evidenceIds"]) & set(b["field"]["evidenceIds"]):
                     continue
-                la, lb = _key(a["item"].get("location")), _key(b["item"].get("location"))
+                if a["kind"] != b["kind"] or not same_field(a["item"].get("entity"), a["field"].get("name"), b["field"].get("name")):
+                    continue
+                la, lb = _location_key(a["item"].get("location")), _location_key(b["item"].get("location"))
                 if la and lb and la != lb:
                     continue
                 found = (a, b)
@@ -1347,6 +1441,13 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
     for token in rfi_scan._IDENT.findall(upper):
         if rfi_checks.normalize(token) and rfi_checks.normalize(token) not in rfi_checks.normalize(material):
             return False, f"names {token}, which the evidence does not contain"
+    # A dimension the drawing prints in the other unit is grounded: 18" where
+    # the sheet says 1'-6", or "1'-4" (16")". Matched as a whole LENGTH, never
+    # digit by digit — "16"" on the sheet must not ground "#4 bars at level 1".
+    printed = {round(v, 3) for _, _, v in _dimensions(material)}
+    for start, end, inches in _dimensions(upper):
+        if round(inches, 3) in printed:
+            upper = upper[:start] + " " * (end - start) + upper[end:]
     # Every digit run, not only free-standing numbers: the scan's pattern skips
     # digits touching a letter, so "W14x90" — a member size, exactly the kind
     # of fact a review question states — passed with neither half checked.
@@ -1357,6 +1458,20 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
 
 
 _DIGITS = re.compile(r"(?<![0-9.])\d+(?:\.\d+)?(?![0-9])")
+# One printed length: 1'-6", 1' - 4 1/2", 18", 10 1/2". Feet alone (2') are not
+# matched: "2'" also reads as a grid prime or a quote.
+_DIMENSION = re.compile(r"""(?<![\d./])(?:(\d+)\s*'\s*-?\s*)?(\d+)(?:(?:\s+|-)(\d+)/(\d+))?\s*\"""")
+
+
+def _dimensions(text: str) -> list[tuple[int, int, float]]:
+    """(start, end, inches) of every length printed in `text`. Pure."""
+    out = []
+    for m in _DIMENSION.finditer(text.translate(_QUOTES)):
+        ft, inch, num, den = m.groups()
+        if den and int(den) == 0:
+            continue
+        out.append((m.start(), m.end(), int(ft or 0) * 12 + int(inch) + (int(num) / int(den) if num else 0)))
+    return out
 
 
 def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str | None:

@@ -133,6 +133,11 @@ describe("elementFamily", () => {
     expect(elementFamily("F3")!.family).toBe("footing");
     expect(elementFamily("SW-3")!.family).toBe("shear or core wall");
     expect(elementFamily("B12")!.family).toBe("beam");
+    expect(elementFamily("BW-2")!.family).toBe("shear or core wall");
+    expect(elementFamily("PIER-4")!.family).toBe("pile or pile cap");
+    expect(elementFamily("MP-1")!.family).toBe("pile or pile cap");
+    expect(elementFamily("PED-1")!.family).toBe("column");
+    expect(elementFamily("TB-3")!.family).toBe("beam");
     expect(elementFamily("SR-4")).toBeNull();
     expect(elementFamily("DOOR")).toBeNull();
   });

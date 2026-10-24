@@ -31,13 +31,13 @@ export function normalizeSheet(value: string): string {
 /** The element families a mark's shape names. A routing SEED, never a limit:
  * the family's checks are added, nothing else is removed. */
 const ELEMENT_FAMILIES: { pattern: RegExp; family: string; checks: RfiReviewCheckId[] }[] = [
-  { pattern: /^(SW|CW)[-\s]?\d/, family: "shear or core wall", checks: ["C02"] },
-  { pattern: /^(PC|PILE|P)[-\s]?\d/, family: "pile or pile cap", checks: ["F04"] },
+  { pattern: /^(SW|CW|BW|RW)[-\s]?\d/, family: "shear or core wall", checks: ["C02"] },
+  { pattern: /^(PC|PILE|PIER|MP|P)[-\s]?\d/, family: "pile or pile cap", checks: ["F04"] },
   { pattern: /^(WF|CF)[-\s]?\d/, family: "wall footing", checks: ["F02"] },
   { pattern: /^(MAT|MF)[-\s]?\d/, family: "mat foundation", checks: ["F03"] },
   { pattern: /^(F|FTG|SF)[-\s]?\d/, family: "footing", checks: ["F01"] },
-  { pattern: /^(C|COL)[-\s]?\d/, family: "column", checks: ["C01", "C03"] },
-  { pattern: /^(B|BM|G|GB|J)[-\s]?\d/, family: "beam", checks: ["B01", "B02", "B03"] },
+  { pattern: /^(C|COL|PED)[-\s]?\d/, family: "column", checks: ["C01", "C03"] },
+  { pattern: /^(B|BM|G|GB|TB|J)[-\s]?\d/, family: "beam", checks: ["B01", "B02", "B03"] },
   { pattern: /^(S|SL|SLAB)[-\s]?\d/, family: "slab", checks: ["FL01", "FL02", "FL03", "FL04"] },
 ];
 
@@ -426,7 +426,7 @@ export function libraryQueries(library: ReviewScope["library"]): { label: string
   }
   return [...byCategory].map(([category, texts]) => ({
     label: `${library.element.name}: ${category}`,
-    query: [library.element.name, library.element.variants, ...texts].filter(Boolean).join(" ").slice(0, 600),
+    query: [library.element.name, library.element.variants, library.element.attributes, ...texts].filter(Boolean).join(" ").slice(0, 600),
   }));
 }
 

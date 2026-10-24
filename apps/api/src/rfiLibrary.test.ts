@@ -7,6 +7,7 @@ import {
   RFI_CHECK_LABELS,
   RFI_REVIEW_CHECKS,
   compareAcrossNeeds,
+  headingScore,
   libraryCatalogueIds,
   suggestSheets,
   scheduleHeadings,
@@ -229,6 +230,10 @@ describe("sheet suggestions for an element", () => {
     expect(suggestSheets(["Struct foundation plan", "schedule"], leland, Infinity, "Drilled piers / caissons").sheets).toEqual(["S2.20", "S2.30-A"]);
     // Nothing named: the first schedule sheet, as before.
     expect(suggestSheets(["Struct plan", "pile cap schedule"], leland).sheets).toEqual(["S2.20", "S0.01"]);
+    // A drafter's name for it: PIER CAP SCHEDULE answers "pile cap schedule" — but PILE alone never takes a pier schedule.
+    const withPierCap = [...leland, { ...sheet("S3.01", "structural", "schedule", 95), headings: ["PIER CAP SCHEDULE"] }];
+    expect(suggestSheets(["Struct plan", "pile cap schedule"], withPierCap).sheets).toEqual(["S2.20", "S3.01"]);
+    expect(headingScore(withPierCap[5]!, scheduleSubject("pile schedule"))).toBe(0);
   });
 
   it("prefers the sheet whose title names the work, and a code or finishes plan last", () => {
