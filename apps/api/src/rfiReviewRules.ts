@@ -426,7 +426,7 @@ export function libraryQueries(library: ReviewScope["library"]): { label: string
   }
   return [...byCategory].map(([category, texts]) => ({
     label: `${library.element.name}: ${category}`,
-    query: [library.element.name, library.element.variants, library.element.attributes, ...texts].filter(Boolean).join(" ").slice(0, 600),
+    query: [library.element.name, library.element.variants, ...texts].filter(Boolean).join(" ").slice(0, 600),
   }));
 }
 

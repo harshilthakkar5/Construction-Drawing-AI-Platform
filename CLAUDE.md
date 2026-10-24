@@ -2815,7 +2815,8 @@ PDFs on the worker's disk (`RFI_PDF_CACHE_MB`). Measured: 70 s cold, 11 s on the
 same sheets, identical results. By element planning also searches in the library's OWN words
 (`libraryQueries`, one search per question category): 28 of 62 elements link to none of the 17
 original questions and searched nothing, reading only the picked sheets (Elevator pits: 7 pages →
-32, now including S4.00, the sheet of RFI 007). The AI is told which code checks ran and what they
+32, now including S4.00, the sheet of RFI 007). The element's ATTRIBUTES stay out of those searches: added, they
+moved Retaining walls and Levels off S2.31-A, the sheet of Leland RFI 009 (measured offline, plan only). The AI is told which code checks ran and what they
 found (`checked_by_code_block`) — never that their silence settles a question. A rejection saying
 the specifications or a standard govern stands (`_SPEC_GOVERNED`), and an overruled rejection is
 saved Low. `rfi_eval.py --project-reviews <project>` scores every element's latest run against the
