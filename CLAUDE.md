@@ -2856,7 +2856,9 @@ of detail 3 (8") — and the inventory could not have shown it, because it held 
 element. Discovery now writes one inventory row per element PER SOURCE (`source`: "detail 3/S4.00"),
 and the code proposes a conflict where two sources print different LENGTHS for one element and field
 (`parse_length` takes exactly one length — never a bar spacing or a note; rows at different locations
-are two elements; rows citing the same evidence are one source). It goes through verification like
+are two elements — but a location that only names the detail or sheet it was read from ("S4.00 detail 3")
+is no place (`_place`): a real Sonnet 5.5 run filed 8" under detail 3 and 1'-4" under details 4 and 5, each
+"located" at its own detail, and the code read three pits; rows citing the same evidence are one source). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
 The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review
