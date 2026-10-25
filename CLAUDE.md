@@ -2835,8 +2835,8 @@ to. Discovery records such a field `unknown` with the reference quoted; reasonin
 resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
 any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
 search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
-A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN", which is Leland RFI 002,
-and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
+A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN" (once filed here as Leland
+RFI 002; the form says 002 is the SW3 core piers on S2.30-B, below), and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
 dimension line of every reviewed page (an elevation's, under T.O.C., and a note's "-SEE PLAN" are not), grouped by the
 detail title UNDER it, as an aid — so whether the plan gives that length no longer depends on the model noticing.
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
@@ -2865,7 +2865,32 @@ S4.00, it could not know both sections are cut through one pit. `one_place` answ
 symbols (`section_callouts`: the number directly above its sheet, in display space) within `SAME_PLACE_PT` of each
 other, citing that plan — Leland's S8.13 cuts 3/S4.00 and 4/S4.00 81pt apart at BH/B7. `values` on the candidate
 keeps every source, because the pair the plan cuts together (3 and 4) need not be the pair compared first (3 and 5).
-A symbol not found, or any read failure, leaves the rejection as it was. It goes through verification like
+A symbol not found, or any read failure, leaves the rejection as it was.
+Section symbols are read by `workers/src/callouts.py` (stacked "3" over "S4.00", and inline "10/ S4.10"), and a detail
+titled only by its own reference ("10/S4.10") is a title (`review_aids.detail_titles`).
+
+Three more Leland misses (002, 004, 009), each a different failure, none fixed by asking the model harder:
+  * RFI 009 (10/S4.10's wall T.O.C. "SEE PLAN", nothing on S2.31-A where it is cut) was proposed and set aside twice,
+    the second time CITING pier tops while conceding "the evidence does not show that the plans lack these values, so
+    no gap is demonstrated". That asks a problem to prove an absence: `contested` now treats a reason of that shape
+    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. A kept deferral finding also gets, as `kind="callout"`
+    CONTEXT evidence, where the plans call out the details whose "SEE PLAN" lies in its cited boxes
+    (`with_callout_context`, reviewed plans first, ≤3) — where the value belongs and a person looks. A callout is in
+    WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was
+    measured and rejected: on Leland nearly every detail defers T.O.C. and the plans answer most with area slab
+    notes hundreds of points away — dozens of false RFIs.
+  * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
+    dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
+    questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
+    place or size an element is not given into a LOW candidate for verification when reasoning proposed nothing for
+    that question (placement first, ≤3). Measuring piers against the grid was not an option there: the A-series
+    grid is slanted, and `grid.page_grid` reads only axis-aligned lines.
+  * RFI 004 (cap sizes where the single-column typical cap on S0.03 does not apply) is the code check
+    `twin_column_cap` (`workers/src/pier_caps.py`): two grey column fills touching, of a column's size at the printed
+    scale, on a FOUNDATION plan (title block or the sheet's big titles), with no detail symbol within 8 ft. Run over
+    every page of Leland and UT Law it fires on exactly the two sheets the RFI clouds (5 pairs each along the
+    expansion joint, whose cap detail 9/S4.00 the plans never reference) and nowhere else. Linked to F04 and
+    CE-03-05-Q02. The eval case for 002 now accepts either sheet its form names (`sheets: ["S2.30-B|S2.31-A"]`). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
 The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review

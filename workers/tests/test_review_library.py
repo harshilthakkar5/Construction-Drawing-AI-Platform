@@ -541,3 +541,83 @@ def test_a_plan_cutting_both_details_at_one_place_keeps_the_conflict_and_it_pass
     def broken(project, sheets):
         raise OSError("download failed")
     assert rr.one_place("p", c, rejected, "ev90", read=broken) is None
+
+
+# --- the plan callouts of a deferred value (Leland RFI 009) ---------------------------
+
+
+def _cited(eid, sheet, kind="text", doc="str", page=78):
+    return rr.Evidence(id=eid, kind=kind, document_id=doc, page_number=page, combined_page_number=page,
+                       sheet_number=sheet, side=None, bbox={"x": 0, "y": 0, "width": 10, "height": 10}, text="x")
+
+
+def _calls(*items):
+    return [{"detail": d, "sheet": s, "x": 0, "y": 0, "rect": (1, 2, 11, 12), "form": "stacked"} for d, s in items]
+
+
+def test_a_kept_deferral_finding_gets_where_the_plans_call_its_details_out():
+    evidence = {"ev34": _cited("ev34", "S4.10"), "ev35": _cited("ev35", "S4.01", page=74)}
+    problem = {"checkId": "CE-04-12-Q02", "kind": "missing", "element": "Retaining wall top of concrete",
+               "issue": 'The details give T.O.C. as "SEE PLAN".', "why": "", "evidenceIds": ["ev35", "ev34"]}
+    found = {("str", 26): _calls(("10", "S4.10"), ("7", "S4.01"), ("13", "S4.10")),   # S2.31-A, read by the review
+             ("str", 30): _calls(("10", "S4.10"), ("10", "S4.10")),                    # S2.32-A, not read
+             ("str", 90): _calls(("99", "S4.10"))}                                     # a detail that defers nothing
+    info = {("str", 26): {"combined": 26, "sheet": "S2.31-A"}, ("str", 30): {"combined": 30, "sheet": "S2.32-A"},
+            ("str", 90): {"combined": 90, "sheet": "S9.00"}}
+    deferred = lambda project, ev: {"S4.10": {"10", "13"}, "S4.01": {"7"}}[ev.sheet_number]
+    out = rr.with_callout_context("p", problem, evidence, {("str", 26)}, read=lambda p, s: (found, info), deferred=deferred)
+    added = [evidence[e] for e in out["evidenceIds"][2:]]
+    assert [(e.kind, e.sheet_number) for e in added] == [("callout", "S2.31-A"), ("callout", "S2.32-A"), ("callout", "S2.31-A")]
+    assert all(e.as_candidate_evidence(None)["role"] == "context" for e in added)
+    assert out["evidenceIds"][:2] == ["ev35", "ev34"] and problem["evidenceIds"] == ["ev35", "ev34"]  # not mutated
+    # A callout is never a finding's only support.
+    assert rr.guard(dict(problem, evidenceIds=[added[0].id]), {"subject": "x", "question": "y"}, evidence, []) is not None
+
+
+def test_a_problem_not_about_a_deferral_or_with_no_callout_is_unchanged():
+    evidence = {"ev34": _cited("ev34", "S4.10")}
+    problem = {"checkId": "X", "kind": "missing", "element": "wall", "issue": "The wall has no reinforcement.",
+               "why": "", "evidenceIds": ["ev34"]}
+    never = lambda *a: (_ for _ in ()).throw(AssertionError("must not read"))
+    assert rr.with_callout_context("p", problem, evidence, set(), read=never, deferred=never) is problem
+    deferral = dict(problem, issue='T.O.C. "SEE PLAN"')
+    assert rr.with_callout_context("p", deferral, evidence, set(), read=lambda p, s: ({}, {}),
+                                   deferred=lambda p, ev: {"10"}) is deferral
+
+
+# --- absences discovery recorded and reasoning dropped (Leland RFI 002) --------------
+
+# The paid run's own observations, verbatim where it matters.
+RFI_002_OBSERVATIONS = [
+    {"checkId": "F04", "element": "Drilled piers P30-12, P30-18", "location": "Corner of foundation wall",
+     "statement": "Piers are drawn as circles with a gray square cap. They sit at a wall corner and along the wall line. "
+                  "The plan gives no grid-referenced offsets for these piers in the crops.", "evidenceIds": ["ev66", "ev55"]},
+    {"checkId": "Q-wall", "element": "Pier at wall corner", "location": "",
+     "statement": "At the wall corner the pier circle and cap are drawn centred on or offset from the wall edge. "
+                  "The crops show no dimension for the pier centre.", "evidenceIds": ["ev66", "ev72"]},
+    {"checkId": "CE-03-01-Q05", "element": "", "location": "",
+     "statement": "Some piers have dimensions to grid. Many piers in the crops have no dimension, and the grids are skewed.",
+     "evidenceIds": ["ev55", "ev58"]},
+    {"checkId": "CE-03-01-Q02", "element": "", "location": "",
+     "statement": "The schedule gives shaft diameter only. Bell diameter and angle are not given in the schedule.",
+     "evidenceIds": ["ev12"]},
+    {"checkId": "CE-03-01-Q04", "element": "", "location": "",
+     "statement": "Full or partial cage length is not stated.", "evidenceIds": ["ev12"]},
+    {"checkId": "CE-03-01-Q07", "element": "", "location": "",
+     "statement": "No rock socket length is stated.", "evidenceIds": ["ev22"]},
+    {"checkId": "CE-03-01-Q03", "element": "", "location": "",
+     "statement": "Top of pier is (-26'-2\" TYP UNO) on the plan legend.", "evidenceIds": ["ev12"]},
+]
+
+
+def test_recorded_absences_of_placement_become_candidates_for_questions_nobody_proposed():
+    got = rr.unclaimed_absences(RFI_002_OBSERVATIONS, {"CE-03-01-Q07", "CE-03-01-Q08", "CE-03-01-Q06"})
+    # Placement first, all three location questions; the bell diameter waits for a free slot.
+    assert [c["checkId"] for c in got] == ["CE-03-01-Q05", "F04", "Q-wall"]
+    first = got[0]
+    assert first["kind"] == "missing" and first["confidence"] == "low" and first["fromObservations"]
+    assert first["evidenceIds"] == ["ev55", "ev58"] and "no dimension" in first["issue"]
+    # A question reasoning already proposed for keeps its own proposal; no geometry, no candidate.
+    assert rr.unclaimed_absences(RFI_002_OBSERVATIONS, {"F04", "Q-wall", "CE-03-01-Q05", "CE-03-01-Q02"}) == []
+    # An observation citing nothing cannot become a finding.
+    assert rr.unclaimed_absences([dict(RFI_002_OBSERVATIONS[0], evidenceIds=[])], set()) == []

@@ -74,6 +74,7 @@ import rfi_scan
 import review_aids
 import storage
 import usage as usage_ledger
+from callouts import detail_ref, display_words, section_callouts  # noqa: F401 (used here and by tests)
 from generated import RFI_QUESTION_CODE_CHECKS, RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, review_evidence_key
 
 log = logutil.get("rfi_review")
@@ -141,9 +142,11 @@ TRUST = {
     # measured, but never a finding's only support and never grounding for
     # a number, since nothing printed says it.
     "aid": "derived",
+    # Where a plan calls out a detail, read by code off the plan's words.
+    "callout": "geometry",
 }
 # Kinds that may not be the whole support of a finding.
-WEAK_KINDS = ("description", "aid")
+WEAK_KINDS = ("description", "aid", "callout")
 CHECKS = {c["id"]: c for c in RFI_REVIEW_CHECKS}
 
 
@@ -256,7 +259,7 @@ class Evidence:
             # A whole-sheet picture is never WHERE a problem is: it is what
             # the model looked at, so it is context, and the package does not
             # cloud it as though it pinpointed anything.
-            "role": "context" if self.kind in ("description", "page") else "finding",
+            "role": "context" if self.kind in ("description", "page", "callout") else "finding",
             "evidenceId": self.id,
             "kind": self.kind,
             "sourceTrust": self.trust,
@@ -564,7 +567,7 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -574,6 +577,7 @@ CODE_CHECK_WORDS = {
     "missing_plan_level": "a level missing from a series of plans",
     "unmarked_element": "an element drawn with no type mark",
     "unsized_column": "a column in the schedule with no size",
+    "twin_column_cap": "a pier cap carrying two columns with no detail called out",
 }
 
 
@@ -714,7 +718,9 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import column_schedule
     import element_marks
-    for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule)):
+    import pier_caps
+    for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
+                               ("twin_column_cap", pier_caps)):
         if check_type in wanted:
             try:
                 found, more = module.findings(reviewed, chunks, open_page)
@@ -1334,47 +1340,11 @@ def value_candidate(a: dict, b: dict, group: list[dict] | None = None) -> dict:
 # ("3" over "S4.00"). Leland RFI 007: 3/S4.00 (8" pit slab) and 4/S4.00 (1'-4")
 # are both cut at BH/B7 on S8.13, 81pt apart; verification, shown only S4.00,
 # set the conflict aside as "different conditions".
-_DETAIL_REF = re.compile(r"\b(\d+[A-Z]?)\s*/\s*([A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?)\b", re.I)
-_SYMBOL_NUMBER = re.compile(r"\d{1,3}[A-Z]?")
 # shortcut: two inches of paper (8 ft at 1/4"), not read at the printed scale;
 # measure in drawn feet if sections of one long element are missed.
 SAME_PLACE_PT = 144.0
 MAX_CALLOUT_PAGES = 40
 _DIFFERENT = re.compile(r"\b(?:different|separate|distinct)\b|\bnot\s+(?:a\s+)?conflict\b", re.I)
-
-
-def detail_ref(source: str | None) -> tuple[str, str] | None:
-    """("3", "S4.00") from "detail 3/S4.00", or None. Pure."""
-    m = _DETAIL_REF.search(source or "")
-    return (m.group(1).upper(), m.group(2).upper()) if m else None
-
-
-def section_callouts(words: list[tuple], sheet: str) -> list[dict]:
-    """The section/detail symbols on a page that point at `sheet`. `words` are
-    (x0, y0, x1, y1, text, unrotated_rect) with the box in DISPLAY space, since
-    "above" is how the sheet reads. Pure."""
-    want = rfi_checks.normalize(sheet)
-    numbers = [w for w in words if _SYMBOL_NUMBER.fullmatch(w[4].strip())]
-    out = []
-    for s in words:
-        if not want or rfi_checks.normalize(s[4].strip(".,;:")) != want:
-            continue
-        cx, height = (s[0] + s[2]) / 2, s[3] - s[1]
-        above = [(s[1] - n[3], n) for n in numbers
-                 if abs((n[0] + n[2]) / 2 - cx) <= (s[2] - s[0]) / 2 and -0.5 * height <= s[1] - n[3] <= 2 * height]
-        if not above:
-            continue
-        n = min(above, key=lambda t: t[0])[1]
-        ra, rb = n[5] if len(n) > 5 else n[:4], s[5] if len(s) > 5 else s[:4]
-        out.append({"detail": n[4].strip().upper(), "sheet": sheet.upper(), "x": cx, "y": (n[1] + s[3]) / 2,
-                    "rect": (min(ra[0], rb[0]), min(ra[1], rb[1]), max(ra[2], rb[2]), max(ra[3], rb[3]))})
-    return out
-
-
-def display_words(page) -> list[tuple]:
-    """A page's words with the box in DISPLAY space and the stored (unrotated) box kept."""
-    m = page.rotation_matrix
-    return [(*tuple(fitz.Rect(w[:4]) * m), w[4], tuple(w[:4])) for w in page.get_text("words")]
 
 
 def cut_together(values: list[dict], callouts: dict) -> dict | None:
@@ -1457,6 +1427,71 @@ def one_place(project_id: str, candidate: dict, decision: dict, evidence_id: str
     return moved, kept, plan
 
 
+# A kept finding about values a detail defers to the plan gets the places the
+# plans call that detail out, as context: that is where the value belongs, and
+# where a person checks it. Leland RFI 009 cited only S4.01 and S4.10 text; the
+# RFI is about where S2.31-A cuts 10/S4.10.
+MAX_CALLOUT_CONTEXT = 3
+MAX_CONTEXT_FINDINGS = 3
+
+
+def pick_callouts(found: dict, info: dict, wanted: set[tuple[str, str]], scope_keys: set) -> list[tuple]:
+    """(page key, callout) for up to MAX_CALLOUT_CONTEXT callouts of the
+    wanted (detail, sheet) pairs: a page the review read first, then the page
+    calling out the most of them; one per page before a second. Pure."""
+    by_page = {k: [c for c in calls if (c["detail"], c["sheet"]) in wanted] for k, calls in found.items()}
+    order = sorted((k for k, calls in by_page.items() if calls),
+                   key=lambda k: (k not in scope_keys, -len(by_page[k]), info.get(k, {}).get("combined") or 0))
+    out: list[tuple] = []
+    for rank in range(MAX_CALLOUT_CONTEXT):
+        for k in order:
+            if rank < len(by_page[k]) and len(out) < MAX_CALLOUT_CONTEXT:
+                out.append((k, by_page[k][rank]))
+    return out
+
+
+def with_callout_context(project_id: str, candidate: dict, evidence: dict, scope_keys: set, *,
+                         read=None, deferred=None) -> dict:
+    """`candidate` with context evidence where the plans call out the details
+    its problem says defer a value to the plan. Unchanged when it is not about
+    a deferral, cites no detail sheet, or no plan calls them out. `read` is
+    callouts_in_project and `deferred(ev) -> detail numbers` reads a cited
+    detail sheet; both injectable for tests."""
+    text = f"{candidate.get('issue') or ''} {candidate.get('why') or ''} {candidate.get('element') or ''}"
+    if not _DEFERS.search(text):
+        return candidate
+    cited = [evidence[e] for e in candidate["evidenceIds"] if e in evidence and evidence[e].sheet_number
+             and evidence[e].kind in ("text", "crop")]
+    wanted: set[tuple[str, str]] = set()
+    for ev in cited:
+        wanted |= {(n, ev.sheet_number.upper()) for n in (deferred or _deferred_in)(project_id, ev)}
+    if not wanted:
+        return candidate
+    found, info = (read or callouts_in_project)(project_id, {s for _, s in wanted})
+    picked = pick_callouts(found, info, wanted, scope_keys)
+    if not picked:
+        return candidate
+    next_id = max((int(e[2:]) for e in evidence if e[2:].isdigit()), default=0) + 1
+    ids = []
+    for key, c in picked:
+        r = c["rect"]
+        ev = Evidence(id=f"ev{next_id}", kind="callout", document_id=key[0], page_number=key[1],
+                      combined_page_number=info[key]["combined"], sheet_number=info[key]["sheet"], side=None,
+                      bbox={"x": r[0], "y": r[1], "width": r[2] - r[0], "height": r[3] - r[1]},
+                      text=f"callout {c['detail']}/{c['sheet']}")
+        evidence[ev.id] = ev
+        ids.append(ev.id)
+        next_id += 1
+    return dict(candidate, evidenceIds=list(candidate["evidenceIds"]) + ids)
+
+
+def _deferred_in(project_id: str, ev: Evidence) -> set[str]:
+    """The details on a cited detail sheet that print "SEE PLAN" inside the cited box."""
+    with _documents(project_id, [ev.document_id]) as open_page:
+        page = open_page(ev.document_id, ev.page_number)
+        return review_aids.deferred_details(page, ev.bbox) if page is not None else set()
+
+
 def callouts_in_project(project_id: str, sheets: set[str]) -> tuple[dict, dict]:
     """(page key -> section_callouts, page key -> page row) over the project's
     plans that print one of `sheets` and are not it. A page that cannot be
@@ -1492,6 +1527,54 @@ def callouts_in_project(project_id: str, sheets: set[str]) -> tuple[dict, dict]:
     return found, info
 
 
+# --- Absences discovery recorded and reasoning dropped ---------------------------
+# Leland RFI 002: discovery wrote "the crops show no dimension for the pier
+# centre" and "no grid-referenced offsets for these piers"; reasoning proposed
+# testing, rock sockets and casing, and the location questions ended
+# "no issue". A recorded absence of a value needed to place or size an element
+# goes to verification like any proposal — never silently to "no issue".
+_ABSENT = re.compile(
+    r"\bno\s+(?:\w+[\s-]+){0,3}?(?:dimensions?|offsets?|elevations?|sizes?|locations?|centres?|centers?|"
+    r"centrelines?|centerlines?|thickness(?:es)?|widths?|depths?)\b"
+    r"|\b(?:is|are|was|were|not)\s+(?:not\s+)?(?:dimensioned|located|given|stated|specified|provided|printed|shown)\b"
+    r"|\bdoes\s+not\s+(?:show|give|state|dimension|locate)\b",
+    re.I,
+)
+# Placing an element before sizing it: those absences are the RFI's core.
+_PLACEMENT = re.compile(r"\b(?:dimension\w*|offsets?|locat\w*|centre\w*|center\w*|grid)\b", re.I)
+MAX_UNCLAIMED = 3
+
+
+def unclaimed_absences(observations: list[dict], proposed: set[str]) -> list[dict]:
+    """Candidates for the questions reasoning proposed nothing for, made from
+    discovery's own observations that a value needed to place or size an
+    element is not given. One per question, placement first, then by how many
+    observations say so. Pure."""
+    by_check: dict[str, list[dict]] = {}
+    for o in observations:
+        text = o.get("statement") or ""
+        if o["checkId"] in proposed or not o.get("evidenceIds"):
+            continue
+        if _ABSENT.search(text) and (_GEOMETRY.search(text) or _PLACEMENT.search(text)):
+            by_check.setdefault(o["checkId"], []).append(o)
+    ranked = sorted(by_check.items(), key=lambda kv: (
+        not any(_PLACEMENT.search(o["statement"]) for o in kv[1]), -len(kv[1]), kv[0]))
+    out = []
+    for check_id, obs in ranked[:MAX_UNCLAIMED]:
+        first = obs[0]
+        out.append({
+            "checkId": check_id, "kind": "missing", "disposition": "rfi", "searchFor": "",
+            "element": first.get("element") or "", "location": first.get("location") or "",
+            "issue": _clip(" ".join(o["statement"] for o in obs), 600),
+            "why": "Discovery recorded that a value needed to place or size this element is not given, and no other "
+                   "proposal covered it.",
+            "derivation": "", "impact": "", "unresolvedReason": "",
+            "evidenceIds": list(dict.fromkeys(e for o in obs for e in o["evidenceIds"])),
+            "confidence": "low", "searched": [], "fromObservations": True,
+        })
+    return out
+
+
 REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
 # At most this many "it is on another drawing" rejections are re-checked per
 # review: each costs a project search and a share of one more call.
@@ -1519,6 +1602,18 @@ _DEFERS = re.compile(
 # drawing set is concerned, and is never overruled: "time between adjacent
 # pours is governed by the concrete specifications and ACI" was overruled into
 # a Leland finding the drawings were never meant to answer.
+# A rejection resting on absence not being PROVEN rather than on a value shown.
+# Leland RFI 009 was rejected twice so, the second time citing pier tops while
+# conceding the walls' T.O.C. was a plan value nobody had shown: "The evidence
+# does not show that the plans lack these values, so no gap is demonstrated."
+_UNPROVEN_ABSENCE = re.compile(
+    r"\b(?:does\s+not|doesn'?t|do\s+not|don'?t|nothing|no\s+evidence)\s+(?:\w+\s+){0,3}?"
+    r"(?:shows?|establish(?:es)?|demonstrates?|proves?|indicates?)\b[^.]{0,80}?"
+    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed))\b"
+    r"|\bno\s+gap\s+(?:is|was|has\s+been)\s+(?:demonstrated|shown|established|proven)\b"
+    r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b",
+    re.I,
+)
 _SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
@@ -1567,12 +1662,16 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     saying the problem is not visible, stands."""
     if not decision or decision.get("decision") != "reject":
         return False
+    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
+        return False
+    # "Nothing shows the plans LACK it" asks the problem to prove an absence;
+    # citing evidence beside that says what the evidence does not settle.
+    if _UNPROVEN_ABSENCE.search(decision.get("reason") or ""):
+        return True
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
     if cited & shown:
-        return False
-    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
         return False
     # A problem ABOUT a deferred value ("the details give the offset only as
     # SEE PLAN") is settled only by evidence printing that value: "nothing
@@ -3452,6 +3551,11 @@ def _run(run: dict) -> dict:
             c for c in value_conflicts(inventory)
             if not any(set(c["evidenceIds"]) <= s or s <= set(c["evidenceIds"]) for s in reasoned)
         ][: max(0, MAX_CANDIDATES - len(candidates))]
+        absent = unclaimed_absences(observations, {c["checkId"] for c in candidates})[: max(0, MAX_CANDIDATES - len(candidates) - len(by_values))]
+        if absent:
+            candidates += absent
+            notes.append(f"Absences recorded by discovery and proposed by no one: {len(absent)} question(s) "
+                         f"({', '.join(c['checkId'] for c in absent)}), sent to verification.")
         if by_values:
             candidates += by_values
             notes.append(f"Values compared by code: {len(by_values)} element(s) where two sources print different "
@@ -3507,6 +3611,8 @@ def _run(run: dict) -> dict:
                 continue
             to_verify.append(candidate)
 
+        scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
@@ -3530,6 +3636,12 @@ def _run(run: dict) -> dict:
                 ])
                 set_aside(candidate, "not verified by measurement, recorded for a person to check", "measured column positions", decision)
                 return
+            placed = sum(1 for c, _, _ in kept if any(evidence[e].kind == "callout" for e in c["evidenceIds"]))
+            if placed < MAX_CONTEXT_FINDINGS:
+                try:
+                    candidate = with_callout_context(project_id, candidate, evidence, scope_keys)
+                except Exception:
+                    log.exception("rfi review: placing the plan callouts of %s failed", label)
             kept.append((candidate, decision, verdict))
 
         # 5. Verification — only the evidence each problem cites (and found).

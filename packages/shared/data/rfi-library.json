@@ -3681,7 +3681,9 @@
    ],
    "active": true,
    "catalogue": [],
-   "codeChecks": []
+   "codeChecks": [
+    "twin_column_cap"
+   ]
   },
   {
    "id": "CE-03-05-Q03",

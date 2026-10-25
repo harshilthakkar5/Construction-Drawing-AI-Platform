@@ -87,7 +87,8 @@ def matches(expected: dict, candidate: dict, elements: tuple[str, ...] = ()) -> 
         missing.append(f"check {candidate['checkType']} is not {'/'.join(expected['checkTypes'])}")
     named = {_norm(e.get("sheetNumber") or "") for e in candidate.get("evidence") or []}
     for sheet in expected.get("sheets", []):
-        if _norm(sheet) not in named:
+        # "S2.30-B|S2.31-A": either sheet, as an RFI form naming both is answered on either.
+        if not any(_norm(alt) in named for alt in sheet.split("|")):
             missing.append(f"no evidence on {sheet}")
     text = f"{candidate['subject']}\n{candidate['question']}"
     for a, b in expected.get("pairs", []):

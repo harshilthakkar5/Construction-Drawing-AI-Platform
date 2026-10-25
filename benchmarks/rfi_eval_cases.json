@@ -1106,7 +1106,7 @@
     },
     {
       "id": "leland-rfi-002",
-      "source": "BIM RFI 002 'Confirm the center of the pile' on S2.31-A (Leland South Congress). Scored on a targeted review of S2.31-A.",
+      "source": "BIM RFI 002 'Confirm the center of the pile' (Leland South Congress). The form's Plan/Sheet field names S2.30-B and S2.31-A (areas B and A); its cloud is the SW3 shear-wall core on S2.30-B.",
       "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
       "target": {
         "type": "sheet",
@@ -1122,7 +1122,7 @@
             "F04"
           ],
           "sheets": [
-            "S2.31-A"
+            "S2.30-B|S2.31-A"
           ],
           "mentions": [
             "pile|pier",
@@ -1177,9 +1177,10 @@
       ],
       "expected": [
         {
-          "what": "Pier cap sizes where the typical detail on S0.03 does not apply are not given",
+          "what": "Pier caps carrying two columns along the expansion joint (S2.30-A/B) follow no detail; the typical cap on S0.03 is for one column",
           "checkTypes": [
-            "F04"
+            "F04",
+            "twin_column_cap"
           ],
           "sheets": [
             "S2.30-B"

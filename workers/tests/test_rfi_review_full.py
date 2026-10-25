@@ -783,11 +783,27 @@ def test_a_rejection_of_a_deferred_value_problem_must_show_the_value():
     unsupported = {"decision": "reject", "basis": "not_visible", "answeredBy": [],
                    "reason": "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."}
     assert rfi_review.contested(unsupported, {"ev1"}, problem)
-    assert not rfi_review.contested(unsupported, {"ev1"})  # the old reading, wording only
     # Citing evidence that prints the value settles it.
-    assert not rfi_review.contested(dict(unsupported, answeredBy=["ev1"]), {"ev1"}, problem)
+    printed = dict(unsupported, answeredBy=["ev1"], reason="S2.31-A prints the pier offset 1'-6\" from grid A3 (ev1).")
+    assert not rfi_review.contested(printed, {"ev1"}, problem)
     # A problem not about a deferred value is judged as before.
-    assert not rfi_review.contested(unsupported, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
+    shown = dict(unsupported, reason="Nothing shown indicates an offset.")
+    assert not rfi_review.contested(shown, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
+
+
+def test_a_rejection_that_only_says_absence_is_unproven_is_contested_even_citing_evidence():
+    """Leland RFI 009, verbatim: the recheck cited pier tops and conceded the walls' T.O.C. was never shown."""
+    problem = {"issue": "Retaining wall T.O.C. is given as SEE PLAN in 10/S4.10.", "why": ""}
+    for reason in ("The plans do print pier top elevations: S2.30-B shows (-26'-2\") on its piers. The evidence does not "
+                   "show that the plans lack these values, so no gap is demonstrated.",
+                   "Nothing shown establishes that the plans lack these values, so a gap is not demonstrated.",
+                   "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."):
+        decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev79"], "reason": reason}
+        assert rfi_review.contested(decision, {"ev79"}, problem), reason
+        assert rfi_review.contested(decision, {"ev79"}), reason  # the wording alone, whatever the problem
+    # Specifications governing still stands, and so does a plain "not visible".
+    assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
+                                     "reason": "Per the specifications; nothing shows the plans lack it."}, set(), problem)
 
 
 # The Leland review that proposed it read S8.02, whose column schedule sizes
