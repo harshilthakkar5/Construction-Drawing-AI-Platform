@@ -120,6 +120,18 @@ def test_no_conflict_when_values_agree_sources_overlap_or_elements_differ():
     assert rr.value_conflicts([_row("d3", '#5 @ 10"', ["ev3"]), _row("d4", '#6 @ 12"', ["ev4"])]) == []
 
 
+def test_a_location_that_only_names_the_detail_is_not_a_place():
+    # The real Sonnet run wrote each row's location as its own detail: still one pit.
+    inv = [_row("detail 3/S4.00", '8"', ["ev3"], location="S4.00 detail 3"),
+           _row("detail 4/S4.00", "1'-4\"", ["ev4"], location="S4.00 detail 4")]
+    assert len(rr.value_conflicts(inv)) == 1
+    assert rr._place("detail 3 at BH/B7") == rr._place("B7-BH") == "b7 bh"
+    assert rr._place("3/S4.00") == rr._place("Sheet A0.31") == ""
+    # real places still keep two rows apart
+    assert rr.value_conflicts([_row("d3", '8"', ["ev3"], location="S4.00 detail 3 at A1"),
+                               _row("d4", "1'-4\"", ["ev4"], location="S4.00 detail 4 at B7")]) == []
+
+
 def test_the_guard_lets_the_codes_two_detail_conflict_stand_on_one_sheet_only():
     ev = {e: rr.Evidence(id=e, kind="crop", document_id="d", page_number=73, combined_page_number=73,
                          sheet_number="S4.00", side=None, bbox={"x": 1, "y": 1, "width": 9, "height": 9})

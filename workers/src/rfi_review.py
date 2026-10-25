@@ -1121,6 +1121,23 @@ def _location_key(text: str | None) -> str:
     return " ".join(sorted(tokens) if len(tokens) == 2 else tokens)
 
 
+# What names a SOURCE rather than a place: a detail/section reference and a sheet number.
+_SOURCE_WORDS = re.compile(
+    r"\b(?:details?|sections?|dets?\.?|secs?\.?)\s+\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)*"
+    r"|\b\d+[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b"
+    r"|\b[A-Z]{1,2}-?\d+\.\d+[A-Z]?\b"
+    r"|\b(?:sheet|on|in)\b",
+    re.I,
+)
+
+
+def _place(location: str | None) -> str:
+    """Where on the building a row is, with any detail or sheet it was read from removed:
+    "S4.00 detail 5" names a source and no place, so two details of one element are not
+    two places (Leland RFI 007); "detail 3 at BH/B7" is BH/B7. Pure."""
+    return _location_key(_SOURCE_WORDS.sub(" ", location or ""))
+
+
 def same_field(entity: str | None, a: str | None, b: str | None) -> bool:
     """Whether two field names on one element name the same measurement: equal,
     or one is the other plus words of the element's own name ("pit slab
@@ -1267,7 +1284,7 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
                     continue
                 if a["kind"] != b["kind"] or not same_field(a["item"].get("entity"), a["field"].get("name"), b["field"].get("name")):
                     continue
-                la, lb = _location_key(a["item"].get("location")), _location_key(b["item"].get("location"))
+                la, lb = _place(a["item"].get("location")), _place(b["item"].get("location"))
                 if la and lb and la != lb:
                     continue
                 found = (a, b)
