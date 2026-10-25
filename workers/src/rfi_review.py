@@ -1292,12 +1292,17 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
             if found:
                 break
         if found:
-            out.append(value_candidate(*found))
+            a, b = found
+            place = _place(a["item"].get("location")) or _place(b["item"].get("location"))
+            same = [r for r in group if r["kind"] == a["kind"]
+                    and (not place or _place(r["item"].get("location")) in ("", place))]
+            out.append(value_candidate(a, b, same))
     return out[:MAX_VALUE_CONFLICTS]
 
 
-def value_candidate(a: dict, b: dict) -> dict:
-    """The conflict two rows make, shaped like a reasoning candidate."""
+def value_candidate(a: dict, b: dict, group: list[dict] | None = None) -> dict:
+    """The conflict two rows make, shaped like a reasoning candidate. `values`
+    keeps every source of that field, so a later rule can name another pair."""
     def said(r):
         return f"{r['item'].get('source') or 'one source'} gives {r['field']['value']}"
     entity = a["item"]["entity"]
@@ -1315,7 +1320,176 @@ def value_candidate(a: dict, b: dict) -> dict:
         # the wording guard may draw on it like an observation.
         "printed": f"{said(a)}; {said(b)}",
         "fromValues": True,
+        "field": field,
+        "values": [
+            {"source": r["item"].get("source") or "", "value": r["field"]["value"], "inches": r["inches"],
+             "evidenceIds": list(r["field"]["evidenceIds"])}
+            for r in (group or [a, b])
+        ],
     }
+
+
+# --- One place: two details a plan cuts through the same spot --------------------
+# A section symbol prints its number directly above the sheet it is drawn on
+# ("3" over "S4.00"). Leland RFI 007: 3/S4.00 (8" pit slab) and 4/S4.00 (1'-4")
+# are both cut at BH/B7 on S8.13, 81pt apart; verification, shown only S4.00,
+# set the conflict aside as "different conditions".
+_DETAIL_REF = re.compile(r"\b(\d+[A-Z]?)\s*/\s*([A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?)\b", re.I)
+_SYMBOL_NUMBER = re.compile(r"\d{1,3}[A-Z]?")
+# shortcut: two inches of paper (8 ft at 1/4"), not read at the printed scale;
+# measure in drawn feet if sections of one long element are missed.
+SAME_PLACE_PT = 144.0
+MAX_CALLOUT_PAGES = 40
+_DIFFERENT = re.compile(r"\b(?:different|separate|distinct)\b|\bnot\s+(?:a\s+)?conflict\b", re.I)
+
+
+def detail_ref(source: str | None) -> tuple[str, str] | None:
+    """("3", "S4.00") from "detail 3/S4.00", or None. Pure."""
+    m = _DETAIL_REF.search(source or "")
+    return (m.group(1).upper(), m.group(2).upper()) if m else None
+
+
+def section_callouts(words: list[tuple], sheet: str) -> list[dict]:
+    """The section/detail symbols on a page that point at `sheet`. `words` are
+    (x0, y0, x1, y1, text, unrotated_rect) with the box in DISPLAY space, since
+    "above" is how the sheet reads. Pure."""
+    want = rfi_checks.normalize(sheet)
+    numbers = [w for w in words if _SYMBOL_NUMBER.fullmatch(w[4].strip())]
+    out = []
+    for s in words:
+        if not want or rfi_checks.normalize(s[4].strip(".,;:")) != want:
+            continue
+        cx, height = (s[0] + s[2]) / 2, s[3] - s[1]
+        above = [(s[1] - n[3], n) for n in numbers
+                 if abs((n[0] + n[2]) / 2 - cx) <= (s[2] - s[0]) / 2 and -0.5 * height <= s[1] - n[3] <= 2 * height]
+        if not above:
+            continue
+        n = min(above, key=lambda t: t[0])[1]
+        ra, rb = n[5] if len(n) > 5 else n[:4], s[5] if len(s) > 5 else s[:4]
+        out.append({"detail": n[4].strip().upper(), "sheet": sheet.upper(), "x": cx, "y": (n[1] + s[3]) / 2,
+                    "rect": (min(ra[0], rb[0]), min(ra[1], rb[1]), max(ra[2], rb[2]), max(ra[3], rb[3]))})
+    return out
+
+
+def display_words(page) -> list[tuple]:
+    """A page's words with the box in DISPLAY space and the stored (unrotated) box kept."""
+    m = page.rotation_matrix
+    return [(*tuple(fitz.Rect(w[:4]) * m), w[4], tuple(w[:4])) for w in page.get_text("words")]
+
+
+def cut_together(values: list[dict], callouts: dict) -> dict | None:
+    """The closest pair of sources printing DIFFERENT lengths whose sections
+    one page draws within SAME_PLACE_PT of each other, or None. `callouts`:
+    page key -> section_callouts. Pure."""
+    best = None
+    for i, a in enumerate(values):
+        for b in values[i + 1:]:
+            ra, rb = detail_ref(a["source"]), detail_ref(b["source"])
+            if not ra or not rb or ra[1] != rb[1] or ra[0] == rb[0] or abs(a["inches"] - b["inches"]) < 0.01:
+                continue
+            for key, calls in callouts.items():
+                for ca in (c for c in calls if (c["detail"], c["sheet"]) == ra):
+                    for cb in (c for c in calls if (c["detail"], c["sheet"]) == rb):
+                        d = ((ca["x"] - cb["x"]) ** 2 + (ca["y"] - cb["y"]) ** 2) ** 0.5
+                        if d <= SAME_PLACE_PT and (best is None or d < best["distance"]):
+                            best = {"distance": d, "a": a, "b": b, "page": key, "callouts": (ca, cb)}
+    return best
+
+
+def says_different_condition(decision: dict | None) -> bool:
+    """A rejection resting on the two sources being different conditions. Pure."""
+    if not decision or decision.get("decision") == "keep":
+        return False
+    basis = decision.get("basis") or "other"
+    return basis == "different_condition" or (basis == "other" and bool(_DIFFERENT.search(decision.get("reason") or "")))
+
+
+def kept_as_one_place(candidate: dict, decision: dict, found: dict, plan: Evidence) -> tuple[dict, dict]:
+    """The candidate and kept decision a code-shown single place makes: the
+    pair the plan cuts together, cited with the plan's symbols. Pure."""
+    a, b = found["a"], found["b"]
+    (da, sheet), (db_, _) = detail_ref(a["source"]), detail_ref(b["source"])
+    entity, field = candidate.get("element") or "the element", candidate.get("field") or "value"
+    said = f"{a['source']} gives {a['value']}; {b['source']} gives {b['value']}"
+    issue = f"The {field} of {entity}: {a['source']} gives {a['value']}, but {b['source']} gives {b['value']}."
+    new = dict(candidate, issue=issue, printed=said, location=plan.where,
+               evidenceIds=list(dict.fromkeys(a["evidenceIds"] + b["evidenceIds"] + [plan.id])))
+    kept = dict(
+        decision, decision="keep",
+        subject=_text(f"{entity} {field}: {a['value']} vs {b['value']} ({da}/{sheet}, {db_}/{sheet})", 90),
+        question=(f"{issue[:-1]}. Both sections are drawn at the same place on {plan.where}, so they cut one "
+                  f"{entity.lower()}. Which {field} governs there?"),
+        why=(f"Verification set this aside as different conditions, but {plan.where} draws sections {da}/{sheet} and "
+             f"{db_}/{sheet} at one place, so both details show the same element."),
+        confidence="medium", priority="normal",
+    )
+    return new, kept
+
+
+def one_place(project_id: str, candidate: dict, decision: dict, evidence_id: str,
+              read=None) -> tuple[dict, dict, Evidence] | None:
+    """A "different conditions" rejection of a conflict the code compared,
+    overruled when a plan draws both details' sections at one place: (the
+    candidate, the kept decision, the plan's evidence), or None. `read` is
+    callouts_in_project; any failure is None, since this may only keep."""
+    if not candidate.get("fromValues") or not says_different_condition(decision):
+        return None
+    values = candidate.get("values") or []
+    sheets = {r[1] for r in (detail_ref(v["source"]) for v in values) if r}
+    try:
+        callouts, info = (read or callouts_in_project)(project_id, sheets)
+    except Exception:
+        log.exception("rfi review: looking for section symbols failed")
+        return None
+    found = cut_together(values, callouts)
+    if not found:
+        return None
+    key, (ca, cb) = found["page"], found["callouts"]
+    box = (min(ca["rect"][0], cb["rect"][0]), min(ca["rect"][1], cb["rect"][1]),
+           max(ca["rect"][2], cb["rect"][2]), max(ca["rect"][3], cb["rect"][3]))
+    plan = Evidence(
+        id=evidence_id, kind="text", document_id=key[0], page_number=key[1],
+        combined_page_number=info[key]["combined"], sheet_number=info[key]["sheet"], side=None,
+        bbox={"x": box[0], "y": box[1], "width": box[2] - box[0], "height": box[3] - box[1]},
+        text=f"{ca['detail']}/{ca['sheet']} {cb['detail']}/{cb['sheet']}",
+    )
+    moved, kept = kept_as_one_place(candidate, decision, found, plan)
+    return moved, kept, plan
+
+
+def callouts_in_project(project_id: str, sheets: set[str]) -> tuple[dict, dict]:
+    """(page key -> section_callouts, page key -> page row) over the project's
+    plans that print one of `sheets` and are not it. A page that cannot be
+    read is skipped: this may only overrule a rejection, never cause one."""
+    if not sheets:
+        return {}, {}
+    pattern = "|".join(re.escape(s) for s in sorted(sheets))
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber"
+                 FROM pages p JOIN documents d ON d.id = p."documentId"
+                WHERE d."projectId" = %s AND d."supersededAt" IS NULL AND d."includeInRfiAnalysis"
+                  AND d.status = 'completed' AND p.text ~* %s
+                  AND NOT (COALESCE(p."sheetNumber", '') = ANY(%s::text[]))
+                ORDER BY p."combinedPageNumber" LIMIT %s""",
+            (project_id, pattern, sorted(sheets), MAX_CALLOUT_PAGES),
+        ).fetchall()
+    found, info = {}, {}
+    with _documents(project_id, sorted({r[0] for r in rows})) as open_page:
+        for doc_id, number, combined, sheet_number in rows:
+            try:
+                page = open_page(doc_id, number)
+                if page is None:
+                    continue
+                words = display_words(page)
+                calls = [c for s in sheets for c in section_callouts(words, s)]
+            except Exception:
+                log.exception("rfi review: reading section symbols on %s failed", sheet_number)
+                continue
+            if calls:
+                found[(doc_id, number)] = calls
+                info[(doc_id, number)] = {"combined": combined, "sheet": sheet_number}
+    return found, info
 
 
 REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
@@ -3388,6 +3562,17 @@ def _run(run: dict) -> dict:
                         diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
                                           rule="by others settles who designs an element, not its size or place")
                         accept(candidate, kept_for_coordination(candidate, decision))
+                        continue
+                    overrule = one_place(project_id, candidate, decision, f"ev{next_id}")
+                    if overrule:
+                        moved, kept_decision, plan = overrule
+                        next_id += 1
+                        evidence[plan.id] = plan
+                        notes.append(f"Kept {label}: verification called the details different conditions, but "
+                                     f"{plan.where} draws both sections at one place.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
+                                          rule="two details a plan cuts at one place show one element")
+                        accept(moved, kept_decision)
                         continue
                     if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown, candidate):
                         recheck.append((candidate, decision))

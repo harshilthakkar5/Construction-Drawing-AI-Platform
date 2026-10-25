@@ -446,3 +446,98 @@ def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
     # valid JSON is read as is, and a reply with no object is still None
     assert rr.parse_json_object('{"value": "12", "n": 3}') == {"value": "12", "n": 3}
     assert rr.parse_json_object("no json here") is None
+
+
+# --- one place: details a plan cuts at the same spot (Leland RFI 007) ----------------
+
+
+def _sym(detail, x, y, sheet="S4.00"):
+    """A section symbol as words: the number centred just above the sheet."""
+    return [(x - 3, y - 15, x + 3, y - 5, detail, (x - 3, y - 15, x + 3, y - 5)),
+            (x - 12, y, x + 12, y + 10, sheet, (x - 12, y, x + 12, y + 10))]
+
+
+def _pit_values():
+    return [{"source": "detail 5/S4.00", "value": "1'-4\"", "inches": 16, "evidenceIds": ["ev5"]},
+            {"source": "detail 4/S4.00", "value": "1'-4\"", "inches": 16, "evidenceIds": ["ev4"]},
+            {"source": "detail 3/S4.00", "value": '8"', "inches": 8, "evidenceIds": ["ev3"]}]
+
+
+def test_a_section_symbol_is_a_number_over_its_sheet():
+    words = _sym("3", 100, 100) + _sym("4", 100, 180)
+    words += [(300, 100, 324, 110, "S4.00", (300, 100, 324, 110)), (330, 100, 336, 110, "7", (330, 100, 336, 110))]
+    words += _sym("9", 500, 100, sheet="S4.01")
+    assert sorted(c["detail"] for c in rr.section_callouts(words, "S4.00")) == ["3", "4"]
+    assert rr.detail_ref("detail 3/S4.00") == ("3", "S4.00") and rr.detail_ref("S4.00 detail 3") is None
+
+
+def test_two_differing_details_cut_at_one_place_are_found_and_far_ones_are_not():
+    near = {("d", 97): rr.section_callouts(_sym("3", 1205, 889) + _sym("4", 1205, 808) + _sym("5", 850, 990), "S4.00")}
+    found = rr.cut_together(_pit_values(), near)
+    assert (found["a"]["source"], found["b"]["source"]) == ("detail 4/S4.00", "detail 3/S4.00")
+    assert round(found["distance"]) == 81
+    # detail 5 also differs from 3, but it is cut 370pt away: a different place
+    far = {("d", 97): rr.section_callouts(_sym("3", 1205, 889) + _sym("5", 850, 990), "S4.00")}
+    assert rr.cut_together(_pit_values(), far) is None
+    # 4 and 5 are together but agree: nothing to ask
+    same = {("d", 96): rr.section_callouts(_sym("4", 100, 100) + _sym("5", 150, 100), "S4.00")}
+    assert rr.cut_together(_pit_values(), same) is None
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_section_symbols_read_on_a_rotated_sheet(rotation):
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=400)
+    page.set_rotation(rotation)  # drawn to read upright on screen, as a rotated CAD sheet is
+    for detail, y in (("3", 200), ("4", 280)):
+        page.insert_text(fitz.Point(300, y - 6) * page.derotation_matrix, detail, fontsize=8, rotate=rotation)
+        page.insert_text(fitz.Point(291, y + 8) * page.derotation_matrix, "S4.00", fontsize=8, rotate=rotation)
+    calls = rr.section_callouts(rr.display_words(page), "S4.00")
+    assert sorted(c["detail"] for c in calls) == ["3", "4"], rotation
+    # the stored box is the unrotated one: the word "S4.00" is inside it
+    clip = [w[4] for w in page.get_text("words", clip=calls[0]["rect"])]
+    assert "S4.00" in clip
+
+
+def test_only_a_different_condition_rejection_is_reconsidered():
+    assert rr.says_different_condition({"decision": "reject", "basis": "different_condition", "reason": "x"})
+    assert rr.says_different_condition({"decision": "reject", "basis": "other", "reason": "separate details"})
+    assert not rr.says_different_condition({"decision": "reject", "basis": "not_visible", "reason": "different"})
+    assert not rr.says_different_condition({"decision": "keep", "basis": "different_condition"})
+
+
+def _pit_conflict():
+    inv = [_row(f"detail {d}/S4.00", v, [f"ev{d}"], location=f"S4.00 detail {d}")
+           for d, v in ((5, "1'-4\""), (4, "1'-4\""), (3, '8"'))]
+    [c] = rr.value_conflicts(inv)
+    return c
+
+
+def test_a_plan_cutting_both_details_at_one_place_keeps_the_conflict_and_it_passes_the_guard():
+    c = _pit_conflict()
+    assert [v["source"] for v in c["values"]] == ["detail 5/S4.00", "detail 4/S4.00", "detail 3/S4.00"]
+    rejected = {"decision": "reject", "basis": "different_condition", "reason": "Each is a separate detail",
+                "subject": "", "question": "", "why": "", "priority": "normal", "confidence": "medium"}
+    calls = rr.section_callouts(_sym("3", 1205, 889) + _sym("4", 1205, 808), "S4.00")
+    read = lambda project, sheets: ({("doc", 97): calls}, {("doc", 97): {"combined": 97, "sheet": "S8.13"}})
+    moved, kept, plan = rr.one_place("p", c, rejected, "ev90", read=read)
+    assert kept["decision"] == "keep" and kept["confidence"] == "medium"
+    assert plan.sheet_number == "S8.13" and plan.page_number == 97 and plan.bbox["height"] > 81
+    assert set(moved["evidenceIds"]) == {"ev4", "ev3", "ev90"}
+    assert "detail 4/S4.00 gives 1'-4\"" in moved["issue"] and "detail 3/S4.00 gives 8\"" in moved["issue"]
+    assert "S8.13" in kept["question"]
+    ev = {e: rr.Evidence(id=e, kind="crop", document_id="doc", page_number=73, combined_page_number=73,
+                         sheet_number="S4.00", side=None, bbox={"x": 1, "y": 1, "width": 9, "height": 9})
+          for e in ("ev3", "ev4")}
+    ev["ev90"] = plan
+    assert rr.guard(moved, kept, ev, []) is None
+    # no plan cuts them together, a not-visible rejection, or a model-proposed conflict: no change
+    nothing = lambda project, sheets: ({}, {})
+    assert rr.one_place("p", c, rejected, "ev90", read=nothing) is None
+    assert rr.one_place("p", c, dict(rejected, basis="not_visible"), "ev90", read=read) is None
+    assert rr.one_place("p", dict(c, fromValues=False), rejected, "ev90", read=read) is None
+
+    def broken(project, sheets):
+        raise OSError("download failed")
+    assert rr.one_place("p", c, rejected, "ev90", read=broken) is None

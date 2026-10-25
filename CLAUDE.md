@@ -2858,7 +2858,14 @@ and the code proposes a conflict where two sources print different LENGTHS for o
 (`parse_length` takes exactly one length — never a bar spacing or a note; rows at different locations
 are two elements — but a location that only names the detail or sheet it was read from ("S4.00 detail 3")
 is no place (`_place`): a real Sonnet 5.5 run filed 8" under detail 3 and 1'-4" under details 4 and 5, each
-"located" at its own detail, and the code read three pits; rows citing the same evidence are one source). It goes through verification like
+"located" at its own detail, and the code read three pits; rows citing the same evidence are one source). The
+same run's AI saw 8" against 1'-4" itself and verification set it aside as "different conditions" — shown only
+S4.00, it could not know both sections are cut through one pit. `one_place` answers that from the plans: a
+`fromValues` conflict rejected as a different condition is kept MEDIUM when a plan draws both details' section
+symbols (`section_callouts`: the number directly above its sheet, in display space) within `SAME_PLACE_PT` of each
+other, citing that plan — Leland's S8.13 cuts 3/S4.00 and 4/S4.00 81pt apart at BH/B7. `values` on the candidate
+keeps every source, because the pair the plan cuts together (3 and 4) need not be the pair compared first (3 and 5).
+A symbol not found, or any read failure, leaves the rejection as it was. It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
 The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review
