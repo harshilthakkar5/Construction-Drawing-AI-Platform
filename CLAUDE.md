@@ -2885,6 +2885,14 @@ S4.00's three close-ups showed a shear wall, waterproofing and dowels while the 
 details whose TITLE names the element (`detail_regions`: a title line with its SCALE line right below —
 a "SEE ELEVATOR PIT" note is not one — cut as the cell above it, in display space and mapped back) and
 fills the rest from the plan. Same number of images, so the plan's price stands.
+That aiming only works on a page the PLAN renders, and the plan's picture budget went to the named and
+referenced sheets first: S4.00, whose three details are titled ELEVATOR PIT DETAIL, reached both paid
+Elevator pits runs as text only, so 8" against 1'-4" — bare dimension strings — could never be attributed
+to a detail. `rankScope` (By element, `elementName`) now keeps the text pieces carrying a short DETAIL or
+SECTION title naming the element (`titlesElement`, never a "SEE …" pointer) and renders up to
+`TITLED_EXTRA_PAGES` (2) such pages even past the budget, their titles first among the crops. The title
+words are `elementTitleWords`, a mirror of the worker's `element_title_words` + `TITLE_SYNONYMS`; both read
+`packages/shared/fixtures/element-title-words.json`.
 A title is matched by the element's words OR a drafter's name for it (`TITLE_SYNONYMS`: Leland titles
 pile caps PIER CAP, retaining walls BASEMENT WALL, drilled piers DRILLED FOOTING — the library's words
 found none of them), and its SCALE line may overlap it by 15pt (S0.03's "COLUMN PIER CAP PLANS").

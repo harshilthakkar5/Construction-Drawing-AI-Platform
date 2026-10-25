@@ -879,11 +879,22 @@ def parse_json_object(raw: str | None) -> dict | None:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
         return None
+    body = text[start : end + 1]
     try:
-        data = json.loads(text[start : end + 1])
+        data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
-        return None
+        # An inch mark the model did not escape ("-23'-0" on S2.30-B") ends the string early,
+        # and the salvage retry re-sent a whole 137k-token discovery call to fix one character.
+        try:
+            data = json.loads(_INCH_MARK.sub(r'\\"', body))
+        except (json.JSONDecodeError, TypeError):
+            return None
     return data if isinstance(data, dict) else None
+
+
+# A double quote right after a digit that JSON's grammar cannot close a string with
+# (no , } ] or : follows) is a drawing's inch mark, never the end of a value.
+_INCH_MARK = re.compile(r'(?<=\d)(?<!\\)"(?!\s*[,}\]:])')
 
 
 def _ids(value, known: set[str]) -> list[str]:

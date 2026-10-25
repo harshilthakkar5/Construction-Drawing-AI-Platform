@@ -414,3 +414,11 @@ def test_an_entry_with_lengths_is_never_replaced_by_a_re_read():
     out, _ = rr.complete_inventory(inv, [_ev("ev4", 73), _ev("ev5", 73)],
                                    lambda u, s: [_row("detail 4/S4.00", '9"', ["ev4"])])
     assert [f["value"] for r in out for f in r["fields"] if r["source"] == "detail 4/S4.00"] == ["1'-4\""]
+
+
+def test_element_title_words_match_the_shared_fixture_the_planner_reads():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).resolve().parents[2] / "packages/shared/fixtures/element-title-words.json").read_text())
+    for case in fixture["cases"]:
+        assert rr.element_title_words(case["name"]) == case["words"], case["name"]

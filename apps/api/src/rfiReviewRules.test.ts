@@ -647,3 +647,51 @@ describe("reviewIsActive asks the queue about a queued review", () => {
     expect(reviewIsActive({ ...run, status: "running", heartbeatAt: beat }, hourLater, null)).toBe(true);
   });
 });
+
+describe("detail titles of the library element", () => {
+  it("reads an element's title words exactly as the worker does (shared fixture)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { elementTitleWords } = await import("./rfiReviewRules.js");
+    const fixture = JSON.parse(readFileSync(new URL("../../../packages/shared/fixtures/element-title-words.json", import.meta.url), "utf8"));
+    for (const c of fixture.cases) expect(elementTitleWords(c.name), c.name).toEqual(c.words);
+  });
+
+  it("knows a detail title from a pointer, a note or a plan title", async () => {
+    const { elementTitleWords, titlesElement } = await import("./rfiReviewRules.js");
+    const pit = elementTitleWords("Elevator pits");
+    expect(titlesElement("WATERPROOFING\nELEVATOR PIT DETAIL\nSCALE: 3/4\" = 1'-0\"", pit)).toBe(true);
+    expect(titlesElement("SECTION DETAIL @ ELEVATOR PIT", pit)).toBe(true);
+    expect(titlesElement("SEE ELEVATOR PIT DETAIL", pit)).toBe(false);
+    expect(titlesElement("PROVIDE LADDER, LIGHTING AND SUMP PUMP AT ELEVATOR PIT DETAIL AREA PER ARCH", pit)).toBe(false);
+    expect(titlesElement("ELEVATOR PIT WATERPROOFING", pit)).toBe(false); // no DETAIL or SECTION
+    expect(titlesElement("LEVEL 2 - FOUNDATION PLAN", elementTitleWords("Levels / elevations"))).toBe(false);
+    expect(titlesElement("TYPICAL PIER CAP DETAIL", elementTitleWords("Pile caps"))).toBe(true);
+  });
+
+  it("renders a related page carrying the element's detail past the picture budget (Leland RFI 007)", async () => {
+    const { rankScope, TITLED_EXTRA_PAGES } = await import("./rfiReviewRules.js");
+    const page = (id: string, n: number) => ({ pageId: id, documentId: "d", pageNumber: n, combinedPageNumber: n, sheetNumber: id.toUpperCase(), discipline: "structural", pdfWidth: 3456, pdfHeight: 2592 });
+    const chunk = (id: string, pageId: string, text: string) => ({ chunkId: id, pageId, kind: "text", text, bbox: { x: 1, y: 1, width: 100, height: 50 }, tokenCount: 10 });
+    const named = Array.from({ length: 9 }, (_, i) => page(`n${i}`, i + 1)); // more than the standard budget of 8
+    const s400 = page("s4.00", 73);
+    const chunks = new Map([
+      ["t1", chunk("t1", "s4.00", "ELEVATOR PIT DETAIL\nSCALE: 3/4\" = 1'-0\"")],
+      ["x1", chunk("x1", "x", "SEE ELEVATOR PIT DETAIL")],
+    ]);
+    const pages = new Map([["s4.00", s400], ["x", page("x", 80)]]);
+    const input = {
+      depth: "standard" as const,
+      sides: [{ label: "S2.20", pages: named }],
+      targetChunks: [], hitLists: [["x1"]], chunks, pages,
+    };
+    const without = rankScope(input);
+    expect(without.pages.some((p) => p.pageId === "s4.00")).toBe(false);
+    const withName = rankScope({ ...input, elementName: "Elevator pits" });
+    const s4 = withName.pages.find((p) => p.pageId === "s4.00")!;
+    expect(s4.visual).toBe(true);
+    expect(s4.crops.map((c) => c.chunkId)).toEqual(["t1"]);
+    expect(s4.reason).toContain("detail titled with Elevator pits");
+    expect(withName.pages.find((p) => p.pageId === "x")?.visual ?? false).toBe(false); // a pointer earns nothing
+    expect(TITLED_EXTRA_PAGES).toBe(2);
+  });
+});

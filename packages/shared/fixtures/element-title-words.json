@@ -1,0 +1,165 @@
+{
+  "_comment": "Element name -> the words a detail TITLE about it carries. Read by workers/tests (element_title_words) and apps/api (elementTitleWords) so the two cannot drift.",
+  "cases": [
+    {
+      "name": "Elevator pits",
+      "words": [
+        [
+          "ELEVATOR",
+          "PIT"
+        ]
+      ]
+    },
+    {
+      "name": "Drilled piers / caissons / drilled shafts",
+      "words": [
+        [
+          "DRILLED",
+          "PIER"
+        ],
+        [
+          "CAISSON"
+        ],
+        [
+          "DRILLED",
+          "SHAFT"
+        ],
+        [
+          "DRILLED",
+          "FOOTING"
+        ]
+      ]
+    },
+    {
+      "name": "Pile caps",
+      "words": [
+        [
+          "PILE",
+          "CAP"
+        ],
+        [
+          "PIER",
+          "CAP"
+        ]
+      ]
+    },
+    {
+      "name": "Retaining walls (building)",
+      "words": [
+        [
+          "RETAINING",
+          "WALL"
+        ],
+        [
+          "BASEMENT",
+          "WALL"
+        ],
+        [
+          "BELOW",
+          "GRADE",
+          "WALL"
+        ],
+        [
+          "FOUNDATION",
+          "WALL"
+        ]
+      ]
+    },
+    {
+      "name": "Isolated / spread footings",
+      "words": [
+        [
+          "ISOLATED"
+        ],
+        [
+          "SPREAD",
+          "FOOTING"
+        ],
+        [
+          "PAD",
+          "FOOTING"
+        ],
+        [
+          "COLUMN",
+          "FOOTING"
+        ]
+      ]
+    },
+    {
+      "name": "Grade beams",
+      "words": [
+        [
+          "GRADE",
+          "BEAM"
+        ],
+        [
+          "TIE",
+          "BEAM"
+        ]
+      ]
+    },
+    {
+      "name": "Columns",
+      "words": [
+        [
+          "COLUMN"
+        ]
+      ]
+    },
+    {
+      "name": "Slab depressions",
+      "words": [
+        [
+          "SLAB",
+          "DEPRESSION"
+        ],
+        [
+          "SLAB",
+          "STEP"
+        ],
+        [
+          "DEPRESSED",
+          "SLAB"
+        ]
+      ]
+    },
+    {
+      "name": "Embed plates & weld plates",
+      "words": [
+        [
+          "EMBED",
+          "PLATE",
+          "WELD",
+          "PLATE"
+        ],
+        [
+          "EMBED",
+          "PLATE"
+        ],
+        [
+          "EMBEDDED",
+          "PLATE"
+        ],
+        [
+          "WELD",
+          "PLATE"
+        ]
+      ]
+    },
+    {
+      "name": "Levels / elevations",
+      "words": [
+        [
+          "LEVEL"
+        ],
+        [
+          "ELEVATION"
+        ]
+      ]
+    },
+    {
+      "name": "",
+      "words": []
+    }
+  ]
+}

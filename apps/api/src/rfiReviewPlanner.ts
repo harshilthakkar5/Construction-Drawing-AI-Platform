@@ -668,6 +668,7 @@ export async function planReview(
     hitChecks: [...searches.map((s) => s.label), "reference"],
     chunks,
     pages,
+    elementName: libraryScope?.element.name,
   });
   scope.omitted.push(...omittedForced);
 
