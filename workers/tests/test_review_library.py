@@ -351,24 +351,66 @@ def test_a_merged_source_is_asked_again_one_detail_at_a_time_leland_rfi_007():
         asked["user"], asked["shown"] = user, [e.id for e in shown]
         return [_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"])]
 
-    out, note = rr.split_merged(inv, pool, ask)
-    assert "details 3 and 4/S4.00" in asked["user"]
+    out, note = rr.complete_inventory(inv, pool, ask)
+    assert "details 3 and 4/S4.00" in asked["user"] and "ON ITS OWN" in asked["user"]
     assert asked["shown"] == ["ev3", "ev4", "ev5"]  # what it cited + that page's pictures, not other pages or text
     assert sorted(r["source"] for r in out) == ["detail 3/S4.00", "detail 4/S4.00", "detail 5/S4.00"]
     [c] = rr.value_conflicts(out)
     assert 'detail 3/S4.00 gives 8"' in c["issue"] and "gives 1'-4\"" in c["issue"]  # 4 or 5: both print 1'-4"
-    assert "asked for one by one" in note and "Still merged" not in note
+    assert "read again" in note and "Still merged" not in note
 
 
 def test_an_unsplit_or_failed_answer_keeps_the_merged_row():
     inv = [_row("details 3 and 4/S4.00", '8"', ["ev3"])]
     pool = [_ev("ev3", 73)]
-    same, note = rr.split_merged(inv, pool, lambda u, s: [_row("details 3 and 4/S4.00", '8"', ["ev3"])])
+    same, note = rr.complete_inventory(inv, pool, lambda u, s: [_row("details 3 and 4/S4.00", '8"', ["ev3"])])
     assert same == inv and "Still merged" in note
 
     def fails(u, s):
         raise rr.StageFailed("discovery", "no JSON")
-    same, note = rr.split_merged(inv, pool, fails)
-    assert same == inv and "not split" in note
+    same, note = rr.complete_inventory(inv, pool, fails)
+    assert same == inv and "not read again" in note
     untouched = [_row("detail 3/S4.00", '8"', ["ev3"])]
-    assert rr.split_merged(untouched, pool, fails) == (untouched, None)  # nothing merged: no call
+    assert rr.complete_inventory(untouched, pool, fails) == (untouched, None)  # nothing merged: no call
+
+
+def _lengthless(source, ev, entity="Elevator pit slab"):
+    return {"checkId": "CE-05-01-Q01", "entity": entity, "location": "BH/B7", "source": source,
+            "fields": [{"name": "depth", "value": None, "state": "unknown", "evidenceIds": [ev], "derived": False},
+                       {"name": "waterproofing", "value": "WATERPROOFING MEMBRANE", "state": "supported",
+                        "evidenceIds": [ev], "derived": False}]}
+
+
+def test_lengthless_is_a_detail_entry_with_no_printed_length():
+    assert rr.lengthless(_lengthless("detail 4/S4.00 ELEVATOR PIT DETAIL", "ev4"))
+    assert not rr.lengthless(_row("detail 4/S4.00", "1'-4\"", ["ev4"]))
+    # not a drawn detail: a schedule row or a note says nothing about missing thicknesses
+    assert not rr.lengthless(_lengthless("pier schedule on S2.30-A", "ev4"))
+
+
+def test_details_read_without_their_lengths_are_read_again_leland_rfi_007():
+    # What the second paid run returned: details 4 and 5 with depth and waterproofing only, detail 3 not at all.
+    inv = [_lengthless("detail 4/S4.00 ELEVATOR PIT DETAIL", "ev4"), _lengthless("detail 5/S4.00 ELEVATOR PIT DETAIL", "ev5")]
+    assert rr.value_conflicts(inv) == []
+    pool = [_ev("ev3", 73), _ev("ev4", 73), _ev("ev5", 73), _ev("ev9", 12)]
+    asked = {}
+
+    def ask(user, shown):
+        asked["user"], asked["shown"] = user, [e.id for e in shown]
+        return [_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00 ELEVATOR PIT DETAIL", "1'-4\"", ["ev4"])]
+
+    out, note = rr.complete_inventory(inv, pool, ask)
+    assert "record no printed length" in asked["user"] and "left out" in asked["user"]
+    assert asked["shown"] == ["ev3", "ev4", "ev5"]
+    sources = sorted(r["source"] for r in out)
+    assert sources == ["detail 3/S4.00", "detail 4/S4.00 ELEVATOR PIT DETAIL", "detail 5/S4.00 ELEVATOR PIT DETAIL"]
+    assert "1 entr(ies) added, 1 re-read" in note
+    [c] = rr.value_conflicts(out)
+    assert 'detail 3/S4.00 gives 8"' in c["issue"] and "gives 1'-4\"" in c["issue"]
+
+
+def test_an_entry_with_lengths_is_never_replaced_by_a_re_read():
+    inv = [_row("detail 4/S4.00", "1'-4\"", ["ev4"]), _lengthless("detail 5/S4.00", "ev5")]
+    out, _ = rr.complete_inventory(inv, [_ev("ev4", 73), _ev("ev5", 73)],
+                                   lambda u, s: [_row("detail 4/S4.00", '9"', ["ev4"])])
+    assert [f["value"] for r in out for f in r["fields"] if r["source"] == "detail 4/S4.00"] == ["1'-4\""]

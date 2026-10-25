@@ -763,7 +763,9 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "`source` (\"detail 3/S4.00\", \"section 2/S5.10\", \"pier schedule on S2.30-A\"), never merged into "
         "one, even when they agree: the code compares the entries, so a merged value hides a disagreement. "
         "Use the same `entity` name for the same element in every entry, and record each field as printed on "
-        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). A field is `supported` only "
+        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). Record EVERY length a source "
+        "prints for the element's parts (each slab, wall and footing: thickness, depth, size, elevation), not "
+        "only the ones a question names: the code compares sources field by field. A field is `supported` only "
         "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
         "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
         "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
@@ -1140,40 +1142,80 @@ def merged_details(source: str | None) -> list[str]:
     return re.findall(r"\d+[A-Z]?", m.group(1) or m.group(2), re.I) if m else []
 
 
-def split_request(merged: list[dict]) -> str:
-    rows = "\n".join(f"- {r['entity']}: {r.get('source')}" for r in merged)
-    return (
-        "<split>\nYour inventory merged several details into one entry:\n" + rows + "\n"
-        "Read each named detail ON ITS OWN and return one inventory entry per detail, its `source` naming that "
-        "ONE detail (\"detail 3/S4.00\"). Record every field as printed on THAT detail, even where the details "
-        "agree. Return inventory entries for these elements only; observations may be empty.\n</split>\n\n"
+# A source that is a drawn detail or section ("detail 4/S4.00", "section 2/S5.10").
+_DETAIL_SOURCE = re.compile(r"\b(?:details?|sections?|dets?\.?|secs?\.?)\b|\b\d+[A-Z]?\s*/\s*[A-Z]", re.I)
+
+
+def lengthless(row: dict) -> bool:
+    """A detail or section entry that records no length at all: a drawn detail of a concrete
+    element prints its thicknesses, so none read means none were looked for. Pure."""
+    return bool(_DETAIL_SOURCE.search(row.get("source") or "")) and not any(
+        f.get("state") == "supported" and parse_length(f.get("value")) is not None for f in row.get("fields") or []
     )
 
 
-def split_merged(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
-    """Asks once more for each merged-source row, one entry per detail, showing only
-    the evidence it cited and the pictures of those pages. `ask(user, shown)` returns
-    inventory rows. A row the answer does not split stays as it was. Leland RFI 007:
-    "details 3 and 4/S4.00" came back as one 8" slab, and detail 4's 1'-4" was never compared."""
+def _source_key(row: dict) -> tuple[str, str]:
+    return _key(row.get("entity")), re.sub(r"\s+", " ", (row.get("source") or "").lower()).strip()
+
+
+def completion_request(merged: list[dict], thin: list[dict]) -> str:
+    parts = ["<complete>\n"]
+    if merged:
+        parts.append("Your inventory merged several details into one entry:\n"
+                     + "\n".join(f"- {r['entity']}: {r.get('source')}" for r in merged)
+                     + "\nRead each named detail ON ITS OWN and return one entry per detail, its `source` naming "
+                       "that ONE detail (\"detail 3/S4.00\").\n")
+    if thin:
+        parts.append("These entries record no printed length:\n"
+                     + "\n".join(f"- {r['entity']}: {r.get('source')}" for r in thin)
+                     + "\nRead each again and record every length it prints for the element's parts (each slab, "
+                       "wall and footing: thickness, depth, size, elevation).\n")
+    parts.append("Also add an entry for any other detail or section of these elements on the same sheets that "
+                 "your inventory left out. Record every field as printed on THAT source, even where sources agree. "
+                 "Return inventory entries only; observations may be empty.\n</complete>\n\n")
+    return "".join(parts)
+
+
+def complete_inventory(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
+    """ONE follow-up discovery call for the entries the code cannot compare: a source
+    naming several details (`merged_details`) and a detail recording no length
+    (`lengthless`). It shows only the evidence those entries cited and the pictures of
+    those pages; `ask(user, shown)` returns inventory rows. A split row replaces the
+    merged one, a re-read row replaces the row with its source, a new source is added,
+    and an entry the answer does not improve stays. Leland RFI 007, twice: once
+    "details 3 and 4/S4.00" came back as one 8" slab, once details 4 and 5 came back
+    with depth and waterproofing only and detail 3 not at all."""
     merged = [r for r in inventory if len(merged_details(r.get("source"))) > 1]
-    if not merged:
+    thin = [r for r in inventory if r not in merged and lengthless(r)]
+    targets = merged + thin
+    if not targets:
         return inventory, None
-    cited = {e for r in merged for f in r["fields"] for e in f["evidenceIds"]}
+    cited = {e for r in targets for f in r["fields"] for e in f["evidenceIds"]}
     pages = {(ev.document_id, ev.page_number) for ev in pool if ev.id in cited}
     shown = [ev for ev in pool if ev.id in cited or (ev.visual and (ev.document_id, ev.page_number) in pages)]
-    names = "; ".join(f"{r['entity']} ({r.get('source')})" for r in merged)[:300]
+    names = "; ".join(f"{r['entity']} ({r.get('source')})" for r in targets)[:300]
     try:
-        rows = ask(split_request(merged), shown)
+        rows = ask(completion_request(merged, thin), shown)
     except (StageFailed, BudgetStop) as exc:
-        return inventory, f"Details read as one entry were not split ({exc}); their values were not compared detail by detail: {names}."
+        return inventory, f"Entries the code could not compare were not read again ({exc}): {names}."
     singles = [r for r in rows if r.get("source") and len(merged_details(r["source"])) <= 1]
     split = {_key(r["entity"]) for r in singles}
-    kept = [r for r in inventory if not (r in merged and _key(r["entity"]) in split)]
+    out = [r for r in inventory if not (r in merged and _key(r["entity"]) in split)]
+    added = replaced = 0
+    for row in singles:
+        same = next((i for i, r in enumerate(out) if _source_key(r) == _source_key(row)), None)
+        if same is None:
+            out.append(row)
+            added += 1
+        elif lengthless(out[same]) and not lengthless(row):
+            out[same] = row
+            replaced += 1
     left = [r for r in merged if _key(r["entity"]) not in split]
-    note = f"Details read as one entry were asked for one by one: {len(singles)} entr(ies) for {names}."
+    note = (f"Entries the code could not compare were read again ({names}): "
+            f"{added} entr(ies) added, {replaced} re-read with their lengths.")
     if left:
         note += f" Still merged: {'; '.join(r['entity'] for r in left)[:200]}."
-    return kept + singles, note
+    return out, note
 
 
 def value_conflicts(inventory: list[dict]) -> list[dict]:
@@ -3142,7 +3184,9 @@ def _run(run: dict) -> dict:
     element_block = (
         f"<element>Reviewing {lib_element.get('name')}"
         + (f" ({lib_element['variants']})" if lib_element.get("variants") else "")
-        + ". Answer each question about this element only.</element>\n\n"
+        + ". Answer each question about this element only."
+        + (f" For every source of it, record these where printed: {lib_element['attributes']}." if lib_element.get("attributes") else "")
+        + "</element>\n\n"
     ) if library else ""
     observations: list[dict] = []
     inventory: list[dict] = []
@@ -3177,7 +3221,7 @@ def _run(run: dict) -> dict:
             if found["dropped"]:
                 notes.append(f"Discovery call {i}: {found['dropped']} observation(s) dropped for citing evidence that was not supplied or naming no check.")
         observations = observations[: MAX_OBSERVATIONS * max(1, len(batches))]
-        inventory, split_note = split_merged(inventory, sent, lambda user, shown: _ask(
+        inventory, split_note = complete_inventory(inventory, sent, lambda user, shown: _ask(
             "discovery", discovery_system(asked, catalogue), user + element_block + "\n".join(_evidence_block(ev) for ev in shown),
             lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
             run=run, usage=usage, images=[ev for ev in shown if ev.visual],

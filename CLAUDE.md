@@ -2859,11 +2859,16 @@ and the code proposes a conflict where two sources print different LENGTHS for o
 are two elements; rows citing the same evidence are one source). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
-The model merges details anyway: a real Sonnet 5.5 run wrote "details 3 and 4/S4.00" as ONE entry with
-detail 3's 8" and detail 4's 1'-4" was never compared, prompt rule notwithstanding. So a row whose source
-names several details (`merged_details`) gets ONE follow-up discovery call (`split_merged`) showing only the
-evidence it cited and the pictures of those pages, asking one entry per detail; rows it splits replace the
-merged one, a row it does not stays and is named in the notes. A failed or budget-stopped split never fails
+The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review
+missed RFI 007 two ways — once "details 3 and 4/S4.00" as ONE entry with detail 3's 8", once details 4 and
+5 with only depth and waterproofing and detail 3 not at all. Discovery is now told to record EVERY length a
+source prints for the element's parts, plus the library element's own attributes, and the code enforces it:
+`complete_inventory` makes ONE follow-up discovery call for every entry it cannot compare — a source naming
+several details (`merged_details`) or a detail recording no length (`lengthless`) — showing only the
+evidence they cited and the pictures of those pages, asking one entry per detail, their printed lengths,
+and any detail of the element on those sheets left out. Split rows replace the merged one, a re-read
+replaces a lengthless row with its source, a new source is added; an entry with lengths is never replaced,
+and anything not improved stays and is named in the notes. A failed or budget-stopped call never fails
 the run. The text layer cannot do this instead: S4.00 prints those thicknesses as bare dimension strings.
 Matching was too literal and is now forgiving only where a mismatch cannot hide a difference (an outside
 patch proposed the loosening; three of its rules produced false conflicts and were rebuilt): a field name
