@@ -422,3 +422,15 @@ def test_element_title_words_match_the_shared_fixture_the_planner_reads():
     fixture = json.loads((Path(__file__).resolve().parents[2] / "packages/shared/fixtures/element-title-words.json").read_text())
     for case in fixture["cases"]:
         assert rr.element_title_words(case["name"]) == case["words"], case["name"]
+
+
+def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
+    # The third paid run's discovery reply, valid but for one inch mark inside a string.
+    raw = '{"observations":[{"statement":"Level B2 is -23\'-0" on the S2.30-B datum list, 5" THICK SLAB"}],' \
+          '"inventory":[{"fields":[{"value":"1\'-4"","state":"supported"},{"value":"8"","state":"supported"}]}]}'
+    d = rr.parse_json_object(raw)
+    assert d["observations"][0]["statement"] == "Level B2 is -23'-0\" on the S2.30-B datum list, 5\" THICK SLAB"
+    assert [f["value"] for f in d["inventory"][0]["fields"]] == ["1'-4\"", '8"']
+    # valid JSON is read as is, and a reply with no object is still None
+    assert rr.parse_json_object('{"value": "12", "n": 3}') == {"value": "12", "n": 3}
+    assert rr.parse_json_object("no json here") is None
