@@ -1125,6 +1125,57 @@ def same_field(entity: str | None, a: str | None, b: str | None) -> bool:
     return small < big and big - small <= set(_words(entity))
 
 
+# A source naming several details ("details 3 and 4/S4.00", "3 & 4/S4.00") is one
+# reading of several drawings: value_conflicts cannot see a disagreement inside it.
+_MERGED_SOURCE = re.compile(
+    r"\b(?:details?|sections?|dets?\.?|secs?\.?)\s+(\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)+)"
+    r"|\b(\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)+)\s*/\s*[A-Z]",
+    re.I,
+)
+
+
+def merged_details(source: str | None) -> list[str]:
+    """The detail numbers a source names when it names more than one, else []. Pure."""
+    m = _MERGED_SOURCE.search(source or "")
+    return re.findall(r"\d+[A-Z]?", m.group(1) or m.group(2), re.I) if m else []
+
+
+def split_request(merged: list[dict]) -> str:
+    rows = "\n".join(f"- {r['entity']}: {r.get('source')}" for r in merged)
+    return (
+        "<split>\nYour inventory merged several details into one entry:\n" + rows + "\n"
+        "Read each named detail ON ITS OWN and return one inventory entry per detail, its `source` naming that "
+        "ONE detail (\"detail 3/S4.00\"). Record every field as printed on THAT detail, even where the details "
+        "agree. Return inventory entries for these elements only; observations may be empty.\n</split>\n\n"
+    )
+
+
+def split_merged(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
+    """Asks once more for each merged-source row, one entry per detail, showing only
+    the evidence it cited and the pictures of those pages. `ask(user, shown)` returns
+    inventory rows. A row the answer does not split stays as it was. Leland RFI 007:
+    "details 3 and 4/S4.00" came back as one 8" slab, and detail 4's 1'-4" was never compared."""
+    merged = [r for r in inventory if len(merged_details(r.get("source"))) > 1]
+    if not merged:
+        return inventory, None
+    cited = {e for r in merged for f in r["fields"] for e in f["evidenceIds"]}
+    pages = {(ev.document_id, ev.page_number) for ev in pool if ev.id in cited}
+    shown = [ev for ev in pool if ev.id in cited or (ev.visual and (ev.document_id, ev.page_number) in pages)]
+    names = "; ".join(f"{r['entity']} ({r.get('source')})" for r in merged)[:300]
+    try:
+        rows = ask(split_request(merged), shown)
+    except (StageFailed, BudgetStop) as exc:
+        return inventory, f"Details read as one entry were not split ({exc}); their values were not compared detail by detail: {names}."
+    singles = [r for r in rows if r.get("source") and len(merged_details(r["source"])) <= 1]
+    split = {_key(r["entity"]) for r in singles}
+    kept = [r for r in inventory if not (r in merged and _key(r["entity"]) in split)]
+    left = [r for r in merged if _key(r["entity"]) not in split]
+    note = f"Details read as one entry were asked for one by one: {len(singles)} entr(ies) for {names}."
+    if left:
+        note += f" Still merged: {'; '.join(r['entity'] for r in left)[:200]}."
+    return kept + singles, note
+
+
 def value_conflicts(inventory: list[dict]) -> list[dict]:
     """One element, one field, two SOURCES printing different lengths. Rows of
     one element are matched on the entity's words; two rows at different
@@ -3126,6 +3177,13 @@ def _run(run: dict) -> dict:
             if found["dropped"]:
                 notes.append(f"Discovery call {i}: {found['dropped']} observation(s) dropped for citing evidence that was not supplied or naming no check.")
         observations = observations[: MAX_OBSERVATIONS * max(1, len(batches))]
+        inventory, split_note = split_merged(inventory, sent, lambda user, shown: _ask(
+            "discovery", discovery_system(asked, catalogue), user + element_block + "\n".join(_evidence_block(ev) for ev in shown),
+            lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
+            run=run, usage=usage, images=[ev for ev in shown if ev.visual],
+        )["inventory"])
+        if split_note:
+            notes.append(split_note)
         _set(run_id, observations=json.dumps(observations), inventory=json.dumps(inventory))
         notes.append(f"Discovery: {len(observations)} observation(s) from {len(batches)} call(s).")
         _checkpoint(run_id, "reasoning", 45, run)

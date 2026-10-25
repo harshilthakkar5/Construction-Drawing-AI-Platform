@@ -2859,6 +2859,12 @@ and the code proposes a conflict where two sources print different LENGTHS for o
 are two elements; rows citing the same evidence are one source). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
+The model merges details anyway: a real Sonnet 5.5 run wrote "details 3 and 4/S4.00" as ONE entry with
+detail 3's 8" and detail 4's 1'-4" was never compared, prompt rule notwithstanding. So a row whose source
+names several details (`merged_details`) gets ONE follow-up discovery call (`split_merged`) showing only the
+evidence it cited and the pictures of those pages, asking one entry per detail; rows it splits replace the
+merged one, a row it does not stays and is named in the notes. A failed or budget-stopped split never fails
+the run. The text layer cannot do this instead: S4.00 prints those thicknesses as bare dimension strings.
 Matching was too literal and is now forgiving only where a mismatch cannot hide a difference (an outside
 patch proposed the loosening; three of its rules produced false conflicts and were rebuilt): a field name
 matches another that is it plus words of the element's own name ("pit slab thickness" = "thickness" on

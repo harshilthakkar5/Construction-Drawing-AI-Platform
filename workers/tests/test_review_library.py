@@ -325,3 +325,50 @@ def test_mark_families_do_not_answer_the_wrong_element():
     assert rr.credited(mark("C-4"), linked, {"name": "Columns"}) == ["Q"]
     assert rr.credited(mark("C-4"), linked, {"name": "Column blockouts / diamonds"}) == []
     assert rr.credited(mark("C-4"), linked, {"name": "Drop panels / shear caps / column capitals"}) == []
+
+
+def test_merged_details_reads_a_source_naming_several_details():
+    assert rr.merged_details("details 3 and 4/S4.00 ELEVATOR PIT DETAIL") == ["3", "4"]
+    assert rr.merged_details("3 & 4/S4.00") == ["3", "4"]
+    assert rr.merged_details("Sections 2, 5A/S5.10") == ["2", "5A"]
+    for one in ["detail 3/S4.00", "S4.00 detail 5", "pier schedule on S2.30-A", "#4 @ 12 and 16", "", None]:
+        assert rr.merged_details(one) == [], one
+
+
+def _ev(eid, page, kind="crop"):
+    return rr.Evidence(id=eid, kind=kind, document_id="d", page_number=page, combined_page_number=page,
+                       sheet_number="S4.00", side=None, bbox={"x": 1, "y": 1, "width": 9, "height": 9})
+
+
+def test_a_merged_source_is_asked_again_one_detail_at_a_time_leland_rfi_007():
+    # What Sonnet 5.5 returned: details 3 and 4 as ONE entry, so only detail 3's 8" survived.
+    inv = [_row("details 3 and 4/S4.00", '8"', ["ev3"]), _row("detail 5/S4.00", "1'-4\"", ["ev5"])]
+    assert rr.value_conflicts([inv[0]]) == []  # merged, the disagreement inside it is invisible
+    pool = [_ev("ev3", 73), _ev("ev4", 73), _ev("ev5", 73), _ev("ev7", 12), _ev("ev8", 73, kind="text")]
+    asked = {}
+
+    def ask(user, shown):
+        asked["user"], asked["shown"] = user, [e.id for e in shown]
+        return [_row("detail 3/S4.00", '8"', ["ev3"]), _row("detail 4/S4.00", "1'-4\"", ["ev4"])]
+
+    out, note = rr.split_merged(inv, pool, ask)
+    assert "details 3 and 4/S4.00" in asked["user"]
+    assert asked["shown"] == ["ev3", "ev4", "ev5"]  # what it cited + that page's pictures, not other pages or text
+    assert sorted(r["source"] for r in out) == ["detail 3/S4.00", "detail 4/S4.00", "detail 5/S4.00"]
+    [c] = rr.value_conflicts(out)
+    assert 'detail 3/S4.00 gives 8"' in c["issue"] and "gives 1'-4\"" in c["issue"]  # 4 or 5: both print 1'-4"
+    assert "asked for one by one" in note and "Still merged" not in note
+
+
+def test_an_unsplit_or_failed_answer_keeps_the_merged_row():
+    inv = [_row("details 3 and 4/S4.00", '8"', ["ev3"])]
+    pool = [_ev("ev3", 73)]
+    same, note = rr.split_merged(inv, pool, lambda u, s: [_row("details 3 and 4/S4.00", '8"', ["ev3"])])
+    assert same == inv and "Still merged" in note
+
+    def fails(u, s):
+        raise rr.StageFailed("discovery", "no JSON")
+    same, note = rr.split_merged(inv, pool, fails)
+    assert same == inv and "not split" in note
+    untouched = [_row("detail 3/S4.00", '8"', ["ev3"])]
+    assert rr.split_merged(untouched, pool, fails) == (untouched, None)  # nothing merged: no call
