@@ -892,8 +892,8 @@ def parse_json_object(raw: str | None) -> dict | None:
         # An inch mark the model did not escape ("-23'-0" on S2.30-B") ends the string early,
         # and the salvage retry re-sent a whole 137k-token discovery call to fix one character.
         data = None
-        for repair in (lambda b: _INCH_MARK.sub(r'\\"', b), lambda b: _STRAY_ESCAPE.sub(r'\1"', b),
-                       lambda b: _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b))):
+        for repair in (_REPAIRS + [lambda b: _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b)),
+                                   lambda b: _BARE_WORD.sub(r'\1"\2"', _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b)))]):
             try:
                 data = json.loads(repair(body))
                 break
@@ -910,6 +910,11 @@ _INCH_MARK = re.compile(r'(?<=\d)(?<!\\)"(?!\s*[,}\]:])')
 # A value OPENED with an escaped quote ("confidence":\"medium"): Sonnet 5.5 wrote one in a
 # Leland discovery reply and the retry re-sent the whole 137k-token call.
 _STRAY_ESCAPE = re.compile(r'([:\[,]\s*)\\"')
+# A bare word as a value ("confidence":medium): Sonnet 5.5 again, again a 137k-token retry.
+# Only right after a key's closing quote, so "grade: medium, see S1" inside a string is left alone.
+_BARE_WORD = re.compile(r'("\s*:\s*)(?!(?:true|false|null)\b)([A-Za-z_]+)(?=\s*[,}\]])')
+_REPAIRS = [lambda b: _INCH_MARK.sub(r'\\"', b), lambda b: _STRAY_ESCAPE.sub(r'\1"', b),
+            lambda b: _BARE_WORD.sub(r'\1"\2"', b)]
 
 
 def _ids(value, known: set[str]) -> list[str]:

@@ -458,6 +458,17 @@ def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
     assert rr.parse_json_object("no json here") is None
 
 
+def test_a_bare_word_value_does_not_cost_a_whole_retry():
+    # The fourth paid run: "confidence":medium, beside an inch mark in the same reply.
+    raw = '{"observations":[{"statement":"~20" thick wall","confidence":medium},' \
+          '{"statement":"x","confidence": high }],"flag":true,"none":null}'
+    d = rr.parse_json_object(raw)
+    assert [o["confidence"] for o in d["observations"]] == ["medium", "high"]
+    assert d["observations"][0]["statement"] == '~20" thick wall' and d["flag"] is True and d["none"] is None
+    # a colon-word inside a string is never quoted into it
+    assert rr.parse_json_object('{"note": "grade: medium, see S1", "c": low}') == {"note": "grade: medium, see S1", "c": "low"}
+
+
 # --- one place: details a plan cuts at the same spot (Leland RFI 007) ----------------
 
 
