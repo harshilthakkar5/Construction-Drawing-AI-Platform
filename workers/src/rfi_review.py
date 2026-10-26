@@ -1651,6 +1651,32 @@ def answered_by_column_schedule(candidate: dict, schedule_sheets: list[str]) -> 
             "the column-schedule check, by location.")
 
 
+# Leland RFI 002: reasoning proposed "pier centre versus wall centreline is not dimensioned"
+# citing four small close-ups elsewhere and a whole sheet; verification called it speculative
+# because "the crops show piers located". The run HAD rendered a close-up of the clouded core
+# (S2.30-B, 1152 x 864pt), and nothing cited it, so verification never saw it.
+MAX_SHEET_CLOSEUPS = 2
+
+
+def with_sheet_closeups(candidate: dict, evidence: dict) -> dict:
+    """A claim that something on a sheet is not placed or dimensioned, with
+    the run's largest close-ups of the sheets it cites added (≤2 per sheet,
+    not already cited): a claim of absence is judged on what the run saw of
+    that sheet, not only on the pieces reasoning picked. Pure."""
+    text = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    if candidate.get("kind") not in ("missing", "ambiguity") or not _PLACEMENT.search(text):
+        return candidate
+    cited = [e for e in candidate["evidenceIds"] if e in evidence]
+    sheets = {(evidence[e].document_id, evidence[e].page_number) for e in cited if evidence[e].kind in ("text", "crop", "page")}
+    added = []
+    for sheet in sorted(sheets):
+        crops = [ev for ev in evidence.values() if ev.kind == "crop" and ev.id not in cited and ev.bbox
+                 and (ev.document_id, ev.page_number) == sheet]
+        crops.sort(key=lambda ev: (-(ev.bbox["width"] * ev.bbox["height"]), int(ev.id[2:]) if ev.id[2:].isdigit() else 0))
+        added += [ev.id for ev in crops[:MAX_SHEET_CLOSEUPS]]
+    return dict(candidate, evidenceIds=cited + added) if added else candidate
+
+
 def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
     """The evidence ids shown to verification, plus the code-made aids of the
     PAGES they are on. Discovery saw "6/S4.01 prints this dimension as SEE
@@ -3618,7 +3644,7 @@ def _run(run: dict) -> dict:
                 diagnostics.event("rejected_before_verification", candidate=candidate, reason=early.reason,
                                   rule="occurrence_check (measured column positions)")
                 continue
-            to_verify.append(candidate)
+            to_verify.append(with_sheet_closeups(candidate, evidence))
 
         scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
 

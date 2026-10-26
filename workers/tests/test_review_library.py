@@ -631,3 +631,30 @@ def test_recorded_absences_of_placement_become_candidates_for_questions_nobody_p
     assert rr.unclaimed_absences(RFI_002_OBSERVATIONS, {"F04", "Q-wall", "CE-03-01-Q05", "CE-03-01-Q02"}) == []
     # An observation citing nothing cannot become a finding.
     assert rr.unclaimed_absences([dict(RFI_002_OBSERVATIONS[0], evidenceIds=[])], set()) == []
+
+
+# --- a placement claim is judged on the run's close-ups of its sheet (Leland RFI 002) ------
+
+
+def _shot(eid, kind, page, w, h):
+    return rr.Evidence(id=eid, kind=kind, document_id="str", page_number=page, combined_page_number=page,
+                       sheet_number=f"S{page}", side=None, bbox={"x": 0, "y": 0, "width": w, "height": h})
+
+
+def test_a_placement_claim_is_shown_the_largest_closeups_of_the_sheets_it_cites():
+    evidence = {e.id: e for e in (
+        _shot("ev72", "crop", 25, 108, 108), _shot("ev76", "crop", 25, 108, 108),   # cited, S2.30-B
+        _shot("ev58", "crop", 25, 1152, 864),                                       # the core, uncited
+        _shot("ev59", "crop", 25, 300, 300), _shot("ev60", "crop", 25, 200, 200),   # smaller uncited
+        _shot("ev55", "page", 24, 3456, 2592),                                      # cited whole sheet
+        _shot("ev56", "crop", 24, 3444, 411),
+        _shot("ev90", "crop", 30, 2000, 2000),                                      # a sheet it never cites
+    )}
+    claim = {"kind": "missing", "element": "Drilled pier", "issue": "Pier centre is not dimensioned to the wall.",
+             "evidenceIds": ["ev72", "ev76", "ev55"]}
+    out = rr.with_sheet_closeups(claim, evidence)
+    assert out["evidenceIds"] == ["ev72", "ev76", "ev55", "ev56", "ev58", "ev59"]
+    assert claim["evidenceIds"] == ["ev72", "ev76", "ev55"]  # not mutated
+    # Not a placement claim, or not a missing/ambiguity one: unchanged.
+    assert rr.with_sheet_closeups(dict(claim, issue="No load test is specified."), evidence)["evidenceIds"] == claim["evidenceIds"]
+    assert rr.with_sheet_closeups(dict(claim, kind="conflict"), evidence)["evidenceIds"] == claim["evidenceIds"]

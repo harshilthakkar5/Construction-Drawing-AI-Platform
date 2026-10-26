@@ -2884,7 +2884,11 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
     place or size an element is not given into a LOW candidate for verification when reasoning proposed nothing for
     that question (placement first, ≤3). Measuring piers against the grid was not an option there: the A-series
-    grid is slanted, and `grid.page_grid` reads only axis-aligned lines.
+    grid is slanted, and `grid.page_grid` reads only axis-aligned lines. The next paid run proposed it directly and
+    verification called it "speculative": the candidate cited four 108pt close-ups elsewhere, and the run's close-up
+    of the clouded core (S2.30-B, 1152x864pt) was cited by nothing. `with_sheet_closeups` now adds the run's two
+    largest uncited close-ups of every sheet a missing/ambiguity PLACEMENT claim cites, before verification — so an
+    absence is judged on what the run saw of that sheet, and a kept finding carries the core as evidence.
   * RFI 004 (cap sizes where the single-column typical cap on S0.03 does not apply) is the code check
     `twin_column_cap` (`workers/src/pier_caps.py`): two grey column fills touching, of a column's size at the printed
     scale, on a FOUNDATION plan (title block or the sheet's big titles), with no detail symbol within 8 ft. Run over
