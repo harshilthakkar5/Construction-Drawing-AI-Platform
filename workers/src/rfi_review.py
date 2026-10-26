@@ -1623,6 +1623,36 @@ _UNPROVEN_ABSENCE = re.compile(
     r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b",
     re.I,
 )
+# A rejection that says the value is given ELSEWHERE while its own reason says the value
+# asked about is not stated. Leland RFI 009, re-checked: "The plans S2.31-A and S2.32-A print
+# T/CONC and T/STRUC SLAB elevations … The wall top elevations are not stated for any specific
+# wall." — slab elevations cited as the answer to a question about the WALL's top.
+_CONCEDED = re.compile(
+    r"[^.]*\b(?:not|never)\s+(?:\w+ly\s+)?(?:stated|shown|given|printed|provided|specified|dimensioned|"
+    r"indicated|labell?ed|noted)\b[^.]*",
+    re.I,
+)
+_PLAIN = {"the", "and", "for", "are", "any", "not", "that", "this", "with", "from", "each", "all", "its",
+          "specific", "value", "values", "detail", "details", "plan", "plans", "sheet", "sheets", "drawing",
+          "drawings", "evidence", "shown", "stated", "given", "printed", "provided", "specified", "indicated"}
+
+
+def _content_words(text: str | None) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{3,}", (text or "").lower()) if w not in _PLAIN}
+
+
+def concedes_the_value(decision: dict, candidate: dict) -> bool:
+    """A rejection resting on another drawing (basis answered_elsewhere or
+    evidence cited) whose own reason says the value the problem asks about is
+    not stated: a sentence of absence sharing two words with the problem's
+    element. Pure."""
+    if decision.get("basis") != "answered_elsewhere" and not decision.get("answeredBy"):
+        return False
+    wanted = _content_words(candidate.get("element"))
+    return any(len(wanted & _content_words(sentence)) >= 2
+               for sentence in _CONCEDED.findall(decision.get("reason") or ""))
+
+
 _SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
@@ -1703,6 +1733,8 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     # citing evidence beside that says what the evidence does not settle.
     if _UNPROVEN_ABSENCE.search(decision.get("reason") or ""):
         return True
+    if candidate and concedes_the_value(decision, candidate):
+        return True
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
@@ -1782,6 +1814,10 @@ def overruled(candidate: dict, decision: dict) -> dict:
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
     )
+    # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
+        question = f"{question.rstrip()} ({location})"
     why = (
         f"{decision.get('why') or candidate.get('why') or ''} Verification said another drawing gives this, but "
         "could not point to evidence that shows it, and searching the project did not settle it."

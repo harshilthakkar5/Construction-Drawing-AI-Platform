@@ -845,3 +845,25 @@ def test_a_reader_never_sees_an_evidence_id():
     # A drawing's own tag is printed in capitals and stays: EV1 is a charger.
     assert rfi_review.readable("Charger EV1 at grid B/4 per ev12", evidence) == "Charger EV1 at grid B/4 per S4.00"
     assert rfi_review.readable("", evidence) == "" and rfi_review.readable(None, evidence) is None
+
+
+def test_a_rejection_that_cites_another_drawing_but_concedes_the_value_is_contested():
+    """Leland RFI 009, the re-check verbatim: slab elevations cited as the answer, the wall's top conceded."""
+    problem = {"element": "Basement retaining wall top elevations", "issue": "T.O.C. is SEE PLAN on the wall details.",
+               "location": "S4.10, S4.01, S4.02", "why": ""}
+    decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev41", "ev40"],
+                "reason": "The plans S2.31-A and S2.32-A print T/CONC and T/STRUC SLAB elevations, and the level "
+                          "elevations are printed (B1 -14'-0\", B2 -23'-0\"). The plan sheets are shown, so a missing "
+                          "elevation is not established. The wall top elevations are not stated for any specific wall.",
+                "subject": "Basement retaining wall top elevations",
+                "question": "What are the top-of-concrete elevations along the basement retaining walls?"}
+    assert rfi_review.concedes_the_value(decision, problem)
+    assert rfi_review.contested(decision, {"ev41", "ev40"}, problem)
+    # Kept, it names where it is asked about.
+    assert rfi_review.overruled(problem, decision)["question"].endswith("(S4.10, S4.01, S4.02)")
+    # A sentence of absence about something else, or no claim the value is elsewhere: not a concession.
+    other = dict(decision, reason="S2.31-A prints T.O.W. -4'-0\" at this wall (ev41). Slab joints are not shown.")
+    assert not rfi_review.concedes_the_value(other, problem)
+    casing = {"decision": "reject", "basis": "other", "answeredBy": [],
+              "reason": "Permanent casing is not indicated anywhere, so nothing is shown as missing."}
+    assert not rfi_review.concedes_the_value(casing, {"element": "Permanent pier casing"})

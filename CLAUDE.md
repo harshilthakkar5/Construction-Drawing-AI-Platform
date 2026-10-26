@@ -2879,6 +2879,11 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was
     measured and rejected: on Leland nearly every detail defers T.O.C. and the plans answer most with area slab
     notes hundreds of points away — dozens of false RFIs.
+    The next paid run was rejected a third way: re-checked, the verifier cited S2.31-A's T/CONC and T/STRUC SLAB
+    elevations (`answered_elsewhere`) and ended "The wall top elevations are not stated for any specific wall".
+    `concedes_the_value` makes such a rejection contested: it claims the value is elsewhere while a sentence of
+    absence in its own reason shares two words with the problem's element. Kept on overrule, a question naming no
+    sheet gets the problem's location appended (`overruled`).
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
