@@ -67,6 +67,12 @@ describe("buildSources", () => {
     ]);
   });
 
+  it("takes the backticks of a citation written as code with it", () => {
+    const { text, sources } = buildSources(`Claim \`[chunk:${ID_A}]\`.`, records);
+    expect(text).toBe("Claim [1].");
+    expect(sources).toHaveLength(1);
+  });
+
   it("strips citations of unknown chunk ids and keeps prose clean", () => {
     const answer = `Real [chunk:${ID_A}]. Hallucinated [chunk:${ID_UNKNOWN}].`;
     const { text, sources } = buildSources(answer, records);

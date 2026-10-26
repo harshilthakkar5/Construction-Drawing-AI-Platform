@@ -655,3 +655,31 @@ class TestPageOcrAtIngest:
         monkeypatch.setattr(processing.db, "set_page_ocr", lambda *a: marked.append(a))
         assert processing._process_page("proj", "doc", self._blank_drawing(), 0, 0) is False
         assert marked == []
+
+
+def test_a_reviewers_markup_never_reaches_the_extracted_text(processing, tmp_path, monkeypatch):
+    """A stamp's words are read as page text, and a FreeText note is drawn into
+    every render that OCR and the vision pass read: neither is the drawing."""
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 200), "FOOTING F1 24 INCH", fontsize=12)
+    page.add_freetext_annot(fitz.Rect(72, 300, 400, 340), "WHY IS THIS 30 INCH", fontsize=12)
+    page.add_stamp_annot(fitz.Rect(300, 400, 500, 460), stamp=0)  # "APPROVED"
+    path = tmp_path / "marked.pdf"
+    doc.save(path)
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def capture(text):
+        seen.append(text)
+        raise Stop
+    monkeypatch.setattr(processing.chunker, "strip_nul", capture)
+    with fitz.open(path) as pdf:
+        assert "APPROVED" in pdf[0].get_text()  # PyMuPDF does read the stamp as page text
+        with pytest.raises(Stop):
+            processing._process_page("proj", "doc", pdf, 0, 0)
+        assert pdf[0].first_annot is None  # so no render, OCR tile or grid read sees the note either
+    assert "FOOTING F1" in seen[0] and "APPROVED" not in seen[0]
+    assert fitz.open(path)[0].first_annot is not None  # the stored file keeps its markup

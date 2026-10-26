@@ -258,6 +258,22 @@ class PageFacts:
         }
 
 
+def sized_lines(page) -> list[tuple[float, str]]:
+    """(largest font size, text) per text line."""
+    out: list[tuple[float, str]] = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line["spans"]).strip()
+            if text:
+                out.append((max(s["size"] for s in line["spans"]), text))
+    return out
+
+
+def page_titles(page, region_text: str | None = None) -> list[str]:
+    """The sheet's titles: its big lines, plus the title-block region."""
+    return title_lines(sized_lines(page), (region_text or "").splitlines())
+
+
 def read_page(page, region_text: str | None = None) -> dict:
     """The facts of one fitz page, annotations stripped first (a finding must
     come from the drawings as issued)."""
@@ -265,12 +281,7 @@ def read_page(page, region_text: str | None = None) -> dict:
     import plan_match
 
     clean = grid.without_markup(page)
-    sized: list[tuple[float, str]] = []
-    for block in clean.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            text = " ".join(s["text"] for s in line["spans"]).strip()
-            if text:
-                sized.append((max(s["size"] for s in line["spans"]), text))
+    sized = sized_lines(clean)
     titles = title_lines(sized, (region_text or "").splitlines())
     # The grid read is the slow part (every drawing on the sheet, 2-4s); a
     # sheet whose title already says section, schedule or notes never pairs,

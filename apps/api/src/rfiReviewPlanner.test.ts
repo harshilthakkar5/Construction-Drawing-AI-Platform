@@ -25,4 +25,14 @@ describe("libraryQueries", () => {
     expect(out[0]!.query).toBe("Elevator pits Single, double Is the top of pit slab elevation specified? Is the pit depth given?");
     expect(libraryQueries(undefined)).toEqual([]);
   });
+
+  // Attributes stay out: on Leland they pushed Retaining walls and Levels off S2.31-A, RFI 009's sheet.
+  it("searches with the element's name and its questions, never its attributes", async () => {
+    const { libraryQueries } = await import("./rfiReviewRules.js");
+    const [only] = libraryQueries({
+      element: { id: "CE-04-02", name: "Pile caps", variants: "", attributes: "Mark, size, depth, top elevation", triggers: "" },
+      questions: [{ id: "a", text: "Is every cap tagged?", category: "Marks", source: "library", codeChecks: [] }],
+    });
+    expect(only!.query).toBe("Pile caps Is every cap tagged?");
+  });
 });

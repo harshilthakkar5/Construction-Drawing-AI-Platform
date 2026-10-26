@@ -194,3 +194,12 @@ def test_code_only_keeps_what_a_code_check_made():
     found = [{"checkType": "unsized_column"}, {"checkType": "CE-07-01-Q01"}, {"checkType": "C01"},
              {"checkType": "custom"}, {"checkType": "chat"}, {"checkType": "grid_mismatch"}]
     assert [c["checkType"] for c in rfi_eval.code_only(found, types)] == ["unsized_column", "grid_mismatch"]
+
+
+def test_a_sheet_written_with_alternatives_is_matched_by_either():
+    """Leland RFI 002's form names S2.30-B and S2.31-A; a finding on either answers it."""
+    expected = {"checkTypes": ["F04"], "sheets": ["S2.30-B|S2.31-A"], "mentions": []}
+    on = lambda sheet: {"checkType": "F04", "subject": "", "question": "", "evidence": [{"sheetNumber": sheet}]}
+    assert rfi_eval.matches(expected, on("S2.30-B")) == []
+    assert rfi_eval.matches(expected, on("S2.31-A")) == []
+    assert rfi_eval.matches(expected, on("S2.20")) == ["no evidence on S2.30-B|S2.31-A"]

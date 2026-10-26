@@ -713,6 +713,23 @@ def test_by_others_does_not_overrule_other_rejections():
                                     {"issue": "Waterproofing product is not named.", "element": "waterproofing"})
 
 
+def test_a_kept_by_others_geometry_problem_is_low_and_never_asks_who():
+    # The paid Retaining walls run: verification KEPT this one, at medium, asking "who provides it".
+    wall = {"issue": "The cantilever retaining wall is noted '~20\" THICK' and 'BY OTHERS' with no stem, heel, toe, "
+                     "reinforcement or elevation information.", "element": "Site retaining wall",
+            "location": "S2.32-A and S2.31-A", "why": "Approximate thickness."}
+    keep = {"decision": "keep", "question": "What is the firm wall thickness, and who provides it?", "confidence": "medium"}
+    assert rfi_review.by_others_kept(keep, wall)
+    kept = rfi_review.kept_for_coordination(wall, keep)
+    assert kept["confidence"] == "low" and "who provides" not in kept["question"]
+    assert kept["question"].endswith("(S2.32-A and S2.31-A)") and "set it aside" not in kept["why"]
+    # A rejection, a problem about something else, and a field duty are left alone.
+    assert not rfi_review.by_others_kept(dict(keep, decision="reject"), wall)
+    assert not rfi_review.by_others_kept(keep, {"issue": "Waterproofing by others is not named.", "element": "waterproofing"})
+    assert not rfi_review.by_others_kept(keep, dict(wall, issue=wall["issue"] + " Verify in field."))
+    assert not rfi_review.by_others_kept(keep, _WALL), "no party named in the problem: an ordinary keep"
+
+
 # --- Dimensions printed as "SEE PLAN" (Leland RFI 002) ---
 
 
@@ -783,11 +800,27 @@ def test_a_rejection_of_a_deferred_value_problem_must_show_the_value():
     unsupported = {"decision": "reject", "basis": "not_visible", "answeredBy": [],
                    "reason": "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."}
     assert rfi_review.contested(unsupported, {"ev1"}, problem)
-    assert not rfi_review.contested(unsupported, {"ev1"})  # the old reading, wording only
     # Citing evidence that prints the value settles it.
-    assert not rfi_review.contested(dict(unsupported, answeredBy=["ev1"]), {"ev1"}, problem)
+    printed = dict(unsupported, answeredBy=["ev1"], reason="S2.31-A prints the pier offset 1'-6\" from grid A3 (ev1).")
+    assert not rfi_review.contested(printed, {"ev1"}, problem)
     # A problem not about a deferred value is judged as before.
-    assert not rfi_review.contested(unsupported, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
+    shown = dict(unsupported, reason="Nothing shown indicates an offset.")
+    assert not rfi_review.contested(shown, {"ev1"}, {"issue": "The pier schedule lists no bells.", "why": ""})
+
+
+def test_a_rejection_that_only_says_absence_is_unproven_is_contested_even_citing_evidence():
+    """Leland RFI 009, verbatim: the recheck cited pier tops and conceded the walls' T.O.C. was never shown."""
+    problem = {"issue": "Retaining wall T.O.C. is given as SEE PLAN in 10/S4.10.", "why": ""}
+    for reason in ("The plans do print pier top elevations: S2.30-B shows (-26'-2\") on its piers. The evidence does not "
+                   "show that the plans lack these values, so no gap is demonstrated.",
+                   "Nothing shown establishes that the plans lack these values, so a gap is not demonstrated.",
+                   "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."):
+        decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev79"], "reason": reason}
+        assert rfi_review.contested(decision, {"ev79"}, problem), reason
+        assert rfi_review.contested(decision, {"ev79"}), reason  # the wording alone, whatever the problem
+    # Specifications governing still stands, and so does a plain "not visible".
+    assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
+                                     "reason": "Per the specifications; nothing shows the plans lack it."}, set(), problem)
 
 
 # The Leland review that proposed it read S8.02, whose column schedule sizes
@@ -829,3 +862,25 @@ def test_a_reader_never_sees_an_evidence_id():
     # A drawing's own tag is printed in capitals and stays: EV1 is a charger.
     assert rfi_review.readable("Charger EV1 at grid B/4 per ev12", evidence) == "Charger EV1 at grid B/4 per S4.00"
     assert rfi_review.readable("", evidence) == "" and rfi_review.readable(None, evidence) is None
+
+
+def test_a_rejection_that_cites_another_drawing_but_concedes_the_value_is_contested():
+    """Leland RFI 009, the re-check verbatim: slab elevations cited as the answer, the wall's top conceded."""
+    problem = {"element": "Basement retaining wall top elevations", "issue": "T.O.C. is SEE PLAN on the wall details.",
+               "location": "S4.10, S4.01, S4.02", "why": ""}
+    decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev41", "ev40"],
+                "reason": "The plans S2.31-A and S2.32-A print T/CONC and T/STRUC SLAB elevations, and the level "
+                          "elevations are printed (B1 -14'-0\", B2 -23'-0\"). The plan sheets are shown, so a missing "
+                          "elevation is not established. The wall top elevations are not stated for any specific wall.",
+                "subject": "Basement retaining wall top elevations",
+                "question": "What are the top-of-concrete elevations along the basement retaining walls?"}
+    assert rfi_review.concedes_the_value(decision, problem)
+    assert rfi_review.contested(decision, {"ev41", "ev40"}, problem)
+    # Kept, it names where it is asked about.
+    assert rfi_review.overruled(problem, decision)["question"].endswith("(S4.10, S4.01, S4.02)")
+    # A sentence of absence about something else, or no claim the value is elsewhere: not a concession.
+    other = dict(decision, reason="S2.31-A prints T.O.W. -4'-0\" at this wall (ev41). Slab joints are not shown.")
+    assert not rfi_review.concedes_the_value(other, problem)
+    casing = {"decision": "reject", "basis": "other", "answeredBy": [],
+              "reason": "Permanent casing is not indicated anywhere, so nothing is shown as missing."}
+    assert not rfi_review.concedes_the_value(casing, {"element": "Permanent pier casing"})

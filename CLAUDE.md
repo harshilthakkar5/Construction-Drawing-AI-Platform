@@ -2547,7 +2547,7 @@ false one is a question someone has to answer:
     and a marked set and a clean one must give the same answer (they now do: both sheets,
     identical fingerprints). Stripping is on the in-memory copy of a temp download only; it
     bumped `GRID_CACHE_VERSION` to 2. The same leak affects `get_text` at ingest (a FreeText
-    markup note lands in the chunks) and is NOT fixed there. `grid.bubbles` could not have
+    markup note lands in the chunks) and is now fixed there too: `processing._process_page` strips every annotation on its in-memory copy (a stamp's words come back from `get_text`, and every note is drawn into the render OCR and the vision pass read); the stored PDF keeps them. `grid.bubbles` could not have
     been reused — its 30-45pt window was set on one ARCH E1 sheet and saw NO grid on this 36x24
     set, and it refuses secondary labels like `F.7`, which is exactly where one naming put a line
     the other called `G`. Sizes are clustered, not bucketed: 26.9 beside 27.0 is one drafter's
@@ -2815,7 +2815,8 @@ PDFs on the worker's disk (`RFI_PDF_CACHE_MB`). Measured: 70 s cold, 11 s on the
 same sheets, identical results. By element planning also searches in the library's OWN words
 (`libraryQueries`, one search per question category): 28 of 62 elements link to none of the 17
 original questions and searched nothing, reading only the picked sheets (Elevator pits: 7 pages →
-32, now including S4.00, the sheet of RFI 007). The AI is told which code checks ran and what they
+32, now including S4.00, the sheet of RFI 007). The element's ATTRIBUTES stay out of those searches: added, they
+moved Retaining walls and Levels off S2.31-A, the sheet of Leland RFI 009 (measured offline, plan only). The AI is told which code checks ran and what they
 found (`checked_by_code_block`) — never that their silence settles a question. A rejection saying
 the specifications or a standard govern stands (`_SPEC_GOVERNED`), and an overruled rejection is
 saved Low. `rfi_eval.py --project-reviews <project>` scores every element's latest run against the
@@ -2834,14 +2835,14 @@ to. Discovery records such a field `unknown` with the reference quoted; reasonin
 resting on a callout (`_DEFERS`: "references plan sheets", "refers T.O.C. to plan", "directs … to Civil",
 any basis but not_visible) with no evidence cited that PRINTS the value — it goes to the existing
 search + re-check and, unshown, is kept Low. Neither 009 rejection reached `_ELSEWHERE` before.
-A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN", which is Leland RFI 002,
-and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
+A dimension can defer too: 6/S4.01 prints the wall-face-to-grid dimension as "SEE PLAN" (once filed here as Leland
+RFI 002; the form says 002 is the SW3 core piers on S2.30-B, below), and one Argon run read it while the next did not. `review_aids.deferred_dimensions` lists every bare "SEE PLAN" on a
 dimension line of every reviewed page (an elevation's, under T.O.C., and a note's "-SEE PLAN" are not), grouped by the
 detail title UNDER it, as an aid — so whether the plan gives that length no longer depends on the model noticing.
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
-Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands.
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers.
 Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
@@ -2855,9 +2856,71 @@ of detail 3 (8") — and the inventory could not have shown it, because it held 
 element. Discovery now writes one inventory row per element PER SOURCE (`source`: "detail 3/S4.00"),
 and the code proposes a conflict where two sources print different LENGTHS for one element and field
 (`parse_length` takes exactly one length — never a bar spacing or a note; rows at different locations
-are two elements; rows citing the same evidence are one source). It goes through verification like
+are two elements — but a location that only names the detail or sheet it was read from ("S4.00 detail 3")
+is no place (`_place`): a real Sonnet 5.5 run filed 8" under detail 3 and 1'-4" under details 4 and 5, each
+"located" at its own detail, and the code read three pits; rows citing the same evidence are one source). The
+same run's AI saw 8" against 1'-4" itself and verification set it aside as "different conditions" — shown only
+S4.00, it could not know both sections are cut through one pit. `one_place` answers that from the plans: a
+`fromValues` conflict rejected as a different condition is kept MEDIUM when a plan draws both details' section
+symbols (`section_callouts`: the number directly above its sheet, in display space) within `SAME_PLACE_PT` of each
+other, citing that plan — Leland's S8.13 cuts 3/S4.00 and 4/S4.00 81pt apart at BH/B7. `values` on the candidate
+keeps every source, because the pair the plan cuts together (3 and 4) need not be the pair compared first (3 and 5).
+A symbol not found, or any read failure, leaves the rejection as it was.
+Section symbols are read by `workers/src/callouts.py` (stacked "3" over "S4.00", and inline "10/ S4.10"), and a detail
+titled only by its own reference ("10/S4.10") is a title (`review_aids.detail_titles`).
+
+Three more Leland misses (002, 004, 009), each a different failure, none fixed by asking the model harder:
+  * RFI 009 (10/S4.10's wall T.O.C. "SEE PLAN", nothing on S2.31-A where it is cut) was proposed and set aside twice,
+    the second time CITING pier tops while conceding "the evidence does not show that the plans lack these values, so
+    no gap is demonstrated". That asks a problem to prove an absence: `contested` now treats a reason of that shape
+    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. A kept deferral finding also gets, as `kind="callout"`
+    CONTEXT evidence, where the plans call out the details whose "SEE PLAN" lies in its cited boxes
+    (`with_callout_context`, reviewed plans first, ≤3) — where the value belongs and a person looks. A callout is in
+    WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was
+    measured and rejected: on Leland nearly every detail defers T.O.C. and the plans answer most with area slab
+    notes hundreds of points away — dozens of false RFIs.
+    The next paid run was rejected a third way: re-checked, the verifier cited S2.31-A's T/CONC and T/STRUC SLAB
+    elevations (`answered_elsewhere`) and ended "The wall top elevations are not stated for any specific wall".
+    `concedes_the_value` makes such a rejection contested: it claims the value is elsewhere while a sentence of
+    absence in its own reason shares two words with the problem's element. Kept on overrule, a question naming no
+    sheet gets the problem's location appended (`overruled`).
+  * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
+    dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
+    questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
+    place or size an element is not given into a LOW candidate for verification when reasoning proposed nothing for
+    that question (placement first, ≤3). Measuring piers against the grid was not an option there: the A-series
+    grid is slanted, and `grid.page_grid` reads only axis-aligned lines. The next paid run proposed it directly and
+    verification called it "speculative": the candidate cited four 108pt close-ups elsewhere, and the run's close-up
+    of the clouded core (S2.30-B, 1152x864pt) was cited by nothing. `with_sheet_closeups` now adds the run's two
+    largest uncited close-ups of every sheet a missing/ambiguity PLACEMENT claim cites, before verification — so an
+    absence is judged on what the run saw of that sheet, and a kept finding carries the core as evidence.
+  * RFI 004 (cap sizes where the single-column typical cap on S0.03 does not apply) is the code check
+    `twin_column_cap` (`workers/src/pier_caps.py`): two grey column fills touching, of a column's size at the printed
+    scale, on a FOUNDATION plan (title block or the sheet's big titles), with no detail symbol within 8 ft. Run over
+    every page of Leland and UT Law it fires on exactly the two sheets the RFI clouds (5 pairs each along the
+    expansion joint, whose cap detail 9/S4.00 the plans never reference) and nowhere else. Linked to F04 and
+    CE-03-05-Q02. The eval case for 002 now accepts either sheet its form names (`sheets: ["S2.30-B|S2.31-A"]`). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
+The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review
+missed RFI 007 two ways — once "details 3 and 4/S4.00" as ONE entry with detail 3's 8", once details 4 and
+5 with only depth and waterproofing and detail 3 not at all. Discovery is now told to record EVERY length a
+source prints for the element's parts, plus the library element's own attributes, and the code enforces it:
+`complete_inventory` makes ONE follow-up discovery call for every entry it cannot compare — a source naming
+several details (`merged_details`) or a detail recording no length (`lengthless`) — showing only the
+evidence they cited and the pictures of those pages, asking one entry per detail, their printed lengths,
+and any detail of the element on those sheets left out. Split rows replace the merged one, a re-read
+replaces a lengthless row with its source, a new source is added; an entry with lengths is never replaced,
+and anything not improved stays and is named in the notes. A failed or budget-stopped call never fails
+the run. The text layer cannot do this instead: S4.00 prints those thicknesses as bare dimension strings.
+Matching was too literal and is now forgiving only where a mismatch cannot hide a difference (an outside
+patch proposed the loosening; three of its rules produced false conflicts and were rebuilt): a field name
+matches another that is it plus words of the element's own name ("pit slab thickness" = "thickness" on
+"Elevator pit slab", `same_field`) but never on an entity naming two things ("wall and slab"), a grid pair
+is one place either way round (`_location_key`: BH/B7 = B7-BH), and `parse_length` reads datums, ′/″ and
+1'-4-1/2" while `length_qualifier` keeps what a value is OF — a MIN never meets a MAX, a T.O.F. never a B.O.F.
+`grounded` accepts a length written in the other unit (18" for a printed 1'-6") only as a whole printed
+LENGTH (`_dimensions`), never digit by digit: "16"" on a sheet must not ground "#4 bars at level 1".
 Those values must be IN VIEW to be compared, and the planned close-ups were not: they are aimed at
 text pieces, and on a detail sheet one piece spans several details (Leland S4.00: 2,400pt wide), so
 S4.00's three close-ups showed a shear wall, waterproofing and dowels while the AI never read detail
@@ -2865,6 +2928,14 @@ S4.00's three close-ups showed a shear wall, waterproofing and dowels while the 
 details whose TITLE names the element (`detail_regions`: a title line with its SCALE line right below —
 a "SEE ELEVATOR PIT" note is not one — cut as the cell above it, in display space and mapped back) and
 fills the rest from the plan. Same number of images, so the plan's price stands.
+That aiming only works on a page the PLAN renders, and the plan's picture budget went to the named and
+referenced sheets first: S4.00, whose three details are titled ELEVATOR PIT DETAIL, reached both paid
+Elevator pits runs as text only, so 8" against 1'-4" — bare dimension strings — could never be attributed
+to a detail. `rankScope` (By element, `elementName`) now keeps the text pieces carrying a short DETAIL or
+SECTION title naming the element (`titlesElement`, never a "SEE …" pointer) and renders up to
+`TITLED_EXTRA_PAGES` (2) such pages even past the budget, their titles first among the crops. The title
+words are `elementTitleWords`, a mirror of the worker's `element_title_words` + `TITLE_SYNONYMS`; both read
+`packages/shared/fixtures/element-title-words.json`.
 A title is matched by the element's words OR a drafter's name for it (`TITLE_SYNONYMS`: Leland titles
 pile caps PIER CAP, retaining walls BASEMENT WALL, drilled piers DRILLED FOOTING — the library's words
 found none of them), and its SCALE line may overlap it by 15pt (S0.03's "COLUMN PIER CAP PLANS").

@@ -74,6 +74,7 @@ import rfi_scan
 import review_aids
 import storage
 import usage as usage_ledger
+from callouts import detail_ref, display_words, section_callouts  # noqa: F401 (used here and by tests)
 from generated import RFI_QUESTION_CODE_CHECKS, RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, review_evidence_key
 
 log = logutil.get("rfi_review")
@@ -141,9 +142,11 @@ TRUST = {
     # measured, but never a finding's only support and never grounding for
     # a number, since nothing printed says it.
     "aid": "derived",
+    # Where a plan calls out a detail, read by code off the plan's words.
+    "callout": "geometry",
 }
 # Kinds that may not be the whole support of a finding.
-WEAK_KINDS = ("description", "aid")
+WEAK_KINDS = ("description", "aid", "callout")
 CHECKS = {c["id"]: c for c in RFI_REVIEW_CHECKS}
 
 
@@ -256,7 +259,7 @@ class Evidence:
             # A whole-sheet picture is never WHERE a problem is: it is what
             # the model looked at, so it is context, and the package does not
             # cloud it as though it pinpointed anything.
-            "role": "context" if self.kind in ("description", "page") else "finding",
+            "role": "context" if self.kind in ("description", "page", "callout") else "finding",
             "evidenceId": self.id,
             "kind": self.kind,
             "sourceTrust": self.trust,
@@ -330,6 +333,16 @@ TITLE_SYNONYMS: dict[tuple[str, ...], list[list[str]]] = {
     ("RETAINING", "WALL"): [["BASEMENT", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
     ("DRILLED", "PIER"): [["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"], ["CAISSON"]],
     ("BASEMENT", "WALL"): [["RETAINING", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+    # Keyed on the library's own names as element_title_words reads them
+    # ("Isolated / spread footings" → [ISOLATED], [SPREAD, FOOTING]).
+    ("ISOLATED",): [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+    ("SPREAD", "FOOTING"): [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+    ("GRADE", "BEAM"): [["TIE", "BEAM"]],
+    ("ELEVATED", "SLAB"): [["FLAT", "PLATE"], ["FLAT", "SLAB"]],
+    ("SLAB", "DEPRESSION"): [["SLAB", "STEP"], ["DEPRESSED", "SLAB"]],
+    ("TURNDOWN",): [["TURN", "DOWN"]],
+    ("ANCHOR", "BOLT"): [["ANCHOR", "ROD"]],
+    ("EMBED", "PLATE", "WELD", "PLATE"): [["EMBED", "PLATE"], ["EMBEDDED", "PLATE"], ["WELD", "PLATE"]],
 }
 
 
@@ -346,7 +359,11 @@ def element_title_words(name: str | None) -> list[list[str]]:
     return out
 
 
-_SCALE_LINE = re.compile(r"^\s*SCALE\b", re.I)
+# A detail's scale line: "SCALE: 3/4" = 1'-0"", or the bare ratio / N.T.S. some drafters print alone.
+_SCALE_LINE = re.compile(
+    r"^\s*(?:SCALE\b|\d+(?:/\d+)?(?:\s+\d+/\d+)?\s*\"\s*=\s*1'\s*-?\s*0\"|N\.?T\.?S\.?\b|NO\s+SCALE\b|NOT\s+TO\s+SCALE\b)",
+    re.I,
+)
 
 
 def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
@@ -550,7 +567,7 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -560,6 +577,7 @@ CODE_CHECK_WORDS = {
     "missing_plan_level": "a level missing from a series of plans",
     "unmarked_element": "an element drawn with no type mark",
     "unsized_column": "a column in the schedule with no size",
+    "twin_column_cap": "a pier cap carrying two columns with no detail called out",
 }
 
 
@@ -625,9 +643,11 @@ MARK_ELEMENTS = (
     ("P", re.compile(r"\bpiles?\b(?!\s*caps?)|\bpiers?\b|caisson|drilled shafts?", re.I)),
     ("GB", re.compile(r"grade beam", re.I)),
     ("F", re.compile(r"footing", re.I)),
-    ("C", re.compile(r"column|pilaster", re.I)),
-    ("SW", re.compile(r"\bwalls?\b", re.I)),
-    ("W", re.compile(r"\bwalls?\b", re.I)),
+    ("WF", re.compile(r"wall footings?|strip footings?|continuous.*footings?", re.I)),
+    # "Column blockouts" and "column capitals" are not columns; "wall footings" are not walls.
+    ("C", re.compile(r"\bcolumns?\b(?!\s*(?:blockouts?|capitals?|footings?))|pilaster", re.I)),
+    ("SW", re.compile(r"\bwalls?\b(?!\s*footings?)", re.I)),
+    ("W", re.compile(r"\bwalls?\b(?!\s*footings?)", re.I)),
     ("B", re.compile(r"\bbeams?\b|girder", re.I)),
 )
 MARK_CHECKS = ("unmarked_element", "unscheduled_mark")
@@ -698,7 +718,9 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import column_schedule
     import element_marks
-    for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule)):
+    import pier_caps
+    for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
+                               ("twin_column_cap", pier_caps)):
         if check_type in wanted:
             try:
                 found, more = module.findings(reviewed, chunks, open_page)
@@ -747,7 +769,9 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "`source` (\"detail 3/S4.00\", \"section 2/S5.10\", \"pier schedule on S2.30-A\"), never merged into "
         "one, even when they agree: the code compares the entries, so a merged value hides a disagreement. "
         "Use the same `entity` name for the same element in every entry, and record each field as printed on "
-        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). A field is `supported` only "
+        "THAT source (thickness, size, depth, elevation, reinforcement, spacing). Record EVERY length a source "
+        "prints for the element's parts (each slab, wall and footing: thickness, depth, size, elevation), not "
+        "only the ones a question names: the code compares sources field by field. A field is `supported` only "
         "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
         "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
         "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
@@ -861,11 +885,36 @@ def parse_json_object(raw: str | None) -> dict | None:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
         return None
+    body = text[start : end + 1]
     try:
-        data = json.loads(text[start : end + 1])
+        data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
-        return None
+        # An inch mark the model did not escape ("-23'-0" on S2.30-B") ends the string early,
+        # and the salvage retry re-sent a whole 137k-token discovery call to fix one character.
+        data = None
+        for repair in (_REPAIRS + [lambda b: _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b)),
+                                   lambda b: _BARE_WORD.sub(r'\1"\2"', _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b)))]):
+            try:
+                data = json.loads(repair(body))
+                break
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if data is None:
+            return None
     return data if isinstance(data, dict) else None
+
+
+# A double quote right after a digit that JSON's grammar cannot close a string with
+# (no , } ] or : follows) is a drawing's inch mark, never the end of a value.
+_INCH_MARK = re.compile(r'(?<=\d)(?<!\\)"(?!\s*[,}\]:])')
+# A value OPENED with an escaped quote ("confidence":\"medium"): Sonnet 5.5 wrote one in a
+# Leland discovery reply and the retry re-sent the whole 137k-token call.
+_STRAY_ESCAPE = re.compile(r'([:\[,]\s*)\\"')
+# A bare word as a value ("confidence":medium): Sonnet 5.5 again, again a 137k-token retry.
+# Only right after a key's closing quote, so "grade: medium, see S1" inside a string is left alone.
+_BARE_WORD = re.compile(r'("\s*:\s*)(?!(?:true|false|null)\b)([A-Za-z_]+)(?=\s*[,}\]])')
+_REPAIRS = [lambda b: _INCH_MARK.sub(r'\\"', b), lambda b: _STRAY_ESCAPE.sub(r'\1"', b),
+            lambda b: _BARE_WORD.sub(r'\1"\2"', b)]
 
 
 def _ids(value, known: set[str]) -> list[str]:
@@ -1025,51 +1074,237 @@ def parse_candidates(raw: str | None, known: set[str], checks: set[str]) -> tupl
 # that is exactly ONE length is compared — never a note or a bar spacing, where
 # a string difference is not a disagreement.
 
+# The datum before a length (EL. 104'-6", T.O.F. -2'-0") and the word after it
+# (8" MIN, 12" MAX) are kept as the value's QUALIFIER: a top of footing is not
+# a bottom, a minimum is not a maximum, and only like compares with like.
 _LENGTH = re.compile(
-    r"""^\s*(?P<sign>-)?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:\s+(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
-    r"""\s*(?:thick|thk\.?|deep|min\.?|\([^)]*\))?\s*$""",
+    r"""^\s*(?P<datum>(?:EL(?:EV(?:ATION)?)?|T\.?\s*O\.?\s*[A-Z]{0,3}|B\.?\s*O\.?\s*[A-Z]{0,3}|F\.?\s*F\.?\s*E)\.?\s*[=:]?\s*)?"""
+    r"""(?P<sign>[+-])?\s*(?:(?P<ft>\d+)\s*'\s*-?\s*)?(?:(?P<in>\d+)(?:(?:\s+|-)(?P<num>\d+)/(?P<den>\d+))?\s*")?"""
+    r"""\s*(?P<tail>thick|thk\.?|deep|wide|dia\.?|min\.?|max\.?|typ\.?|\([^)]*\))?\s*$""",
+    re.I,
+)
+# The prime and double-prime a PDF may carry instead of ' and ".
+_QUOTES = str.maketrans({"′": "'", "’": "'", "‘": "'", "″": '"', "”": '"', "“": '"', "−": "-", "–": "-"})
+
+
+def _length_match(value: str | None):
+    m = _LENGTH.match((value or "").translate(_QUOTES)) if isinstance(value, str) else None
+    if not m or not (m["ft"] or m["in"]) or (m["den"] and int(m["den"]) == 0):
+        return None
+    return m
+
+
+def parse_length(value: str | None) -> float | None:
+    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2",
+    1'-4-1/2", EL. 104'-6"); else None. Pure."""
+    m = _length_match(value)
+    if not m:
+        return None
+    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] else 0)
+    return -inches if m["sign"] == "-" else inches
+
+
+def length_qualifier(value: str | None) -> str:
+    """What a length is OF, beyond its field: "TOF", "BOF", "FFE" for a datum
+    (a bare EL. is just an elevation, so no qualifier), and "min"/"max". Pure."""
+    m = _length_match(value)
+    if not m:
+        return ""
+    datum = re.sub(r"[^A-Z]", "", (m["datum"] or "").upper())
+    datum = "" if datum.startswith("EL") else datum
+    tail = (m["tail"] or "").lower()
+    bound = "min" if tail.startswith("min") else "max" if tail.startswith("max") else ""
+    return f"{datum}|{bound}"
+
+
+_KEY_NOISE = {"the", "a", "an", "of", "at", "on", "in", "for", "to"}
+_FIELD_SYNONYMS = {"thk": "thickness", "thick": "thickness", "elev": "elevation", "el": "elevation", "dia": "diameter"}
+
+
+def _words(text: str | None) -> list[str]:
+    """Lower-case stems: plural s dropped (but not the ss of thickness), common
+    abbreviations spelled out, filler words gone."""
+    raw = re.findall(r"[a-z0-9]+", re.sub(r"\([^)]*\)", " ", (text or "").lower()))
+    stems = (re.sub(r"(?<!s)s$", "", re.sub(r"(?<=ss)es$", "", w)) for w in raw if w not in _KEY_NOISE)
+    return [_FIELD_SYNONYMS.get(w, w) for w in stems]
+
+
+def _key(text: str | None) -> str:
+    return " ".join(_words(text))
+
+
+def _location_key(text: str | None) -> str:
+    """A location without its 'grid'/'line' noise, a grid pair in one order:
+    "Grid BH/B7" and "B7-BH" are one intersection."""
+    tokens = [t for t in re.findall(r"[a-z0-9.]+", re.sub(r"\([^)]*\)", " ", (text or "").lower()))
+              if t not in {"grid", "grids", "line", "lines", "intersection", "at", "near", "of"}]
+    return " ".join(sorted(tokens) if len(tokens) == 2 else tokens)
+
+
+# What names a SOURCE rather than a place: a detail/section reference and a sheet number.
+_SOURCE_WORDS = re.compile(
+    r"\b(?:details?|sections?|dets?\.?|secs?\.?)\s+\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)*"
+    r"|\b\d+[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b"
+    r"|\b[A-Z]{1,2}-?\d+\.\d+[A-Z]?\b"
+    r"|\b(?:sheet|on|in)\b",
     re.I,
 )
 
 
-def parse_length(value: str | None) -> float | None:
-    """Inches, when the value is one printed length (8", 1'-4", -23'-0", 10 1/2"); else None. Pure."""
-    m = _LENGTH.match(value or "")
-    if not m or not (m["ft"] or m["in"]):
-        return None
-    inches = int(m["ft"] or 0) * 12 + int(m["in"] or 0) + (int(m["num"]) / int(m["den"]) if m["num"] and int(m["den"]) else 0)
-    return -inches if m["sign"] else inches
+def _place(location: str | None) -> str:
+    """Where on the building a row is, with any detail or sheet it was read from removed:
+    "S4.00 detail 5" names a source and no place, so two details of one element are not
+    two places (Leland RFI 007); "detail 3 at BH/B7" is BH/B7. Pure."""
+    return _location_key(_SOURCE_WORDS.sub(" ", location or ""))
 
 
-def _key(text: str | None) -> str:
-    words = re.sub(r"\([^)]*\)", " ", (text or "").lower())
-    return " ".join(re.sub(r"s$", "", w) for w in re.findall(r"[a-z0-9]+", words))
+def same_field(entity: str | None, a: str | None, b: str | None) -> bool:
+    """Whether two field names on one element name the same measurement: equal,
+    or one is the other plus words of the element's own name ("pit slab
+    thickness" and "thickness" on "Elevator pit slab"). Never on an entity that
+    names two things ("wall and slab"): there "wall thickness" and "slab
+    thickness" both lose their only distinguishing word. Pure."""
+    wa, wb = set(_words(a)), set(_words(b))
+    if not wa or not wb:
+        return False
+    if wa == wb:
+        return True
+    if re.search(r"\band\b|&|/|,|\+", entity or ""):
+        return False
+    small, big = (wa, wb) if len(wa) < len(wb) else (wb, wa)
+    return small < big and big - small <= set(_words(entity))
+
+
+# A source naming several details ("details 3 and 4/S4.00", "3 & 4/S4.00") is one
+# reading of several drawings: value_conflicts cannot see a disagreement inside it.
+_MERGED_SOURCE = re.compile(
+    r"\b(?:details?|sections?|dets?\.?|secs?\.?)\s+(\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)+)"
+    r"|\b(\d+[A-Z]?(?:\s*(?:,|&|\+|\band\b)\s*\d+[A-Z]?)+)\s*/\s*[A-Z]",
+    re.I,
+)
+
+
+def merged_details(source: str | None) -> list[str]:
+    """The detail numbers a source names when it names more than one, else []. Pure."""
+    m = _MERGED_SOURCE.search(source or "")
+    return re.findall(r"\d+[A-Z]?", m.group(1) or m.group(2), re.I) if m else []
+
+
+# A source that is a drawn detail or section ("detail 4/S4.00", "section 2/S5.10").
+_DETAIL_SOURCE = re.compile(r"\b(?:details?|sections?|dets?\.?|secs?\.?)\b|\b\d+[A-Z]?\s*/\s*[A-Z]", re.I)
+
+
+def lengthless(row: dict) -> bool:
+    """A detail or section entry that records no length at all: a drawn detail of a concrete
+    element prints its thicknesses, so none read means none were looked for. Pure."""
+    return bool(_DETAIL_SOURCE.search(row.get("source") or "")) and not any(
+        f.get("state") == "supported" and parse_length(f.get("value")) is not None for f in row.get("fields") or []
+    )
+
+
+def _source_key(row: dict) -> tuple[str, str]:
+    return _key(row.get("entity")), re.sub(r"\s+", " ", (row.get("source") or "").lower()).strip()
+
+
+def completion_request(merged: list[dict], thin: list[dict]) -> str:
+    parts = ["<complete>\n"]
+    if merged:
+        parts.append("Your inventory merged several details into one entry:\n"
+                     + "\n".join(f"- {r['entity']}: {r.get('source')}" for r in merged)
+                     + "\nRead each named detail ON ITS OWN and return one entry per detail, its `source` naming "
+                       "that ONE detail (\"detail 3/S4.00\").\n")
+    if thin:
+        parts.append("These entries record no printed length:\n"
+                     + "\n".join(f"- {r['entity']}: {r.get('source')}" for r in thin)
+                     + "\nRead each again and record every length it prints for the element's parts (each slab, "
+                       "wall and footing: thickness, depth, size, elevation).\n")
+    parts.append("Also add an entry for any other detail or section of these elements on the same sheets that "
+                 "your inventory left out. Record every field as printed on THAT source, even where sources agree. "
+                 "Return inventory entries only; observations may be empty.\n</complete>\n\n")
+    return "".join(parts)
+
+
+def complete_inventory(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
+    """ONE follow-up discovery call for the entries the code cannot compare: a source
+    naming several details (`merged_details`) and a detail recording no length
+    (`lengthless`). It shows only the evidence those entries cited and the pictures of
+    those pages; `ask(user, shown)` returns inventory rows. A split row replaces the
+    merged one, a re-read row replaces the row with its source, a new source is added,
+    and an entry the answer does not improve stays. Leland RFI 007, twice: once
+    "details 3 and 4/S4.00" came back as one 8" slab, once details 4 and 5 came back
+    with depth and waterproofing only and detail 3 not at all."""
+    merged = [r for r in inventory if len(merged_details(r.get("source"))) > 1]
+    thin = [r for r in inventory if r not in merged and lengthless(r)]
+    targets = merged + thin
+    if not targets:
+        return inventory, None
+    cited = {e for r in targets for f in r["fields"] for e in f["evidenceIds"]}
+    pages = {(ev.document_id, ev.page_number) for ev in pool if ev.id in cited}
+    shown = [ev for ev in pool if ev.id in cited or (ev.visual and (ev.document_id, ev.page_number) in pages)]
+    names = "; ".join(f"{r['entity']} ({r.get('source')})" for r in targets)[:300]
+    try:
+        rows = ask(completion_request(merged, thin), shown)
+    except (StageFailed, BudgetStop) as exc:
+        return inventory, f"Entries the code could not compare were not read again ({exc}): {names}."
+    singles = [r for r in rows if r.get("source") and len(merged_details(r["source"])) <= 1]
+    split = {_key(r["entity"]) for r in singles}
+    out = [r for r in inventory if not (r in merged and _key(r["entity"]) in split)]
+    added = replaced = 0
+    for row in singles:
+        same = next((i for i, r in enumerate(out) if _source_key(r) == _source_key(row)), None)
+        if same is None:
+            out.append(row)
+            added += 1
+        elif lengthless(out[same]) and not lengthless(row):
+            out[same] = row
+            replaced += 1
+    left = [r for r in merged if _key(r["entity"]) not in split]
+    note = (f"Entries the code could not compare were read again ({names}): "
+            f"{added} entr(ies) added, {replaced} re-read with their lengths.")
+    if left:
+        note += f" Still merged: {'; '.join(r['entity'] for r in left)[:200]}."
+    return out, note
 
 
 def value_conflicts(inventory: list[dict]) -> list[dict]:
     """One element, one field, two SOURCES printing different lengths. Rows of
     one element are matched on the entity's words; two rows at different
-    locations are two elements, and two rows citing the same evidence are one
-    source. Pure."""
-    rows: dict[tuple[str, str], list[dict]] = {}
+    locations are two elements, two rows citing the same evidence are one
+    source, and two values of different kinds (minimum and maximum, top and
+    bottom) are not a disagreement. Pure."""
+    by_entity: dict[str, list[dict]] = {}
     for item in inventory:
         for f in item.get("fields") or []:
             inches = parse_length(f.get("value")) if f.get("state") == "supported" and not f.get("derived") else None
             if inches is None or not f.get("evidenceIds"):
                 continue
-            rows.setdefault((_key(item.get("entity")), _key(f.get("name"))), []).append(
-                {"item": item, "field": f, "inches": inches}
+            by_entity.setdefault(_key(item.get("entity")), []).append(
+                {"item": item, "field": f, "inches": inches, "kind": length_qualifier(f.get("value"))}
             )
+    # Grouped by field AS the comparison sees it: the first row's name stands for its group.
+    rows: dict[tuple[str, int], list[dict]] = {}
+    for entity, entries in by_entity.items():
+        heads: list[dict] = []
+        for e in entries:
+            name = e["field"].get("name")
+            head = next((i for i, h in enumerate(heads)
+                         if same_field(e["item"].get("entity"), h["field"].get("name"), name)), None)
+            if head is None:
+                heads.append(e)
+                head = len(heads) - 1
+            rows.setdefault((entity, head), []).append(e)
     out = []
-    for (entity, name), group in rows.items():
-        if not entity or not name:
+    for (entity, _), group in rows.items():
+        if not entity or not _key(group[0]["field"].get("name")):
             continue
         found = None
         for i, a in enumerate(group):
             for b in group[i + 1:]:
                 if abs(a["inches"] - b["inches"]) < 0.01 or set(a["field"]["evidenceIds"]) & set(b["field"]["evidenceIds"]):
                     continue
-                la, lb = _key(a["item"].get("location")), _key(b["item"].get("location"))
+                if a["kind"] != b["kind"] or not same_field(a["item"].get("entity"), a["field"].get("name"), b["field"].get("name")):
+                    continue
+                la, lb = _place(a["item"].get("location")), _place(b["item"].get("location"))
                 if la and lb and la != lb:
                     continue
                 found = (a, b)
@@ -1077,12 +1312,17 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
             if found:
                 break
         if found:
-            out.append(value_candidate(*found))
+            a, b = found
+            place = _place(a["item"].get("location")) or _place(b["item"].get("location"))
+            same = [r for r in group if r["kind"] == a["kind"]
+                    and (not place or _place(r["item"].get("location")) in ("", place))]
+            out.append(value_candidate(a, b, same))
     return out[:MAX_VALUE_CONFLICTS]
 
 
-def value_candidate(a: dict, b: dict) -> dict:
-    """The conflict two rows make, shaped like a reasoning candidate."""
+def value_candidate(a: dict, b: dict, group: list[dict] | None = None) -> dict:
+    """The conflict two rows make, shaped like a reasoning candidate. `values`
+    keeps every source of that field, so a later rule can name another pair."""
     def said(r):
         return f"{r['item'].get('source') or 'one source'} gives {r['field']['value']}"
     entity = a["item"]["entity"]
@@ -1100,7 +1340,253 @@ def value_candidate(a: dict, b: dict) -> dict:
         # the wording guard may draw on it like an observation.
         "printed": f"{said(a)}; {said(b)}",
         "fromValues": True,
+        "field": field,
+        "values": [
+            {"source": r["item"].get("source") or "", "value": r["field"]["value"], "inches": r["inches"],
+             "evidenceIds": list(r["field"]["evidenceIds"])}
+            for r in (group or [a, b])
+        ],
     }
+
+
+# --- One place: two details a plan cuts through the same spot --------------------
+# A section symbol prints its number directly above the sheet it is drawn on
+# ("3" over "S4.00"). Leland RFI 007: 3/S4.00 (8" pit slab) and 4/S4.00 (1'-4")
+# are both cut at BH/B7 on S8.13, 81pt apart; verification, shown only S4.00,
+# set the conflict aside as "different conditions".
+# shortcut: two inches of paper (8 ft at 1/4"), not read at the printed scale;
+# measure in drawn feet if sections of one long element are missed.
+SAME_PLACE_PT = 144.0
+MAX_CALLOUT_PAGES = 40
+_DIFFERENT = re.compile(r"\b(?:different|separate|distinct)\b|\bnot\s+(?:a\s+)?conflict\b", re.I)
+
+
+def cut_together(values: list[dict], callouts: dict) -> dict | None:
+    """The closest pair of sources printing DIFFERENT lengths whose sections
+    one page draws within SAME_PLACE_PT of each other, or None. `callouts`:
+    page key -> section_callouts. Pure."""
+    best = None
+    for i, a in enumerate(values):
+        for b in values[i + 1:]:
+            ra, rb = detail_ref(a["source"]), detail_ref(b["source"])
+            if not ra or not rb or ra[1] != rb[1] or ra[0] == rb[0] or abs(a["inches"] - b["inches"]) < 0.01:
+                continue
+            for key, calls in callouts.items():
+                for ca in (c for c in calls if (c["detail"], c["sheet"]) == ra):
+                    for cb in (c for c in calls if (c["detail"], c["sheet"]) == rb):
+                        d = ((ca["x"] - cb["x"]) ** 2 + (ca["y"] - cb["y"]) ** 2) ** 0.5
+                        if d <= SAME_PLACE_PT and (best is None or d < best["distance"]):
+                            best = {"distance": d, "a": a, "b": b, "page": key, "callouts": (ca, cb)}
+    return best
+
+
+def says_different_condition(decision: dict | None) -> bool:
+    """A rejection resting on the two sources being different conditions. Pure."""
+    if not decision or decision.get("decision") == "keep":
+        return False
+    basis = decision.get("basis") or "other"
+    return basis == "different_condition" or (basis == "other" and bool(_DIFFERENT.search(decision.get("reason") or "")))
+
+
+def kept_as_one_place(candidate: dict, decision: dict, found: dict, plan: Evidence) -> tuple[dict, dict]:
+    """The candidate and kept decision a code-shown single place makes: the
+    pair the plan cuts together, cited with the plan's symbols. Pure."""
+    a, b = found["a"], found["b"]
+    (da, sheet), (db_, _) = detail_ref(a["source"]), detail_ref(b["source"])
+    entity, field = candidate.get("element") or "the element", candidate.get("field") or "value"
+    said = f"{a['source']} gives {a['value']}; {b['source']} gives {b['value']}"
+    issue = f"The {field} of {entity}: {a['source']} gives {a['value']}, but {b['source']} gives {b['value']}."
+    new = dict(candidate, issue=issue, printed=said, location=plan.where,
+               evidenceIds=list(dict.fromkeys(a["evidenceIds"] + b["evidenceIds"] + [plan.id])))
+    kept = dict(
+        decision, decision="keep",
+        subject=_text(f"{entity} {field}: {a['value']} vs {b['value']} ({da}/{sheet}, {db_}/{sheet})", 90),
+        question=(f"{issue[:-1]}. Both sections are drawn at the same place on {plan.where}, so they cut one "
+                  f"{entity.lower()}. Which {field} governs there?"),
+        why=(f"Verification set this aside as different conditions, but {plan.where} draws sections {da}/{sheet} and "
+             f"{db_}/{sheet} at one place, so both details show the same element."),
+        confidence="medium", priority="normal",
+    )
+    return new, kept
+
+
+def one_place(project_id: str, candidate: dict, decision: dict, evidence_id: str,
+              read=None) -> tuple[dict, dict, Evidence] | None:
+    """A "different conditions" rejection of a conflict the code compared,
+    overruled when a plan draws both details' sections at one place: (the
+    candidate, the kept decision, the plan's evidence), or None. `read` is
+    callouts_in_project; any failure is None, since this may only keep."""
+    if not candidate.get("fromValues") or not says_different_condition(decision):
+        return None
+    values = candidate.get("values") or []
+    sheets = {r[1] for r in (detail_ref(v["source"]) for v in values) if r}
+    try:
+        callouts, info = (read or callouts_in_project)(project_id, sheets)
+    except Exception:
+        log.exception("rfi review: looking for section symbols failed")
+        return None
+    found = cut_together(values, callouts)
+    if not found:
+        return None
+    key, (ca, cb) = found["page"], found["callouts"]
+    box = (min(ca["rect"][0], cb["rect"][0]), min(ca["rect"][1], cb["rect"][1]),
+           max(ca["rect"][2], cb["rect"][2]), max(ca["rect"][3], cb["rect"][3]))
+    plan = Evidence(
+        id=evidence_id, kind="text", document_id=key[0], page_number=key[1],
+        combined_page_number=info[key]["combined"], sheet_number=info[key]["sheet"], side=None,
+        bbox={"x": box[0], "y": box[1], "width": box[2] - box[0], "height": box[3] - box[1]},
+        text=f"{ca['detail']}/{ca['sheet']} {cb['detail']}/{cb['sheet']}",
+    )
+    moved, kept = kept_as_one_place(candidate, decision, found, plan)
+    return moved, kept, plan
+
+
+# A kept finding about values a detail defers to the plan gets the places the
+# plans call that detail out, as context: that is where the value belongs, and
+# where a person checks it. Leland RFI 009 cited only S4.01 and S4.10 text; the
+# RFI is about where S2.31-A cuts 10/S4.10.
+MAX_CALLOUT_CONTEXT = 3
+MAX_CONTEXT_FINDINGS = 3
+
+
+def pick_callouts(found: dict, info: dict, wanted: set[tuple[str, str]], scope_keys: set) -> list[tuple]:
+    """(page key, callout) for up to MAX_CALLOUT_CONTEXT callouts of the
+    wanted (detail, sheet) pairs: a page the review read first, then the page
+    calling out the most of them; one per page before a second. Pure."""
+    by_page = {k: [c for c in calls if (c["detail"], c["sheet"]) in wanted] for k, calls in found.items()}
+    order = sorted((k for k, calls in by_page.items() if calls),
+                   key=lambda k: (k not in scope_keys, -len(by_page[k]), info.get(k, {}).get("combined") or 0))
+    out: list[tuple] = []
+    for rank in range(MAX_CALLOUT_CONTEXT):
+        for k in order:
+            if rank < len(by_page[k]) and len(out) < MAX_CALLOUT_CONTEXT:
+                out.append((k, by_page[k][rank]))
+    return out
+
+
+def with_callout_context(project_id: str, candidate: dict, evidence: dict, scope_keys: set, *,
+                         read=None, deferred=None) -> dict:
+    """`candidate` with context evidence where the plans call out the details
+    its problem says defer a value to the plan. Unchanged when it is not about
+    a deferral, cites no detail sheet, or no plan calls them out. `read` is
+    callouts_in_project and `deferred(ev) -> detail numbers` reads a cited
+    detail sheet; both injectable for tests."""
+    text = f"{candidate.get('issue') or ''} {candidate.get('why') or ''} {candidate.get('element') or ''}"
+    if not _DEFERS.search(text):
+        return candidate
+    cited = [evidence[e] for e in candidate["evidenceIds"] if e in evidence and evidence[e].sheet_number
+             and evidence[e].kind in ("text", "crop")]
+    wanted: set[tuple[str, str]] = set()
+    for ev in cited:
+        wanted |= {(n, ev.sheet_number.upper()) for n in (deferred or _deferred_in)(project_id, ev)}
+    if not wanted:
+        return candidate
+    found, info = (read or callouts_in_project)(project_id, {s for _, s in wanted})
+    picked = pick_callouts(found, info, wanted, scope_keys)
+    if not picked:
+        return candidate
+    next_id = max((int(e[2:]) for e in evidence if e[2:].isdigit()), default=0) + 1
+    ids = []
+    for key, c in picked:
+        r = c["rect"]
+        ev = Evidence(id=f"ev{next_id}", kind="callout", document_id=key[0], page_number=key[1],
+                      combined_page_number=info[key]["combined"], sheet_number=info[key]["sheet"], side=None,
+                      bbox={"x": r[0], "y": r[1], "width": r[2] - r[0], "height": r[3] - r[1]},
+                      text=f"callout {c['detail']}/{c['sheet']}")
+        evidence[ev.id] = ev
+        ids.append(ev.id)
+        next_id += 1
+    return dict(candidate, evidenceIds=list(candidate["evidenceIds"]) + ids)
+
+
+def _deferred_in(project_id: str, ev: Evidence) -> set[str]:
+    """The details on a cited detail sheet that print "SEE PLAN" inside the cited box."""
+    with _documents(project_id, [ev.document_id]) as open_page:
+        page = open_page(ev.document_id, ev.page_number)
+        return review_aids.deferred_details(page, ev.bbox) if page is not None else set()
+
+
+def callouts_in_project(project_id: str, sheets: set[str]) -> tuple[dict, dict]:
+    """(page key -> section_callouts, page key -> page row) over the project's
+    plans that print one of `sheets` and are not it. A page that cannot be
+    read is skipped: this may only overrule a rejection, never cause one."""
+    if not sheets:
+        return {}, {}
+    pattern = "|".join(re.escape(s) for s in sorted(sheets))
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber"
+                 FROM pages p JOIN documents d ON d.id = p."documentId"
+                WHERE d."projectId" = %s AND d."supersededAt" IS NULL AND d."includeInRfiAnalysis"
+                  AND d.status = 'completed' AND p.text ~* %s
+                  AND NOT (COALESCE(p."sheetNumber", '') = ANY(%s::text[]))
+                ORDER BY p."combinedPageNumber" LIMIT %s""",
+            (project_id, pattern, sorted(sheets), MAX_CALLOUT_PAGES),
+        ).fetchall()
+    found, info = {}, {}
+    with _documents(project_id, sorted({r[0] for r in rows})) as open_page:
+        for doc_id, number, combined, sheet_number in rows:
+            try:
+                page = open_page(doc_id, number)
+                if page is None:
+                    continue
+                words = display_words(page)
+                calls = [c for s in sheets for c in section_callouts(words, s)]
+            except Exception:
+                log.exception("rfi review: reading section symbols on %s failed", sheet_number)
+                continue
+            if calls:
+                found[(doc_id, number)] = calls
+                info[(doc_id, number)] = {"combined": combined, "sheet": sheet_number}
+    return found, info
+
+
+# --- Absences discovery recorded and reasoning dropped ---------------------------
+# Leland RFI 002: discovery wrote "the crops show no dimension for the pier
+# centre" and "no grid-referenced offsets for these piers"; reasoning proposed
+# testing, rock sockets and casing, and the location questions ended
+# "no issue". A recorded absence of a value needed to place or size an element
+# goes to verification like any proposal — never silently to "no issue".
+_ABSENT = re.compile(
+    r"\bno\s+(?:\w+[\s-]+){0,3}?(?:dimensions?|offsets?|elevations?|sizes?|locations?|centres?|centers?|"
+    r"centrelines?|centerlines?|thickness(?:es)?|widths?|depths?)\b"
+    r"|\b(?:is|are|was|were|not)\s+(?:not\s+)?(?:dimensioned|located|given|stated|specified|provided|printed|shown)\b"
+    r"|\bdoes\s+not\s+(?:show|give|state|dimension|locate)\b",
+    re.I,
+)
+# Placing an element before sizing it: those absences are the RFI's core.
+_PLACEMENT = re.compile(r"\b(?:dimension\w*|offsets?|locat\w*|centre\w*|center\w*|grid)\b", re.I)
+MAX_UNCLAIMED = 3
+
+
+def unclaimed_absences(observations: list[dict], proposed: set[str]) -> list[dict]:
+    """Candidates for the questions reasoning proposed nothing for, made from
+    discovery's own observations that a value needed to place or size an
+    element is not given. One per question, placement first, then by how many
+    observations say so. Pure."""
+    by_check: dict[str, list[dict]] = {}
+    for o in observations:
+        text = o.get("statement") or ""
+        if o["checkId"] in proposed or not o.get("evidenceIds"):
+            continue
+        if _ABSENT.search(text) and (_GEOMETRY.search(text) or _PLACEMENT.search(text)):
+            by_check.setdefault(o["checkId"], []).append(o)
+    ranked = sorted(by_check.items(), key=lambda kv: (
+        not any(_PLACEMENT.search(o["statement"]) for o in kv[1]), -len(kv[1]), kv[0]))
+    out = []
+    for check_id, obs in ranked[:MAX_UNCLAIMED]:
+        first = obs[0]
+        out.append({
+            "checkId": check_id, "kind": "missing", "disposition": "rfi", "searchFor": "",
+            "element": first.get("element") or "", "location": first.get("location") or "",
+            "issue": _clip(" ".join(o["statement"] for o in obs), 600),
+            "why": "Discovery recorded that a value needed to place or size this element is not given, and no other "
+                   "proposal covered it.",
+            "derivation": "", "impact": "", "unresolvedReason": "",
+            "evidenceIds": list(dict.fromkeys(e for o in obs for e in o["evidenceIds"])),
+            "confidence": "low", "searched": [], "fromObservations": True,
+        })
+    return out
 
 
 REJECT_BASES = ("not_visible", "different_condition", "answered_elsewhere", "other")
@@ -1130,6 +1616,48 @@ _DEFERS = re.compile(
 # drawing set is concerned, and is never overruled: "time between adjacent
 # pours is governed by the concrete specifications and ACI" was overruled into
 # a Leland finding the drawings were never meant to answer.
+# A rejection resting on absence not being PROVEN rather than on a value shown.
+# Leland RFI 009 was rejected twice so, the second time citing pier tops while
+# conceding the walls' T.O.C. was a plan value nobody had shown: "The evidence
+# does not show that the plans lack these values, so no gap is demonstrated."
+_UNPROVEN_ABSENCE = re.compile(
+    r"\b(?:does\s+not|doesn'?t|do\s+not|don'?t|nothing|no\s+evidence)\s+(?:\w+\s+){0,3}?"
+    r"(?:shows?|establish(?:es)?|demonstrates?|proves?|indicates?)\b[^.]{0,80}?"
+    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed))\b"
+    r"|\bno\s+gap\s+(?:is|was|has\s+been)\s+(?:demonstrated|shown|established|proven)\b"
+    r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b",
+    re.I,
+)
+# A rejection that says the value is given ELSEWHERE while its own reason says the value
+# asked about is not stated. Leland RFI 009, re-checked: "The plans S2.31-A and S2.32-A print
+# T/CONC and T/STRUC SLAB elevations … The wall top elevations are not stated for any specific
+# wall." — slab elevations cited as the answer to a question about the WALL's top.
+_CONCEDED = re.compile(
+    r"[^.]*\b(?:not|never)\s+(?:\w+ly\s+)?(?:stated|shown|given|printed|provided|specified|dimensioned|"
+    r"indicated|labell?ed|noted)\b[^.]*",
+    re.I,
+)
+_PLAIN = {"the", "and", "for", "are", "any", "not", "that", "this", "with", "from", "each", "all", "its",
+          "specific", "value", "values", "detail", "details", "plan", "plans", "sheet", "sheets", "drawing",
+          "drawings", "evidence", "shown", "stated", "given", "printed", "provided", "specified", "indicated"}
+
+
+def _content_words(text: str | None) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{3,}", (text or "").lower()) if w not in _PLAIN}
+
+
+def concedes_the_value(decision: dict, candidate: dict) -> bool:
+    """A rejection resting on another drawing (basis answered_elsewhere or
+    evidence cited) whose own reason says the value the problem asks about is
+    not stated: a sentence of absence sharing two words with the problem's
+    element. Pure."""
+    if decision.get("basis") != "answered_elsewhere" and not decision.get("answeredBy"):
+        return False
+    wanted = _content_words(candidate.get("element"))
+    return any(len(wanted & _content_words(sentence)) >= 2
+               for sentence in _CONCEDED.findall(decision.get("reason") or ""))
+
+
 _SPEC_GOVERNED = re.compile(r"\b(?:specifications?|specs|project\s+manual|ACI|ASTM|division\s+\d{2})\b", re.I)
 
 
@@ -1158,6 +1686,32 @@ def answered_by_column_schedule(candidate: dict, schedule_sheets: list[str]) -> 
             "the column-schedule check, by location.")
 
 
+# Leland RFI 002: reasoning proposed "pier centre versus wall centreline is not dimensioned"
+# citing four small close-ups elsewhere and a whole sheet; verification called it speculative
+# because "the crops show piers located". The run HAD rendered a close-up of the clouded core
+# (S2.30-B, 1152 x 864pt), and nothing cited it, so verification never saw it.
+MAX_SHEET_CLOSEUPS = 2
+
+
+def with_sheet_closeups(candidate: dict, evidence: dict) -> dict:
+    """A claim that something on a sheet is not placed or dimensioned, with
+    the run's largest close-ups of the sheets it cites added (≤2 per sheet,
+    not already cited): a claim of absence is judged on what the run saw of
+    that sheet, not only on the pieces reasoning picked. Pure."""
+    text = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    if candidate.get("kind") not in ("missing", "ambiguity") or not _PLACEMENT.search(text):
+        return candidate
+    cited = [e for e in candidate["evidenceIds"] if e in evidence]
+    sheets = {(evidence[e].document_id, evidence[e].page_number) for e in cited if evidence[e].kind in ("text", "crop", "page")}
+    added = []
+    for sheet in sorted(sheets):
+        crops = [ev for ev in evidence.values() if ev.kind == "crop" and ev.id not in cited and ev.bbox
+                 and (ev.document_id, ev.page_number) == sheet]
+        crops.sort(key=lambda ev: (-(ev.bbox["width"] * ev.bbox["height"]), int(ev.id[2:]) if ev.id[2:].isdigit() else 0))
+        added += [ev.id for ev in crops[:MAX_SHEET_CLOSEUPS]]
+    return dict(candidate, evidenceIds=cited + added) if added else candidate
+
+
 def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
     """The evidence ids shown to verification, plus the code-made aids of the
     PAGES they are on. Discovery saw "6/S4.01 prints this dimension as SEE
@@ -1178,12 +1732,18 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     saying the problem is not visible, stands."""
     if not decision or decision.get("decision") != "reject":
         return False
+    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
+        return False
+    # "Nothing shows the plans LACK it" asks the problem to prove an absence;
+    # citing evidence beside that says what the evidence does not settle.
+    if _UNPROVEN_ABSENCE.search(decision.get("reason") or ""):
+        return True
+    if candidate and concedes_the_value(decision, candidate):
+        return True
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
     if cited & shown:
-        return False
-    if _SPEC_GOVERNED.search(decision.get("reason") or ""):
         return False
     # A problem ABOUT a deferred value ("the details give the offset only as
     # SEE PLAN") is settled only by evidence printing that value: "nothing
@@ -1232,19 +1792,38 @@ def delegated(decision: dict | None, candidate: dict) -> bool:
     return bool(_BY_OTHERS.search(reason)) and bool(_GEOMETRY.search(issue))
 
 
+def by_others_kept(decision: dict | None, candidate: dict) -> bool:
+    """A KEPT problem about the size or place of an element the drawings assign
+    to another party. Pure. It is the same question `delegated` keeps LOW, and
+    kept by verification it came out MEDIUM asking "who provides it" — which
+    the drawings answer: Leland's cistern wall is "~20\" THICK … (BY OTHERS)"
+    on S2.32-A and "BY SPECIALTY RETENSION SYSTEM SUBCONTRACTOR" on S4.10."""
+    if not decision or decision.get("decision") != "keep":
+        return False
+    issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    if _FIELD_DUTY.search(issue):
+        return False
+    return bool(_BY_OTHERS.search(issue)) and bool(_GEOMETRY.search(issue))
+
+
 def kept_for_coordination(candidate: dict, decision: dict) -> dict:
-    """The decision a by-others rejection becomes: kept LOW, asking for the
-    geometry to coordinate with, or for confirmation that the other party
-    gives it. Pure."""
+    """The decision a by-others problem becomes, rejected or kept: LOW, asking
+    for the geometry to coordinate with, or for confirmation that the other
+    party gives it. Pure."""
     subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
     question = (
         f"{(candidate.get('issue') or '').rstrip('.')}. The drawings assign this element to another party; please "
         "confirm its size and location so the work around it can be coordinated, or confirm that the other party's "
         "submittal provides them."
     )
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
+        question = f"{question} ({location})"
+    said = ("Verification set it aside as by others" if decision.get("decision") != "keep"
+            else "The drawings assign it to another party")
     why = (
-        f"{decision.get('why') or candidate.get('why') or ''} Verification set it aside as by others; that settles "
-        "who designs it, not its size or place on these drawings."
+        f"{decision.get('why') or candidate.get('why') or ''} {said}; that settles who designs it, not its size or "
+        "place on these drawings."
     ).strip()
     return dict(decision, decision="keep", subject=subject, question=question, why=why,
                 confidence="low", priority="normal")
@@ -1259,6 +1838,10 @@ def overruled(candidate: dict, decision: dict) -> dict:
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
     )
+    # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
+        question = f"{question.rstrip()} ({location})"
     why = (
         f"{decision.get('why') or candidate.get('why') or ''} Verification said another drawing gives this, but "
         "could not point to evidence that shows it, and searching the project did not settle it."
@@ -1347,6 +1930,13 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
     for token in rfi_scan._IDENT.findall(upper):
         if rfi_checks.normalize(token) and rfi_checks.normalize(token) not in rfi_checks.normalize(material):
             return False, f"names {token}, which the evidence does not contain"
+    # A dimension the drawing prints in the other unit is grounded: 18" where
+    # the sheet says 1'-6", or "1'-4" (16")". Matched as a whole LENGTH, never
+    # digit by digit — "16"" on the sheet must not ground "#4 bars at level 1".
+    printed = {round(v, 3) for _, _, v in _dimensions(material)}
+    for start, end, inches in _dimensions(upper):
+        if round(inches, 3) in printed:
+            upper = upper[:start] + " " * (end - start) + upper[end:]
     # Every digit run, not only free-standing numbers: the scan's pattern skips
     # digits touching a letter, so "W14x90" — a member size, exactly the kind
     # of fact a review question states — passed with neither half checked.
@@ -1357,6 +1947,20 @@ def grounded(text: str, material: str) -> tuple[bool, str | None]:
 
 
 _DIGITS = re.compile(r"(?<![0-9.])\d+(?:\.\d+)?(?![0-9])")
+# One printed length: 1'-6", 1' - 4 1/2", 18", 10 1/2". Feet alone (2') are not
+# matched: "2'" also reads as a grid prime or a quote.
+_DIMENSION = re.compile(r"""(?<![\d./])(?:(\d+)\s*'\s*-?\s*)?(\d+)(?:(?:\s+|-)(\d+)/(\d+))?\s*\"""")
+
+
+def _dimensions(text: str) -> list[tuple[int, int, float]]:
+    """(start, end, inches) of every length printed in `text`. Pure."""
+    out = []
+    for m in _DIMENSION.finditer(text.translate(_QUOTES)):
+        ft, inch, num, den = m.groups()
+        if den and int(den) == 0:
+            continue
+        out.append((m.start(), m.end(), int(ft or 0) * 12 + int(inch) + (int(num) / int(den) if num else 0)))
+    return out
 
 
 def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str | None:
@@ -2976,7 +3580,9 @@ def _run(run: dict) -> dict:
     element_block = (
         f"<element>Reviewing {lib_element.get('name')}"
         + (f" ({lib_element['variants']})" if lib_element.get("variants") else "")
-        + ". Answer each question about this element only.</element>\n\n"
+        + ". Answer each question about this element only."
+        + (f" For every source of it, record these where printed: {lib_element['attributes']}." if lib_element.get("attributes") else "")
+        + "</element>\n\n"
     ) if library else ""
     observations: list[dict] = []
     inventory: list[dict] = []
@@ -3011,6 +3617,13 @@ def _run(run: dict) -> dict:
             if found["dropped"]:
                 notes.append(f"Discovery call {i}: {found['dropped']} observation(s) dropped for citing evidence that was not supplied or naming no check.")
         observations = observations[: MAX_OBSERVATIONS * max(1, len(batches))]
+        inventory, split_note = complete_inventory(inventory, sent, lambda user, shown: _ask(
+            "discovery", discovery_system(asked, catalogue), user + element_block + "\n".join(_evidence_block(ev) for ev in shown),
+            lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
+            run=run, usage=usage, images=[ev for ev in shown if ev.visual],
+        )["inventory"])
+        if split_note:
+            notes.append(split_note)
         _set(run_id, observations=json.dumps(observations), inventory=json.dumps(inventory))
         notes.append(f"Discovery: {len(observations)} observation(s) from {len(batches)} call(s).")
         _checkpoint(run_id, "reasoning", 45, run)
@@ -3033,6 +3646,11 @@ def _run(run: dict) -> dict:
             c for c in value_conflicts(inventory)
             if not any(set(c["evidenceIds"]) <= s or s <= set(c["evidenceIds"]) for s in reasoned)
         ][: max(0, MAX_CANDIDATES - len(candidates))]
+        absent = unclaimed_absences(observations, {c["checkId"] for c in candidates})[: max(0, MAX_CANDIDATES - len(candidates) - len(by_values))]
+        if absent:
+            candidates += absent
+            notes.append(f"Absences recorded by discovery and proposed by no one: {len(absent)} question(s) "
+                         f"({', '.join(c['checkId'] for c in absent)}), sent to verification.")
         if by_values:
             candidates += by_values
             notes.append(f"Values compared by code: {len(by_values)} element(s) where two sources print different "
@@ -3086,7 +3704,9 @@ def _run(run: dict) -> dict:
                 diagnostics.event("rejected_before_verification", candidate=candidate, reason=early.reason,
                                   rule="occurrence_check (measured column positions)")
                 continue
-            to_verify.append(candidate)
+            to_verify.append(with_sheet_closeups(candidate, evidence))
+
+        scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
@@ -3111,6 +3731,12 @@ def _run(run: dict) -> dict:
                 ])
                 set_aside(candidate, "not verified by measurement, recorded for a person to check", "measured column positions", decision)
                 return
+            placed = sum(1 for c, _, _ in kept if any(evidence[e].kind == "callout" for e in c["evidenceIds"]))
+            if placed < MAX_CONTEXT_FINDINGS:
+                try:
+                    candidate = with_callout_context(project_id, candidate, evidence, scope_keys)
+                except Exception:
+                    log.exception("rfi review: placing the plan callouts of %s failed", label)
             kept.append((candidate, decision, verdict))
 
         # 5. Verification — only the evidence each problem cites (and found).
@@ -3144,6 +3770,17 @@ def _run(run: dict) -> dict:
                                           rule="by others settles who designs an element, not its size or place")
                         accept(candidate, kept_for_coordination(candidate, decision))
                         continue
+                    overrule = one_place(project_id, candidate, decision, f"ev{next_id}")
+                    if overrule:
+                        moved, kept_decision, plan = overrule
+                        next_id += 1
+                        evidence[plan.id] = plan
+                        notes.append(f"Kept {label}: verification called the details different conditions, but "
+                                     f"{plan.where} draws both sections at one place.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
+                                          rule="two details a plan cuts at one place show one element")
+                        accept(moved, kept_decision)
+                        continue
                     if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown, candidate):
                         recheck.append((candidate, decision))
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
@@ -3153,6 +3790,10 @@ def _run(run: dict) -> dict:
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
                     continue
+                if by_others_kept(decision, candidate):
+                    notes.append(f"Kept {label} low: the drawings assign it to another party, so the question is "
+                                 "its size and place, not who provides it.")
+                    decision = kept_for_coordination(candidate, decision)
                 accept(candidate, decision)
 
             # 5b. "Another drawing gives this" must be shown, not assumed:

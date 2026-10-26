@@ -880,6 +880,8 @@ export const RFI_CHECK_LABELS = {
   unmarked_element: "Element drawn with no type mark",
   // workers/src/column_schedule.py: a schedule column with locations and no size.
   unsized_column: "Column in the schedule with no size",
+  // workers/src/pier_caps.py: two columns on one pier cap on a foundation plan, no detail called out.
+  twin_column_cap: "Pier cap carrying two columns with no detail called out",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -903,7 +905,7 @@ export interface RfiEvidenceDto {
   /** Targeted review only: which evidence item this was (text, gridmarks,
    * description, a whole-page image or a close-up), how far it can be trusted,
    * which named sheet it belongs to, and what the review said it shows. */
-  kind?: "text" | "gridmarks" | "description" | "page" | "crop" | "occurrence";
+  kind?: "text" | "gridmarks" | "description" | "page" | "crop" | "occurrence" | "callout";
   sourceTrust?: "project_text" | "geometry" | "visual" | "model_description";
   side?: string | null;
   observation?: string | null;
@@ -2157,12 +2159,19 @@ export function scheduleSubject(entry: string, elementName = ""): { words: strin
 
 /** How strongly a sheet's schedule headings name the subject: 0 not at all,
  * 2 named, 3 named as CONCRETE (the library is a concrete scope). Pure. */
+// A drafter's other name for a word of a multi-word schedule subject: Leland
+// titles its pile cap schedule PIER CAP SCHEDULE. Never for a one-word subject,
+// where PILE alone means piles and must not take a pier schedule.
+const HEADING_SYNONYMS: Record<string, readonly string[]> = { PILE: ["PIER"] };
+
 export function headingScore(sheet: LibrarySheet, subject: { words: readonly string[]; all: boolean }): number {
   if (!subject.words.length) return 0;
   let best = 0;
   for (const h of sheet.headings ?? []) {
     const tokens = (h.match(/[A-Z]+/g) ?? []).map(stem);
-    const named = subject.all ? subject.words.every((w) => tokens.includes(w)) : subject.words.some((w) => tokens.includes(w));
+    const has = (w: string) =>
+      tokens.includes(w) || (subject.words.length > 1 && (HEADING_SYNONYMS[w] ?? []).some((s) => tokens.includes(s)));
+    const named = subject.all ? subject.words.every(has) : subject.words.some((w) => tokens.includes(w));
     if (named) best = Math.max(best, tokens.includes("CONCRETE") ? 3 : 2);
   }
   return best;
@@ -2272,7 +2281,7 @@ export function libraryCatalogueIds(
  */
 export const RFI_QUESTION_CODE_CHECKS: Partial<Record<RfiReviewCheckId, readonly RfiCheckType[]>> = {
   G01: ["grid_mismatch", "grid_spacing"],
-  F04: ["unmarked_element"],
+  F04: ["unmarked_element", "twin_column_cap"],
   C01: ["column_mismatch", "unsized_column"],
   C03: ["column_mismatch"],
 };
@@ -2287,6 +2296,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "missing_plan_level",
   "unmarked_element",
   "unsized_column",
+  "twin_column_cap",
 ];
 
 /**

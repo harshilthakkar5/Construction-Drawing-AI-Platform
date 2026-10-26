@@ -31,13 +31,13 @@ export function normalizeSheet(value: string): string {
 /** The element families a mark's shape names. A routing SEED, never a limit:
  * the family's checks are added, nothing else is removed. */
 const ELEMENT_FAMILIES: { pattern: RegExp; family: string; checks: RfiReviewCheckId[] }[] = [
-  { pattern: /^(SW|CW)[-\s]?\d/, family: "shear or core wall", checks: ["C02"] },
-  { pattern: /^(PC|PILE|P)[-\s]?\d/, family: "pile or pile cap", checks: ["F04"] },
+  { pattern: /^(SW|CW|BW|RW)[-\s]?\d/, family: "shear or core wall", checks: ["C02"] },
+  { pattern: /^(PC|PILE|PIER|MP|P)[-\s]?\d/, family: "pile or pile cap", checks: ["F04"] },
   { pattern: /^(WF|CF)[-\s]?\d/, family: "wall footing", checks: ["F02"] },
   { pattern: /^(MAT|MF)[-\s]?\d/, family: "mat foundation", checks: ["F03"] },
   { pattern: /^(F|FTG|SF)[-\s]?\d/, family: "footing", checks: ["F01"] },
-  { pattern: /^(C|COL)[-\s]?\d/, family: "column", checks: ["C01", "C03"] },
-  { pattern: /^(B|BM|G|GB|J)[-\s]?\d/, family: "beam", checks: ["B01", "B02", "B03"] },
+  { pattern: /^(C|COL|PED)[-\s]?\d/, family: "column", checks: ["C01", "C03"] },
+  { pattern: /^(B|BM|G|GB|TB|J)[-\s]?\d/, family: "beam", checks: ["B01", "B02", "B03"] },
   { pattern: /^(S|SL|SLAB)[-\s]?\d/, family: "slab", checks: ["FL01", "FL02", "FL03", "FL04"] },
 ];
 
@@ -456,7 +456,58 @@ export interface RankInput {
    * already filtered to live, analysable documents of this project. */
   chunks: Map<string, CandidateChunk>;
   pages: Map<string, CandidatePage>;
+  /** By element: the library element's name. A related page carrying a detail TITLED with
+   * it ("ELEVATOR PIT DETAIL") is rendered even past the depth's picture budget. */
+  elementName?: string;
 }
+
+// Mirrors workers/src/rfi_review.py `_NOT_A_TITLE_WORD` / `TITLE_SYNONYMS` / `element_title_words`;
+// both read packages/shared/fixtures/element-title-words.json, so the two cannot drift.
+const NOT_A_TITLE_WORD = new Set(["and", "the", "with", "for", "on", "of"]);
+const TITLE_SYNONYMS: Record<string, string[][]> = {
+  "PILE CAP": [["PIER", "CAP"]],
+  "RETAINING WALL": [["BASEMENT", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+  "DRILLED PIER": [["DRILLED", "FOOTING"], ["DRILLED", "SHAFT"], ["CAISSON"]],
+  "BASEMENT WALL": [["RETAINING", "WALL"], ["BELOW", "GRADE", "WALL"], ["FOUNDATION", "WALL"]],
+  ISOLATED: [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+  "SPREAD FOOTING": [["PAD", "FOOTING"], ["COLUMN", "FOOTING"]],
+  "GRADE BEAM": [["TIE", "BEAM"]],
+  "ELEVATED SLAB": [["FLAT", "PLATE"], ["FLAT", "SLAB"]],
+  "SLAB DEPRESSION": [["SLAB", "STEP"], ["DEPRESSED", "SLAB"]],
+  TURNDOWN: [["TURN", "DOWN"]],
+  "ANCHOR BOLT": [["ANCHOR", "ROD"]],
+  "EMBED PLATE WELD PLATE": [["EMBED", "PLATE"], ["EMBEDDED", "PLATE"], ["WELD", "PLATE"]],
+};
+const stem = (w: string) => w.replace(/(?<!S)S$/, "");
+
+/** The words a detail TITLE about this element carries, per alternative:
+ * "Drilled piers / caissons" → [[DRILLED, PIER], [CAISSON]], plus drafters' synonyms. Pure. */
+export function elementTitleWords(name: string | null | undefined): string[][] {
+  const out: string[][] = [];
+  const has = (w: string[]) => out.some((o) => o.join(" ") === w.join(" "));
+  for (const part of (name ?? "").replace(/\([^)]*\)/g, " ").split("/")) {
+    const words = (part.toUpperCase().match(/[A-Z]{3,}/g) ?? []).filter((w) => !NOT_A_TITLE_WORD.has(w.toLowerCase())).map(stem);
+    if (words.length && !has(words)) out.push(words);
+  }
+  for (const words of [...out]) for (const s of TITLE_SYNONYMS[words.join(" ")] ?? []) if (!has(s)) out.push(s);
+  return out;
+}
+
+/** A short DETAIL or SECTION title naming the element ("ELEVATOR PIT DETAIL"), never a "SEE …" pointer
+ * or a note. The worker's detail_regions also wants a SCALE line under it; text alone cannot see that. Pure. */
+export function titlesElement(text: string, alternatives: string[][]): boolean {
+  return text.split("\n").some((raw) => {
+    const line = raw.trim().toUpperCase();
+    if (!line || /^-?(SEE|REFER)\b/.test(line) || !/\b(DETAILS?|SECTIONS?)\b/.test(line)) return false;
+    const words = line.match(/[A-Z]{3,}/g) ?? [];
+    if (words.length > 6) return false;
+    const tokens = new Set(words.map(stem));
+    return alternatives.some((a) => a.every((w) => tokens.has(w)));
+  });
+}
+
+/** How many related pages a titled detail may add to the depth's picture budget. */
+export const TITLED_EXTRA_PAGES = 2;
 
 /**
  * The bounded scope: which chunks and pages a review may use.
@@ -493,7 +544,22 @@ export function rankScope(input: RankInput): ReviewScope {
     });
   });
 
-  const mustKeep = input.targetChunks.filter((c) => c.kind === "gridmarks" || elementIds.has(c.chunkId));
+  const alternatives = elementTitleWords(input.elementName);
+  // Detail titles of the element on pages nobody named: kept, and their pages rendered.
+  const titleChunks = alternatives.length
+    ? [...input.chunks.values()].filter((c) => c.kind === "text" && !targetPageIds.has(c.pageId) && input.pages.has(c.pageId) && titlesElement(c.text, alternatives))
+    : [];
+  const titledPages = new Set(
+    [...new Set(titleChunks.map((c) => c.pageId))]
+      .sort((a, b) => Math.max(0, ...titleChunks.filter((c) => c.pageId === b).map((c) => score.get(c.chunkId) ?? 0))
+        - Math.max(0, ...titleChunks.filter((c) => c.pageId === a).map((c) => score.get(c.chunkId) ?? 0)) || a.localeCompare(b))
+      .slice(0, TITLED_EXTRA_PAGES),
+  );
+  const titleIds = new Set(titleChunks.filter((c) => titledPages.has(c.pageId)).map((c) => c.chunkId));
+  const mustKeep = [
+    ...input.targetChunks.filter((c) => c.kind === "gridmarks" || elementIds.has(c.chunkId)),
+    ...titleChunks.filter((c) => titleIds.has(c.chunkId)),
+  ];
   const mustIds = new Set(mustKeep.map((c) => c.chunkId));
   const pool = new Map<string, CandidateChunk>();
   for (const c of input.targetChunks) pool.set(c.chunkId, c);
@@ -511,7 +577,7 @@ export function rankScope(input: RankInput): ReviewScope {
   const room = Math.max(0, caps.chunks - mustKeep.length);
   const chosen: ScopeChunk[] = [
     // Element chunks rank first so they are the first crops on their page.
-    ...mustKeep.map((c) => ({ ...c, score: elementIds.has(c.chunkId) ? 1 : (score.get(c.chunkId) ?? 0) })),
+    ...mustKeep.map((c) => ({ ...c, score: elementIds.has(c.chunkId) || titleIds.has(c.chunkId) ? 1 : (score.get(c.chunkId) ?? 0) })),
     ...ranked.slice(0, room).map(({ c, s }) => ({ ...c, score: s })),
   ];
 
@@ -541,7 +607,8 @@ export function rankScope(input: RankInput): ReviewScope {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   for (const [id] of related) {
     const checks = [...(foundBy.get(id) ?? [])].sort();
-    add(input.pages.get(id)!, "related", checks.length ? `found by the search for ${checks.join(", ")}` : "found by retrieval");
+    const why = checks.length ? `found by the search for ${checks.join(", ")}` : "found by retrieval";
+    add(input.pages.get(id)!, "related", titledPages.has(id) ? `carries a detail titled with ${input.elementName}; ${why}` : why);
   }
 
   // Pages retrieval matched whose every chunk lost the rank cut: said, not hidden.
@@ -557,8 +624,9 @@ export function rankScope(input: RankInput): ReviewScope {
   let visualLeft = caps.visualPages;
   const pages: ScopePage[] = pageOrder.map(({ page, role, reason }) => {
     // Named and forced pages are always rendered; related pages while room remains.
-    const visual = role !== "related" ? true : visualLeft > 0;
-    if (visual) visualLeft--;
+    const titled = role === "related" && titledPages.has(page.pageId);
+    const visual = role !== "related" || visualLeft > 0 || titled;
+    if (visual && (!titled || visualLeft > 0)) visualLeft--; // a titled page past the budget is extra
     const crops = visual ? cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage) : [];
     if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only, beyond the ${caps.visualPages} rendered pages of this depth` });
     return { ...page, role, reason, visual, crops };

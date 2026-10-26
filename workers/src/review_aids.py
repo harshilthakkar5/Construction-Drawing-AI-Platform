@@ -215,22 +215,68 @@ def _display_lines(page) -> list[tuple[str, object, bool]]:
     return out
 
 
-def deferred_dimensions(page, sheet: str) -> str | None:
-    """The dimensions a detail sheet prints as "SEE PLAN" where a length
-    belongs, grouped by the detail they sit in. Leland RFI 002: 6/S4.01 gives
-    the wall face to grid line as "SEE PLAN" and the plan never dimensions it;
-    one review read that and one did not. Listed by code, every review sees
-    each one. None when the page has none."""
-    lines = _display_lines(page)
+_OWN_REFERENCE = re.compile(r"^\s*\d{1,3}[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\s*$", re.I)
+
+
+def detail_titles(lines) -> list[tuple[str | None, str, object]]:
+    """(number, title, display rect) for every detail title on a page: a line
+    with its SCALE line right below, and the detail number printed to its left
+    when there is one. Pure over `_display_lines`."""
     scales = [r for t, r, _ in lines if _SCALE.match(t)]
-    titles = []
+    out = []
     for text, box, vertical in lines:
-        if vertical or _SCALE.match(text) or not re.search(r"[A-Z]{3,}", text):
+        # A title is words, or only the detail's own reference ("10/S4.10" on Leland S4.10).
+        if vertical or _SCALE.match(text) or not (re.search(r"[A-Z]{3,}", text) or _OWN_REFERENCE.match(text)):
             continue
         if any(-15 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0 for s in scales):
             number = next((t for t, r, _ in lines if re.fullmatch(r"\d{1,2}", t) and 0 <= box.x0 - r.x1 <= 80
                            and r.y0 < box.y1 + 30 and r.y1 > box.y0 - 10), None)
-            titles.append((f"detail {number} {text}" if number else text, box))
+            out.append((number, text, box))
+    return out
+
+
+def title_of(cx: float, cy: float, titles: list[tuple]) -> tuple | None:
+    """The title a point belongs to: a detail's title is printed UNDER it
+    (detail_regions' convention); a sheet titled above falls back to the
+    nearest one. Pure."""
+    column = [t for t in titles if t[2].x0 - 60 <= cx <= t[2].x0 + 900]
+    below = [(t[2].y0 - cy, i, t) for i, t in enumerate(column) if t[2].y0 >= cy]
+    near = below or [(abs(cy - t[2].y1), i, t) for i, t in enumerate(column)]
+    return min(near)[2] if near else None
+
+
+# A pointer to the plan, alone on its line or as a note's dash ("-SEE PLAN").
+_SEE_PLAN = re.compile(r"^-?\s*SEE\s+PLANS?$", re.I)
+
+
+def deferred_details(page, box: dict | None) -> set[str]:
+    """The numbers of the details on this sheet that print "SEE PLAN" for a
+    value inside `box` (stored, unrotated space; None = the whole page)."""
+    import fitz
+
+    lines = _display_lines(page)
+    titles = [t for t in detail_titles(lines) if t[0]]
+    if not titles:
+        return set()
+    area = None if box is None else fitz.Rect(box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]) * page.rotation_matrix
+    out = set()
+    for text, rect, _ in lines:
+        if not _SEE_PLAN.match(text) or (area is not None and not area.normalize().intersects(rect)):
+            continue
+        title = title_of((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2, titles)
+        if title:
+            out.add(title[0])
+    return out
+
+
+def deferred_dimensions(page, sheet: str) -> str | None:
+    """The dimensions a detail sheet prints as "SEE PLAN" where a length
+    belongs, grouped by the detail they sit in. Leland: 6/S4.01 gives the
+    wall face to grid line as "SEE PLAN" and the plan never dimensions it;
+    one review read that and one did not. Listed by code, every review sees
+    each one. None when the page has none."""
+    lines = _display_lines(page)
+    titles = [(f"detail {number} {text}" if number else text, box) for number, text, box in detail_titles(lines)]
     found: dict[str, list[bool]] = {}
     for text, box, vertical in lines:
         if not _DEFERRED.match(text):
@@ -240,12 +286,8 @@ def deferred_dimensions(page, sheet: str) -> str | None:
         if label:
             continue  # "T.O.C. / SEE PLAN" is an elevation, read by G02
         cx, cy = (box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2
-        column = [(name, r) for name, r in titles if r.x0 - 60 <= cx <= r.x0 + 900]
-        # A detail's title is printed UNDER it (detail_regions' convention); a
-        # sheet titled above falls back to the nearest one.
-        below = [(r.y0 - cy, name) for name, r in column if r.y0 >= cy]
-        near = below or [(abs(cy - r.y1), name) for name, r in column]
-        where = min(near)[1] if near else "no detail title found"
+        title = title_of(cx, cy, [(None, name, r) for name, r in titles])
+        where = title[1] if title else "no detail title found"
         found.setdefault(where, []).append(vertical)
     if not found:
         return None

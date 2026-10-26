@@ -22,7 +22,9 @@ LABEL = r"[A-Z]{1,2}\d*(?:\.\d+)?"
 # A location as Revit prints it: B6-BA, or A4(-9")-BB(7' - 3/4") for a
 # column off its grid lines.
 LOCATION = re.compile(rf"\b({LABEL})(\([^)]*\))?-({LABEL})(\([^)]*\))?")
-SIZE = re.compile(r"\d+\"?\s*[Xx]\s*\d+\"|\d+\"\s*ø|\bHSS\s*\d|\bW\d+\s*[Xx]\s*\d+")
+# A column size: 24"x24", 24" ø, round 24" DIA. / Ø30", HSS, W-shape, PIPE 8.
+# The x form still needs its closing inch mark, so "2 X 4 BLOCKING" is not one.
+SIZE = re.compile(r"\d+\"?\s*[Xx]\s*\d+\"|\d+\"\s*(?:[øØ]|(?i:DIA)\b)|[øØ]\s*\d+\"|\bHSS\s*\d|\bW\d+\s*[Xx]\s*\d+|\bPIPE\s*\d")
 MIN_SIZED = 3
 HEADER_PT = 100.0  # the location lines sit within this of the "Column Locations" label
 

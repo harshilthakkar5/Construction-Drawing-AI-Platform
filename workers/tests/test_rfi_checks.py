@@ -931,3 +931,43 @@ def test_rows_under_a_sheet_sized_block_are_not_its_schedule():
     assert unscheduled_marks(pages, [heading, plates, plan])[0] == []
     compact = Chunk("h", "p12", "KICKER BRACE ANGLE SCHEDULE\n", {"x": 1300, "y": 600, "width": 300, "height": 12})
     assert [f.facts["mark"] for f in unscheduled_marks(pages, [compact, plates, plan])[0]] == ["A8"]
+
+
+def test_an_eccentric_or_sloped_column_of_a_scheduled_mark_is_not_missing():
+    """UT Law's plan notes: C-X.E steps within its height, C-X.S slopes — both
+    are the scheduled column C-X."""
+    pages = [Page("p1", "d", 1, 1, "S0.01"), Page("p2", "d", 2, 2, "S2.01")]
+    schedule = Chunk("cs", "p1", "COLUMN SCHEDULE\nC-15 24x24\nC-16 24x24", {"x": 0, "y": 0, "width": 100, "height": 40}, ("C15", "C16"))
+    plan = Chunk("cp", "p2", "COLUMN C-15.E AT GRID A/1, C-16.S", {"x": 0, "y": 0, "width": 100, "height": 40}, ("C15E", "C16S"))
+    assert unscheduled_marks(pages, [schedule, plan])[0] == []
+
+
+def test_a_mark_named_after_grid_is_an_intersection_not_a_mark():
+    assert rfi_checks.part_of_other_label("AT GRID C3 SEE", 8, 10)
+    assert rfi_checks.part_of_other_label("GRID LINE C3", 10, 12)
+    assert not rfi_checks.part_of_other_label("COLUMN C3", 7, 9)
+
+
+def test_input_and_output_ratings_on_two_sheets_are_two_quantities():
+    pages = [Page("m1", "d", 3, 3, "M1.01"), Page("m2", "d", 4, 4, "M2.01")]
+    chunks = [Chunk("a", "m1", "RTU-3 HEATING INPUT 100 MBH", None), Chunk("b", "m2", "RTU-3 HEATING OUTPUT 80 MBH", None)]
+    assert rfi_checks.tag_value_conflicts(pages, chunks)[0] == []
+    # ...but the same quantity disagreeing is still a conflict
+    chunks = [Chunk("a", "m1", "RTU-3 INPUT 100 MBH", None), Chunk("b", "m2", "RTU-3 INPUT 80 MBH", None)]
+    assert len(rfi_checks.tag_value_conflicts(pages, chunks)[0]) == 1
+
+
+def test_an_abbreviation_legend_row_is_not_an_open_item():
+    pages = [Page("g1", "d", 1, 1, "G0.01")]
+    legend = Chunk("c1", "g1", "ABBREVIATIONS\nTBD = TO BE DETERMINED\nTYP = TYPICAL", None)
+    assert open_item_notes(pages, [legend])[0] == []
+    real = Chunk("c2", "g1", "BEAM SIZE TBD", None)
+    assert len(open_item_notes(pages, [real])[0]) == 1
+
+
+@pytest.mark.parametrize("text", ["UL U419 ASSEMBLY", "AWS D11 WELDING", "16 GA. STUD"])
+def test_listings_and_gauges_after_a_standard_are_not_marks(text):
+    import re as _re
+    m = _re.search(r"\b([A-Z]\d{2,4}|\d{2})\b", text)
+    before, after = text[: m.start()], text[m.end():]
+    assert rfi_checks._LISTING_BEFORE.search(before) or rfi_checks._FASTENER_AFTER.match(after)
