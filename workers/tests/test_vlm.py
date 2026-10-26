@@ -1420,6 +1420,7 @@ class TestReasoningThatEatsTheCropBudget:
     def test_a_batch_that_wrote_nothing_is_retried_with_thinking_off(self, monkeypatch, caplog):
         seen = []
         self._transport(monkeypatch, seen=seen)
+        monkeypatch.delenv("VLM_THINKING", raising=False)  # a local .env's VLM_THINKING=off would skip the first attempt
         monkeypatch.setattr(vlm, "CROP_BATCH", 12)
         doc, page, _, columns, rows = TestCropsAtEveryIntersection._real_sheet()
         with caplog.at_level("WARNING"):
