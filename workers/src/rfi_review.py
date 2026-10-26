@@ -1792,19 +1792,38 @@ def delegated(decision: dict | None, candidate: dict) -> bool:
     return bool(_BY_OTHERS.search(reason)) and bool(_GEOMETRY.search(issue))
 
 
+def by_others_kept(decision: dict | None, candidate: dict) -> bool:
+    """A KEPT problem about the size or place of an element the drawings assign
+    to another party. Pure. It is the same question `delegated` keeps LOW, and
+    kept by verification it came out MEDIUM asking "who provides it" — which
+    the drawings answer: Leland's cistern wall is "~20\" THICK … (BY OTHERS)"
+    on S2.32-A and "BY SPECIALTY RETENSION SYSTEM SUBCONTRACTOR" on S4.10."""
+    if not decision or decision.get("decision") != "keep":
+        return False
+    issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    if _FIELD_DUTY.search(issue):
+        return False
+    return bool(_BY_OTHERS.search(issue)) and bool(_GEOMETRY.search(issue))
+
+
 def kept_for_coordination(candidate: dict, decision: dict) -> dict:
-    """The decision a by-others rejection becomes: kept LOW, asking for the
-    geometry to coordinate with, or for confirmation that the other party
-    gives it. Pure."""
+    """The decision a by-others problem becomes, rejected or kept: LOW, asking
+    for the geometry to coordinate with, or for confirmation that the other
+    party gives it. Pure."""
     subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
     question = (
         f"{(candidate.get('issue') or '').rstrip('.')}. The drawings assign this element to another party; please "
         "confirm its size and location so the work around it can be coordinated, or confirm that the other party's "
         "submittal provides them."
     )
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
+        question = f"{question} ({location})"
+    said = ("Verification set it aside as by others" if decision.get("decision") != "keep"
+            else "The drawings assign it to another party")
     why = (
-        f"{decision.get('why') or candidate.get('why') or ''} Verification set it aside as by others; that settles "
-        "who designs it, not its size or place on these drawings."
+        f"{decision.get('why') or candidate.get('why') or ''} {said}; that settles who designs it, not its size or "
+        "place on these drawings."
     ).strip()
     return dict(decision, decision="keep", subject=subject, question=question, why=why,
                 confidence="low", priority="normal")
@@ -3771,6 +3790,10 @@ def _run(run: dict) -> dict:
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
                     continue
+                if by_others_kept(decision, candidate):
+                    notes.append(f"Kept {label} low: the drawings assign it to another party, so the question is "
+                                 "its size and place, not who provides it.")
+                    decision = kept_for_coordination(candidate, decision)
                 accept(candidate, decision)
 
             # 5b. "Another drawing gives this" must be shown, not assumed:

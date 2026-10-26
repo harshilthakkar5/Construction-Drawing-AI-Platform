@@ -713,6 +713,23 @@ def test_by_others_does_not_overrule_other_rejections():
                                     {"issue": "Waterproofing product is not named.", "element": "waterproofing"})
 
 
+def test_a_kept_by_others_geometry_problem_is_low_and_never_asks_who():
+    # The paid Retaining walls run: verification KEPT this one, at medium, asking "who provides it".
+    wall = {"issue": "The cantilever retaining wall is noted '~20\" THICK' and 'BY OTHERS' with no stem, heel, toe, "
+                     "reinforcement or elevation information.", "element": "Site retaining wall",
+            "location": "S2.32-A and S2.31-A", "why": "Approximate thickness."}
+    keep = {"decision": "keep", "question": "What is the firm wall thickness, and who provides it?", "confidence": "medium"}
+    assert rfi_review.by_others_kept(keep, wall)
+    kept = rfi_review.kept_for_coordination(wall, keep)
+    assert kept["confidence"] == "low" and "who provides" not in kept["question"]
+    assert kept["question"].endswith("(S2.32-A and S2.31-A)") and "set it aside" not in kept["why"]
+    # A rejection, a problem about something else, and a field duty are left alone.
+    assert not rfi_review.by_others_kept(dict(keep, decision="reject"), wall)
+    assert not rfi_review.by_others_kept(keep, {"issue": "Waterproofing by others is not named.", "element": "waterproofing"})
+    assert not rfi_review.by_others_kept(keep, dict(wall, issue=wall["issue"] + " Verify in field."))
+    assert not rfi_review.by_others_kept(keep, _WALL), "no party named in the problem: an ordinary keep"
+
+
 # --- Dimensions printed as "SEE PLAN" (Leland RFI 002) ---
 
 

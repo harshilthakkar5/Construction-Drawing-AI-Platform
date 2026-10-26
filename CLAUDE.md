@@ -2842,7 +2842,7 @@ detail title UNDER it, as an aid — so whether the plan gives that length no lo
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
-Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands.
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers.
 Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
