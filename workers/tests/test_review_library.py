@@ -436,6 +436,16 @@ def test_element_title_words_match_the_shared_fixture_the_planner_reads():
         assert rr.element_title_words(case["name"]) == case["words"], case["name"]
 
 
+def test_a_value_opened_with_an_escaped_quote_does_not_cost_a_whole_retry():
+    # Sonnet 5.5 on a Leland discovery reply: "confidence":\"medium" — one character, a 137k-token retry.
+    raw = '{"observations": [{"checkId": "Q1", "statement": "T.O.C. is SEE PLAN", "confidence":\\"medium"}], "x": [\\"a"]}'
+    assert rr.parse_json_object(raw) == {"observations": [{"checkId": "Q1", "statement": "T.O.C. is SEE PLAN",
+                                                           "confidence": "medium"}], "x": ["a"]}
+    # Both slips in one reply, and an escaped quote INSIDE a valid string is left alone.
+    assert rr.parse_json_object('{"a": \\"1\'-4" wall"}') == {"a": "1'-4\" wall"}
+    assert rr.parse_json_object('{"a": "size: \\"14 x 30\\""}') == {"a": 'size: "14 x 30"'}
+
+
 def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
     # The third paid run's discovery reply, valid but for one inch mark inside a string.
     raw = '{"observations":[{"statement":"Level B2 is -23\'-0" on the S2.30-B datum list, 5" THICK SLAB"}],' \

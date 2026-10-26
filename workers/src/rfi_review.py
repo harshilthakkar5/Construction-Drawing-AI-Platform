@@ -891,9 +891,15 @@ def parse_json_object(raw: str | None) -> dict | None:
     except (json.JSONDecodeError, TypeError):
         # An inch mark the model did not escape ("-23'-0" on S2.30-B") ends the string early,
         # and the salvage retry re-sent a whole 137k-token discovery call to fix one character.
-        try:
-            data = json.loads(_INCH_MARK.sub(r'\\"', body))
-        except (json.JSONDecodeError, TypeError):
+        data = None
+        for repair in (lambda b: _INCH_MARK.sub(r'\\"', b), lambda b: _STRAY_ESCAPE.sub(r'\1"', b),
+                       lambda b: _STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', b))):
+            try:
+                data = json.loads(repair(body))
+                break
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if data is None:
             return None
     return data if isinstance(data, dict) else None
 
@@ -901,6 +907,9 @@ def parse_json_object(raw: str | None) -> dict | None:
 # A double quote right after a digit that JSON's grammar cannot close a string with
 # (no , } ] or : follows) is a drawing's inch mark, never the end of a value.
 _INCH_MARK = re.compile(r'(?<=\d)(?<!\\)"(?!\s*[,}\]:])')
+# A value OPENED with an escaped quote ("confidence":\"medium"): Sonnet 5.5 wrote one in a
+# Leland discovery reply and the retry re-sent the whole 137k-token call.
+_STRAY_ESCAPE = re.compile(r'([:\[,]\s*)\\"')
 
 
 def _ids(value, known: set[str]) -> list[str]:
