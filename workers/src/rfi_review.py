@@ -146,7 +146,10 @@ TRUST = {
     "callout": "geometry",
 }
 # Kinds that may not be the whole support of a finding.
-WEAK_KINDS = ("description", "aid", "callout")
+# A grid-mark reading is the server's own nearest-crossing measurement, not the drawing: a
+# label printed between two crossings, or a schedule's rows inside the grid, is where text
+# sits. UT Law S1.101 raised both as RFIs with nothing else cited.
+WEAK_KINDS = ("description", "aid", "callout", "gridmarks")
 CHECKS = {c["id"]: c for c in RFI_REVIEW_CHECKS}
 
 

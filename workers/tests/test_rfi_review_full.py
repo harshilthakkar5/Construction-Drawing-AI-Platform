@@ -179,6 +179,15 @@ def test_an_aid_cannot_be_the_only_support_and_its_numbers_are_not_grounding():
     assert "states 5" in rfi_review.guard(both, _decision(question="Is C-6 offset 5'-7\" from grid 3?"), evidence, [])
 
 
+def test_a_grid_mark_reading_cannot_be_the_only_support():
+    # UT Law S1.101: "Pier label between grids" was kept low on the reading alone.
+    evidence = {"ev1": ev("ev1", "gridmarks", text="P-42 is printed between 2.3/B and 2.7/B, equally near both."),
+                "ev2": ev("ev2", page=2, text="P-42 (-6' - 0\") G. LIME")}
+    alone = {"checkId": "F04", "kind": "missing", "element": "P-42", "location": "2.3/B", "evidenceIds": ["ev1"]}
+    assert "derived" in rfi_review.guard(alone, _decision(subject="Pier P-42", question="Where is P-42?"), evidence, [])
+    assert rfi_review.guard(dict(alone, evidenceIds=["ev1", "ev2"]), _decision(subject="Pier P-42", question="Where is P-42?"), evidence, []) is None
+
+
 def test_thinking_is_a_budget_only_when_the_plan_set_one():
     assert rfi_review.thinking_setting({"limits": {"maxThinkingTokens": 4096, "thinkingEffort": "low"}}) == "budget:4096"
     assert rfi_review.thinking_setting({"limits": {"maxThinkingTokens": None, "thinkingEffort": "high"}}) == "high"
