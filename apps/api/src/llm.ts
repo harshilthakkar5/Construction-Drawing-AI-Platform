@@ -208,6 +208,16 @@ export function refusesThinking(err: unknown): boolean {
   return (status === 400 || /INVALID_ARGUMENT|400/.test(message)) && /think/i.test(message);
 }
 
+/** Whether a provider error means the KEY has run out of credit or quota —
+ * Anthropic's "credit balance is too low", Gemini's RESOURCE_EXHAUSTED, an
+ * embedding API's 402. Retrying cannot help; the person has to top the key up. */
+export function outOfCredit(err: unknown): boolean {
+  const message = String((err as { message?: string })?.message ?? err);
+  return /credit balance|insufficient[_ ](?:funds|credit|quota|balance)|RESOURCE_EXHAUSTED|exceeded your current quota|payment required|\b402\b|billing/i.test(
+    message,
+  );
+}
+
 /** The rung that worked, per (provider, model, setting), so a refusal costs
  * one extra request per process rather than one per question. */
 const thinkingLatch = new Map<string, number>();
