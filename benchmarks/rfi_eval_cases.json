@@ -1007,7 +1007,8 @@
         {
           "what": "Pile caps drawn on S1.101 with no tag and no size",
           "checkTypes": [
-            "F04"
+            "F04",
+            "untagged_pile_cap"
           ],
           "sheets": [
             "S1.101"
@@ -1020,7 +1021,7 @@
     },
     {
       "id": "utlaw-rfi-006",
-      "source": "BIM RFI 006 'FLOOR OPENING SIZES AND LOCATIONS' on S0.302 (Level 2), compared with A3.01. Answered by O01 (floor and wall openings), added to the catalogue because none of the 16 original questions asks about openings.",
+      "source": "BIM RFI 006 'FLOOR OPENING SIZES AND LOCATIONS' on S0.302 (Level 2), compared with A3.01. Answered by O01 (floor and wall openings), added to the catalogue because none of the 16 original questions asks about openings. S0.302 is the Level 2 LOADING plan and prints nothing about openings; the Level 2 forming plan S2.102 is where the drawings defer every opening dimension to an 'architectural slab dimensional control plan' that is not in the set, so a finding on either sheet answers it.",
       "pdf": "UT Law Str + Arch combined sets (351 sheets, not in this repository)",
       "target": {
         "type": "compare",
@@ -1040,7 +1041,7 @@
             "custom"
           ],
           "sheets": [
-            "S0.302"
+            "S0.302|S2.102"
           ],
           "mentions": [
             "opening"

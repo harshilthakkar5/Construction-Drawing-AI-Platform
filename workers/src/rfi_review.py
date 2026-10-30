@@ -567,7 +567,7 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -578,6 +578,7 @@ CODE_CHECK_WORDS = {
     "unmarked_element": "an element drawn with no type mark",
     "unsized_column": "a column in the schedule with no size",
     "twin_column_cap": "a pier cap carrying two columns with no detail called out",
+    "untagged_pile_cap": "a pile cap drawn with no tag or size",
 }
 
 
@@ -716,14 +717,17 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
         findings += [f for f in found if f.check_type in SET_CODE_CHECKS or on_mine(f)]
         notes += more
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
+    import cap_tags
     import column_schedule
     import element_marks
     import pier_caps
     for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
-                               ("twin_column_cap", pier_caps)):
+                               ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags)):
         if check_type in wanted:
             try:
-                found, more = module.findings(reviewed, chunks, open_page)
+                # cap_tags reads the titles of the sheets a cap symbol points to, which need not be reviewed.
+                extra = {"every": pages} if module is cap_tags else {}
+                found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more
             except Exception as exc:  # a check failing is a note, never a failed review
@@ -1272,6 +1276,17 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
     locations are two elements, two rows citing the same evidence are one
     source, and two values of different kinds (minimum and maximum, top and
     bottom) are not a disagreement. Pure."""
+    # Two field names one SOURCE records side by side are two measurements, whatever
+    # same_field says: S4.135's section 1 prints "Level 5 Plaza Deck" 48'-4" AND "Level 5"
+    # 48'-0", and on "Plaza deck slab" the names differ only by the element's own words.
+    apart: set[tuple[str, frozenset]] = set()
+    for item in inventory:
+        names = {_key(f.get("name")) for f in item.get("fields") or [] if _key(f.get("name"))}
+        apart.update((_key(item.get("entity")), frozenset((x, y))) for x in names for y in names if x != y)
+
+    def alike(entity: str | None, x: str | None, y: str | None) -> bool:
+        return (_key(entity), frozenset((_key(x), _key(y)))) not in apart and same_field(entity, x, y)
+
     by_entity: dict[str, list[dict]] = {}
     for item in inventory:
         for f in item.get("fields") or []:
@@ -1288,7 +1303,7 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
         for e in entries:
             name = e["field"].get("name")
             head = next((i for i, h in enumerate(heads)
-                         if same_field(e["item"].get("entity"), h["field"].get("name"), name)), None)
+                         if alike(e["item"].get("entity"), h["field"].get("name"), name)), None)
             if head is None:
                 heads.append(e)
                 head = len(heads) - 1
@@ -1302,7 +1317,7 @@ def value_conflicts(inventory: list[dict]) -> list[dict]:
             for b in group[i + 1:]:
                 if abs(a["inches"] - b["inches"]) < 0.01 or set(a["field"]["evidenceIds"]) & set(b["field"]["evidenceIds"]):
                     continue
-                if a["kind"] != b["kind"] or not same_field(a["item"].get("entity"), a["field"].get("name"), b["field"].get("name")):
+                if a["kind"] != b["kind"] or not alike(a["item"].get("entity"), a["field"].get("name"), b["field"].get("name")):
                     continue
                 la, lb = _place(a["item"].get("location")), _place(b["item"].get("location"))
                 if la and lb and la != lb:

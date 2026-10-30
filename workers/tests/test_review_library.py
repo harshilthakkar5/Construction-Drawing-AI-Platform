@@ -294,6 +294,23 @@ def test_value_conflicts_matches_field_names_and_grid_pairs_written_differently(
     assert rr.same_field("Footing", "thk", "thickness") and rr.same_field("Footing", "thicknesses", "thickness")
 
 
+def test_two_names_one_source_records_side_by_side_are_two_measurements():
+    """UT Law RFI 001's paid run: section 1/S4.135 prints the "Level 5 Plaza Deck" datum
+    (48'-4") AND the "Level 5" datum (48'-0"); section 3 prints only "Level 5". On "Plaza
+    deck slab" the two names differ by the element's own words, and were compared."""
+    def sec(n, fields, ev):
+        return {"checkId": "FL04", "entity": "Plaza deck slab", "location": f"Section {n} at Plaza Deck",
+                "source": f"section {n}/S4.135",
+                "fields": [{"name": k, "value": v, "state": "supported", "evidenceIds": [ev], "derived": False}
+                           for k, v in fields]}
+    both = [("Level 5 Plaza Deck elevation", "48' - 4\""), ("Level 5 elevation", "48' - 0\"")]
+    inv = [sec(1, both, "ev63"), sec(2, both, "ev64"), sec(3, [("Level 5 elevation", "48' - 0\"")], "ev66")]
+    assert rr.value_conflicts(inv) == []
+    # without a source that prints both, the same names are still one field (and conflict)
+    lone = [sec(2, both[:1], "ev64"), sec(3, [("Level 5 elevation", "48' - 0\"")], "ev66")]
+    assert len(rr.value_conflicts(lone)) == 1
+
+
 @pytest.mark.parametrize("a, b, entity, field_a, field_b", [
     # two DIFFERENT measurements of a two-part element — the stripped names agree, the measurements do not
     ('12"', '8"', "Elevator pit wall and slab", "wall thickness", "slab thickness"),

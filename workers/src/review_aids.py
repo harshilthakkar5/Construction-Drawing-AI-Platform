@@ -194,7 +194,9 @@ def level_index(sources: list[tuple[str, str]]) -> str | None:
 # and an elevation's sits under its label ("T.O.C." / "SEE PLAN").
 _DEFERRED = re.compile(r"^SEE\s+(PLANS?|CIVIL|ARCH(?:ITECTURAL)?)$", re.I)
 _ELEVATION_LABEL = re.compile(r"^(?:T\.?\s*O\.?|TOP\s+OF|B\.?\s*O\.?|BOTTOM\s+OF|EL\.?\b|ELEV)", re.I)
-_SCALE = re.compile(r"^\s*SCALE\b", re.I)
+# "SCALE: 1/4" = 1'-0"", or the bare ratio a Revit title prints under itself (UT Law S3.100: "3/4" = 1'-0"").
+_BARE_SCALE = re.compile(r"^\s*\d+(?:\s+\d+)?(?:/\d+)?\s*\"\s*=\s*\d+'\s*-?\s*\d+\"\s*$")
+_SCALE = re.compile(rf"^\s*SCALE\b|{_BARE_SCALE.pattern}", re.I)
 MAX_DEFERRED_DETAILS = 12
 
 
@@ -222,15 +224,20 @@ def detail_titles(lines) -> list[tuple[str | None, str, object]]:
     """(number, title, display rect) for every detail title on a page: a line
     with its SCALE line right below, and the detail number printed to its left
     when there is one. Pure over `_display_lines`."""
-    scales = [r for t, r, _ in lines if _SCALE.match(t)]
+    scales = [(r, bool(_BARE_SCALE.match(t))) for t, r, _ in lines if _SCALE.match(t)]
     out = []
     for text, box, vertical in lines:
-        # A title is words, or only the detail's own reference ("10/S4.10" on Leland S4.10).
-        if vertical or _SCALE.match(text) or not (re.search(r"[A-Z]{3,}", text) or _OWN_REFERENCE.match(text)):
+        # A title is words (Revit writes them in title case), or only the detail's own reference ("10/S4.10").
+        if vertical or _SCALE.match(text) or not (re.search(r"[A-Za-z]{3,}", text) or _OWN_REFERENCE.match(text)):
             continue
-        if any(-15 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0 for s in scales):
+        under = [bare for s, bare in scales if -15 <= s.y0 - box.y1 <= 40 and s.x0 < box.x1 and s.x1 > box.x0]
+        if under:
             number = next((t for t, r, _ in lines if re.fullmatch(r"\d{1,2}", t) and 0 <= box.x0 - r.x1 <= 80
                            and r.y0 < box.y1 + 30 and r.y1 > box.y0 - 10), None)
+            # A bare ratio ("3/4\" = 1'-0\"", Revit) also sits under notes inside a detail: it marks a
+            # title only with the detail number beside it.
+            if number is None and all(under):
+                continue
             out.append((number, text, box))
     return out
 

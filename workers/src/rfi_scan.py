@@ -1233,6 +1233,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             not_run |= failed
         else:
             not_run |= set(GEOMETRY_TYPES)
+        import cap_tags
         import column_schedule
         import element_marks
         import pier_caps
@@ -1241,6 +1242,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             ("unmarked_element", element_marks, "elements drawn with no type mark"),
             ("unsized_column", column_schedule, "schedule columns with no size"),
             ("twin_column_cap", pier_caps, "pier caps carrying two columns"),
+            ("untagged_pile_cap", cap_tags, "pile caps drawn with no tag"),
         ):
             if check_type not in ran:
                 continue
