@@ -1246,6 +1246,9 @@ round's only false finding. A label stack under one column mixes families ("C-5"
 schedule, legend and index columns. Stored readings are written at ingest; `python src/refresh_gridmarks.py
 <projectId>` (workers) re-reads them alone — `db.replace_page_kind` swaps only the `gridmarks` chunks, so text
 chunk ids, summaries and RFIs stay, and only the new chunks are embedded (none when `EMBEDDINGS_ENABLED=false`).
+In a review a grid-mark reading is WEAK evidence (`rfi_review.WEAK_KINDS`): the server's own nearest-crossing
+measurement, never a finding's only support. The confirming run after the refresh raised "Pier label between
+grids" on S1.101 — a label printed between two crossings — and kept it Low on that reading alone.
 
 One drawn line can carry TWO names. S2.105 bubbles a horizontal line "2.3" at its left end and
 "2.4" at its right end (drawn in two halves with a gap between), and "1.4"/"1.5" the same way.
