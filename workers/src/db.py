@@ -356,6 +356,22 @@ def replace_page_ocr(document_id: str, page_number: int, ocr: dict, version: int
         )
 
 
+def replace_page_kind(document_id: str, page_number: int, kind: str, chunks: list) -> int:
+    """Replace ONE kind of a processed page's chunks (e.g. "gridmarks" after its
+    reader changed) and touch nothing else: the text chunks keep their ids, which
+    summaries and citations hang off. Returns how many chunks were removed."""
+    with connect() as conn:
+        page_row = conn.execute(
+            'SELECT id FROM pages WHERE "documentId" = %s AND "pageNumber" = %s',
+            (document_id, page_number),
+        ).fetchone()
+        if page_row is None:
+            return 0
+        gone = conn.execute('DELETE FROM chunks WHERE "pageId" = %s AND kind = %s', (page_row[0], kind)).rowcount
+        _insert_chunks(conn, page_row[0], chunks)
+        return gone
+
+
 def set_page_ocr(document_id: str, page_number: int, ocr: dict, version: int) -> None:
     with connect() as conn:
         conn.execute(

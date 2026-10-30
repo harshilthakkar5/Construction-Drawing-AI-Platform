@@ -1243,7 +1243,9 @@ are a table's Type column and are skipped. UT Law S1.101's pier schedule sits at
 piers there, and the 30 Oct paid review raised it as "1.4/D shows P-30, P-36 and P-36A" — the second confirming
 round's only false finding. A label stack under one column mixes families ("C-5" over "HSS8X8X1/4" over
 "SR-8") and stays; so do one family's marks a bay apart. Over all 648 Leland + UT Law pages it drops only
-schedule, legend and index columns. Stored readings change only when a document is re-ingested.
+schedule, legend and index columns. Stored readings are written at ingest; `python src/refresh_gridmarks.py
+<projectId>` (workers) re-reads them alone — `db.replace_page_kind` swaps only the `gridmarks` chunks, so text
+chunk ids, summaries and RFIs stay, and only the new chunks are embedded (none when `EMBEDDINGS_ENABLED=false`).
 
 One drawn line can carry TWO names. S2.105 bubbles a horizontal line "2.3" at its left end and
 "2.4" at its right end (drawn in two halves with a gap between), and "1.4"/"1.5" the same way.
