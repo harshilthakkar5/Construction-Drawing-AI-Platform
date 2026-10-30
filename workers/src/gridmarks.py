@@ -157,6 +157,43 @@ def _words_with_sizes(page: fitz.Page) -> list[tuple[str, fitz.Rect]]:
     return out
 
 
+# A schedule's Type column: mark-shaped words stacked line under line with one left edge.
+COLUMN_EDGE_PT = 2.0
+COLUMN_GAP_LINES = 2.5
+MIN_COLUMN_ROWS = 3
+
+
+def schedule_rows(found: list[tuple[str, fitz.Rect]]) -> set[int]:
+    """Indexes of the marks that are rows of a printed table, not labels on the plan:
+    three or more sharing a left edge, each within a few line heights of the next.
+    UT Law S1.101's pier schedule (P-30, P-36, P-36A, P-42) sits inside the grid, and
+    its rows were listed as three piers at 1.4/D — and became an RFI. Pure."""
+    out: set[int] = set()
+    order = sorted(range(len(found)), key=lambda i: (round(found[i][1].x0 / COLUMN_EDGE_PT), found[i][1].y0))
+    used: set[int] = set()
+    for i in order:
+        if i in used:
+            continue
+        chain, last = [i], found[i][1]
+        for j in sorted((j for j in range(len(found)) if j not in used and j != i
+                         and abs(found[j][1].x0 - found[i][1].x0) <= COLUMN_EDGE_PT and found[j][1].y0 > found[i][1].y0),
+                        key=lambda j: found[j][1].y0):
+            r = found[j][1]
+            if r.y0 - last.y1 > COLUMN_GAP_LINES * max(last.height, 1.0):
+                break
+            chain.append(j)
+            last = r
+        # A table column is one FAMILY row after row (P-30, P-36, P-42); a label stack under one
+        # column mixes them ("C-5" over "HSS8X8X1/4" over "SR-8") and stays on the plan. The text
+        # layer may draw a word twice, so rows are counted by distinct text.
+        names = {found[k][0].split(" ", 1)[0] for k in chain}
+        families = {re.match(r"[A-Z]*", n).group(0) for n in names}
+        if len(names) >= MIN_COLUMN_ROWS and len(families) == 1:
+            out.update(chain)
+            used.update(chain)
+    return out
+
+
 def _add(marks: list[str], text: str) -> None:
     """Keep one entry per mark: the text layer often draws a mark twice, and
     sometimes only one copy has its size under it — "C-3 (14 x 30), C-3" is one
@@ -198,6 +235,8 @@ def read(page: fitz.Page) -> GridMarks | None:
     # client's architectural sheet, and most pages of a set are notes,
     # schedules and details that never needed it.
     found = _words_with_sizes(page)
+    table = schedule_rows(found)
+    found = [f for i, f in enumerate(found) if i not in table]
     if not found:
         return None
     columns, rows, centres = grid.page_grid_with_bubbles(page)

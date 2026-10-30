@@ -1237,6 +1237,14 @@ drawn away from its column with a LEADER LINE is placed where it is printed. It 
 drawing eval's questions by the same rule the generator derives them with, so set
 `GRID_MARKS_ENABLED=false` when benchmarking the vision pass, or the eval measures this instead.
 
+A schedule printed INSIDE the grid is not a set of marks (`gridmarks.schedule_rows`): three or more
+DISTINCT marks of ONE family (P-30, P-36, P-36A, P-42), left-aligned, each within 2.5 line heights of the next,
+are a table's Type column and are skipped. UT Law S1.101's pier schedule sits at 1.4/D, was listed as three
+piers there, and the 30 Oct paid review raised it as "1.4/D shows P-30, P-36 and P-36A" — the second confirming
+round's only false finding. A label stack under one column mixes families ("C-5" over "HSS8X8X1/4" over
+"SR-8") and stays; so do one family's marks a bay apart. Over all 648 Leland + UT Law pages it drops only
+schedule, legend and index columns. Stored readings change only when a document is re-ingested.
+
 One drawn line can carry TWO names. S2.105 bubbles a horizontal line "2.3" at its left end and
 "2.4" at its right end (drawn in two halves with a gap between), and "1.4"/"1.5" the same way.
 Read as two lines, every crossing on it existed twice at ONE point, so each mark there was exactly

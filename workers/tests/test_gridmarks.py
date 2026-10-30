@@ -210,3 +210,28 @@ def test_a_line_named_differently_at_each_end_names_each_crossing_once():
     text = gridmarks.describe(marks)
     assert "One drawn line is labelled C and D: C at its left end, D at its right end." in text
     doc.close()
+
+
+def _stack(texts, x=500.0, y=300.0, step=12.0):
+    return [(t, fitz.Rect(x, y + i * step, x + 30, y + i * step + 9)) for i, t in enumerate(texts)]
+
+
+def test_a_schedule_column_inside_the_grid_is_not_a_set_of_marks():
+    """UT Law S1.101: the pier schedule's Type column (P-30, P-36, P-36A, P-42) sits inside
+    the grid and was read as three piers at 1.4/D — and became an RFI."""
+    found = _stack(["P-30", "P-36", "P-36A", "P-42"]) + [("C-13 (24 x 24)", fitz.Rect(900, 300, 940, 309))]
+    assert gridmarks.schedule_rows(found) == {0, 1, 2, 3}
+
+
+@pytest.mark.parametrize("texts", [
+    ["C-5", "C-5", "HSS8X8X1/4", "SR-8"],  # one column's label stack: mark, size, stud rail
+    ["C-16", "C-16", "SR-7"],              # a mark drawn twice over its stud rail
+    ["P-30", "P-36"],                      # two rows are not a table
+])
+def test_a_label_stack_under_one_column_stays_on_the_plan(texts):
+    assert gridmarks.schedule_rows(_stack(texts)) == set()
+
+
+def test_rows_far_apart_are_marks_at_separate_crossings():
+    # one family, left-aligned, but a bay apart — piers along a grid line, not a table
+    assert gridmarks.schedule_rows(_stack(["P-30", "P-36", "P-42"], step=120.0)) == set()
