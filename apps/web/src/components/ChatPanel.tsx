@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LogoMark } from "@/components/Logo";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChatHistoryWindow, ChatMessageDto, ChatSourceDto } from "@cdip/shared";
 import { gridLabelKind } from "@cdip/shared";
@@ -474,19 +475,8 @@ function Row({ avatar, children }: { avatar: React.ReactNode; children: React.Re
 
 function AssistantAvatar() {
   return (
-    <span
-      className="bg-primary text-primary-foreground mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg"
-      aria-hidden
-    >
-      <svg width="16" height="16" viewBox="0 0 34 34" fill="none">
-        <path
-          d="M9 25a16 16 0 0 1 16-16"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
-        <circle cx="9" cy="25" r="2.4" fill="currentColor" />
-      </svg>
+    <span className="bg-card border-border mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border" aria-hidden>
+      <LogoMark className="size-5" />
     </span>
   );
 }
