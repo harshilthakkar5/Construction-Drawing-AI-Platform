@@ -519,6 +519,19 @@ def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
     assert rr.parse_json_object("no json here") is None
 
 
+def test_an_inch_mark_before_a_comma_does_not_cost_a_whole_retry():
+    # 2 Nov, Leland: `-4'-0", 8" CMU` — the quote after 0 sits before a comma, so it looks like the
+    # end of the string to any pattern; the retry that replaced this reply lost its reading of detail 10.
+    raw = ('{"observations":[{"statement":"Printed values: T.O.WALL 2\'-0" VFY W/ ARCH, T.O.WALL -4\'-0", '
+           '8" CMU wall above","confidence":"high"}],"gaps":[]}')
+    d = rr.parse_json_object(raw)
+    assert d["observations"][0]["statement"] == ("Printed values: T.O.WALL 2'-0\" VFY W/ ARCH, T.O.WALL -4'-0\", "
+                                                  '8" CMU wall above')
+    assert d["observations"][0]["confidence"] == "high" and d["gaps"] == []
+    # A break that is not an inch mark is still a reply to retry, never a guess.
+    assert rr.parse_json_object('{"a": "x" "b": "y"}') is None
+
+
 def test_a_bare_word_value_does_not_cost_a_whole_retry():
     # The fourth paid run: "confidence":medium, beside an inch mark in the same reply.
     raw = '{"observations":[{"statement":"~20" thick wall","confidence":medium},' \

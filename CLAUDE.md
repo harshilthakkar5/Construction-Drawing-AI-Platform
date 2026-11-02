@@ -2919,6 +2919,15 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     exactly, the new keeps it LOW with S2.31-A/S2.32-A callouts of 8 and 13/S4.10 as context, and
     `rfi_eval.py --run` scores 008 and 009 as hits (it now credits the case's `elements`, as
     `--project-reviews` already did).
+    Detail 10 itself was never IN VIEW: close-up slots went to details whose title names the element, top
+    to bottom (13 and 8), and 10 is titled only "10/S4.10". `detail_regions(…, cut)` now puts first the
+    details the review's own sheets call out (`details_cut`, read from the project map), and a bare-reference
+    title counts when one is cut — same number of images. The next paid run showed detail 10 (its text:
+    "T.O.C. SEE 24/S4.02", "T.O.C. SEE PLAN", "T.O. WEIR SEE CIVIL" — the `missing_detail` finding is the
+    same callout) and still raised nothing on it: the discovery reply that described it ("T.O.C. as 'SEE
+    PLAN' … pointers to plan, not values") broke on `-4'-0", 8" CMU` — an inch mark before a comma reads as
+    a string's end to any pattern — and the retry that replaced it (a second 160k-token call) dropped it.
+    `_escape_inches_where_it_breaks` escapes the last quote before each parse error when a digit precedes it.
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to

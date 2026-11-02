@@ -946,8 +946,28 @@ def parse_json_object(raw: str | None) -> dict | None:
             except (json.JSONDecodeError, TypeError):
                 continue
         if data is None:
+            data = _escape_inches_where_it_breaks(_STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', body)))
+        if data is None:
             return None
     return data if isinstance(data, dict) else None
+
+
+def _escape_inches_where_it_breaks(body: str, tries: int = 25):
+    """Parse, escaping an inch mark at each place the parse breaks: the last
+    quote before the error, when a digit precedes it. `-4'-0", 8" CMU` (Leland,
+    2 Nov) looks like a string ending at `0"` to any pattern, and re-sent a
+    whole 160k-token discovery call. None when that does not settle it. Pure."""
+    for _ in range(tries):
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as exc:
+            q = body.rfind('"', 0, exc.pos)
+            if q < 1 or not body[q - 1].isdigit():
+                return None
+            body = body[:q] + "\\" + body[q:]
+        except TypeError:
+            return None
+    return None
 
 
 # A double quote right after a digit that JSON's grammar cannot close a string with
