@@ -369,16 +369,24 @@ _SCALE_LINE = re.compile(
 )
 
 
-def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
+def detail_regions(page, alternatives: list[list[str]], limit: int, cut: set[str] = frozenset()) -> list[fitz.Rect]:
     """Where the element is DRAWN on a detail sheet, in UNROTATED space: each
     detail whose title names it ("ELEVATOR PIT DETAIL", with its SCALE line
     right below — never a "SEE ELEVATOR PIT" note), cut as the cell above that
     title, up to the scale line of the detail above and the next column. A
     sheet's text pieces are too wide to aim a close-up with (one on Leland's
     S4.00 spans 2,400pt across several details), so the words' own positions
-    are. [] when no title names the element."""
-    if not alternatives:
+    are. [] when no title names the element.
+
+    `cut`: the detail numbers the review's own sheets call out on this one (the
+    project map). Those come first — they are where a reviewed plan sends its
+    reader — and a detail titled only by its own reference ("10/S4.10") counts
+    when it is one: nothing says it is NOT about the element. Leland RFI 009 is
+    10/S4.10, cut on S2.31-A, and both slots went to the titled details 13 and 8."""
+    if not alternatives and not cut:
         return []
+    import review_aids
+
     to_display = page.rotation_matrix
     lines = []
     for block in page.get_text("dict")["blocks"]:
@@ -386,13 +394,19 @@ def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz
             text = " ".join(s["text"] for s in line["spans"]).strip()
             if text:
                 lines.append((text, fitz.Rect(line["bbox"]) * to_display))
+    numbers = {(round(b.x0), round(b.y0)): n for n, _, b in review_aids.detail_titles(review_aids._display_lines(page)) if n}
     scales = [r for t, r in lines if _SCALE_LINE.match(t)]
     shown = page.rect  # display space
     regions: list[fitz.Rect] = []
-    for text, box in sorted(lines, key=lambda l: (l[1].y0, l[1].x0)):
+    picked = []
+    for text, box in lines:
         tokens = {re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", text.upper())}
-        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not any(set(a) <= tokens for a in alternatives):
+        number = numbers.get((round(box.x0), round(box.y0)))
+        bare = bool(review_aids._OWN_REFERENCE.match(text)) and number in cut
+        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not (bare or any(set(a) <= tokens for a in alternatives)):
             continue
+        picked.append((number not in cut, box.y0, box.x0, text, box))
+    for *_, text, box in sorted(picked):
         # Right below, or touching: "COLUMN PIER CAP PLANS" on Leland S0.03 overlaps its scale by 8pt.
         under = [s for s in scales if -15 <= s.y0 - box.y1 <= 40 and s.y0 > box.y0 and s.x0 < box.x1 and s.x1 > box.x0]
         if not under:
@@ -471,7 +485,28 @@ def plan_regions(page, limit: int) -> list[fitz.Rect]:
     return [fitz.Rect((r & page.rect) * back).normalize() for r in regions]
 
 
-def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
+def details_cut(scope: dict, open_page) -> dict[str, set[str]]:
+    """Sheet -> the detail numbers the review's own pages call out on it, read
+    from the project map (detail_map, saved per page; a page not yet mapped is
+    read now). {} on any failure: this only orders close-ups, never decides."""
+    import detail_map
+
+    try:
+        pages = [rfi_checks.Page(id=p["pageId"], document_id=p["documentId"], page_number=p["pageNumber"],
+                                 combined_page_number=p.get("combinedPageNumber"), sheet_number=p.get("sheetNumber"))
+                 for p in scope.get("pages", []) if p.get("pageId")]
+        entries = detail_map.ensure(pages, open_page)
+    except Exception:
+        log.exception("rfi review: reading the project map failed; close-ups keep the title order")
+        return {}
+    out: dict[str, set[str]] = {}
+    for entry in entries.values():
+        for link in entry.get("links") or []:
+            out.setdefault(link["sheet"].upper(), set()).add(link["detail"].upper())
+    return out
+
+
+def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str]] | None = None) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
     `open_page(document_id, page_number)` returns a fitz.Page (the job opens
@@ -507,7 +542,8 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
         # priced, never more.
         planned = p.get("crops", [])
         library = scope.get("library")
-        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned))
+        cut = (cut_by or {}).get((p.get("sheetNumber") or "").upper(), set()) if library else set()
+        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned), cut)
         if library:  # a plan's slots go where it departs from its own pattern
             aimed += plan_regions(page, len(planned) - len(aimed))
         anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
@@ -3547,7 +3583,8 @@ def _run(run: dict) -> dict:
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
                                   for p in scope.get("pages", [])
                                   if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
-        visuals = image_evidence(scope, open_page, start=len(texts) + 1)
+        visuals = image_evidence(scope, open_page, start=len(texts) + 1,
+                                 cut_by=details_cut(scope, open_page) if scope.get("library") else None)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
         overlay = plan_overlay(

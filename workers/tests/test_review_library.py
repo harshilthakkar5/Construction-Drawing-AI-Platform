@@ -182,6 +182,50 @@ def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
         assert rr.detail_regions(page, [], 3) == [] and rr.detail_regions(page, [["PILE", "CAP"]], 3) == []
 
 
+def test_details_a_reviewed_plan_cuts_get_the_close_ups_first():
+    """Leland S4.10: details 13 and 8 are titled BASEMENT WALL DETAIL, detail 10 only "10/S4.10" — and
+    S2.31-A cuts 10 (RFI 009). Both slots went to 13 and 8; the project map says which details to show."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=2000, height=1200)
+    for x, y, num, title, inside in ((100, 500, "15", "TOPPING SLAB TRANSITION DETAIL", "TOPX"),
+                                     (1100, 500, "10", "10/S4.10", "TENX"),
+                                     (100, 1000, "13", "BASEMENT WALL DETAIL", "THIRTEENX"),
+                                     (1100, 1000, "8", "BASEMENT WALL DETAIL", "EIGHTX")):
+        page.insert_text((x + 60, y - 200), inside, fontsize=12)
+        page.insert_text((x - 40, y), num, fontsize=14)
+        page.insert_text((x, y), title, fontsize=12)
+        page.insert_text((x, y + 18), 'SCALE: 3/4" = 1\'-0"', fontsize=9)
+    walls = rr.element_title_words("Retaining walls (building)")
+
+    def shown(cut=frozenset(), alternatives=walls):
+        markers = ("TOPX", "TENX", "THIRTEENX", "EIGHTX")
+        return [[m for m in markers if m in {w[4] for w in page.get_text("words", clip=r)}]
+                for r in rr.detail_regions(page, alternatives, 2, cut)]
+
+    assert shown() == [["THIRTEENX"], ["EIGHTX"]]                 # by title alone, top to bottom
+    assert shown({"10", "13"}) == [["TENX"], ["THIRTEENX"]]       # what the plan cuts comes first
+    assert shown({"8"}) == [["EIGHTX"], ["THIRTEENX"]]            # cut beats higher on the sheet
+    assert shown({"15"}) == [["THIRTEENX"], ["EIGHTX"]]           # cut, but titled as something else
+    assert shown({"10"}, alternatives=[]) == [["TENX"]]           # a bare reference counts only when cut
+
+
+def test_the_project_map_says_which_details_the_reviewed_sheets_cut(monkeypatch):
+    import sys
+    import detail_map
+
+    entries = {("d", 1): {"links": [{"detail": "10", "sheet": "S4.10"}, {"detail": "8", "sheet": "s4.10"}]},
+               ("d", 2): {"links": [{"detail": "24", "sheet": "S4.02"}]}}
+    monkeypatch.setattr(detail_map, "ensure", lambda pages, open_page: entries)
+    scope = {"pages": [{"pageId": "p1", "documentId": "d", "pageNumber": 1}, {"pageId": "p2", "documentId": "d", "pageNumber": 2}]}
+    assert rr.details_cut(scope, None) == {"S4.10": {"10", "8"}, "S4.02": {"24"}}
+
+    def broken(pages, open_page):
+        raise RuntimeError("database down")
+    monkeypatch.setattr(detail_map, "ensure", broken)
+    assert rr.details_cut(scope, None) == {}  # never fails a review: only the title order is lost
+
+
 def test_a_title_touching_its_scale_line_is_still_a_title_and_its_cell_reaches_the_next_column():
     import fitz
     doc = fitz.open()
