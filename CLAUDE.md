@@ -2909,6 +2909,16 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     `concedes_the_value` makes such a rejection contested: it claims the value is elsewhere while a sentence of
     absence in its own reason shares two words with the problem's element. Kept on overrule, a question naming no
     sheet gets the problem's location appended (`overruled`).
+    The 2 Nov paid run (S4.10 + S4.02 + S2.31-A) lost it a fourth way: reasoning BUNDLED three claims (heel/toe
+    not printed; "T.O.C. is 'SEE PLAN' but the plan gives only slab elevations"; detail 13 has no thickness) and
+    the re-check rejected the bundle citing ev50/ev51 — the very details that print "SEE PLAN" — for their
+    thickness. For a deferral problem `contested` no longer counts a citation of the problem's OWN evidence
+    (pointing back at the pointer shows no value), and `overruled` words the kept finding from the deferral
+    sentence alone (`deferral_claim`, abbreviation-safe), never the verifier's question about another claim.
+    Replayed offline from the run's export with the four recorded replies: the old code reproduces the miss
+    exactly, the new keeps it LOW with S2.31-A/S2.32-A callouts of 8 and 13/S4.10 as context, and
+    `rfi_eval.py --run` scores 008 and 009 as hits (it now credits the case's `elements`, as
+    `--project-reviews` already did).
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to

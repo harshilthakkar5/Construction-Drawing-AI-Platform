@@ -1745,6 +1745,17 @@ def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
     return sorted(set(ids) | set(extra), key=lambda e: int(e[2:]))
 
 
+def _deferral(candidate: dict) -> bool:
+    return bool(_DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"))
+
+
+def deferral_claim(issue: str | None) -> str:
+    """The sentences of an issue that say a value is only a reference ("T.O.C.
+    is 'SEE PLAN' but the plan gives only slab elevations"), or "". Pure."""
+    # A period after a lone capital is an abbreviation ("T.O.C. is"), not a sentence end.
+    return " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (issue or "").strip()) if _DEFERS.search(s))
+
+
 def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
@@ -1764,13 +1775,19 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
+    defers = bool(candidate and _deferral(candidate))
+    if defers:
+        # The problem's own evidence is the details that DEFER the value; pointing back at them
+        # shows the pointer again, not the value. Leland RFI 009, re-checked: "detail 8 (ev51)
+        # prints the 10\" wall thickness" — an answer to another claim in the same problem.
+        cited -= set(candidate.get("evidenceIds") or [])
     if cited & shown:
         return False
     # A problem ABOUT a deferred value ("the details give the offset only as
     # SEE PLAN") is settled only by evidence printing that value: "nothing
     # shows the plan lacks it" is not that. Leland RFI 002 was proposed in two
     # Claude runs and rejected both times on exactly that reason.
-    if candidate and _DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"):
+    if defers:
         return True
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
@@ -1859,6 +1876,13 @@ def overruled(candidate: dict, decision: dict) -> dict:
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
     )
+    # Kept because a deferred value was never shown, so it asks about THAT value only. Leland RFI
+    # 009's problem bundled "T.O.C. SEE PLAN, the plan gives only slab elevations" with a heel/toe
+    # and a thickness claim, and the verifier's own question asked only about the thickness.
+    deferred = deferral_claim(candidate.get("issue"))
+    if deferred:
+        subject = _text(f"{candidate.get('element') or 'Value'}: {deferred}", 120)
+        question = f"{deferred.rstrip('.')}. Please provide it, or confirm which drawing shows it."
     # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
     location = candidate.get("location") or ""
     if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):

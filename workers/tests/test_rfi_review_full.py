@@ -525,6 +525,47 @@ def test_a_rejection_resting_on_a_reference_callout_is_contested():
                                      "reason": "Mix strength is governed by the specifications; see ACI 301."}, shown)
 
 
+# Leland RFI 009 as a real Claude run proposed it (2 Nov): three claims in one problem, the real
+# one being "T.O.C. is 'SEE PLAN' but the plan gives only slab elevations".
+_BUNDLED = {
+    "checkId": "CE-04-12-Q01", "kind": "missing", "location": "S4.10 details 8 and 13",
+    "element": "Basement retaining walls, details 8 and 13 on S4.10",
+    "issue": "Wall height, heel and toe dimensions are not printed. T.O.C. is 'SEE PLAN' but the plan gives only "
+             "slab elevations. Detail 13 gives no wall thickness.",
+    "why": "The T.O.C. reference to the plan is not answered by the plan.",
+    "evidenceIds": ["ev51", "ev50", "ev1", "ev2"],
+}
+_RECHECK_REJECTION = {
+    "decision": "reject", "basis": "other", "answeredBy": [], "confidence": "low",
+    "subject": "Basement retaining wall dimensions on S4.10 details 8 and 13",
+    "question": "Are the wall height and footing dimensions at details 8 and 13 given?",
+    "reason": "The problem as written is not supported by the cited evidence. Detail 8 (ev51) prints the 10\" wall "
+              "thickness, the 2'-0\" and 8\" vertical dimensions, and the grade beam reinforcement reference. Detail 13 "
+              "(ev50) is a CMU wall on a retaining wall and drilled pier by the specialty retension subcontractor.",
+}
+
+
+def test_pointing_back_at_the_details_that_defer_a_value_does_not_settle_it():
+    shown = {"ev1", "ev2", "ev50", "ev51", "ev55"}
+    assert rfi_review.contested(_RECHECK_REJECTION, shown, _BUNDLED)
+    # Citing OTHER evidence — the plan, say — still lets the rejection stand.
+    assert not rfi_review.contested(dict(_RECHECK_REJECTION, answeredBy=["ev55"]), shown, _BUNDLED)
+    # A problem that is not about a deferred value keeps the old rule: its own evidence cited stands.
+    plain = dict(_BUNDLED, issue="Wall height, heel and toe dimensions are not printed.", why="")
+    assert not rfi_review.contested(_RECHECK_REJECTION, shown, plain)
+
+
+def test_an_overruled_deferral_asks_only_about_the_deferred_value():
+    kept = rfi_review.overruled(_BUNDLED, _RECHECK_REJECTION)
+    assert kept["question"] == ("T.O.C. is 'SEE PLAN' but the plan gives only slab elevations. Please provide it, or "
+                                "confirm which drawing shows it. (S4.10 details 8 and 13)")
+    assert "heel" not in kept["question"] + kept["subject"] and "thickness" not in kept["question"] + kept["subject"]
+    assert kept["subject"].startswith("Basement retaining walls, details 8 and 13 on S4.10: T.O.C. is 'SEE PLAN'")
+    assert kept["confidence"] == "low" and kept["decision"] == "keep"
+    assert rfi_review.deferral_claim("No sizes are given. Openings SEE ARCH. Depth unknown.") == "Openings SEE ARCH."
+    assert rfi_review.deferral_claim("Shaft openings have no sizes.") == ""
+
+
 def test_the_prompts_say_a_reference_is_not_a_value():
     assert "A reference is not a value" in rfi_review.reasoning_system(["F04"])
     assert "is not the value it points to" in rfi_review.verification_system()
