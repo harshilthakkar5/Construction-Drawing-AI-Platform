@@ -570,7 +570,7 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -582,6 +582,7 @@ CODE_CHECK_WORDS = {
     "unsized_column": "a column in the schedule with no size",
     "twin_column_cap": "a pier cap carrying two columns with no detail called out",
     "untagged_pile_cap": "a pile cap drawn with no tag or size",
+    "missing_detail": "a detail referred to that its sheet does not have",
 }
 
 
@@ -722,14 +723,16 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import cap_tags
     import column_schedule
+    import detail_map
     import element_marks
     import pier_caps
     for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
-                               ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags)):
+                               ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags),
+                               ("missing_detail", detail_map)):
         if check_type in wanted:
             try:
-                # cap_tags reads the titles of the sheets a cap symbol points to, which need not be reviewed.
-                extra = {"every": pages} if module is cap_tags else {}
+                # These read the sheets a symbol points to, which need not be reviewed.
+                extra = {"every": pages} if module in (cap_tags, detail_map) else {}
                 found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more

@@ -1235,6 +1235,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             not_run |= set(GEOMETRY_TYPES)
         import cap_tags
         import column_schedule
+        import detail_map
         import element_marks
         import pier_caps
 
@@ -1243,12 +1244,16 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             ("unsized_column", column_schedule, "schedule columns with no size"),
             ("twin_column_cap", pier_caps, "pier caps carrying two columns"),
             ("untagged_pile_cap", cap_tags, "pile caps drawn with no tag"),
+            ("missing_detail", detail_map, "details referred to that their sheet does not have"),
         ):
             if check_type not in ran:
                 continue
             progress("geometry", detail=f"Looking for {what}")
             try:
-                found, more = module.findings(pages, chunks, open_page)
+                # The project map is read once per page (about 1 s each) and then cached on the page.
+                extra = ({"progress": lambda d, t: progress("geometry", detail=f"Reading detail titles and references: page {d} of {t}")}
+                         if module is detail_map else {})
+                found, more = module.findings(pages, chunks, open_page, **extra)
                 findings += in_scope(found, scope, pages)
                 notes += more
             except Exception as exc:  # one check failing is a note, not a failed scan

@@ -2532,6 +2532,18 @@ false one is a question someone has to answer:
     the item to another party (`_OTHER_PARTY`, read on the note's own sentence: BY CONTRACTOR,
     FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD…) — that is settled through their
     channel. Both are counted in the scan's notes.
+  * `missing_detail` (`workers/src/detail_map.py`, the PROJECT MAP) — a symbol or note pointing at a
+    detail its sheet does not have: Leland S4.10 prints "T.O.C. SEE 24/S4.02" and S4.02 titles 6,
+    11, 21 and 26 (a paid review had accepted that pointer as the answer). The map is each page's
+    titled details, its section/detail symbols and the largest size each detail-number token is
+    printed at, read once per `MAP_VERSION` (~1 s a page) and saved on `pages.detailMap`. A sheet is
+    trusted only with ≥ `MIN_TITLED` (3) titles read, and a number printed ≥ `LARGE_SHARE` of its
+    detail numbers' size is a title the reader missed, never a missing detail. A sheet not in the set
+    is `dangling_reference`'s. Linked to library U-07. Measured before shipping: 2 on Leland
+    (24/S4.02, "SEE 0/S4.00"), 1 on UT Law. Tried and rejected at the same time: saving one AI
+    reading per picture for reuse — a "note everything" reading held 69% of what element reviews
+    needed, ran ~1,350 tokens, and at that length saves 7–10% on a whole-library run and costs more
+    on one package.
   * `missing_plan_level` (`workers/src/plan_series.py`) — a level missing from a series of plans,
     the client's RFI 007 ("provide the forming plan at level 6"). A series is a whole title line
     "<…> PLAN - LEVEL n[-m]" (never ENLARGED/PARTIAL/qualified), needs three levels and two sheets,
@@ -3214,7 +3226,8 @@ rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBa
      idempotencyKey, heartbeatAt, ...)   // + rfi_full_scan_tiles(scanId, pairIndex, tileIndex,
      windows, status, issues[+verdict], outcome, outcomeNote, dropped); pages.sheetKind/level/scales/gridSummary/factsVersion
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
-      discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
+      discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource,
+      detailMap, detailMapVersion)   // detailMap: the project map's entry (detail_map.py)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, summaryHeartbeatAt, summaryDetail, ...)
          // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert

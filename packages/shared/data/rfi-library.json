@@ -10611,7 +10611,8 @@
    "category": "Documentation / Missing Info",
    "template": "Does every section/detail callout referencing a {element} point to an existing detail that matches the condition?",
    "codeChecks": [
-    "dangling_reference"
+    "dangling_reference",
+    "missing_detail"
    ]
   },
   {

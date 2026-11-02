@@ -748,6 +748,7 @@ RFI_PROJECT_CHECK_TYPES = [
     "unsized_column",
     "twin_column_cap",
     "untagged_pile_cap",
+    "missing_detail",
 ]
 RFI_CUSTOM_QUESTION_IDS = [
     "Q1",

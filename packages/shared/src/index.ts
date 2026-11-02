@@ -884,6 +884,8 @@ export const RFI_CHECK_LABELS = {
   twin_column_cap: "Pier cap carrying two columns with no detail called out",
   // workers/src/cap_tags.py: a pile cap cut by a "pile cap" section with no cap tag, on a plan that tags caps.
   untagged_pile_cap: "Pile cap drawn with no tag or size",
+  // workers/src/detail_map.py: "SEE 24/S4.02" where S4.02 has no detail 24.
+  missing_detail: "Detail referenced but not on its sheet",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -2300,6 +2302,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "unsized_column",
   "twin_column_cap",
   "untagged_pile_cap",
+  "missing_detail",
 ];
 
 /**
