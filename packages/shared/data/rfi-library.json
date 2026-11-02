@@ -3682,7 +3682,8 @@
    "active": true,
    "catalogue": [],
    "codeChecks": [
-    "twin_column_cap"
+    "twin_column_cap",
+    "untagged_pile_cap"
    ]
   },
   {

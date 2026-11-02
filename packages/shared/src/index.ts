@@ -882,6 +882,8 @@ export const RFI_CHECK_LABELS = {
   unsized_column: "Column in the schedule with no size",
   // workers/src/pier_caps.py: two columns on one pier cap on a foundation plan, no detail called out.
   twin_column_cap: "Pier cap carrying two columns with no detail called out",
+  // workers/src/cap_tags.py: a pile cap cut by a "pile cap" section with no cap tag, on a plan that tags caps.
+  untagged_pile_cap: "Pile cap drawn with no tag or size",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -2281,7 +2283,7 @@ export function libraryCatalogueIds(
  */
 export const RFI_QUESTION_CODE_CHECKS: Partial<Record<RfiReviewCheckId, readonly RfiCheckType[]>> = {
   G01: ["grid_mismatch", "grid_spacing"],
-  F04: ["unmarked_element", "twin_column_cap"],
+  F04: ["unmarked_element", "twin_column_cap", "untagged_pile_cap"],
   C01: ["column_mismatch", "unsized_column"],
   C03: ["column_mismatch"],
 };
@@ -2297,6 +2299,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "unmarked_element",
   "unsized_column",
   "twin_column_cap",
+  "untagged_pile_cap",
 ];
 
 /**

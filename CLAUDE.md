@@ -1237,6 +1237,19 @@ drawn away from its column with a LEADER LINE is placed where it is printed. It 
 drawing eval's questions by the same rule the generator derives them with, so set
 `GRID_MARKS_ENABLED=false` when benchmarking the vision pass, or the eval measures this instead.
 
+A schedule printed INSIDE the grid is not a set of marks (`gridmarks.schedule_rows`): three or more
+DISTINCT marks of ONE family (P-30, P-36, P-36A, P-42), left-aligned, each within 2.5 line heights of the next,
+are a table's Type column and are skipped. UT Law S1.101's pier schedule sits at 1.4/D, was listed as three
+piers there, and the 30 Oct paid review raised it as "1.4/D shows P-30, P-36 and P-36A" — the second confirming
+round's only false finding. A label stack under one column mixes families ("C-5" over "HSS8X8X1/4" over
+"SR-8") and stays; so do one family's marks a bay apart. Over all 648 Leland + UT Law pages it drops only
+schedule, legend and index columns. Stored readings are written at ingest; `python src/refresh_gridmarks.py
+<projectId>` (workers) re-reads them alone — `db.replace_page_kind` swaps only the `gridmarks` chunks, so text
+chunk ids, summaries and RFIs stay, and only the new chunks are embedded (none when `EMBEDDINGS_ENABLED=false`).
+In a review a grid-mark reading is WEAK evidence (`rfi_review.WEAK_KINDS`): the server's own nearest-crossing
+measurement, never a finding's only support. The confirming run after the refresh raised "Pier label between
+grids" on S1.101 — a label printed between two crossings — and kept it Low on that reading alone.
+
 One drawn line can carry TWO names. S2.105 bubbles a horizontal line "2.3" at its left end and
 "2.4" at its right end (drawn in two halves with a gap between), and "1.4"/"1.5" the same way.
 Read as two lines, every crossing on it existed twice at ONE point, so each mark there was exactly
@@ -2902,6 +2915,21 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     CE-03-05-Q02. The eval case for 002 now accepts either sheet its form names (`sheets: ["S2.30-B|S2.31-A"]`). It goes through verification like
 any candidate, and is the only conflict allowed on ONE sheet (`fromValues`: two details of S4.00 are
 two sources); its `printed` text grounds the wording, as discovery's observations do.
+The UT Law paid round (30 Oct: RFI 001 found, 006 near, 008 missed, one false conflict) added three things.
+`value_conflicts` never treats two field names ONE source records side by side as one field (`alike`): S4.135's
+sections print "Level 5 Plaza Deck" 48'-4" AND "Level 5" 48'-0", the forgiving `same_field` (names differing by the
+element's own words, "Plaza deck slab") merged them, and section 3 — "Level 5" only — became a medium "48'-4" vs
+48'-0"" RFI the one-place rule then kept. `untagged_pile_cap` (`workers/src/cap_tags.py`, linked to F04 and
+CE-03-05-Q02) is UT Law RFI 008: on a foundation plan that tags its caps (PC-A…), a section symbol whose target
+detail is TITLED as a pile or pier cap ("3/S3.100 Section at Pile Cap") with no cap tag within 15 ft is a cap drawn
+with no tag or size, named by the pier label beside it and the column next to that label. The caps there are RASTER
+tiles, so geometry could not see them; over all 648 Leland + UT Law pages it fires once, on S1.101, naming exactly
+the three caps the client clouded (P-30/C-27, P-36/C-10, P-36/C-13). A review passes it every project page
+(`every=`) because the detail sheet need not be reviewed. For that `review_aids.detail_titles` reads Revit titles —
+title case, over a bare `3/4" = 1'-0"` with no word SCALE — but a bare ratio marks a title only beside its detail
+number, since one also sits under notes inside a detail. RFI 006's answer key accepts S2.102: S0.302 is the Level 2
+LOADING plan and prints nothing about openings, while S2.102 (Level 2 forming) defers every opening dimension to an
+"architectural slab dimensional control plan" that is not in the set — the finding the run made.
 The model merges details anyway, or skips their lengths: two real Sonnet 5.5 runs of the same review
 missed RFI 007 two ways — once "details 3 and 4/S4.00" as ONE entry with detail 3's 8", once details 4 and
 5 with only depth and waterproofing and detail 3 not at all. Discovery is now told to record EVERY length a

@@ -8,6 +8,7 @@ import {
   claudeThinkingParam,
   geminiThinkingLadder,
   refusesThinking,
+  outOfCredit,
   DEFAULT_CHAT_GEMINI_MODEL,
   DEFAULT_CHAT_MODEL,
 } from "./llm.js";
@@ -229,5 +230,16 @@ describe("chat thinking is sent, never left to the model's default", () => {
   it("reasoning gets headroom on top of the answer's cap", () => {
     expect(CHAT_THINKING_HEADROOM.off).toBe(0);
     expect(CHAT_THINKING_HEADROOM.high).toBeGreaterThan(CHAT_THINKING_HEADROOM.low);
+  });
+});
+
+describe("outOfCredit", () => {
+  it("recognises an exhausted key from each provider, and nothing else", () => {
+    expect(outOfCredit(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'))).toBe(true);
+    expect(outOfCredit(new Error("429 RESOURCE_EXHAUSTED: You exceeded your current quota"))).toBe(true);
+    expect(outOfCredit(new Error("voyage embeddings failed: 402 Payment Required"))).toBe(true);
+    expect(outOfCredit(new Error("429 rate_limit_error: too many requests"))).toBe(false);
+    expect(outOfCredit(new Error("connect ECONNREFUSED 127.0.0.1:5432"))).toBe(false);
+    expect(outOfCredit(new Error("chunk 4021 not found"))).toBe(false);
   });
 });

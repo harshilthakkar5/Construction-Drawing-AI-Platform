@@ -22,6 +22,7 @@ import { regionRouter } from "./routes/region.js";
 import { rfiDiagnosticsRouter } from "./routes/rfiDiagnostics.js";
 import { rfiFullScanRouter } from "./routes/rfiFullScan.js";
 import { rfiGeneratedRouter } from "./routes/rfiGenerated.js";
+import { outOfCredit } from "./llm.js";
 import { rfiLibraryRouter } from "./routes/rfiLibrary.js";
 import { rfiPackagesRouter } from "./routes/rfiPackages.js";
 import { rfiReviewRouter } from "./routes/rfiReview.js";
@@ -142,6 +143,11 @@ export function createApp() {
       return void res.status(404).json({ error: "not found" });
     }
     console.error(err);
+    if (outOfCredit(err)) {
+      return void res.status(503).json({
+        error: "the AI service refused the request: its API key has run out of credit or quota. Add credit to the key, or put another key in the env file and restart.",
+      });
+    }
     res.status(500).json({ error: "internal error" });
   });
 
