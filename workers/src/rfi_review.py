@@ -2101,8 +2101,10 @@ def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
 def _material(candidate: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str:
     """Everything a kept question may draw its identifiers and numbers from:
     the cited evidence's own words and sheet names, and what discovery said
-    about THOSE pieces of evidence (the only record of what the images show)."""
-    cited = set(candidate["evidenceIds"])
+    about THOSE pieces of evidence (the only record of what the images show).
+    What a search found for this problem counts too: verification was shown it
+    (Victaulic RFI 005 was kept naming BP1 from S3.2's searched text, and refused)."""
+    cited = set(candidate["evidenceIds"]) | {e for e in candidate.get("searched") or [] if e in evidence}
     parts = [candidate.get("element", ""), candidate.get("location", ""), candidate.get("printed", "")]
     for eid in cited:
         ev = evidence[eid]

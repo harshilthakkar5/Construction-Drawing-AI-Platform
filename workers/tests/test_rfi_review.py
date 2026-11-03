@@ -161,6 +161,17 @@ def test_the_question_may_not_introduce_a_number_or_a_mark():
     assert "C-9" in rfi_review.guard(cand, _decision(question="Is it C-9?"), evidence, [])
 
 
+def test_the_question_may_name_what_a_search_showed_verification():
+    """Victaulic RFI 005: base plates BP1/BP2 are printed on S3.2, which the
+    review searched and showed the verifier; the kept question named them."""
+    evidence = {"ev1": ev("ev1", "text", 1, "PIER 2'-2\" X 2'-5\" HOLD"), "ev2": ev("ev2", "text", 2, "BASE PLATE (BP1)")}
+    cand = {"checkId": "C01", "kind": "missing", "element": "", "location": "", "evidenceIds": ["ev1"]}
+    question = _decision(subject="Base plate size not shown", question="What are the base plate sizes (BP1)?")
+    assert "BP1" in rfi_review.guard(cand, question, evidence, [])
+    cand["searched"] = ["ev2", "ev99"]  # an id the run never issued is ignored
+    assert rfi_review.guard(cand, question, evidence, []) is None
+
+
 def test_a_member_size_is_checked_digit_by_digit():
     """The digits in W14x90 touch letters, which the scan's number pattern
     skips — so a size nothing showed would pass unchecked."""
