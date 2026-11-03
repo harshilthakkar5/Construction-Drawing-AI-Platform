@@ -969,6 +969,19 @@ def _checks_block(check_ids: list[str], *, rules: bool = False, catalogue: dict 
     return "\n".join(lines)
 
 
+# Grid spacings compared by CODE (value_conflicts), never left to the model: Victaulic RFI 007 —
+# discovery read S1.1G's 13'-11 1/4" and S1.1D's and A1.3's 14'-0" for grid 15 to 15.6, wrote them
+# into three separate observations as runs of numbers, and nothing put the two side by side.
+GRID_SPANS_RULE = (
+    "- Grid spacing: for EVERY pair of NEIGHBOURING grid lines a sheet dimensions, add one inventory entry "
+    "per sheet: entity \"grid <a> to <b>\" with the two labels exactly as printed, the lower one first "
+    "(\"grid 15 to 15.6\", \"grid E to E.2\"), the same name on every sheet, no location, the sheet as its "
+    "`source`, and ONE field named \"spacing\" holding that one dimension as printed. Never a run of "
+    "dimensions in one value, never an overall; when a sheet prints a span as two pieces (13'-3\" and 9\"), "
+    "record each piece as its own entry between the lines it runs between, or leave the span out.\n"
+)
+
+
 def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str:
     return (
         "You review construction drawings for coordination problems. This is step 1 of 3: "
@@ -995,7 +1008,8 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "only the ones a question names: the code compares sources field by field. A field is `supported` only "
         "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
         "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
-        "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
+        + (GRID_SPANS_RULE if "G01" in check_ids else "")
+        + "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
         "the evidence shows do not exist here (e.g. no beams on a slab plan), with the evidence that shows it.\n"
         'Respond with ONLY JSON, no prose and no code fences: {"observations": [{"checkId": "C01", '
         '"element": "...", "location": "...", "statement": "...", "evidenceIds": ["ev3"], '

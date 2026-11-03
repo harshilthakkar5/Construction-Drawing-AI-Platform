@@ -911,3 +911,24 @@ def test_a_sheet_whose_labels_are_drawn_as_lines_still_gets_strips_from_its_rows
     assert len(strips) == 2 and all(r.x1 <= 1757 and r.x0 < 1600 for r in strips)
     # Cut at bubbles: the 15 -> 15.6 string (y 560-750) lies whole inside one strip.
     assert any(r.y0 <= 560 and r.y1 >= 750 for r in strips)
+
+
+def test_grid_spacings_go_into_the_inventory_one_span_per_sheet_and_code_compares_them():
+    """Victaulic RFI 007: S1.1G prints 13'-11 1/4" for grid 15 to 15.6 where S1.1D
+    prints 14'-0". Discovery read both and compared neither; recorded as one span
+    per sheet, value_conflicts proposes the conflict."""
+    assert "grid 15 to 15.6" in rfi_review.discovery_system(["G01"])
+    assert "Grid spacing" not in rfi_review.discovery_system(["F01"])
+    rows = [
+        {"checkId": "G01", "entity": "grid 15 to 15.6", "location": "", "source": "S1.1G",
+         "fields": [{"name": "spacing", "value": "13'-11 1/4\"", "state": "supported", "evidenceIds": ["ev51"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 15 to 15.6", "location": "", "source": "S1.1D",
+         "fields": [{"name": "spacing", "value": "14'-0\"", "state": "supported", "evidenceIds": ["ev55"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 14 to 15", "location": "", "source": "S1.1G",
+         "fields": [{"name": "spacing", "value": "25'-0\"", "state": "supported", "evidenceIds": ["ev51"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 14 to 15", "location": "", "source": "S1.1D",
+         "fields": [{"name": "spacing", "value": "25'-0\"", "state": "supported", "evidenceIds": ["ev55"], "derived": False}]},
+    ]
+    got = rfi_review.value_conflicts(rows)
+    assert len(got) == 1 and got[0]["element"] == "grid 15 to 15.6"
+    assert "13'-11 1/4" in got[0]["issue"] and "14'-0" in got[0]["issue"]

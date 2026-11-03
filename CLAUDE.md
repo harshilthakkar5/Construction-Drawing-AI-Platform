@@ -3036,6 +3036,11 @@ whole in a piece, most bubbles per length first; ~220 DPI on A1.3). The disagree
 equal circles (`drawn_circles` samples each bezier's midpoint, since S1.1G draws a bubble as two half-curves whose
 control points overshoot; `bubble_rows`: 3+ sharing an x or a y). With neither, drawing windows. Grid slots are never
 re-aimed at titled details or rare tags.
+The paid run with those strips READ both values (S1.1G 13'-11 1/4", S1.1D and A1.3 14'-0") and compared neither: they
+sat in separate observations as runs of numbers, and the inventory held three lumped rows. So a grid review's
+discovery is told (`GRID_SPANS_RULE`, only when G01 is asked) to record every span between NEIGHBOURING lines on every
+sheet as its own inventory entry — "grid 15 to 15.6", lower label first, one `spacing` value, the sheet as source —
+and `value_conflicts` compares them like any other field.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
