@@ -2391,7 +2391,11 @@ side to long side, since images are placed rotated): 1-BIT, placed under 100 DPI
 found, under half of them readable = ILLEGIBLE, and becomes the `illegible_schedule` finding asking
 for a legible copy. The 1-bit condition was paid for: without it the JETRIGHT run flagged six sheets,
 four of them grey/colour 72-DPI screenshots (a UL listing, a product sheet, a gate-operator table)
-that a person reads easily; only E0.04/E0.05 (1-bit, 67 DPI) are real (`OCR_VERSION` 2). OCR text may
+that a person reads easily; only E0.04/E0.05 (1-bit, 67 DPI) are real (`OCR_VERSION` 2). OCR reads a stroke-drawn zero as the letter O: Victaulic's structural sheets gave "SO.1" twenty times, so
+no reference reached the sheet holding the footing schedule (a paid review then called that schedule "not in the
+project"), plus "1O psf", "3OOO psi", "IBC 17O4". `ocr.zeros_for_os` repairs every line the engine returns, in two
+narrow shapes only — a discipline prefix before ".digit", and an O inside a run that starts with digits; on the 60 hits
+in Victaulic's stored OCR every repair was right (`OCR_VERSION` 3, so older readings are re-read by the scan). OCR text may
 never RAISE a missing sheet or an unscheduled mark — one misread glyph mints a sheet ("FP0.O1",
 "1/16 in" read "l/i6" → I6) — it only suppresses them (an OCR-read schedule row counts as listed),
 and a finding whose deciding schedule was OCR-read is capped like any other OCR finding. Nothing is guessed off it: E0.05's seven panel schedules (67 DPI, letters missing
