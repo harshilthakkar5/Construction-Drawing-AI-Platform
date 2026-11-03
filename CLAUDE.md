@@ -3030,9 +3030,12 @@ A grid question (G01) is answered by the dimension strings beside the grid bubbl
 A1.3's one close-up went to its bottom string and the strings that disagree run down its right edge. When a review
 asks G01, the planner gives the NAMED sheets' free slots to `grid` slots (`withGridSlots`, priced), and the worker
 aims them at the band inside each row of bubbles (`grid_strip_regions`: `grid.styled_systems` bubbles split by side,
-6 bubble diameters inward, cut to 720pt, most bubbles per length first; ~220 DPI on A1.3). A sheet whose grid cannot
-be read (S1.1D, labels drawn as lines) gets drawing windows instead. Grid slots are never re-aimed at titled details
-or rare tags.
+6 bubble diameters inward, cut AT bubbles with neighbouring pieces sharing one so every string between two lines lies
+whole in a piece, most bubbles per length first; ~220 DPI on A1.3). The disagreeing strings were in fact on S1.1G
+(13'-11 1/4", 11'-0 3/4"), whose labels are drawn as lines, so no grid can be read there: its strips come from ROWS of
+equal circles (`drawn_circles` samples each bezier's midpoint, since S1.1G draws a bubble as two half-curves whose
+control points overshoot; `bubble_rows`: 3+ sharing an x or a y). With neither, drawing windows. Grid slots are never
+re-aimed at titled details or rare tags.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

@@ -881,3 +881,33 @@ def test_grid_strips_sit_inside_the_bubbles_densest_first_and_map_to_unrotated(m
     monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
     assert rfi_review.grid_strip_regions(page, 3) == []
     assert rfi_review.grid_strip_regions(page, 0) == []
+
+
+def test_a_sheet_whose_labels_are_drawn_as_lines_still_gets_strips_from_its_rows_of_bubbles(monkeypatch):
+    """Victaulic S1.1G: no text layer, so no grid can be read — but its bubbles
+    are circles in a row, and the string that disagrees (13'-11 1/4") runs
+    beside them. A lone circle, or circles of another size, make no row."""
+    import fitz
+    import grid
+
+    doc = fitz.open()
+    page = doc.new_page(width=2592, height=1728)
+    shape = page.new_shape()
+    for y in (226, 560, 750, 897, 1053, 1235):  # a right-hand row, each drawn as two half-circles + lines
+        shape.draw_bezier((1756, y - 2), (1751, y - 23), (1725, y - 22), (1721, y - 2))
+        shape.draw_line((1721, y - 2), (1721, y + 2))
+        shape.draw_bezier((1721, y + 2), (1723, y + 22), (1751, y + 24), (1756, y + 4))
+        shape.draw_line((1756, y + 4), (1756, y - 2))
+        shape.finish(closePath=False)
+    shape.draw_circle((300, 300), 9)  # a lone small circle: no row
+    shape.finish()
+    shape.commit()
+    circles = rfi_review.drawn_circles(page)
+    assert len([c for c in circles if c.x0 > 1700]) == 6 and all(28 < c.width < 40 for c in circles if c.x0 > 1700)
+    rows = rfi_review.bubble_rows(circles)
+    assert [(v, len(g)) for v, g in rows] == [(True, 6)]
+    monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
+    strips = rfi_review.grid_strip_regions(page, 2)
+    assert len(strips) == 2 and all(r.x1 <= 1757 and r.x0 < 1600 for r in strips)
+    # Cut at bubbles: the 15 -> 15.6 string (y 560-750) lies whole inside one strip.
+    assert any(r.y0 <= 560 and r.y1 >= 750 for r in strips)
