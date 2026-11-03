@@ -952,7 +952,7 @@ _STEPS_REJECT = {"decision": "reject", "basis": "not_visible", "confidence": "lo
 
 
 def test_a_location_question_rejected_by_pointing_at_a_detail_is_kept_low():
-    assert rfi_review.placed_by_detail(_STEPS_REJECT, _STEPS)
+    assert rfi_review.place_unanswered(_STEPS_REJECT, _STEPS)
     kept = rfi_review.kept_for_placement(_STEPS, _STEPS_REJECT)
     assert kept["decision"] == "keep" and kept["confidence"] == "low"
     assert kept["question"] == _STEPS_REJECT["question"]  # the verifier's own, since it asks where
@@ -962,9 +962,10 @@ def test_a_location_question_rejected_by_pointing_at_a_detail_is_kept_low():
 
 
 def test_a_detail_pointer_does_not_overrule_other_rejections():
-    placed = rfi_review.placed_by_detail
+    placed = rfi_review.place_unanswered
     # The verifier quoted the value: it found one.
     assert not placed(dict(_STEPS_REJECT, reason="Detail 3/S4.00 locates the step 4'-0\" from grid A."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="The plan gives a 4'-0\" offset to each step."), _STEPS)
     assert not placed(dict(_STEPS_REJECT, reason="This duplicates problem 0, which covers 8/S3.1."), _STEPS)
     assert not placed(dict(_STEPS_REJECT, reason="Step locations are to be verified in field per 8/S3.1."), _STEPS)
     assert not placed(dict(_STEPS_REJECT, reason="No detail is referenced; the plan shows it."), _STEPS)
@@ -973,3 +974,21 @@ def test_a_detail_pointer_does_not_overrule_other_rejections():
     size = dict(_STEPS, issue="The footing size at location B/4 is not given.", element="Footing")
     assert not placed(dict(_STEPS_REJECT, reason="Detail 1/S3.5 gives it."), size)
     assert not placed(_STEPS_REJECT, dict(_STEPS, kind="conflict"))
+
+
+def test_a_location_question_rejected_by_quoting_a_size_is_kept_low():
+    """Victaulic RFI 001: "no dimensions to grids" was rejected because S3.1
+    gives the footing WIDTH — an answer about size, not place."""
+    footings = {"checkId": "F02", "kind": "missing", "element": "", "location": "S1.1A",
+                "issue": "Wall footings have no marks, no printed widths, no extents and no dimensions to grids. "
+                         "They are shown only by top-of-footing elevation tags.", "why": ""}
+    reject = {"decision": "reject", "basis": "answered_elsewhere", "subject": "", "question": "",
+              "reason": "Wall footing width and reinforcement are given on the S3.1 wall sections (5, 6 and 7: 2'-6\" "
+                        "wide with (4) #5 continuous). The missing marks and widths are not demonstrated."}
+    assert rfi_review.place_unanswered(reject, footings)
+    kept = rfi_review.kept_for_placement(footings, reject)
+    assert kept["confidence"] == "low" and "elevation tags" not in kept["question"]
+    assert kept["question"].startswith("Wall footings have no marks") and "S1.1A" in kept["question"]
+    # A size question answered with a size stands.
+    widths = dict(footings, issue="Wall footing widths are not printed.")
+    assert not rfi_review.place_unanswered(reject, widths)

@@ -2009,39 +2009,50 @@ _LOCATES = re.compile(r"(?<!\bat )\blocat\w*|\bwhere\b|\bposition\w*|\bw\.?\s?r\
                       r"|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b", re.I)
 _DETAIL_REF = re.compile(r"\b\d{1,3}\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b|\btypical\s+detail\b", re.I)
 _QUOTES_LENGTH = re.compile(r"\d+\s*'\s*-?\s*\d+")
+# What a reason must say to have answered WHERE: a place, a grid, an offset or a dimension to something.
+_SPEAKS_OF_PLACE = re.compile(r"\bgrids?\b|\boffsets?\b|\bdimensioned\b|\bdimensions?\s+(?:to|from)\b", re.I)
 
 
-def placed_by_detail(decision: dict | None, candidate: dict) -> bool:
-    """A rejection of a "where is it" problem that rests on a detail reference.
-    Pure. A detail shows how an element is built, never where each one sits on
-    the plan: Victaulic RFI 003 (footing steps on S1.1A, no dimension to the
-    grids) was proposed and set aside twice because "note 13 sends the step
-    itself to detail 8/S3.1". A reason quoting a length, calling the problem a
-    duplicate, or naming the specs or the field stands."""
+def place_unanswered(decision: dict | None, candidate: dict) -> bool:
+    """A rejection of a "where is it" problem that never says where. Pure.
+    Two shapes, each a client RFI set aside on Victaulic:
+      * it rests on a detail reference — a detail shows how an element is built,
+        not where each one is (RFI 003: "note 13 sends the step itself to detail
+        8/S3.1");
+      * it answers a SIZE and says nothing of place (RFI 001: "wall footing width
+        is given on the S3.1 sections: 2'-6\" wide", against "no dimensions to grids").
+    A reason calling it a duplicate, or naming the specs or the field, stands; so
+    does a detail reason quoting a length, and a size reason speaking of a grid or offset."""
     if not decision or decision.get("decision") != "reject" or candidate.get("kind") not in ("missing", "ambiguity"):
         return False
     reason = decision.get("reason") or ""
-    if (_SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or _QUOTES_LENGTH.search(reason)
-            or re.search(r"\bduplicat", reason, re.I)):
+    if _SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or re.search(r"\bduplicat", reason, re.I):
         return False
     issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
-    return bool(_LOCATES.search(issue)) and bool(_DETAIL_REF.search(reason))
+    if not _LOCATES.search(issue):
+        return False
+    by_detail = bool(_DETAIL_REF.search(reason)) and not _QUOTES_LENGTH.search(reason)
+    by_size = bool(_QUOTES_LENGTH.search(reason)) and not (_LOCATES.search(reason) or _SPEAKS_OF_PLACE.search(reason))
+    return by_detail or by_size
 
 
 def kept_for_placement(candidate: dict, decision: dict) -> dict:
-    """The decision a `placed_by_detail` rejection becomes: LOW, asking where
-    each one is. The verifier's own question is used only when it asks that. Pure."""
+    """The decision a `place_unanswered` rejection becomes: LOW, asking where
+    each one is, worded from the issue's sentences about place (an issue often
+    bundles size claims the verifier did answer). The verifier's own question
+    is used only when it asks where. Pure."""
     asked = decision.get("question") or ""
-    question = asked if _LOCATES.search(asked) else (
-        f"{(candidate.get('issue') or '').rstrip('.')}. Please locate each one from the grids.")
+    issue = candidate.get("issue") or ""
+    claim = " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", issue.strip()) if _LOCATES.search(s)) or issue
+    question = asked if _LOCATES.search(asked) else f"{claim.rstrip('.')}. Please locate each one from the grids."
     location = candidate.get("location") or ""
     if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
         question = f"{question.rstrip()} ({location})"
     why = (
-        f"{decision.get('why') or candidate.get('why') or ''} Verification pointed to a detail; a detail shows how "
-        "it is built, not where each one is on the plan."
+        f"{decision.get('why') or candidate.get('why') or ''} Verification answered something other than where it "
+        "is (a detail, or a size); neither places it on the plan."
     ).strip()
-    return dict(decision, decision="keep", subject=decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90),
+    return dict(decision, decision="keep", subject=decision.get("subject") or _text(candidate.get("element") or claim, 90),
                 question=question, why=why, confidence="low", priority="normal")
 
 
@@ -3993,10 +4004,10 @@ def _run(run: dict) -> dict:
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
                         continue
-                    if placed_by_detail(decision, candidate):
-                        notes.append(f"Kept {label} low: verification pointed to a detail, which does not say where it is.")
+                    if place_unanswered(decision, candidate):
+                        notes.append(f"Kept {label} low: verification answered something other than where it is.")
                         diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
-                                          rule="a detail shows how an element is built, not where it is")
+                                          rule="a detail or a size does not say where an element is")
                         accept(candidate, kept_for_placement(candidate, decision))
                         continue
                     set_aside(candidate, decision["reason"] or "rejected", "model", decision)
@@ -4062,10 +4073,10 @@ def _run(run: dict) -> dict:
                         # Kept only because the system pushed back on the first
                         # rejection: never more than medium.
                         accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
-                    elif decision is not None and placed_by_detail(decision, candidate):
-                        notes.append(f"Kept {label} low: verification pointed to a detail, which does not say where it is.")
+                    elif decision is not None and place_unanswered(decision, candidate):
+                        notes.append(f"Kept {label} low: verification answered something other than where it is.")
                         diagnostics.event("rejection_overruled", candidate=candidate, first=first, second=decision,
-                                          rule="a detail shows how an element is built, not where it is")
+                                          rule="a detail or a size does not say where an element is")
                         accept(candidate, kept_for_placement(candidate, decision))
                     elif decision is not None and not contested(decision, {e for e in cited2 if evidence[e].kind != "aid"}, candidate):
                         set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
