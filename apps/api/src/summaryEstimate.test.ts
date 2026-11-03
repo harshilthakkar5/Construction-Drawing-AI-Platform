@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BATCH_MIN_PAGES,
   MAX_OUTPUT_TOKENS,
@@ -13,6 +13,15 @@ import {
 import { rateFor } from "./usage.js";
 
 const savedEnv = { ...process.env };
+// Any SUMMARY_* in the environment moves the estimate: SUMMARY_USE_BATCH=true
+// (the .env.example value) halves the page tier of a run >= 4 pages, so the
+// linear-scaling test failed for whoever had it set. Every test starts from the
+// defaults; a test that depends on a setting sets it itself.
+beforeEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith("SUMMARY_")) delete process.env[key];
+  }
+});
 afterEach(() => {
   process.env = { ...savedEnv };
 });
