@@ -934,3 +934,42 @@ def test_a_rejection_that_cites_another_drawing_but_concedes_the_value_is_contes
     casing = {"decision": "reject", "basis": "other", "answeredBy": [],
               "reason": "Permanent casing is not indicated anywhere, so nothing is shown as missing."}
     assert not rfi_review.concedes_the_value(casing, {"element": "Permanent pier casing"})
+
+
+# --- A detail shows how an element is built, not where it is (Victaulic RFI 003) ---
+
+_STEPS = {"checkId": "CE-04-05-Q01", "kind": "missing", "element": "Footing steps", "location": "S1.1A/S1.1B/S1.1C",
+          "issue": "Plan note 13 defines a footing step symbol and says \"SEE 8/S3.1\". On S1.1A the steps appear as jogs "
+                   "in the boxed elevation leaders. No dimension of step location from a grid is printed on the plan.",
+          "why": "A value needed to place this element is not given."}
+# The re-check's verdict, as Sonnet 5.5 returned it.
+_STEPS_REJECT = {"decision": "reject", "basis": "not_visible", "confidence": "low", "priority": "normal",
+                 "reason": "The evidence does not show that a step-location dimension is required. The boxed values on "
+                           "the plan are footing top elevations, and note 13 sends the step itself to detail 8/S3.1.",
+                 "subject": "Footing step location dimensions not given on plan",
+                 "question": "Note 13 refers to detail 8/S3.1 for footing steps, and no grid dimension locates the steps "
+                             "on the plan. Where along the footing does each step occur?"}
+
+
+def test_a_location_question_rejected_by_pointing_at_a_detail_is_kept_low():
+    assert rfi_review.placed_by_detail(_STEPS_REJECT, _STEPS)
+    kept = rfi_review.kept_for_placement(_STEPS, _STEPS_REJECT)
+    assert kept["decision"] == "keep" and kept["confidence"] == "low"
+    assert kept["question"] == _STEPS_REJECT["question"]  # the verifier's own, since it asks where
+    # A verifier question about something else is replaced, and the sheet is named.
+    other = rfi_review.kept_for_placement(_STEPS, dict(_STEPS_REJECT, question="What step height does 8/S3.1 require?"))
+    assert "locate each one from the grids" in other["question"] and "S1.1A" in other["question"]
+
+
+def test_a_detail_pointer_does_not_overrule_other_rejections():
+    placed = rfi_review.placed_by_detail
+    # The verifier quoted the value: it found one.
+    assert not placed(dict(_STEPS_REJECT, reason="Detail 3/S4.00 locates the step 4'-0\" from grid A."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="This duplicates problem 0, which covers 8/S3.1."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="Step locations are to be verified in field per 8/S3.1."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="No detail is referenced; the plan shows it."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, decision="keep"), _STEPS)
+    # A size question: a detail can answer that, even when it names a place.
+    size = dict(_STEPS, issue="The footing size at location B/4 is not given.", element="Footing")
+    assert not placed(dict(_STEPS_REJECT, reason="Detail 1/S3.5 gives it."), size)
+    assert not placed(_STEPS_REJECT, dict(_STEPS, kind="conflict"))
