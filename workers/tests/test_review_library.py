@@ -743,3 +743,21 @@ def test_a_placement_claim_is_shown_the_largest_closeups_of_the_sheets_it_cites(
     # Not a placement claim, or not a missing/ambiguity one: unchanged.
     assert rr.with_sheet_closeups(dict(claim, issue="No load test is specified."), evidence)["evidenceIds"] == claim["evidenceIds"]
     assert rr.with_sheet_closeups(dict(claim, kind="conflict"), evidence)["evidenceIds"] == claim["evidenceIds"]
+
+
+def test_a_question_may_name_a_sheet_the_review_read_but_not_one_it_did_not():
+    # Victaulic S1.1A: a kept bearing-pressure conflict cited S0.1 and S1.0 and asked
+    # which value governs "the foundation shown on S1.1A" — the sheet under review.
+    def e(eid, sheet, text):
+        page = {"S0.1": 35, "S1.0": 38, "S1.1A": 39}[sheet]
+        return rr.Evidence(id=eid, kind="text", document_id="d", page_number=page, combined_page_number=page,
+                           sheet_number=sheet, side=None, bbox=None, text=text)
+    ev = {"ev11": e("ev11", "S0.1", "MINIMUM SOIL BEARING CAPACITY 2,500 PSF"),
+          "ev16": e("ev16", "S1.0", "ALLOWABLE BEARING 2000 PSF (ASSUMED)"),
+          "ev1": e("ev1", "S1.1A", "FOUNDATION PLAN")}
+    c = {"checkId": "CE-04-01-Q07", "kind": "conflict", "evidenceIds": ["ev11", "ev16"], "element": "Soil bearing"}
+    asked = {"subject": "Bearing 2000 vs 2500 psf",
+             "question": "S0.1 says 2500 psf and S1.0 says 2000 psf. Which governs the footings on S1.1A?"}
+    assert rr.guard(c, asked, ev, []) is None
+    assert rr.guard(c, dict(asked, question=asked["question"].replace("S1.1A", "S1.1B")), ev, []) is not None
+    assert rr.guard(c, dict(asked, question=asked["question"] + " Is it 3000 psf?"), ev, []) is not None

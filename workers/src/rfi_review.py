@@ -2085,10 +2085,19 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
     if not decision["subject"] or not decision["question"]:
         return "the verification kept it but wrote no question"
     material = _material(candidate, evidence, observations)
-    ok, why = grounded(f"{decision['subject']}\n{decision['question']}", material)
+    ok, why = grounded(_without_run_sheets(f"{decision['subject']}\n{decision['question']}", evidence), material)
     if not ok:
         return f"its wording {why}"
     return None
+
+
+def _without_run_sheets(text: str, evidence: dict[str, Evidence]) -> str:
+    """`text` with the sheet numbers of every page this run read blanked out: naming
+    the sheet under review is context, not a fact the wording invented (Victaulic
+    S1.1A, "which bearing value governs the footings on S1.1A?", was refused for it)."""
+    for sheet in sorted({ev.sheet_number for ev in evidence.values() if ev.sheet_number}, key=len, reverse=True):
+        text = re.sub(rf"(?<![A-Z0-9.-]){re.escape(sheet)}(?![A-Z0-9])", " ", text, flags=re.I)
+    return text
 
 
 MAX_SET_ASIDE = 5  # per question

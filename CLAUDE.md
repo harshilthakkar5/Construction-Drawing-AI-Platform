@@ -2739,7 +2739,9 @@ discovery by `maxInputTokens` into at most `maxBatches` calls (the rest is writt
 an evidence id the server did not issue is dropped, description-only or aid-only support is
 rejected, an evidence id the model wrote into prose is shown as its SHEET (`readable`: subject, question,
 why-flagged, set-asides, notes — lowercase `ev12` only, so a drawing's tag EV1 stays), a conflict needs two pages, and a question may not contain an identifier or ANY digit
-run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern).
+run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern) — except the
+sheet number of a page the run read (`_without_run_sheets`: Victaulic's kept "which bearing value governs the
+footings on S1.1A?" was refused for naming the sheet under review).
 `maxTotalTokens` is checked BEFORE each call and stops the run `partial` with what it found saved.
 Usage rows carry `reviewRunId`/`stage`/`attempt` (`usage.tagged`, a ContextVar). G01 runs the
 scan's exact `rfi_grid` comparison and keeps its fingerprint. A failed call fails the run at a
