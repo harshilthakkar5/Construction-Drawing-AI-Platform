@@ -3040,7 +3040,10 @@ The paid run with those strips READ both values (S1.1G 13'-11 1/4", S1.1D and A1
 sat in separate observations as runs of numbers, and the inventory held three lumped rows. So a grid review's
 discovery is told (`GRID_SPANS_RULE`, only when G01 is asked) to record every span between NEIGHBOURING lines on every
 sheet as its own inventory entry — "grid 15 to 15.6", lower label first, one `spacing` value, the sheet as source —
-and `value_conflicts` compares them like any other field.
+and `value_conflicts` compares them like any other field. The next paid run recorded twelve such spans, all from A1.3 and S1.1D (which
+agree) and none from S1.1G, while noting S1.1G's bubbles in the same reply: one call reading 26 pages leaves gaps. So
+when G01 is asked, `complete_grid_spans` makes ONE follow-up shown only the strip close-ups (captioned
+`GRID_STRIP_CAPTION`), asking for every span on every sheet; its reading replaces the first pass's for that sheet.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

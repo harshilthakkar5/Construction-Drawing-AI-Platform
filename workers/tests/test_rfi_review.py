@@ -932,3 +932,40 @@ def test_grid_spacings_go_into_the_inventory_one_span_per_sheet_and_code_compare
     got = rfi_review.value_conflicts(rows)
     assert len(got) == 1 and got[0]["element"] == "grid 15 to 15.6"
     assert "13'-11 1/4" in got[0]["issue"] and "14'-0" in got[0]["issue"]
+
+
+def test_grid_strips_are_read_again_for_every_span_and_the_closer_reading_wins():
+    """Victaulic RFI 007: discovery recorded A1.3's and S1.1D's spans, which agree,
+    and none of S1.1G's. One follow-up shown only the strips fills them in."""
+    strip = ev("ev51", "crop", 45)
+    strip.caption, strip.sheet_number = rfi_review.GRID_STRIP_CAPTION, "S1.1G"
+    other = ev("ev9", "crop", 6)
+
+    def span(entity, source, value, eid):
+        return {"checkId": "G01", "entity": entity, "location": "", "source": source,
+                "fields": [{"name": "spacing", "value": value, "state": "supported", "evidenceIds": [eid], "derived": False}]}
+
+    first = [span("grid 15 to 15.6", "S1.1D", "14'-0\"", "ev9"), span("grid 15 to 15.6", "S1.1G", "14'-0\"", "ev9")]
+    seen = {}
+
+    def ask(user, shown):
+        seen["shown"] = [e.id for e in shown]
+        assert "grid_spans" in user
+        return [span("grid 15 to 15.6", "S1.1G", "13'-11 1/4\"", "ev51"), span("Grid 14 to 15", "s1.1g", "25'-0\"", "ev51"),
+                span("column C-6", "S1.1G", "14 x 30", "ev51")]
+
+    got, note = rfi_review.complete_grid_spans(first, [strip, other], ask)
+    assert seen["shown"] == ["ev51"]  # only the strips
+    by = {(r["entity"].lower(), r["source"].upper()): r["fields"][0]["value"] for r in got}
+    assert by[("grid 15 to 15.6", "S1.1G")] == "13'-11 1/4\"" and by[("grid 15 to 15.6", "S1.1D")] == "14'-0\""
+    assert ("grid 14 to 15", "S1.1G") in by and not any(e.startswith("column") for e, _ in by)
+    assert "S1.1G" in note and "1 added, 1 re-read" in note
+    assert len(rfi_review.value_conflicts(got)) == 1
+    # No strips: nothing asked. A failed call keeps what discovery had.
+    assert rfi_review.complete_grid_spans(first, [other], ask) == (first, None)
+
+    def fails(user, shown):
+        raise rfi_review.StageFailed("discovery", "boom")
+
+    kept, why = rfi_review.complete_grid_spans(first, [strip], fails)
+    assert kept == first and "not read again" in why

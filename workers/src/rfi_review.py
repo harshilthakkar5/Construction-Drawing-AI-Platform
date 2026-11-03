@@ -712,7 +712,8 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
         anchors += planned[: len(planned) - len(aimed)]
         if gridded:  # a grid it cannot read falls back to drawing windows
             strips = grid_strip_regions(page, len(gridded))
-            anchors += [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in strips]
+            anchors += [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True, "strip": True}
+                        for r in strips]
             anchors += [{"chunkId": a["chunkId"], "bbox": None, "drawing": True} for a in gridded[len(strips):]]
         # A sheet whose words are drawn as lines: the planner gave it drawing slots.
         drawing = [a for a in anchors if a.get("drawing")]
@@ -737,6 +738,7 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
                     kind="crop",
                     bbox={"x": box.x0, "y": box.y0, "width": box.width, "height": box.height},
                     chunk_id=anchor.get("chunkId"),
+                    caption=GRID_STRIP_CAPTION if anchor.get("strip") else None,
                     image=vlm.render_crop(page, shown, CROP_EDGE),
                     **common,
                 )
@@ -1519,6 +1521,45 @@ def complete_inventory(inventory: list[dict], pool: list[Evidence], ask) -> tupl
     if left:
         note += f" Still merged: {'; '.join(r['entity'] for r in left)[:200]}."
     return out, note
+
+
+GRID_STRIP_CAPTION = "grid dimension strip"
+GRID_SPANS_REQUEST = (
+    "<grid_spans>\nThe close-ups shown are the strips beside each sheet's grid bubbles. For EVERY sheet shown, read "
+    "every dimension printed between two NEIGHBOURING grid lines and return one inventory entry per span per sheet, "
+    "as the grid spacing rule says: entity \"grid <a> to <b>\" (lower label first), the sheet as `source`, one "
+    "\"spacing\" field, cited to the strip it is read from. A value you cannot read is left out. Return inventory "
+    "entries only; observations may be empty.\n</grid_spans>\n\n"
+)
+
+
+def complete_grid_spans(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
+    """ONE follow-up call shown only the grid strip close-ups, for every span on every
+    sheet. Victaulic RFI 007: the one discovery call recorded twelve spans from A1.3
+    and S1.1D, which agree, and none from S1.1G, whose 13'-11 1/4" is the RFI — while
+    noting S1.1G's bubbles in the same reply. A span read here replaces the first
+    pass's for that sheet (the strip is the closer look); `ask(user, shown)` returns
+    inventory rows. A failed call keeps the inventory as it was."""
+    strips = [ev for ev in pool if ev.caption == GRID_STRIP_CAPTION]
+    if not strips:
+        return inventory, None
+    try:
+        rows = ask(GRID_SPANS_REQUEST, strips)
+    except (StageFailed, BudgetStop) as exc:
+        return inventory, f"The grid strips were not read again ({exc})."
+    spans = [r for r in rows if _key(r.get("entity")).startswith("grid ") and r.get("source")]
+    out = list(inventory)
+    added = replaced = 0
+    for row in spans:
+        same = next((i for i, r in enumerate(out) if _source_key(r) == _source_key(row)), None)
+        if same is None:
+            out.append(row)
+            added += 1
+        else:
+            out[same] = row
+            replaced += 1
+    sheets = sorted({ev.sheet_number or "?" for ev in strips})
+    return out, f"Grid strips of {', '.join(sheets)} read for every span: {added} added, {replaced} re-read."
 
 
 def value_conflicts(inventory: list[dict]) -> list[dict]:
@@ -3979,6 +4020,14 @@ def _run(run: dict) -> dict:
         )["inventory"])
         if split_note:
             notes.append(split_note)
+        if "G01" in asked:
+            inventory, spans_note = complete_grid_spans(inventory, sent, lambda user, shown: _ask(
+                "discovery", discovery_system(asked, catalogue), user + "\n".join(_evidence_block(ev) for ev in shown),
+                lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
+                run=run, usage=usage, images=shown,
+            )["inventory"])
+            if spans_note:
+                notes.append(spans_note)
         _set(run_id, observations=json.dumps(observations), inventory=json.dumps(inventory))
         notes.append(f"Discovery: {len(observations)} observation(s) from {len(batches)} call(s).")
         _checkpoint(run_id, "reasoning", 45, run)
