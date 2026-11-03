@@ -485,6 +485,49 @@ def plan_regions(page, limit: int) -> list[fitz.Rect]:
     return [fitz.Rect((r & page.rect) * back).normalize() for r in regions]
 
 
+DRAWING_STROKE_MIN_PT = 20  # shorter is a glyph of stroke-drawn text, not linework
+
+
+def drawing_regions(page, limit: int, taken: list[fitz.Rect] = ()) -> list[fitz.Rect]:
+    """Where a sheet whose words are drawn as lines is DRAWN, in UNROTATED space:
+    windows a third of the sheet a side over the most linework, overlapping
+    each other and `taken` by at most a quarter. Victaulic S1.1A has no text
+    layer, so its one close-up went to the notes block and the footing step of
+    the client's RFI 003 was only ever seen whole, at ~45 DPI. Pure but for `page`."""
+    if limit <= 0:
+        return []
+    area = _unrotated_rect(page)
+    strokes = []
+    for d in page.get_drawings():  # unrotated, like get_text
+        for item in d["items"]:  # each piece: one path often holds a whole layer
+            pts = [p for p in item[1:] if isinstance(p, fitz.Point)] or (
+                [item[1].tl, item[1].br] if isinstance(item[1], fitz.Rect) else
+                [item[1].ul, item[1].lr] if isinstance(item[1], fitz.Quad) else [])
+            if not pts:
+                continue
+            r = fitz.Rect(min(p.x for p in pts), min(p.y for p in pts), max(p.x for p in pts), max(p.y for p in pts))
+            if DRAWING_STROKE_MIN_PT <= max(r.width, r.height) and r.width < 0.6 * area.width and r.height < 0.6 * area.height:
+                strokes.append(fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+    w, h = area.width * PLAN_WINDOW, area.height * PLAN_WINDOW
+    steps = round(1 / PLAN_WINDOW) * 2 - 1  # half-window stride
+    windows = [fitz.Rect(area.x0 + i * w / 2, area.y0 + j * h / 2, area.x0 + i * w / 2 + w, area.y0 + j * h / 2 + h)
+               for i in range(steps) for j in range(steps)]
+    scored = sorted(((sum(win.contains(p) for p in strokes), k, win) for k, win in enumerate(windows)),
+                    key=lambda t: (-t[0], t[1]))
+    # Only a real close-up counts as already shown: S1.1A's notes piece spans 80%
+    # of the sheet's width, renders at ~47 DPI, and would push every window off
+    # the very band the client clouded.
+    shown = [r for r in taken if r.get_area() <= 2 * w * h]
+    regions: list[fitz.Rect] = []
+    for count, _, win in scored:
+        if len(regions) >= limit or count == 0:
+            break
+        if any((win & r).get_area() > 0.25 * win.get_area() for r in [*shown, *regions]):
+            continue
+        regions.append(win)
+    return regions
+
+
 def details_cut(scope: dict, open_page) -> dict[str, set[str]]:
     """Sheet -> the detail numbers the review's own pages call out on it, read
     from the project map (detail_map, saved per page; a page not yet mapped is
@@ -548,6 +591,15 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
             aimed += plan_regions(page, len(planned) - len(aimed))
         anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
         anchors += planned[: len(planned) - len(aimed)]
+        # A sheet whose words are drawn as lines: the planner gave it drawing slots.
+        drawing = [a for a in anchors if a.get("drawing")]
+        if drawing:
+            def _rect(b):
+                return fitz.Rect(b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"])
+            taken = [_rect(a["bbox"]) for a in anchors if not a.get("drawing") and a.get("bbox")]
+            windows = drawing_regions(page, len(drawing), taken)
+            anchors = [a for a in anchors if not a.get("drawing")] + [
+                {"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in windows]
         for anchor in anchors:
             b = anchor["bbox"]
             # A detail cell is already the region to show; a text piece gets crop_box's padding.

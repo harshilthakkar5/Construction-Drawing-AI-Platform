@@ -761,3 +761,66 @@ def test_a_question_may_name_a_sheet_the_review_read_but_not_one_it_did_not():
     assert rr.guard(c, asked, ev, []) is None
     assert rr.guard(c, dict(asked, question=asked["question"].replace("S1.1A", "S1.1B")), ev, []) is not None
     assert rr.guard(c, dict(asked, question=asked["question"] + " Is it 3000 psf?"), ev, []) is not None
+
+
+def _drawn_text_plan(rotation=0):
+    """A sheet with no text layer: a dense knot of linework in one area, a
+    little elsewhere, and a block of glyph-sized strokes (drawn lettering)."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592) if rotation in (0, 180) else doc.new_page(width=2592, height=3456)
+    page.set_rotation(rotation)
+    to_page = page.derotation_matrix  # display space -> the page's own space
+    shape = page.new_shape()
+
+    def line(x0, y0, x1, y1):
+        shape.draw_line(fitz.Point(x0, y0) * to_page, fitz.Point(x1, y1) * to_page)
+
+    for i in range(60):  # the knot: footing walls and steps, upper left in display space
+        line(500 + (i % 10) * 60, 400 + (i // 10) * 60, 540 + (i % 10) * 60, 400 + (i // 10) * 60)
+    for i in range(6):  # scattered linework
+        line(2600 + i * 100, 1800, 2640 + i * 100, 1800)
+    for i in range(400):  # drawn lettering in the notes: strokes shorter than DRAWING_STROKE_MIN_PT
+        line(2900 + (i % 40) * 10, 200 + (i // 40) * 12, 2906 + (i % 40) * 10, 200 + (i // 40) * 12)
+    shape.finish(color=(0, 0, 0))
+    shape.commit()
+    return doc, page
+
+
+def test_a_drawn_text_sheet_gets_its_close_ups_where_it_is_drawn():
+    # Victaulic S1.1A: no text layer, its one close-up went to the notes and the
+    # footing step the client clouded (RFI 003) was only seen whole at ~45 DPI.
+    import fitz
+    for rotation in (0, 90):
+        doc, page = _drawn_text_plan(rotation)
+        first, second = rr.drawing_regions(page, 2)
+        knot = fitz.Point(800, 550) * page.derotation_matrix  # the knot's middle, in the stored frame
+        assert first.contains(knot), rotation
+        shown = fitz.Rect(first * page.rotation_matrix).normalize()
+        assert shown.width < page.rect.width / 2 and shown.height < page.rect.height / 2  # a close-up
+        assert (first & second).get_area() <= 0.25 * first.get_area()
+        # Lettering is not linework: no window is spent on the notes block.
+        notes = fitz.Point(3100, 220) * page.derotation_matrix
+        assert not any(r.contains(notes) for r in (first, second)), rotation
+        # What is already shown is not shown twice.
+        [after] = rr.drawing_regions(page, 1, taken=[first])
+        assert after != first and (after & first).get_area() <= 0.25 * first.get_area()
+        # A box nearly the size of the sheet is no close-up and blocks nothing.
+        assert rr.drawing_regions(page, 1, taken=[rr._unrotated_rect(page)])[0] == first
+        assert rr.drawing_regions(page, 0) == []
+
+
+def test_drawing_slots_become_drawing_close_ups_and_text_pieces_stay():
+    doc, page = _drawn_text_plan()
+    note = {"chunkId": "c1", "bbox": {"x": 2900, "y": 190, "width": 400, "height": 130}}
+    scope = {"pages": [{"pageId": "p1", "documentId": "d1", "pageNumber": 1, "sheetNumber": "S1.1A", "visual": True,
+                        "crops": [note, {"chunkId": "drawing:1", "bbox": None, "drawing": True},
+                                  {"chunkId": "drawing:2", "bbox": None, "drawing": True}]}]}
+    items = rr.image_evidence(scope, lambda d, n: page, start=1)
+    crops = [e for e in items if e.kind == "crop"]
+    assert len(crops) == 3  # as many images as the plan priced
+    assert crops[0].chunk_id == "c1"
+    import fitz
+    knot = fitz.Point(800, 550)
+    assert any(fitz.Rect(c.bbox["x"], c.bbox["y"], c.bbox["x"] + c.bbox["width"], c.bbox["y"] + c.bbox["height"]).contains(knot)
+               for c in crops[1:])

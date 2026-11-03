@@ -3016,6 +3016,15 @@ from its own pattern. Leland RFIs 002 and 004 are both in S2.30-B's shear-wall c
 ever saw it legibly: its one close-up was a 2983x2214pt text piece, the whole sheet again at ~64 DPI. The
 value is matched UNDER its tag in display space (a rotated sheet's stored frame turns "under" sideways);
 under `PLAN_MIN_TAGS` tagged values, or none rare, the planned text pieces are used as before.
+A sheet whose words are DRAWN AS LINES has neither text tags nor text pieces to aim at: Victaulic S1.1A got
+one close-up, of a notes chunk 80% of the sheet wide (~47 DPI), and verification called the client's RFI 003
+footing step "speculative" because it never saw the step. The planner now marks such a page `drawnText` (its OCR
+reading says no text layer / text drawn as shapes, or it holds no text) and fills its free close-up slots with
+`drawing` slots, priced like any other (`withDrawingSlots`); the worker turns each into a window a third of the
+sheet a side over the most drawn linework (`drawing_regions`: line PIECES ≥ 20pt, so stroke lettering and one
+path holding a whole layer both count right), overlapping what is shown by at most a quarter — and a planned box
+over twice a window's area is no close-up, so it blocks nothing. On S1.1A the two windows cover the clouded dock
+corner and top band at ~117 DPI. Not yet re-run on a model.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

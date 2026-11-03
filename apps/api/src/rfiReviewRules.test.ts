@@ -6,6 +6,7 @@ import {
   comparability,
   costDifference,
   cropAnchors,
+  withDrawingSlots,
   elementFamily,
   estimateReview,
   levelOf,
@@ -367,6 +368,23 @@ describe("rankScope — forced pages, element pages and omissions", () => {
   it("gives every related page a reason naming the check that found it", () => {
     const scope = rankScope(input({ hitChecks: ["C01"] }));
     expect(scope.pages.find((p) => p.pageId === "r1")!.reason).toMatch(/C01/);
+  });
+});
+
+describe("withDrawingSlots", () => {
+  it("gives a sheet whose words are drawn as lines its full close-ups, aimed at the drawing and priced", () => {
+    // Victaulic S1.1A: one text piece (its notes), so one close-up, and the step of RFI 003 never legible.
+    const drawn = page("s11a", "S1.1A", { drawnText: true });
+    const scope = rankScope(input({ sides: [{ label: "S1.1A", pages: [drawn] }], targetChunks: [chunk("notes", "s11a")], hitLists: [] }));
+    const got = scope.pages.find((p) => p.pageId === "s11a")!;
+    const perPage = RFI_REVIEW_DEPTHS.standard.cropsPerPage;
+    expect(got.crops.map((c) => c.chunkId)).toEqual(["notes", ...Array.from({ length: perPage - 1 }, (_, i) => `drawing:${i + 1}`)]);
+    expect(got.crops.slice(1).every((c) => c.drawing && c.bbox === null)).toBe(true);
+    const est = estimateReview(scope, settings(), () => 1);
+    expect(est.imageParts).toBe(scope.pages.filter((p) => p.visual).reduce((n, p) => n + 1 + p.crops.length, 0));
+    // A sheet with readable text is unchanged, and no slot is ever added past the depth's cap.
+    expect(withDrawingSlots({}, [], 3)).toEqual([]);
+    expect(withDrawingSlots({ drawnText: true }, cropAnchors(["a", "b", "c"].map((id) => ({ ...chunk(id, "p"), score: 1 })), 3), 3)).toHaveLength(3);
   });
 });
 

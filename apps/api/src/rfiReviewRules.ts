@@ -373,8 +373,11 @@ export interface ScopePage {
   reason: string;
   visual: boolean;
   /** Where to crop on this page: the boxes of its highest-ranked chunks,
-   * decided here so the worker renders exactly what the plan priced. */
-  crops: { chunkId: string; bbox: Box }[];
+   * decided here so the worker renders exactly what the plan priced. A
+   * `drawing` slot has no box: the worker aims it at the drawing itself. */
+  crops: { chunkId: string; bbox: Box | null; drawing?: true }[];
+  /** Its words are drawn as lines (no text layer), so text pieces cannot aim its close-ups. */
+  drawnText?: boolean;
 }
 
 export interface Box {
@@ -627,7 +630,7 @@ export function rankScope(input: RankInput): ReviewScope {
     const titled = role === "related" && titledPages.has(page.pageId);
     const visual = role !== "related" || visualLeft > 0 || titled;
     if (visual && (!titled || visualLeft > 0)) visualLeft--; // a titled page past the budget is extra
-    const crops = visual ? cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage) : [];
+    const crops = visual ? withDrawingSlots(page, cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage), caps.cropsPerPage) : [];
     if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only, beyond the ${caps.visualPages} rendered pages of this depth` });
     return { ...page, role, reason, visual, crops };
   });
@@ -651,6 +654,23 @@ export function cropAnchors(chunks: ScopeChunk[], limit: number): { chunkId: str
     .sort((a, b) => b.score - a.score || a.chunkId.localeCompare(b.chunkId))
     .slice(0, limit)
     .map((c) => ({ chunkId: c.chunkId, bbox: c.bbox! }));
+}
+
+/**
+ * A sheet whose words are drawn as lines has almost no readable text, so its
+ * text pieces fill few close-up slots and the drawing is seen only whole (~45
+ * DPI on a 36x24 sheet): Victaulic S1.1A got one close-up, of its notes, and the
+ * footing step of the client's RFI 003 was never legible. Its free slots go to
+ * the drawing (the worker's `drawing_regions`), counted here so the price holds.
+ */
+export function withDrawingSlots(
+  page: { drawnText?: boolean },
+  crops: { chunkId: string; bbox: Box | null; drawing?: true }[],
+  limit: number,
+): { chunkId: string; bbox: Box | null; drawing?: true }[] {
+  if (!page.drawnText) return crops;
+  const free = Math.max(0, limit - crops.length);
+  return [...crops, ...Array.from({ length: free }, (_, i) => ({ chunkId: `drawing:${i + 1}`, bbox: null, drawing: true as const }))];
 }
 
 /**

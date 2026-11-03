@@ -197,6 +197,8 @@ interface PageRow {
   /** sheet_facts' kind (plan, section, schedule, …), or null before a scan read it. */
   sheetKind: string | null;
   revision: number;
+  /** Words drawn as lines: OCR found no text layer or shape text, or the page holds no text at all. */
+  drawnText: boolean;
 }
 
 /** Pages a review may use: live (not superseded), processed, in this
@@ -206,7 +208,8 @@ interface PageRow {
 async function analysablePages(projectId: string): Promise<PageRow[]> {
   return prisma.$queryRaw<PageRow[]>`
     SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber",
-           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, p."sheetKind", d.revision
+           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, p."sheetKind", d.revision,
+           (p.ocr->>'reason' IN ('no text layer', 'text drawn as shapes') OR btrim(coalesce(p.text, '')) = '') AS "drawnText"
       FROM pages p JOIN documents d ON d.id = p."documentId"
      WHERE d."projectId" = ${projectId}
        AND d."supersededAt" IS NULL
@@ -224,6 +227,7 @@ const asPage = (row: PageRow): CandidatePage => ({
   discipline: row.discipline,
   pdfWidth: row.pdfWidth,
   pdfHeight: row.pdfHeight,
+  drawnText: row.drawnText,
 });
 
 /**
