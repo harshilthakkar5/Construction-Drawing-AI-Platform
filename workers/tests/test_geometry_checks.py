@@ -115,7 +115,8 @@ def test_columns_are_compared_only_where_a_column_must_agree():
     elec = _facts("p3", "E1.01", "electrical", A, {})
     assert gc._column_pair(fp.Pair("same_level", arch, struct, ""))
     assert not gc._column_pair(fp.Pair("same_level", arch, elec, ""))
-    assert gc._column_pair(fp.Pair("enlarged", elec, _facts("p4", "E2.01", "electrical", A, {}), ""))
+    assert not gc._column_pair(fp.Pair("enlarged", elec, _facts("p4", "E2.01", "electrical", A, {}), ""))
+    assert gc._column_pair(fp.Pair("enlarged", arch, _facts("p5", "A2.01", "architectural", A, {}), ""))
 
 
 # --- Triage -------------------------------------------------------------------------

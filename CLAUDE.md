@@ -2491,7 +2491,8 @@ false one is a question someone has to answer:
     two scheduled marks before it counts as a schedule; the SCHEDULE PAGE counts, not just the
     chunk carrying the word, because schedules split across chunks; a mark must share the
     schedule's shape (a slab schedule of S1, S2 says nothing about S501) and must not be a sheet
-    number (a small set numbered P1..P3 beside a P4..P6 fixture schedule). High when called out
+    number (a small set numbered P1..P3 beside a P4..P6 fixture schedule) or the START of one
+    (Victaulic's "FP3-1" is a sheet, not fire pump FP3). High when called out
     in two places. The cost of the page rule is blindness on a plan sheet that carries its own
     schedule — a missed finding, the direction an error here is allowed to fall. A schedule is a
     HEADING (`schedule_titles`: "FOR STUD RAIL SCHEDULE … SEE SHEET S5.131" points elsewhere and
@@ -2530,8 +2531,9 @@ false one is a question someone has to answer:
     with up to five evidence locations. VERIFY IN FIELD is NOT an open item: field verification is
     the contractor's contractual duty, not a question for the designer. Nor is a note that hands
     the item to another party (`_OTHER_PARTY`, read on the note's own sentence: BY CONTRACTOR,
-    FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD…) — that is settled through their
-    channel. Both are counted in the scan's notes.
+    FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD, OWNER, ALLOWANCE…) — that is settled
+    through their channel (Victaulic E0.1: fixtures "TO BE DETERMINED BY OWNER", "TBD … $2,500.00
+    allowance"; a dot between digits is a decimal, never the sentence's end). Both are counted in the scan's notes.
   * `missing_detail` (`workers/src/detail_map.py`, the PROJECT MAP) — a symbol or note pointing at a
     detail its sheet does not have: Leland S4.10 prints "T.O.C. SEE 24/S4.02" and S4.02 titles 6,
     11, 21 and 26 (a paid review had accepted that pointer as the answer). The map is each page's
@@ -2787,7 +2789,10 @@ reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
 Two same-scale sheets of ONE discipline are never overlaid either: on the full UT Law set, A3.04
 (Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
 plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
-disciplines; an enlarged plan over its overall plan is unaffected.
+disciplines; an enlarged plan over its overall plan is unaffected. Columns are compared only between
+architectural, structural and interiors sheets (`geometry_checks._column_pair`), an enlarged pair
+included: a consultant's columns are copied background — Victaulic M2-1 over M1-3 read a ceiling-fan
+hub as a column moved 2'-0".
 `plan_match.differences` reports a difference only where it can be true, and each rule is a false
 finding from the offline sweep of every library element (Leland S2.30-A/B and A2.30-A/B over
 S2.20/A2.20): inside the area the matched columns span plus one typical spacing (`COVER_BAYS`; a

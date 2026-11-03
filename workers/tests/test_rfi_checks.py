@@ -526,6 +526,9 @@ def test_the_same_note_on_many_sheets_is_one_open_item():
         "CONNECTION TO BE DETERMINED BY FABRICATOR",
         "ANCHOR LAYOUT TBD PER SHOP DRAWINGS",
         "FINAL ELEVATION TO BE CONFIRMED IN FIELD",
+        # Victaulic E0.1: the owner's selection, against a priced allowance.
+        "DECORATIVE WALL SCONCE AT FRONT ENTRANCE TO BE DETERMINED BY OWNER",
+        "TBD (to be determined) Provide a $2,500.00 allowance for light fixture cost",
     ],
 )
 def test_an_open_item_handed_to_another_party_is_not_an_rfi(text):
@@ -911,6 +914,17 @@ def test_a_cut_off_sheet_number_is_not_a_mark():
     pages, chunks = mark_project([("p1", "WIND LOADS ON PC4.0", ["PC40"])], schedule_ids=("PC1", "PC2", "PC3"))
     pages.append(page("p9", "PC4.01"))
     assert unscheduled_marks(pages, chunks)[0] == []
+
+
+def test_a_mark_that_is_the_start_of_a_sheet_number_is_not_a_mark():
+    # Victaulic FP0-1 lists its sheets; "FP3-1" there is a sheet, not fire pump FP3.
+    pages, chunks = mark_project([("p1", "SEE SHEET INDEX: FP2-1 FP3-1", ["PC4"]), ("p2", "PC4-1", ["PC4"])])
+    pages.append(page("p9", "PC4-1"))
+    assert unscheduled_marks(pages, chunks)[0] == []
+    # A mark standing alone beside it is still a mark.
+    pages, chunks = mark_project([("p1", "PC4-1", ["PC4"]), ("p2", "PC4 AT 7/D", ["PC4"])])
+    pages.append(page("p9", "PC4-1"))
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["PC4"]
 
 
 def test_rows_under_a_sheet_sized_block_are_not_its_schedule():

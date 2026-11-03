@@ -1373,6 +1373,71 @@
         "CE-01-02",
         "CE-04-12"
       ]
+    },
+    {
+      "id": "victaulic-false-findings",
+      "source": "Code-check scan of the Victaulic TMF Fabrication Facility set (114 sheets, 03-03-26: architectural, civil, structural S0.1-S3.6, plumbing, fire protection, mechanical, electrical), each finding opened on the sheet. None of these is an RFI.",
+      "pdf": "Victaulic TMF combined set (not in this repository)",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [],
+      "expected": [],
+      "knownGap": "The client's 16 RFIs are all about the structural sheets, and none is reachable by code on this set. The structural sheets have NO text layer (lettering drawn as strokes), so their words come only from OCR. RFI 006 ('P1 HOLD', 'P2 HOLD' on S3.5): OCR reads HOLD at 0.80, under page_ocr.MIN_CONFIDENCE, and HOLD is not an open-item marker. RFIs 007/014 (grid dimensions differ between A1.3-A1.5 and S1.1C/D/G): the grid bubbles' labels are strokes, so grid.styled_systems reads no grid on any S sheet. The rest (missing foundation, thickened-edge, step-footing, pit and sump dimensions; anchor bolts; pier and shear-key clashes; elevator pit width against an RFI response) are for a review or a person. The scan's two missing_detail findings (1A/A5.1, 1B/A5.1 on A1.5) are real pointers to details A5.1 does not have, not client RFIs.",
+      "rejected": [
+        {
+          "what": "FP3 missing from the fire pump schedule",
+          "why": "'FP3-1' is a sheet number in the set (the fire protection sheet list), not fire pump FP3. A mark that is the start of a sheet number is never a mark.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "FP0-1",
+            "FP3-1"
+          ],
+          "mentions": [
+            "FP3"
+          ]
+        },
+        {
+          "what": "Column moved 2'-0\" between M2-1 detail 1 and M1-3",
+          "why": "Both are mechanical sheets, whose columns are copied background; the 'column' on M1-3 is the hub of ceiling fan HVLS-1. Columns are compared only between architectural, structural and interiors sheets.",
+          "checkTypes": [
+            "column_mismatch",
+            "C01"
+          ],
+          "sheets": [
+            "M2-1",
+            "M1-3"
+          ]
+        },
+        {
+          "what": "Open items on E0.1: decorative fixtures 'TO BE DETERMINED BY OWNER'",
+          "why": "The owner's selection, not a question the designer can answer.",
+          "checkTypes": [
+            "open_item_note"
+          ],
+          "sheets": [
+            "E0.1"
+          ],
+          "mentions": [
+            "BY OWNER"
+          ]
+        },
+        {
+          "what": "Open items on E0.1: 'TBD … Provide a $2,500.00 allowance for light fixture cost'",
+          "why": "A priced allowance: the item is settled by the owner's later selection. (The sentence was also cut at the decimal point of $2,500.00.)",
+          "checkTypes": [
+            "open_item_note"
+          ],
+          "sheets": [
+            "E0.1"
+          ],
+          "mentions": [
+            "allowance"
+          ]
+        }
+      ]
     }
   ]
 }
