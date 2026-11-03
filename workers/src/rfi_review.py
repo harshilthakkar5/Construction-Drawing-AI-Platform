@@ -528,6 +528,61 @@ def drawing_regions(page, limit: int, taken: list[fitz.Rect] = ()) -> list[fitz.
     return regions
 
 
+GRID_STRIP_MAX_PT = 720  # a longer strip is cut: at CROP_EDGE a 10 in strip reads at ~140 DPI
+GRID_STRIP_BAND = 6  # bubble diameters inward from the bubbles, where the dimension strings run
+
+
+def grid_strip_regions(page, limit: int) -> list[fitz.Rect]:
+    """Where a sheet prints its grid-to-grid dimensions, in UNROTATED space:
+    the band inside each row of grid bubbles, cut to GRID_STRIP_MAX_PT, the
+    windows with the most bubbles per length first. Victaulic RFI 007 (A1.3's
+    13'-11 1/4" against S1.1D's 14'-0") was missed because A1.3's one close-up
+    went to its bottom string and the strings that disagree run down its right
+    edge. [] when the grid cannot be read (the caller falls back to drawing
+    windows). Pure but for `page`."""
+    if limit <= 0:
+        return []
+    try:
+        systems = grid.styled_systems(page)
+    except Exception:
+        log.exception("rfi review: reading the grid for its dimension strips failed")
+        return []
+    shown = page.rect  # styled_systems reports display coordinates
+    sides: dict[str, list[fitz.Rect]] = {"left": [], "right": [], "top": [], "bottom": []}
+    for system in systems:
+        for label, boxes in system["bubbles"].items():
+            for b in boxes:
+                r = fitz.Rect(b)
+                cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+                if label in system["along_y"]:  # a line at a y: bubbled at its left and right ends
+                    sides["left" if cx < shown.width / 2 else "right"].append(r)
+                elif label in system["along_x"]:
+                    sides["top" if cy < shown.height / 2 else "bottom"].append(r)
+    windows = []
+    for order, (side, rs) in enumerate(sides.items()):
+        if len(rs) < 2:
+            continue
+        size = sorted(max(r.width, r.height) for r in rs)[len(rs) // 2]
+        band = GRID_STRIP_BAND * size
+        x0, y0 = min(r.x0 for r in rs), min(r.y0 for r in rs)
+        x1, y1 = max(r.x1 for r in rs), max(r.y1 for r in rs)
+        box = {"right": fitz.Rect(x0 - band, y0 - size, x1, y1 + size),
+               "left": fitz.Rect(x0, y0 - size, x1 + band, y1 + size),
+               "bottom": fitz.Rect(x0 - size, y0 - band, x1 + size, y1),
+               "top": fitz.Rect(x0 - size, y0, x1 + size, y1 + band)}[side] & shown
+        across = side in ("top", "bottom")
+        length = box.width if across else box.height
+        pieces = max(1, -(-int(length) // GRID_STRIP_MAX_PT))
+        step = length / pieces
+        for k in range(pieces):
+            win = (fitz.Rect(box.x0 + k * step, box.y0, box.x0 + (k + 1) * step, box.y1) if across
+                   else fitz.Rect(box.x0, box.y0 + k * step, box.x1, box.y0 + (k + 1) * step))
+            count = sum(1 for r in rs if win.contains(fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)))
+            windows.append((-count / max(step, 1.0), order, k, win))
+    windows.sort(key=lambda t: t[:3])
+    return [fitz.Rect(win * page.derotation_matrix).normalize() for *_, win in windows[:limit]]
+
+
 def details_cut(scope: dict, open_page) -> dict[str, set[str]]:
     """Sheet -> the detail numbers the review's own pages call out on it, read
     from the project map (detail_map, saved per page; a page not yet mapped is
@@ -583,7 +638,9 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
         # name the element (By element), then at a plan's rare tags (By
         # element), then at the planned text pieces: as many images as the plan
         # priced, never more.
-        planned = p.get("crops", [])
+        # A grid review's strip slots are its own: never re-aimed at details or tags.
+        gridded = [a for a in p.get("crops", []) if a.get("grid")]
+        planned = [a for a in p.get("crops", []) if not a.get("grid")]
         library = scope.get("library")
         cut = (cut_by or {}).get((p.get("sheetNumber") or "").upper(), set()) if library else set()
         aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned), cut)
@@ -591,6 +648,10 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
             aimed += plan_regions(page, len(planned) - len(aimed))
         anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
         anchors += planned[: len(planned) - len(aimed)]
+        if gridded:  # a grid it cannot read falls back to drawing windows
+            strips = grid_strip_regions(page, len(gridded))
+            anchors += [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in strips]
+            anchors += [{"chunkId": a["chunkId"], "bbox": None, "drawing": True} for a in gridded[len(strips):]]
         # A sheet whose words are drawn as lines: the planner gave it drawing slots.
         drawing = [a for a in anchors if a.get("drawing")]
         if drawing:

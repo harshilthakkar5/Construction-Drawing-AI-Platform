@@ -850,3 +850,34 @@ def test_grounded_accepts_a_printed_length_in_the_other_unit_and_nothing_looser(
     assert not rfi_review.grounded('Detail 4 shows an 18" slab.', 'SLAB 1\'-4" THICK vs 8"')[0]
     assert not rfi_review.grounded("Provide #4 bars at level 1.", 'SLAB 16" THICK')[0]
     assert not rfi_review.grounded('Use 6 dowels.', 'PIER 36" DIA')[0]
+
+
+def test_grid_strips_sit_inside_the_bubbles_densest_first_and_map_to_unrotated(monkeypatch):
+    """Victaulic RFI 007: the grid strings that disagree run down A1.3's right
+    edge, past its bottom string. Strips cover the band inside each row of
+    bubbles, the densest first, returned in the page's UNROTATED space."""
+    import fitz
+    import grid
+
+    def bubble(x, y):
+        return [x - 12, y - 12, x + 12, y + 12]
+
+    right = {f"R{i}": [bubble(2287, 430 + 120 * i)] for i in range(6)}  # six lines, 120pt apart
+    bottom = {f"B{i}": [bubble(300 + 300 * i, 1409)] for i in range(6)}  # six lines, 300pt apart
+    system = {"style": "black 24pt", "along_y": {k: v[0][1] + 12 for k, v in right.items()},
+              "along_x": {k: v[0][0] + 12 for k, v in bottom.items()}, "bubbles": {**right, **bottom}}
+    for rotation in (0, 90):
+        doc = fitz.open()
+        page = doc.new_page(width=2592, height=1728) if rotation == 0 else doc.new_page(width=1728, height=2592)
+        page.set_rotation(rotation)
+        monkeypatch.setattr(grid, "styled_systems", lambda _p: [system])
+        got = rfi_review.grid_strip_regions(page, 3)
+        shown = [fitz.Rect(r * page.rotation_matrix).normalize() for r in got]
+        assert len(shown) == 3
+        # The right row is denser, so its windows come first; each is inside the bubbles, reaching the strings.
+        assert all(r.x1 <= 2300 and r.x0 < 2287 - 100 for r in shown[:2])
+        assert shown[2].y1 <= 1422 and shown[2].y0 < 1409 - 100
+        assert all(r.height <= rfi_review.GRID_STRIP_MAX_PT + 1 and r.width <= rfi_review.GRID_STRIP_MAX_PT + 1 for r in shown)
+    monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
+    assert rfi_review.grid_strip_regions(page, 3) == []
+    assert rfi_review.grid_strip_regions(page, 0) == []

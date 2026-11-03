@@ -3025,6 +3025,14 @@ sheet a side over the most drawn linework (`drawing_regions`: line PIECES ≥ 20
 path holding a whole layer both count right), overlapping what is shown by at most a quarter — and a planned box
 over twice a window's area is no close-up, so it blocks nothing. On S1.1A the two windows cover the clouded dock
 corner and top band at ~117 DPI. Not yet re-run on a model.
+A grid question (G01) is answered by the dimension strings beside the grid bubbles, which a whole sheet shows at
+~45 DPI: Victaulic RFI 007 (A1.3's 13'-11 1/4" and 11'-0 3/4" against S1.1D's 14'-0" and 11'-0") was missed because
+A1.3's one close-up went to its bottom string and the strings that disagree run down its right edge. When a review
+asks G01, the planner gives the NAMED sheets' free slots to `grid` slots (`withGridSlots`, priced), and the worker
+aims them at the band inside each row of bubbles (`grid_strip_regions`: `grid.styled_systems` bubbles split by side,
+6 bubble diameters inward, cut to 720pt, most bubbles per length first; ~220 DPI on A1.3). A sheet whose grid cannot
+be read (S1.1D, labels drawn as lines) gets drawing windows instead. Grid slots are never re-aimed at titled details
+or rare tags.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a

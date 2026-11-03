@@ -375,7 +375,7 @@ export interface ScopePage {
   /** Where to crop on this page: the boxes of its highest-ranked chunks,
    * decided here so the worker renders exactly what the plan priced. A
    * `drawing` slot has no box: the worker aims it at the drawing itself. */
-  crops: { chunkId: string; bbox: Box | null; drawing?: true }[];
+  crops: { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[];
   /** Its words are drawn as lines (no text layer), so text pieces cannot aim its close-ups. */
   drawnText?: boolean;
 }
@@ -462,6 +462,8 @@ export interface RankInput {
   /** By element: the library element's name. A related page carrying a detail TITLED with
    * it ("ELEVATOR PIT DETAIL") is rendered even past the depth's picture budget. */
   elementName?: string;
+  /** The review asks a grid question (G01): the named sheets' free close-ups go to their grid dimension strips. */
+  gridAsked?: boolean;
 }
 
 // Mirrors workers/src/rfi_review.py `_NOT_A_TITLE_WORD` / `TITLE_SYNONYMS` / `element_title_words`;
@@ -630,7 +632,9 @@ export function rankScope(input: RankInput): ReviewScope {
     const titled = role === "related" && titledPages.has(page.pageId);
     const visual = role !== "related" || visualLeft > 0 || titled;
     if (visual && (!titled || visualLeft > 0)) visualLeft--; // a titled page past the budget is extra
-    const crops = visual ? withDrawingSlots(page, cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage), caps.cropsPerPage) : [];
+    const anchors = cropAnchors(chosen.filter((c) => c.pageId === page.pageId), caps.cropsPerPage);
+    const gridSlots = input.gridAsked && role !== "related" && role !== "reference" && role !== "correspondence";
+    const crops = !visual ? [] : gridSlots ? withGridSlots(anchors, caps.cropsPerPage) : withDrawingSlots(page, anchors, caps.cropsPerPage);
     if (!visual) omitted.push({ sheetNumber: page.sheetNumber, reason: `text only, beyond the ${caps.visualPages} rendered pages of this depth` });
     return { ...page, role, reason, visual, crops };
   });
@@ -665,12 +669,28 @@ export function cropAnchors(chunks: ScopeChunk[], limit: number): { chunkId: str
  */
 export function withDrawingSlots(
   page: { drawnText?: boolean },
-  crops: { chunkId: string; bbox: Box | null; drawing?: true }[],
+  crops: { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[],
   limit: number,
-): { chunkId: string; bbox: Box | null; drawing?: true }[] {
+): { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[] {
   if (!page.drawnText) return crops;
   const free = Math.max(0, limit - crops.length);
   return [...crops, ...Array.from({ length: free }, (_, i) => ({ chunkId: `drawing:${i + 1}`, bbox: null, drawing: true as const }))];
+}
+
+/**
+ * A grid question is answered by the dimension strings printed beside the grid
+ * bubbles, and a whole sheet shows them at ~45 DPI: Victaulic RFI 007 (A1.3's
+ * 13'-11 1/4" against S1.1D's 14'-0") was missed because A1.3's close-up went to
+ * its bottom string and the disagreeing one runs down its right edge. A named
+ * sheet's free slots go to its strips (the worker's `grid_strip_regions`; a sheet
+ * whose grid it cannot read gets drawing windows instead), counted so the price holds.
+ */
+export function withGridSlots(
+  crops: { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[],
+  limit: number,
+): { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[] {
+  const free = Math.max(0, limit - crops.length);
+  return [...crops, ...Array.from({ length: free }, (_, i) => ({ chunkId: `grid:${i + 1}`, bbox: null, grid: true as const }))];
 }
 
 /**

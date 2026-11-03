@@ -673,6 +673,7 @@ export async function planReview(
     chunks,
     pages,
     elementName: libraryScope?.element.name,
+    gridAsked: selection.checkIds.includes("G01"),
   });
   scope.omitted.push(...omittedForced);
 
