@@ -445,3 +445,51 @@ def test_concurrent_scrapes_bill_their_own_project(monkeypatch):
     for t in threads:
         t.join()
     assert billed == {"projA": "projA", "projB": "projB"}
+
+
+def test_the_progress_bar_counts_pages_reused_and_new(monkeypatch):
+    """The bar climbs one page at a time, against every page of the discipline."""
+    progress = []
+
+    class ProgressDb(_PageDb):
+        def existing_page_summaries(self, project_id):
+            return {}
+
+        def set_portion_summary_progress(self, portion_id, data):
+            progress.append((portion_id, data["stage"], data.get("done"), data.get("total")))
+
+    monkeypatch.setitem(sys.modules, "db", ProgressDb())
+    monkeypatch.setattr(summarize, "USE_BATCH", False)
+    monkeypatch.setattr(summarize, "_call_direct", lambda prompt, max_tokens=None: (items(2), "end_turn"))
+    summarize._local.ctx = summarize.RunContext(project_id="proj", portion_id="portion-1")
+    try:
+        pages = [
+            {"document_id": "d", "page_number": n, "combined_page": n, "chunks": [{"id": ID, "text": "t"}]}
+            for n in range(1, 4)
+        ]
+        summarize._summarize_pages(pages, {ID: 1}, "proj")
+    finally:
+        summarize._local.ctx = None
+    assert progress == [
+        ("portion-1", "pages", 0, 3),
+        ("portion-1", "pages", 1, 3),
+        ("portion-1", "pages", 2, 3),
+        ("portion-1", "pages", 3, 3),
+    ]
+
+
+def test_a_run_without_a_discipline_writes_no_progress(monkeypatch):
+    """The project rollup has no portion row to put a bar on."""
+    calls = []
+
+    class RecordingDb:
+        def set_portion_summary_progress(self, *args):
+            calls.append(args)
+
+    monkeypatch.setitem(sys.modules, "db", RecordingDb())
+    summarize._local.ctx = summarize.RunContext(project_id="proj")
+    try:
+        summarize._progress("rollup")
+    finally:
+        summarize._local.ctx = None
+    assert calls == []

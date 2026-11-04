@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { objectKeys, type DocumentProblemKind } from "@cdip/shared";
+import { objectKeys, type ProblemKind } from "@cdip/shared";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -34,7 +34,7 @@ import {
  */
 
 /** A failure the upload route decided itself (the worker writes its own). */
-function problem(kind: DocumentProblemKind) {
+function problem(kind: ProblemKind) {
   return { kind, at: new Date().toISOString() };
 }
 

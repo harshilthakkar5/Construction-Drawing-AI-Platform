@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { PortionDto, PortionSummaryStatus, SummaryDetail } from "@cdip/shared";
+import { summaryProgressView, type PortionDto, type PortionSummaryStatus, type SummaryDetail } from "@cdip/shared";
 import { api } from "@/api";
+import { JobProgress, ProblemNotice } from "@/components/shared";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -217,8 +218,23 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   </Button>
                 </div>
 
+                {busy && (
+                  <div className="mt-2">
+                    <JobProgress
+                      text={
+                        portion.summaryStatus === "queued"
+                          ? "Waiting for a free slot…"
+                          : summaryProgressView(portion.summaryProgress).text
+                      }
+                      percent={summaryProgressView(portion.summaryProgress).percent}
+                      label={`${portion.name} summary`}
+                    />
+                  </div>
+                )}
                 {portion.summaryStatus === "failed" && portion.summaryError && (
-                  <p className="mt-1 text-[11px] text-destructive">{portion.summaryError}</p>
+                  <div className="mt-2">
+                    <ProblemNotice detail={portion.summaryError} />
+                  </div>
                 )}
                 {portion.summaryStatus === "stale" && (
                   <p className="mt-1 text-[11px] text-muted-foreground">

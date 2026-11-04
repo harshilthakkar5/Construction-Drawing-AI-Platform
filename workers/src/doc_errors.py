@@ -1,44 +1,17 @@
-"""Turn a processing failure into a kind the UI can explain in plain words.
+"""Turn a failure into a kind the UI can explain in plain words.
 
-The kinds are the keys of DOCUMENT_PROBLEMS in packages/shared/src/index.ts;
-tests/test_doc_errors.py fails if one is missing there. The raw text is kept as
-`detail` for support, never shown as the headline.
+The rules live in ONE place, PROBLEM_RULES in packages/shared/src/index.ts,
+copied here by codegen (generated.py): the API and the browser classify a
+stored error with the same list. The raw text is kept as `detail` for
+support, never shown as the headline.
 """
 from __future__ import annotations
 
 import re
 
-# Checked in order: the first match wins, so the specific ones come first
-# (a "quota exceeded" 429 is out of credit, not merely busy).
-_RULES: list[tuple[str, re.Pattern[str]]] = [
-    ("disk", re.compile(r"no space left on device|disk quota", re.I)),
-    ("memory", re.compile(r"memoryerror|out of memory|cannot allocate|could not create a primitive", re.I)),
-    ("storage", re.compile(r"nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore", re.I)),
-    ("ai_credits", re.compile(
-        r"credit balance|insufficient[_ ](?:quota|balance|funds)|billing|payment required|\b402\b"
-        r"|exceeded your (?:current )?quota|plan limit|trial key|out of credits?",
-        re.I,
-    )),
-    ("ai_key", re.compile(
-        r"invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error"
-        r"|unauthori[sz]ed|\b401\b|permission[_ ]denied",
-        re.I,
-    )),
-    ("ai_busy", re.compile(
-        r"rate[ _-]?limit|too many requests|\b429\b|overloaded|\b529\b|resource[_ ]exhausted"
-        r"|service unavailable|\b50[234]\b|internal server error",
-        re.I,
-    )),
-    ("pdf_damaged", re.compile(
-        r"filedataerror|cannot open broken|broken document|format error|password|encrypted|not a pdf"
-        r"|no objects found|zlib",
-        re.I,
-    )),
-    ("connection", re.compile(
-        r"connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect",
-        re.I,
-    )),
-]
+from generated import PROBLEM_RULES
+
+_RULES = [(kind, re.compile(pattern, re.I)) for kind, pattern in PROBLEM_RULES]
 
 KINDS = [kind for kind, _ in _RULES] + ["unknown"]
 
@@ -60,8 +33,16 @@ def _text(exc: BaseException) -> str:
     return " | ".join(parts)
 
 
+def scrub(text: str) -> str:
+    """Error text safe to store and show: no keys, no signed URLs, bounded."""
+    return _SECRETS.sub("[hidden]", text)[:500]
+
+
+def classify_text(text: str) -> str:
+    return next((k for k, pattern in _RULES if pattern.search(text or "")), "unknown")
+
+
 def classify(exc: BaseException) -> tuple[str, str]:
     """(kind, detail) for a failure. Never raises."""
     text = _text(exc)
-    kind = next((k for k, pattern in _RULES if pattern.search(text)), "unknown")
-    return kind, _SECRETS.sub("[hidden]", text)[:500]
+    return classify_text(text), scrub(text)

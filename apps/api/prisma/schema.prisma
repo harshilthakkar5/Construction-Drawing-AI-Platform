@@ -467,6 +467,9 @@ model Portion {
   summaryHeartbeatAt   DateTime?
   /// The size the last run asked for (SUMMARY_DETAILS in @cdip/shared).
   summaryDetail        String?
+  /// What a running summary is doing, for its progress bar: {stage, done?,
+  /// total?, at} (SUMMARY_STAGES in @cdip/shared; written by summarize.py).
+  summaryProgress      Json?
 
   project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   summaryRequestedBy User?     @relation(fields: [summaryRequestedById], references: [id], onDelete: SetNull)

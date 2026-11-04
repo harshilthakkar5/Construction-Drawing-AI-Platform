@@ -3,14 +3,13 @@ import { useRef, useState } from "react";
 import {
   DOCUMENT_STAGES,
   documentPercent,
-  documentProblemText,
   documentStageText,
   type DocumentDto,
   type DocumentStatus,
 } from "@cdip/shared";
-import { AlertTriangleIcon, FileTextIcon, RotateCwIcon, UploadIcon } from "lucide-react";
+import { FileTextIcon, UploadIcon } from "lucide-react";
 import { api } from "@/api";
-import { ConfirmDialog, Spinner } from "@/components/shared";
+import { ConfirmDialog, JobProgress, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -308,54 +307,41 @@ function ProcessingStatus({ doc }: { doc: DocumentDto }) {
   const stopped = doc.progress ? DOCUMENT_STAGES[doc.progress.stage]?.label : undefined;
 
   if (doc.status === "failed") {
-    const text = documentProblemText(problem?.kind);
     return (
-      <div role="alert" className="border-destructive/40 bg-destructive/5 mt-2 rounded-md border p-2.5 text-xs">
-        <p className="text-destructive flex items-center gap-1.5 font-medium">
-          <AlertTriangleIcon className="size-3.5 shrink-0" aria-hidden />
-          {text.title}
-        </p>
-        <p className="text-muted-foreground mt-1">
-          {text.action}
-          {stopped && ` Stopped at the step: ${stopped}.`}
-        </p>
-        <TechnicalDetails detail={problem?.detail} />
+      <div className="mt-2">
+        <ProblemNotice
+          kind={problem?.kind ?? "unknown"}
+          detail={problem?.detail}
+          extra={stopped && ` Stopped at the step: ${stopped}.`}
+        />
       </div>
     );
   }
-
   if (doc.status !== "uploaded" && doc.status !== "processing") return null;
 
-  const percent = documentPercent(doc.progress);
   const frozen = isFrozen(doc);
   return (
-    <div className="mt-2 space-y-1.5" role="status" aria-live="polite">
+    <div className="mt-2 space-y-1.5">
       {problem?.retrying && (
-        <div className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
-          <p className="flex items-center gap-1.5 font-medium">
-            <RotateCwIcon className="size-3.5 shrink-0" aria-hidden />
-            {documentProblemText(problem.kind).title}. Trying again automatically
-            {problem.attempt && problem.attempts
-              ? ` (attempt ${problem.attempt + 1} of ${problem.attempts})`
-              : ""}
-            .
-          </p>
-          {(doc.progress?.done ?? 0) > 0 && (
-            <p className="text-muted-foreground mt-0.5">Pages already read are kept.</p>
-          )}
-          <TechnicalDetails detail={problem.detail} />
-        </div>
+        <ProblemNotice
+          kind={problem.kind}
+          detail={problem.detail}
+          retrying={`Trying again automatically${
+            problem.attempt && problem.attempts ? ` (attempt ${problem.attempt + 1} of ${problem.attempts})` : ""
+          }.`}
+          extra={
+            (doc.progress?.done ?? 0) > 0 && (
+              <p className="text-muted-foreground mt-0.5">Pages already read are kept.</p>
+            )
+          }
+        />
       )}
-      <div className="text-muted-foreground flex items-center gap-2 text-xs">
-        {!frozen && <Spinner />}
-        <span className="truncate">
-          {doc.status === "uploaded" && !doc.progress
-            ? "Waiting for a free processing slot…"
-            : documentStageText(doc.progress)}
-        </span>
-        <span className="ml-auto tabular-nums">{percent}%</span>
-      </div>
-      <Progress value={percent} aria-label={`${doc.filename} processing`} />
+      <JobProgress
+        text={doc.status === "uploaded" && !doc.progress ? "Waiting for a free processing slot…" : documentStageText(doc.progress)}
+        percent={documentPercent(doc.progress)}
+        label={`${doc.filename} processing`}
+        stalled={frozen}
+      />
       {frozen && (
         <p className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
           No progress for over 10 minutes. The processing server may have stopped; press Retry to
@@ -363,15 +349,5 @@ function ProcessingStatus({ doc }: { doc: DocumentDto }) {
         </p>
       )}
     </div>
-  );
-}
-
-function TechnicalDetails({ detail }: { detail?: string }) {
-  if (!detail) return null;
-  return (
-    <details className="text-muted-foreground mt-1">
-      <summary className="cursor-pointer select-none">Technical details</summary>
-      <code className="mt-1 block font-mono text-[11px] break-all whitespace-pre-wrap">{detail}</code>
-    </details>
   );
 }

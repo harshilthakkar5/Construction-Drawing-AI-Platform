@@ -50,7 +50,7 @@ def test_detail_hides_keys_and_signed_urls():
 
 def test_every_kind_has_words_in_the_shared_list():
     text = open(SHARED, encoding="utf-8").read()
-    block = text[text.index("export const DOCUMENT_PROBLEMS"):text.index("} as const;\nexport type DocumentProblemKind")]
+    block = text[text.index("export const PROBLEMS"):text.index("} as const;\nexport type ProblemKind")]
     shared = set(re.findall(r"^  (\w+): \{", block, re.M))
     assert set(doc_errors.KINDS) <= shared
 
@@ -73,3 +73,17 @@ def test_page_progress_is_throttled_but_stage_changes_are_not(monkeypatch):
     progress.stage("extract", 2, 10, throttle=True)  # within 2s: skipped
     progress.stage("numbering")                      # a new stage: always written
     assert [(w["stage"], w.get("done")) for w in writes] == [("extract", 1), ("numbering", None)]
+
+
+def test_a_failed_model_call_remembers_why(monkeypatch):
+    """A review that gives up after its retries says what the provider said, so
+    'out of credit' is not reported as 'something went wrong'."""
+    import llm
+
+    def boom(*a, **k):
+        raise RuntimeError("Error code: 402 - Your credit balance is too low")
+
+    monkeypatch.setattr(llm, "available", lambda provider=None: True, raising=False)
+    monkeypatch.setattr(llm, "_complete_claude", boom)
+    assert llm.complete("s", "u", provider="claude", claude_model="m", gemini_model="g", max_tokens=10, kind="rfi") is None
+    assert doc_errors.classify_text(llm.last_failure()) == "ai_credits"

@@ -199,24 +199,25 @@ export interface DocumentProgress {
   at: string;
 }
 
-/** Failure kinds. The worker (workers/src/doc_errors.py) and the upload route
- * write the key; the UI shows these words, never the raw error. */
-export const DOCUMENT_PROBLEMS = {
+/** Why a job (document processing, a summary, an RFI run) stopped, in plain
+ * words. The worker (workers/src/doc_errors.py) and the upload route write the
+ * key; the UI shows these words, never the raw error. */
+export const PROBLEMS = {
   ai_credits: {
     title: "The AI service has run out of credit",
-    action: "Ask your administrator to top up the AI account, then press Retry.",
+    action: "Ask your administrator to top up the AI account, then try again.",
   },
   ai_key: {
     title: "The AI service connection isn't set up correctly",
-    action: "Ask your administrator to check the AI service key, then press Retry.",
+    action: "Ask your administrator to check the AI service key, then try again.",
   },
   ai_busy: {
     title: "The AI service is busy right now",
-    action: "Wait a few minutes and press Retry.",
+    action: "Wait a few minutes and try again.",
   },
   storage: {
     title: "We couldn't fetch the uploaded file",
-    action: "Press Retry. If it keeps failing, delete the document and upload it again.",
+    action: "Try again. If it keeps failing, delete the document and upload it again.",
   },
   pdf_damaged: {
     title: "This PDF looks damaged or password-protected",
@@ -236,25 +237,78 @@ export const DOCUMENT_PROBLEMS = {
   },
   memory: {
     title: "The server ran out of memory on this file",
-    action: "Ask your administrator to give the processing server more memory, then press Retry.",
+    action: "Ask your administrator to give the processing server more memory, then try again.",
   },
   disk: {
     title: "The server ran out of disk space",
-    action: "Ask your administrator to free up space, then press Retry.",
+    action: "Ask your administrator to free up space, then try again.",
   },
   connection: {
     title: "A connection between our services dropped",
-    action: "Press Retry. Pages already read are kept.",
+    action: "Try again. Pages already read are kept.",
+  },
+  ai_reply: {
+    title: "The AI's answer couldn't be used",
+    action: "Try again. It usually works the second time.",
+  },
+  nothing_to_read: {
+    title: "There's no readable text to work from yet",
+    action: "Check that the drawings finished processing and their sheets are categorised, then try again.",
+  },
+  disabled: {
+    title: "This feature is switched off on the server",
+    action: "Ask your administrator to turn it on.",
+  },
+  worker_stopped: {
+    title: "The processing server stopped while working on this",
+    action: "Try again. Work already finished is kept.",
   },
   unknown: {
-    title: "Something went wrong while processing this file",
-    action: "Press Retry. If it keeps failing, contact support with the technical details below.",
+    title: "Something went wrong",
+    action: "Try again. If it keeps failing, contact support with the technical details below.",
   },
 } as const;
-export type DocumentProblemKind = keyof typeof DOCUMENT_PROBLEMS;
+export type ProblemKind = keyof typeof PROBLEMS;
+
+/**
+ * How raw error text maps to a kind: checked in order, first match wins, so
+ * specific rules come first (a "quota exceeded" 429 is out of credit, not
+ * merely busy). Patterns are case-insensitive and use only syntax JavaScript
+ * and Python share; codegen copies this list into workers/src/generated.py.
+ */
+export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
+  ["disk", "no space left on device|disk quota"],
+  ["memory", "memoryerror|out of memory|cannot allocate|could not create a primitive"],
+  ["storage", "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore"],
+  ["disabled", "summaries disabled|_enabled=false"],
+  ["ai_credits",
+    "credit balance|insufficient[_ ](?:quota|balance|funds)|billing|payment required|\\b402\\b" +
+    "|exceeded your (?:current )?quota|plan limit|trial key|out of credits?"],
+  ["ai_key",
+    "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error" +
+    "|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key"],
+  ["ai_busy",
+    "rate[ _-]?limit|too many requests|\\b429\\b|overloaded|\\b529\\b|resource[_ ]exhausted" +
+    "|service unavailable|\\b50[234]\\b|internal server error"],
+  ["worker_stopped", "worker stopped|stopped responding|presumed dead"],
+  ["nothing_to_read", "no pages with extracted text|no page summaries|no portion summaries"],
+  ["ai_reply", "nothing citable|invalid json|not valid json|could not be parsed"],
+  ["pdf_damaged",
+    "filedataerror|cannot open broken|broken document|format error|password|encrypted|not a pdf" +
+    "|no objects found|zlib"],
+  ["connection",
+    "connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect"],
+];
+
+/** The kind for a raw error text ("unknown" when nothing matches). */
+export function classifyProblem(text: string | null | undefined): ProblemKind {
+  if (!text) return "unknown";
+  const hit = PROBLEM_RULES.find(([, pattern]) => new RegExp(pattern, "i").test(text));
+  return hit ? hit[0] : "unknown";
+}
 
 export interface DocumentProblem {
-  kind: DocumentProblemKind;
+  kind: ProblemKind;
   /** Technical text, for support — shown collapsed. */
   detail?: string;
   attempt?: number;
@@ -286,8 +340,32 @@ export function documentStageText(p: DocumentProgress | null | undefined): strin
 
 /** The problem's plain words, falling back to "unknown" for a kind this
  * client does not know yet. */
-export function documentProblemText(kind: string | null | undefined): { title: string; action: string } {
-  return DOCUMENT_PROBLEMS[(kind ?? "unknown") as DocumentProblemKind] ?? DOCUMENT_PROBLEMS.unknown;
+export function problemText(kind: string | null | undefined): { title: string; action: string } {
+  return PROBLEMS[(kind ?? "unknown") as ProblemKind] ?? PROBLEMS.unknown;
+}
+
+/** Summary run stages (workers/src/summarize.py writes these names). */
+export const SUMMARY_STAGES = {
+  pages: { label: "Summarising each page", from: 0, to: 80 },
+  sections: { label: "Grouping pages into sections", from: 80, to: 92 },
+  rollup: { label: "Writing the discipline summary", from: 92, to: 100 },
+} as const;
+export type SummaryStage = keyof typeof SUMMARY_STAGES;
+
+export interface SummaryProgress {
+  stage: SummaryStage;
+  done?: number;
+  total?: number;
+  at: string;
+}
+
+/** Percent and one plain line for a summary run's progress bar. */
+export function summaryProgressView(p: SummaryProgress | null | undefined): { percent: number; text: string } {
+  const s = p ? SUMMARY_STAGES[p.stage] : undefined;
+  if (!p || !s) return { percent: 0, text: "Getting started…" };
+  const frac = p.total ? Math.min(1, (p.done ?? 0) / p.total) : 0;
+  const count = p.total ? `: ${p.done ?? 0} of ${p.total}` : "…";
+  return { percent: Math.round(s.from + (s.to - s.from) * frac), text: `${s.label}${count}` };
 }
 
 /**
@@ -360,6 +438,8 @@ export interface PortionDto {
   summaryRequestedAt: string | null;
   summaryCompletedAt: string | null;
   summaryError: string | null;
+  /** Running summary's stage and count, for the progress bar. */
+  summaryProgress: SummaryProgress | null;
   /** The size the last run asked for — the dialog preselects it. */
   summaryDetail: SummaryDetail | null;
   /** A sheet number scraped from this discipline's pages, for the UI label. */
@@ -1640,6 +1720,15 @@ export const RFI_REVIEW_STATUSES: RfiReviewStatus[] = [
 
 export type RfiReviewStage = "planning" | "discovery" | "reasoning" | "verification" | "saving";
 
+/** A review stage in plain words, for its progress line. */
+export const RFI_REVIEW_STAGE_LABELS: Record<RfiReviewStage, string> = {
+  planning: "Planning",
+  discovery: "Reading the drawings",
+  reasoning: "Looking for problems",
+  verification: "Checking each problem again",
+  saving: "Saving findings",
+};
+
 /** Whether a check applies to the planned scope, decided before anything is spent. */
 export type RfiCheckApplicability = "applicable" | "unknown" | "not_applicable";
 
@@ -2150,6 +2239,8 @@ export interface RfiSetDto {
   createdAt: string;
   /** Reviews by status, e.g. {planned: 3, running: 1, ready: 2}. */
   runs: Partial<Record<RfiReviewStatus, number>>;
+  /** 0–100 across the elements' newest runs (a finished one counts 100). */
+  progress: number;
   /** Findings of this RFI's reviews still waiting in "Needs your review". */
   pending: number;
   findings: number;

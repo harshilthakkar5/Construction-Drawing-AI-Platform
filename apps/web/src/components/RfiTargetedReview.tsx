@@ -11,18 +11,18 @@ import {
   type RfiReviewPageDto,
   type RfiReviewProvider,
   type RfiReviewRunDto,
+  RFI_REVIEW_STAGE_LABELS,
 } from "@cdip/shared";
 import { api, type RfiReviewPlanRequest } from "@/api";
 import { MarkedUpPdfButton } from "@/components/MarkedUpPdf";
 import { RfiDiagnosticsButton } from "@/components/RfiDiagnostics";
 import { choiceSummary, LibraryPicker, loadChoice, type LibraryChoice } from "@/components/LibraryPicker";
 import { SettingsLine, useRfiSettings } from "@/components/ProjectSettings";
-import { Notice, Spinner } from "@/components/shared";
+import { JobProgress, Notice, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -40,13 +40,6 @@ import { cn } from "@/lib/utils";
  * the project checks: a finding, never an issued RFI, until someone accepts it.
  */
 
-const STAGES: Record<string, string> = {
-  planning: "Planning",
-  discovery: "Reading the drawings",
-  reasoning: "Looking for problems",
-  verification: "Checking each problem again",
-  saving: "Saving findings",
-};
 
 
 const CHECK_MODES: { value: RfiReviewCheckMode; label: string; hint: string }[] = [
@@ -899,10 +892,11 @@ function RunView({
 
       {active && (
         <>
-          <p className="text-muted-foreground text-xs">
-            {run.status === "queued" ? "Waiting for a worker…" : STAGES[run.stage ?? "discovery"]}
-          </p>
-          <Progress value={run.progress} />
+          <JobProgress
+            text={run.status === "queued" ? "Waiting for a free slot…" : `${RFI_REVIEW_STAGE_LABELS[run.stage ?? "discovery"]}…`}
+            percent={run.progress}
+            label="Review progress"
+          />
           <Button size="sm" variant="ghost" className="self-start" onClick={onCancel} disabled={busy}>
             Stop review
           </Button>
@@ -944,10 +938,11 @@ function RunView({
         </>
       )}
 
-      {(run.status === "failed" || run.status === "stale" || (run.status === "cancelled" && run.error)) && (
+      {run.status === "failed" && <ProblemNotice detail={run.error} />}
+      {(run.status === "stale" || (run.status === "cancelled" && run.error)) && (
         <Notice tone="error">
-          {run.status === "stale" ? "The drawings changed since this plan was made: " : run.status === "cancelled" ? "Stopped: " : "The review failed: "}
-          {run.error ?? "unknown error"}
+          {run.status === "stale" ? "The drawings changed since this plan was made: " : "Stopped: "}
+          {run.error}
         </Notice>
       )}
       {run.status === "failed" && run.checkResults && <Outcomes projectId={projectId} run={run} />}

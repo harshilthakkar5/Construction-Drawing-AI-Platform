@@ -36,6 +36,7 @@ from __future__ import annotations
 import base64
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 
@@ -1561,6 +1562,16 @@ def _note_missing_model(provider: str, model: str, kind: str, exc: object) -> No
     )
 
 
+_last_failure = threading.local()
+
+
+def last_failure() -> str | None:
+    """The provider error behind this thread's most recent failed `complete`
+    (None after a success), so a caller that gives up can say WHY — "out of
+    credit" and "busy" need different people to act."""
+    return getattr(_last_failure, "text", None)
+
+
 def complete(
     system: str | list[dict],
     user: str,
@@ -1630,8 +1641,10 @@ def complete(
     except Exception as exc:
         _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)
         log.warning("%s %s call failed: %s", provider, kind, exc)
+        _last_failure.text = f"{type(exc).__name__}: {exc}"
         diagnostics.replied(None)
         return None
+    _last_failure.text = None
     result = None if reply.stop_reason == "unavailable" else reply
     diagnostics.replied(result)
     return result

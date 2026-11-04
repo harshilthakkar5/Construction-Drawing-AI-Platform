@@ -31,6 +31,7 @@ import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import gridmarks
 import llm
@@ -165,6 +166,8 @@ class RunContext:
     detail: str = "standard"
     # A SUMMARY_THINKING stage setting, or None for the global defaults.
     thinking: str | None = None
+    # The discipline being summarised, so its progress bar can be updated.
+    portion_id: str | None = None
 
     @property
     def points(self) -> int:
@@ -196,6 +199,23 @@ def _begin(project_id: str, detail: str | None) -> RunContext:
         thinking=llm.stage_thinking("SUMMARY_THINKING"),
     )
     return _local.ctx
+
+def _progress(stage: str, done: int | None = None, total: int | None = None) -> None:
+    """Move the running discipline's progress bar (SUMMARY_STAGES in
+    @cdip/shared). A run without a portion (the project rollup) has none."""
+    import db
+
+    ctx = getattr(_local, "ctx", None)
+    if ctx is None or ctx.portion_id is None:
+        return
+    data: dict = {"stage": stage, "at": datetime.now(timezone.utc).isoformat()}
+    if total is not None:
+        data.update(done=done or 0, total=total)
+    try:
+        db.set_portion_summary_progress(ctx.portion_id, data)
+    except Exception as exc:  # noqa: BLE001 - the bar must never stop a summary
+        log.debug("summary progress for %s not saved: %s", ctx.portion_id[:8], exc)
+
 
 def provider() -> str:
     """Who writes the summaries: SUMMARY_PROVIDER=claude (default) | gemini.
@@ -528,6 +548,8 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
     stale = sum(1 for p in todo if (p["document_id"], p["page_number"]) in existing)
     if stale:
         log.info("re-summarizing %d pages whose cited chunks were replaced", stale)
+    already = len(pages) - len(todo)
+    _progress("pages", already, len(pages))
     if not todo:
         return 0
 
@@ -544,6 +566,8 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
     # time, the next run's `needs_summary` skips them for free.
     written = 0
     for i, page in enumerate(todo):
+        if i:
+            _progress("pages", already + i, len(pages))
         if raw_by_id is None:
             raw = _call_direct(prompts[f"page-{i}"])[0]
         else:
@@ -576,6 +600,7 @@ def _summarize_pages(pages: list[dict], chunk_pages: dict[str, int], project_id:
             db.delete_page_summary(project_id, page["document_id"], page["page_number"])
         db.insert_summary(project_id, None, "page", summary, collect_sources(summary))
         written += 1
+    _progress("pages", len(pages), len(pages))
     return written
 
 
@@ -655,7 +680,9 @@ def _write_sections(
     import db
 
     written: list[dict] = []
-    for group in group_sections(covered):
+    groups = group_sections(covered)
+    for n, group in enumerate(groups):
+        _progress("sections", n, len(groups))
         group_label = f"pages {group[0]['combinedPage']}–{group[-1]['combinedPage']} of {label}"
         summary = _rollup("section", group_label, group, chunk_pages)
         if summary is None:
@@ -772,6 +799,7 @@ def run_portion(
     import db
 
     ctx = _begin(project_id, detail)
+    ctx.portion_id = portion_id
 
     skip = _preflight(project_id)
     if skip is not None:
@@ -853,6 +881,7 @@ def _run_portion_body(project_id: str, portion_id: str, portion: dict, ctx: RunC
                 SECTION_SIZE,
             )
             lower = covered
+        _progress("rollup")
         summary = (
             _rollup("portion", f"the {portion['name']} portion", lower, chunk_pages)
             if lower
@@ -870,7 +899,9 @@ def _run_portion_body(project_id: str, portion_id: str, portion: dict, ctx: RunC
         # The project rollup no longer reflects its parts.
         db.mark_project_summary_stale(project_id)
     except Exception as exc:
-        db.set_portion_summary_status(portion_id, "failed", error=str(exc)[:500])
+        import doc_errors
+
+        db.set_portion_summary_status(portion_id, "failed", error=doc_errors.scrub(str(exc)))
         raise
     finally:
         cache.invalidate_summaries(project_id)

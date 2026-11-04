@@ -29,6 +29,11 @@ import { planBody, queuedReviewJobs, startReview } from "./rfiReview.js";
  */
 export const rfiSetsRouter = Router({ mergeParams: true });
 
+/** The library element a review run answers (its own id when it has none). */
+function elementOf(run: { id: string; scope: unknown }): string {
+  return (run.scope as { library?: { element?: { id?: string } } } | null)?.library?.element?.id ?? run.id;
+}
+
 const projectParam = z.object({ projectId: z.string().uuid() });
 const setParams = projectParam.extend({ setId: z.string().uuid() });
 const createBody = z.object({
@@ -54,7 +59,8 @@ async function libraryFor(projectId: string) {
 async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
   const runs = await prisma.rfiReviewRun.findMany({
     where: { setId: { in: sets.map((s) => s.id) }, status: { not: "cancelled" } },
-    select: { id: true, setId: true, status: true, estimate: true },
+    select: { id: true, setId: true, status: true, estimate: true, scope: true, progress: true },
+    orderBy: { createdAt: "desc" },
   });
   const counts = await prisma.rfiCandidate.groupBy({
     by: ["reviewRunId", "status"],
@@ -65,8 +71,14 @@ async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
     const mine = runs.filter((r) => r.setId === s.id);
     const ids = new Set(mine.map((r) => r.id));
     const found = counts.filter((c) => c.reviewRunId && ids.has(c.reviewRunId));
+    // Status and progress speak for each element's NEWEST run: a re-run
+    // replaces the failed one before it, it does not add an element.
+    const newest = new Map<string, (typeof mine)[number]>();
+    for (const r of mine) if (!newest.has(elementOf(r))) newest.set(elementOf(r), r); // mine is newest first
+    const latest = [...newest.values()];
     const byStatus: Record<string, number> = {};
-    for (const r of mine) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+    for (const r of latest) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+    const live = (r: (typeof latest)[number]) => r.status === "queued" || r.status === "running" || r.status === "planned";
     return {
       id: s.id,
       name: s.name,
@@ -74,6 +86,9 @@ async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
       items: s.items as RfiSetItem[],
       createdAt: s.createdAt.toISOString(),
       runs: byStatus,
+      progress: latest.length
+        ? Math.round(latest.reduce((n, r) => n + (live(r) ? r.progress : 100), 0) / latest.length)
+        : 0,
       pending: found.filter((c) => c.status === "pending").reduce((n, c) => n + c._count._all, 0),
       findings: found.reduce((n, c) => n + c._count._all, 0),
       ...setCost(mine.filter((r) => r.status !== "stale").map((r) => r.estimate as RfiReviewEstimateDto | null)),
@@ -171,7 +186,7 @@ rfiSetsRouter.post("/:setId/start", summaryLimiter, async (req, res) => {
     // One key per review, so a repeated Start never starts one twice.
     const { status, body } = await startReview(projectId, run.id, `set-${run.id}`);
     if (status >= 400) {
-      const elementId = (run.scope as { library?: { element?: { id?: string } } }).library?.element?.id ?? run.id;
+      const elementId = elementOf(run);
       errors.push({ elementId, error: (body as { error?: string }).error ?? `could not start (${status})` });
     }
   }
