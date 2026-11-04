@@ -366,8 +366,10 @@ export function problemText(kind: string | null | undefined): { title: string; a
 
 // Marks of text written for a developer, not a person: error class names,
 // env-variable names, URLs, ids, status codes, stack frames, file paths.
-const TECHNICAL =
-  /[A-Za-z]+(?:Error|Exception)\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|https?:\/\/|\b[0-9a-f]{8}-[0-9a-f]{4}-|\b(?:HTTP|status|code)[ =:]*\d{3}\b|\bat \S+ \(|\.(?:py|ts|js)\b|[{}]|→|errno|traceback|prisma|psycopg|botocore|\bsql\b|\bnull\b|\bundefined\b|internal error|env file|worker log/i;
+// Case-insensitive; codegen copies it to the worker (doc_errors.user_message).
+export const TECHNICAL_PATTERN =
+  "[A-Za-z]+(?:Error|Exception)\\b|\\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\\b|https?:\\/\\/|\\b[0-9a-f]{8}-[0-9a-f]{4}-|\\b(?:HTTP|status|code)[ =:]*\\d{3}\\b|\\bat \\S+ \\(|\\.(?:py|ts|js)\\b|[{}]|\u2192|errno|traceback|prisma|psycopg|botocore|\\bsql\\b|\\bnull\\b|\\bundefined\\b|internal error|env file|worker log";
+const TECHNICAL = new RegExp(TECHNICAL_PATTERN, "i");
 
 /** The words a person may see for an error. A sentence our own code wrote for
  * people is kept; anything technical becomes the plain words for its kind

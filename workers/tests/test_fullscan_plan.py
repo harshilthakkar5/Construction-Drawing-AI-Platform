@@ -282,5 +282,6 @@ def test_a_drawing_the_worker_could_not_open_is_not_called_a_disagreement(monkey
     assert skipped == {fullscan.UNOPENED: ["A1.01 / E2.01"]}
     assert not any("walls do not line up" in reason for reason in skipped)
     note = fullscan.unopened_note(errors, {"d": "jet.pdf"})
-    assert "jet.pdf (EndpointConnectionError" in note and "not a finding about the drawings" in note
+    assert "jet.pdf" in note and "not a finding about the drawings" in note
+    assert "EndpointConnectionError" not in note  # the raw error is for the log, not the screen
     assert fullscan.unopened_note({}, {}) is None

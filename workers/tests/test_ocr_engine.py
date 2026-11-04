@@ -219,7 +219,9 @@ def test_the_scan_stops_asking_a_broken_engine_and_says_so(monkeypatch):
     assert len(calls) == rfi_scan.OCR_FAILURE_STREAK  # not ten
     assert marked == []  # nothing marked examined: a working worker reads them later
     [note] = notes
-    assert "OCR FAILED on 10 page(s)" in note and "could not create a primitive" in note
+    assert "could not be read on 10 page(s)" in note
+    # The raw error and the setting names go to the worker log, never to the screen.
+    assert "could not create a primitive" not in note and "OCR_" not in note
 
 
 def test_the_scan_stops_at_once_when_ocr_was_stopped_for_memory(monkeypatch):
@@ -252,7 +254,7 @@ def test_the_scan_stops_at_once_when_ocr_was_stopped_for_memory(monkeypatch):
     monkeypatch.setattr(rfi_review, "_documents", documents)
     notes = rfi_scan.ocr_pending("project-1")
     assert len(calls) == 1  # the first failure, then no more asking
-    assert "OCR FAILED on 10 page(s)" in notes[0]
+    assert "could not be read on 10 page(s)" in notes[0]
 
 
 def test_a_letter_o_read_where_a_zero_belongs_is_a_zero():

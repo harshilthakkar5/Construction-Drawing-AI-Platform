@@ -564,7 +564,7 @@ def test_the_cap_keeps_the_strongest_and_says_so(monkeypatch):
     findings, notes = open_item_notes(pages, [chunk("c1", "p1", text)])
     assert len(findings) == 3
     assert all(f.confidence == "high" for f in findings)
-    assert any("only the first 3" in n for n in notes)
+    assert any("only the 3 strongest are listed" in n for n in notes)
 
 
 def test_run_all_runs_every_check():
@@ -787,7 +787,7 @@ def test_ocr_text_never_names_a_missing_sheet():
     chunks = [index("p1", sheets=("S-101", "S-102")), _ocr("o1", "p2", "SEE DETAILS ON SHEET S-109")]
     findings, notes = dangling_references(pages, chunks)
     assert findings == []
-    assert any("read only by OCR" in n for n in notes)
+    assert any("read only from text drawn as lines" in n for n in notes)
 
 
 def test_an_ocr_read_mark_on_a_plan_is_never_unscheduled_but_an_ocr_schedule_suppresses():

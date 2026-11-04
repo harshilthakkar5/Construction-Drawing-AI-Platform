@@ -357,13 +357,14 @@ def unopened_note(errors: dict[str, str], names: dict[str, str]) -> str | None:
     drawings. Without it every such pair read 'the walls do not line up'."""
     if not errors:
         return None
-    parts = [f"{names.get(d, d[:8])} ({e})" for d, e in sorted(errors.items())]
+    # File names only: the error itself is in the worker log, not on screen.
+    parts = [names.get(d, "a drawing file") for d in sorted(errors)]
     return (
-        "The worker could not download or open " + ", ".join(parts[:3])
+        "Could not open " + ", ".join(parts[:3])
         + (f" and {len(parts) - 3} more" if len(parts) > 3 else "")
-        + ", so the pairs on it were not compared. This is a storage or file problem, not a finding about "
-        "the drawings: check the worker can reach the object store (STORAGE_BACKEND and its keys in the "
-        "worker's .env) and plan again."
+        + ", so the sheets in it were not compared. This is a problem with the file, not a finding about "
+        "the drawings: plan the scan again, and if it keeps happening ask your administrator to check the "
+        "file storage."
     )
 
 

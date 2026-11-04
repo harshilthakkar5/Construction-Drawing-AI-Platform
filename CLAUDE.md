@@ -333,7 +333,11 @@ projects/{projectId}/
   name, URL, id, status code, stack, "internal error") into its kind's plain words. The web
   `request` helper throws `ApiError` (plain message + `status`; 0 = unreachable) and logs the
   method/path/body to the console instead of the screen, so code branches on `statusOf(err)`,
-  never on message text — AuthScreen, AccountPage and `getRegion` matched "401"/"409"/"→ 404". While a retry is coming the document stays `processing`; a damaged
+  never on message text — AuthScreen, AccountPage and `getRegion` matched "401"/"409"/"→ 404". Scan and
+  review NOTES follow the same rule from the worker side: `doc_errors.user_message(exc)` (the shared
+  `TECHNICAL_PATTERN` + `PROBLEMS`, codegen'd) and `doc_errors.check_label` (`RFI_CHECK_LABELS`) word
+  them, the raw error and the fix that names a setting go to the log, and
+  `test_no_note_shows_a_setting_name_or_a_raw_error` reads every `notes.append` in `workers/src`. While a retry is coming the document stays `processing`; a damaged
   PDF, no AI credit or a wrong key (`doc_errors.PERMANENT`) fails at once (`job.discarded`),
   since retrying the same file fails the same way. `test_doc_errors.py` holds the kinds and
   stage names equal to the shared lists. The same pieces (`JobProgress`, `ProblemNotice` in

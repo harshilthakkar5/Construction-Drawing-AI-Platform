@@ -903,7 +903,8 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
                 notes += more
             except Exception as exc:  # a check failing is a note, never a failed review
                 log.exception("rfi review: %s check failed", check_type)
-                notes.append(f"The {check_type} code check did not run ({exc}).")
+                notes.append(f"The check for \"{doc_errors.check_label(check_type)}\" could not run this time, "
+                             f"so its problems are not listed. {doc_errors.user_message(exc)}")
     rfi_scan.pinpoint_evidence(project_id, findings, open_page)
     return findings, notes
 
@@ -3844,7 +3845,7 @@ def _run(run: dict) -> dict:
             code_found = [f for f in code_found if f not in other]
             notes.append(f"Left out {len(other)} code finding(s) about other elements' marks: {'; '.join(f.subject for f in other[:3])}.")
         if code_docs:
-            notes.append(f"Code checks ({', '.join(sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
+            notes.append(f"Checks run by the app ({', '.join(doc_errors.check_label(c) for c in sorted(set(linked) & set(TEXT_CODE_CHECKS + PDF_CODE_CHECKS)))}): {len(code_found)} finding(s) on the reviewed sheets.")
         # Same test column_schedule.findings uses to find a schedule page.
         schedule_pages = _pages_whose_text(scope, r"column\s+locations")
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
@@ -3885,7 +3886,8 @@ def _run(run: dict) -> dict:
                 text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
             except Exception as exc:
                 text = None
-                notes.append(f"Deferred-dimension aid: could not read {p.get('sheetNumber') or p['pageNumber']}: {exc}")
+                notes.append(f"The dimensions marked \"SEE PLAN\" on {p.get('sheetNumber') or 'page ' + str(p['pageNumber'])} "
+                             "could not be listed this time.")
             if text:
                 aids.append(_aid(f"ev{n}", p, text))
                 n += 1
@@ -4235,7 +4237,7 @@ def _run(run: dict) -> dict:
     except BudgetStop as exc:
         stopped = f"reached its token budget at the {exc.stage} stage"
         omissions.append(str(exc))
-        notes.append(f"Stopped early: {exc}. What was found before that is saved.")
+        notes.append(f"Stopped early. {doc_errors.user_message(exc)} What was found before that is saved.")
 
     # 6. Save.
     searched = sorted({ev.where for ev in sent})

@@ -151,6 +151,104 @@ PROBLEM_RULES = [
     ],
 ]
 
+PROBLEMS = {
+    "ai_credits": {
+        "title": "The AI service has run out of credit",
+        "action": "Ask your administrator to top up the AI account, then try again.",
+    },
+    "ai_key": {
+        "title": "The AI service connection isn't set up correctly",
+        "action": "Ask your administrator to check the AI service key, then try again.",
+    },
+    "ai_busy": {
+        "title": "The AI service is busy right now",
+        "action": "Wait a few minutes and try again.",
+    },
+    "offline": {
+        "title": "This computer lost its internet connection",
+        "action": "Check the internet connection. It tries again by itself, and pages already read are kept.",
+    },
+    "storage": {
+        "title": "We couldn't fetch the uploaded file",
+        "action": "Try again. If it keeps failing, delete the document and upload it again.",
+    },
+    "pdf_damaged": {
+        "title": "This PDF looks damaged or password-protected",
+        "action": "Save or export it again from your PDF software without a password, then upload it again.",
+    },
+    "not_pdf": {
+        "title": "This file isn't a PDF",
+        "action": "Delete it and upload the drawing set as a PDF.",
+    },
+    "malware": {
+        "title": "The virus scan flagged this file",
+        "action": "Delete it and upload a clean copy.",
+    },
+    "scan_unavailable": {
+        "title": "The virus scanner wasn't available",
+        "action": "Delete it and upload it again in a few minutes.",
+    },
+    "memory": {
+        "title": "The server ran out of memory on this file",
+        "action": "Ask your administrator to give the processing server more memory, then try again.",
+    },
+    "disk": {
+        "title": "The server ran out of disk space",
+        "action": "Ask your administrator to free up space, then try again.",
+    },
+    "connection": {
+        "title": "A connection between our services dropped",
+        "action": "Try again. Pages already read are kept.",
+    },
+    "ai_reply": {
+        "title": "The AI's answer couldn't be used",
+        "action": "Try again. It usually works the second time.",
+    },
+    "nothing_to_read": {
+        "title": "There's no readable text to work from yet",
+        "action": "Check that the drawings finished processing and their sheets are categorised, then try again.",
+    },
+    "disabled": {
+        "title": "This feature is switched off on the server",
+        "action": "Ask your administrator to turn it on.",
+    },
+    "worker_stopped": {
+        "title": "The processing server stopped while working on this",
+        "action": "Try again. Work already finished is kept.",
+    },
+    "invalid_input": {
+        "title": "Some of the details entered aren't valid",
+        "action": "Check what you entered and try again.",
+    },
+    "not_found": {
+        "title": "That item no longer exists",
+        "action": "Refresh the page. It may have been deleted.",
+    },
+    "unknown": {
+        "title": "Something went wrong",
+        "action": "Try again. If it keeps failing, contact support.",
+    },
+}
+
+TECHNICAL_PATTERN = "[A-Za-z]+(?:Error|Exception)\\b|\\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\\b|https?:\\/\\/|\\b[0-9a-f]{8}-[0-9a-f]{4}-|\\b(?:HTTP|status|code)[ =:]*\\d{3}\\b|\\bat \\S+ \\(|\\.(?:py|ts|js)\\b|[{}]|→|errno|traceback|prisma|psycopg|botocore|\\bsql\\b|\\bnull\\b|\\bundefined\\b|internal error|env file|worker log"
+
+RFI_CHECK_LABELS = {
+    "dangling_reference": "Sheet referenced but not in the set",
+    "unscheduled_mark": "Mark with no row in its schedule",
+    "open_item_note": "Note left open on the drawing (TBD / verify)",
+    "grid_mismatch": "Grid line named differently between drawings",
+    "tag_value_conflict": "Same equipment tag, different rating on two drawings",
+    "illegible_schedule": "Schedule pasted as a picture too coarse to read",
+    "missing_plan_level": "Level missing from a series of plans",
+    "unmarked_element": "Element drawn with no type mark",
+    "unsized_column": "Column in the schedule with no size",
+    "twin_column_cap": "Pier cap carrying two columns with no detail called out",
+    "untagged_pile_cap": "Pile cap drawn with no tag or size",
+    "missing_detail": "Detail referenced but not on its sheet",
+    "column_mismatch": "Column drawn differently on two drawings",
+    "grid_spacing": "Grid lines drawn a different distance apart on two drawings",
+}
+
 
 # --- Targeted RFI review: check catalogue and depth caps ---
 
