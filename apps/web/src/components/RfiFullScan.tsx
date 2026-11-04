@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, CoinsIcon, PlayIcon, RotateCcwIcon, ScanSearchIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
+import { userMessage,
   RFI_REVIEW_CHECKS,
   RFI_CUSTOM_QUESTION_IDS,
   type RfiFullScanDto,
@@ -169,7 +169,7 @@ export function RfiFullScan({
               drawings” prepares this for free; you see the cost and set a budget before anything is sent.
             </p>
           )}
-          {scan?.status === "stale" && <Notice tone="error">{scan.error ?? "The drawings changed since this scan was planned."}</Notice>}
+          {scan?.status === "stale" && <Notice tone="error">{scan.error ? userMessage(scan.error) : "The drawings changed since this scan was planned."}</Notice>}
           <Button size="sm" variant="outline" className="self-start" disabled={plan.isPending} onClick={() => plan.mutate()}>
             {plan.isPending ? <Spinner /> : <ScanSearchIcon />}
             {scan ? "Prepare a new comparison" : "Prepare the comparison only"}
@@ -400,7 +400,7 @@ function Finished({ projectId, scan, onResumed }: { projectId: string; scan: Rfi
         <div className="flex flex-col gap-2">
           <Notice tone="error">
             {scan.status === "failed"
-              ? `The scan stopped: ${scan.error ?? "unknown error"}.`
+              ? `The scan stopped. ${userMessage(scan.error)}`
               : "The scan stopped early, usually because of the budget. Everything it found is saved."}
           </Notice>
           <label className="flex flex-wrap items-center gap-2">

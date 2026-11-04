@@ -267,6 +267,14 @@ export const PROBLEMS = {
     title: "The processing server stopped while working on this",
     action: "Try again. Work already finished is kept.",
   },
+  invalid_input: {
+    title: "Some of the details entered aren't valid",
+    action: "Check what you entered and try again.",
+  },
+  not_found: {
+    title: "That item no longer exists",
+    action: "Refresh the page. It may have been deleted.",
+  },
   unknown: {
     title: "Something went wrong",
     action: "Try again. If it keeps failing, contact support.",
@@ -287,15 +295,16 @@ export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
   // fix is the network, not the file.
   ["offline",
     "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable" +
-    "|no route to host|internet connection"],
+    "|no route to host|internet connection|failed to fetch|networkerror|load failed"],
   ["storage", "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore"],
-  ["disabled", "summaries disabled|_enabled=false"],
+  ["disabled", "summaries disabled|_enabled=false|\\bis (?:switched |turned )?off\\b|=off\\b"],
   ["ai_credits",
     "credit balance|insufficient[_ ](?:quota|balance|funds)|billing|payment required|\\b402\\b" +
     "|exceeded your (?:current )?quota|plan limit|trial key|out of credits?"],
   ["ai_key",
     "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error" +
-    "|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key"],
+    "|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key" +
+    "|no api key|api_key (?:is )?not set"],
   ["ai_busy",
     "rate[ _-]?limit|too many requests|\\b429\\b|overloaded|\\b529\\b|resource[_ ]exhausted" +
     "|service unavailable|\\b50[234]\\b|internal server error"],
@@ -307,6 +316,8 @@ export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
     "|no objects found|zlib"],
   ["connection",
     "connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect"],
+  ["invalid_input", "validation failed"],
+  ["not_found", "^not found$"],
 ];
 
 /** The kind for a raw error text ("unknown" when nothing matches). */
@@ -351,6 +362,23 @@ export function documentStageText(p: DocumentProgress | null | undefined): strin
  * client does not know yet. */
 export function problemText(kind: string | null | undefined): { title: string; action: string } {
   return PROBLEMS[(kind ?? "unknown") as ProblemKind] ?? PROBLEMS.unknown;
+}
+
+// Marks of text written for a developer, not a person: error class names,
+// env-variable names, URLs, ids, status codes, stack frames, file paths.
+const TECHNICAL =
+  /[A-Za-z]+(?:Error|Exception)\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|https?:\/\/|\b[0-9a-f]{8}-[0-9a-f]{4}-|\b(?:HTTP|status|code)[ =:]*\d{3}\b|\bat \S+ \(|\.(?:py|ts|js)\b|[{}]|→|errno|traceback|prisma|psycopg|botocore|\bsql\b|\bnull\b|\bundefined\b|internal error|env file|worker log/i;
+
+/** The words a person may see for an error. A sentence our own code wrote for
+ * people is kept; anything technical becomes the plain words for its kind
+ * (PROBLEMS), so no error class, key name, URL or id ever reaches the screen. */
+export function userMessage(raw: string | null | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text || TECHNICAL.test(text) || classifyProblem(text) !== "unknown") {
+    const p = problemText(classifyProblem(text));
+    return `${p.title}. ${p.action}`;
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Summary run stages (workers/src/summarize.py writes these names). */

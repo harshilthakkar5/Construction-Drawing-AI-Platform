@@ -14,7 +14,7 @@ import {
   InfoIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import {
+import { userMessage,
   fullScope,
   isNarrowScope,
   RFI_CHECK_LABELS,
@@ -367,8 +367,8 @@ export function RfiReview({ projectId }: { projectId: string }) {
             {scan.data.status === "failed" && !scan.data.stopped && (
               <Notice tone="error">
                 The last scan failed
-                {scan.data.stage && scan.data.stage !== "done" ? ` while ${(STEP_LABEL[scan.data.stage] ?? scan.data.stage).toLowerCase()}` : ""}:{" "}
-                {scan.data.error ?? "unknown error"}
+                {scan.data.stage && scan.data.stage !== "done" ? ` while ${(STEP_LABEL[scan.data.stage] ?? scan.data.stage).toLowerCase()}` : ""}.{" "}
+                {userMessage(scan.data.error)}
               </Notice>
             )}
             {scan.data.notes.length > 0 && (

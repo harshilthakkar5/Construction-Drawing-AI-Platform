@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import type { UserDto } from "@cdip/shared";
-import { api } from "@/api";
+import { api, statusOf } from "@/api";
 import { InitialsAvatar } from "@/components/AppShell";
 import { Notice, PageHeader, Spinner, TextField } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -89,7 +89,7 @@ function ProfileForm({ user, onSaved }: { user: UserDto; onSaved: (u: UserDto) =
           {save.isSuccess && <Notice tone="ok">Profile updated.</Notice>}
           {save.isError && (
             <Notice tone="error">
-              {(save.error as Error).message.includes("409")
+              {statusOf(save.error) === 409
                 ? "That email is already in use."
                 : (save.error as Error).message}
             </Notice>
@@ -168,7 +168,7 @@ function PasswordForm() {
           {change.isSuccess && <Notice tone="ok">Password changed.</Notice>}
           {change.isError && (
             <Notice tone="error">
-              {(change.error as Error).message.includes("403")
+              {statusOf(change.error) === 403
                 ? "That current password is incorrect."
                 : (change.error as Error).message}
             </Notice>

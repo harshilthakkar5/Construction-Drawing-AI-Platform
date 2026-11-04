@@ -328,7 +328,12 @@ projects/{projectId}/
   `doc_errors.classify` maps any exception to a kind; the UI shows only the plain words in
   `PROBLEMS` (`@cdip/shared`); the raw text (keys and signed URLs scrubbed) is stored for the logs
   and never shown — an unreachable host is `offline`, ahead of `storage`, since its URL is the
-  storage one but the fix is the network. While a retry is coming the document stays `processing`; a damaged
+  storage one but the fix is the network. The same holds for EVERY error on screen: `userMessage` (`@cdip/shared`)
+  keeps a sentence our code wrote for people and turns anything technical (error class, env-var
+  name, URL, id, status code, stack, "internal error") into its kind's plain words. The web
+  `request` helper throws `ApiError` (plain message + `status`; 0 = unreachable) and logs the
+  method/path/body to the console instead of the screen, so code branches on `statusOf(err)`,
+  never on message text — AuthScreen, AccountPage and `getRegion` matched "401"/"409"/"→ 404". While a retry is coming the document stays `processing`; a damaged
   PDF, no AI credit or a wrong key (`doc_errors.PERMANENT`) fails at once (`job.discarded`),
   since retrying the same file fails the same way. `test_doc_errors.py` holds the kinds and
   stage names equal to the shared lists. The same pieces (`JobProgress`, `ProblemNotice` in

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProblem, documentPercent, documentStageText, problemText, summaryProgressView } from "@cdip/shared";
+import { classifyProblem, documentPercent, documentStageText, problemText, summaryProgressView, userMessage } from "@cdip/shared";
 
 const at = "2026-11-04T00:00:00Z";
 
@@ -37,6 +37,39 @@ describe("job problems from raw error text", () => {
     expect(classifyProblem("Could not connect to the endpoint URL | Failed to resolve 'x' ([Errno 11001] getaddrinfo failed)")).toBe("offline");
     expect(classifyProblem("something odd")).toBe("unknown");
     expect(classifyProblem(null)).toBe("unknown");
+  });
+});
+
+describe("what a person may see for an error", () => {
+  it("keeps a sentence written for people", () => {
+    expect(userMessage("this document has a newer revision. Replace the latest one.")).toBe(
+      "This document has a newer revision. Replace the latest one.",
+    );
+  });
+
+  it("never shows technical text", () => {
+    for (const raw of [
+      "internal error",
+      "TypeError: Cannot read properties of undefined (reading 'id')",
+      "no API key is configured for gemini; set GEMINI_API_KEY",
+      "EndpointConnectionError: Could not connect to the endpoint URL: \"https://x\"",
+      "Invalid `prisma.document.update()` invocation",
+      "document 8f2c1a9e-1b2c-4d5e-8f90-123456789abc not found",
+      '{"error":"boom"}',
+      "",
+      null,
+    ]) {
+      const shown = userMessage(raw);
+      expect(shown, String(raw)).not.toMatch(/Error\b|_KEY|https?:|prisma|[0-9a-f]{8}-|[{}]|internal error/);
+      expect(shown.length).toBeGreaterThan(10);
+    }
+  });
+
+  it("says what kind of problem it was", () => {
+    expect(userMessage("validation failed")).toMatch(/aren't valid/);
+    expect(userMessage("not found")).toMatch(/no longer exists/);
+    expect(userMessage("TypeError: Failed to fetch")).toMatch(/internet connection/);
+    expect(userMessage("no API key is configured for gemini; set GEMINI_API_KEY")).toMatch(/isn't set up/);
   });
 });
 

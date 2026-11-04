@@ -99,7 +99,7 @@ PROBLEM_RULES = [
     ],
     [
         "offline",
-        "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable|no route to host|internet connection",
+        "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable|no route to host|internet connection|failed to fetch|networkerror|load failed",
     ],
     [
         "storage",
@@ -107,7 +107,7 @@ PROBLEM_RULES = [
     ],
     [
         "disabled",
-        "summaries disabled|_enabled=false",
+        "summaries disabled|_enabled=false|\\bis (?:switched |turned )?off\\b|=off\\b",
     ],
     [
         "ai_credits",
@@ -115,7 +115,7 @@ PROBLEM_RULES = [
     ],
     [
         "ai_key",
-        "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key",
+        "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key|no api key|api_key (?:is )?not set",
     ],
     [
         "ai_busy",
@@ -140,6 +140,14 @@ PROBLEM_RULES = [
     [
         "connection",
         "connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect",
+    ],
+    [
+        "invalid_input",
+        "validation failed",
+    ],
+    [
+        "not_found",
+        "^not found$",
     ],
 ]
 
