@@ -253,3 +253,18 @@ def test_a_letter_o_read_where_a_zero_belongs_is_a_zero():
     # Words keep their O: no digit run, no discipline prefix, or more letters around it.
     for kept in ("SO THAT", "NO.1", "TO BE", "O2 SENSOR", "4OD", "SCHOOL 2", "C-1O1A", "SOME 1.5"):
         assert ocr.zeros_for_os(kept) == kept, kept
+
+
+def test_free_memory_respects_the_container_limit(tmp_path, monkeypatch):
+    """Inside a container psutil reports the whole Docker VM; the room left
+    under WORKER_MEM_LIMIT is what decides whether the next image fits."""
+    (tmp_path / "memory.max").write_text(str(5 * 2**30))
+    (tmp_path / "memory.current").write_text(str(int(4.8 * 2**30)))
+    assert round(ocr._cgroup_free_mb(str(tmp_path))) == 205
+
+    (tmp_path / "memory.max").write_text("max")  # no limit set
+    assert ocr._cgroup_free_mb(str(tmp_path)) is None
+    assert ocr._cgroup_free_mb(str(tmp_path / "missing")) is None  # not in a container
+
+    monkeypatch.setattr(ocr, "_cgroup_free_mb", lambda root="": 205.0)
+    assert ocr._free_mb() <= 205.0  # the tighter of the VM's and the container's

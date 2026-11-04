@@ -67,14 +67,46 @@ def _rss_mb() -> float | None:
         return None
 
 
+def _cgroup_free_mb(root: str = "/sys/fs/cgroup") -> float | None:
+    """Room left under this container's memory limit (cgroup v2), or None
+    outside a limited container. psutil reports the whole Docker VM, so a
+    worker at its WORKER_MEM_LIMIT still looked like it had gigabytes free."""
+    try:
+        with open(f"{root}/memory.max") as f:
+            limit = f.read().strip()
+        if limit == "max":
+            return None
+        with open(f"{root}/memory.current") as f:
+            used = int(f.read().strip())
+        return (int(limit) - used) / 2**20
+    except (OSError, ValueError):
+        return None
+
+
 def _free_mb() -> float | None:
-    """Memory the machine (or Docker's VM) still has available, in MB."""
+    """Memory still available to this worker in MB: the machine's (or Docker
+    VM's), or the container limit's when that is tighter."""
     try:
         import psutil
 
-        return psutil.virtual_memory().available / 2**20
+        free = psutil.virtual_memory().available / 2**20
     except Exception:
-        return None
+        free = None
+    room = _cgroup_free_mb()
+    if room is None:
+        return free
+    return room if free is None else min(free, room)
+
+
+def _memory_report() -> str:
+    """The numbers that say which limit was hit, for the halt message."""
+    rss, free = _rss_mb(), _free_mb()
+    parts = []
+    if rss is not None:
+        parts.append(f"worker using {rss:.0f} MB")
+    if free is not None:
+        parts.append(f"{free:.0f} MB free" + (" under the container limit" if _cgroup_free_mb() is not None else ""))
+    return "; ".join(parts) or "memory figures unavailable"
 
 
 def halted() -> str | None:
@@ -90,10 +122,11 @@ def _halt(reason: str) -> None:
     # sizes the engine's work is OCR_DET_LIMIT, so say what it is now.
     lower = ("lower OCR_DET_LIMIT to 960 (now %d), " % config.OCR_DET_LIMIT
              if config.OCR_DET_LIMIT > 960 else "OCR_DET_LIMIT is already %d, so " % config.OCR_DET_LIMIT)
-    log.error("OCR STOPPED in this worker until it is restarted: %s. Pages not read stay unmarked and are "
+    log.error("OCR STOPPED in this worker until it is restarted: %s (%s). Pages not read stay unmarked and are "
               "read by a later scan. Fixes: give the worker more memory (WORKER_MEM_LIMIT, and the Docker "
               "VM's memory in .wslconfig on Windows), %slower PAGE_CONCURRENCY (now %d) so fewer pages are "
-              "rendered beside the engine, or OCR_ENABLED=false.", reason, lower, config.PAGE_CONCURRENCY)
+              "rendered beside the engine, or OCR_ENABLED=false.", reason, _memory_report(), lower,
+              config.PAGE_CONCURRENCY)
 
 
 def _free_engine() -> None:
