@@ -1,9 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { DocumentDto, DocumentStatus } from "@cdip/shared";
+import {
+  DOCUMENT_STAGES,
+  documentPercent,
+  documentStageText,
+  type DocumentDto,
+  type DocumentStatus,
+} from "@cdip/shared";
 import { FileTextIcon, UploadIcon } from "lucide-react";
 import { api } from "@/api";
-import { ConfirmDialog, Spinner } from "@/components/shared";
+import { ConfirmDialog, JobProgress, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -206,13 +212,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                     />
                     RFI review input
                   </label>
-                  {(doc.status === "uploaded" || doc.status === "processing") && (
-                    <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Spinner />
-                      {doc.status === "uploaded" ? "Queued…" : "Processing…"}
-                    </span>
-                  )}
-                  {doc.status === "failed" && (
+                  {(doc.status === "failed" || isFrozen(doc)) && (
                     <Button
                       variant="link"
                       className="ml-auto h-auto gap-1.5 p-0 text-xs"
@@ -224,7 +224,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       {retry.isPending ? "Retrying…" : "Retry"}
                     </Button>
                   )}
-                  {doc.status === "failed" && (
+                  {(doc.status === "failed" || isFrozen(doc)) && (
                     <Button
                       variant="link"
                       className="text-destructive h-auto p-0 text-xs"
@@ -240,6 +240,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                 </>
               )}
             </div>
+            {!doc.supersededAt && <ProcessingStatus doc={doc} />}
             {!doc.supersededAt && !doc.includeInRfiAnalysis && (
               <p className="text-muted-foreground mt-1 text-xs">
                 Not used by RFI reviews: {doc.rfiExclusionReason ?? "excluded"}
@@ -282,5 +283,71 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         />
       )}
     </section>
+  );
+}
+
+/** No progress written for this long while "processing" means the worker
+ * probably stopped (restarted, crashed, or out of memory). */
+const FROZEN_MS = 10 * 60_000;
+
+function lastUpdate(doc: DocumentDto): number | null {
+  const at = doc.progress?.at ?? doc.problem?.at;
+  return at ? Date.parse(at) : null;
+}
+
+/** Processing, but silent for long enough that Retry should be offered. */
+function isFrozen(doc: DocumentDto): boolean {
+  const at = lastUpdate(doc);
+  return doc.status === "processing" && !doc.problem?.retrying && at !== null && Date.now() - at > FROZEN_MS;
+}
+
+/** FR-9 in words: what is happening to this PDF now, or why it stopped. */
+function ProcessingStatus({ doc }: { doc: DocumentDto }) {
+  const problem = doc.problem;
+  const stopped = doc.progress ? DOCUMENT_STAGES[doc.progress.stage]?.label : undefined;
+
+  if (doc.status === "failed") {
+    return (
+      <div className="mt-2">
+        <ProblemNotice
+          kind={problem?.kind ?? "unknown"}
+          detail={problem?.detail}
+          extra={stopped && ` Stopped at the step: ${stopped}.`}
+        />
+      </div>
+    );
+  }
+  if (doc.status !== "uploaded" && doc.status !== "processing") return null;
+
+  const frozen = isFrozen(doc);
+  return (
+    <div className="mt-2 space-y-1.5">
+      {problem?.retrying && (
+        <ProblemNotice
+          kind={problem.kind}
+          detail={problem.detail}
+          retrying={`Trying again automatically${
+            problem.attempt && problem.attempts ? ` (attempt ${problem.attempt + 1} of ${problem.attempts})` : ""
+          }.`}
+          extra={
+            (doc.progress?.done ?? 0) > 0 && (
+              <p className="text-muted-foreground mt-0.5">Pages already read are kept.</p>
+            )
+          }
+        />
+      )}
+      <JobProgress
+        text={doc.status === "uploaded" && !doc.progress ? "Waiting for a free processing slot…" : documentStageText(doc.progress)}
+        percent={documentPercent(doc.progress)}
+        label={`${doc.filename} processing`}
+        stalled={frozen}
+      />
+      {frozen && (
+        <p className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
+          No progress for over 10 minutes. The processing server may have stopped; press Retry to
+          continue from where it left off.
+        </p>
+      )}
+    </div>
   );
 }

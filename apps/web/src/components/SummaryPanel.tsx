@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, ChevronDownIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { SUMMARY_DETAILS, type SummaryDetail, type SummaryItem } from "@cdip/shared";
+import { SUMMARY_DETAILS, summaryProgressView, type SummaryDetail, type SummaryItem } from "@cdip/shared";
 import { api } from "@/api";
-import { Spinner } from "@/components/shared";
+import { JobProgress, ProblemNotice, Spinner } from "@/components/shared";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store";
@@ -209,15 +209,40 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
       </div>
 
       <div className="mt-3">
+        {waiting && (
+          <div className="mb-3">
+            {selectedPortion && selectedPortion.summaryStatus !== "none" ? (
+              <JobProgress
+                text={
+                  selectedPortion.summaryStatus === "queued"
+                    ? "Waiting for a free slot…"
+                    : summaryProgressView(selectedPortion.summaryProgress).text
+                }
+                percent={summaryProgressView(selectedPortion.summaryProgress).percent}
+                label={`${selectedPortion.name} summary`}
+              />
+            ) : (
+              <p className="text-muted-foreground flex items-center gap-2 text-xs" role="status">
+                <Spinner /> Combining the discipline summaries into one project summary… This is one AI call
+                and usually takes a minute or two.
+              </p>
+            )}
+          </div>
+        )}
+        {!summary && !waiting && selectedPortion?.summaryStatus === "failed" && (
+          <div className="mb-2">
+            <ProblemNotice detail={selectedPortion.summaryError ?? "The last run failed."} />
+          </div>
+        )}
         {!summary && (
           <div className="space-y-2">
             <p className="text-muted-foreground text-sm">
               {summaries.isLoading
                 ? "Loading…"
                 : waiting
-                  ? "Summarizing… page summaries first, then the rollups. This can take a while on a large set."
+                  ? "Page summaries first, then the rollups. This can take a while on a large set."
                   : selectedPortion?.summaryStatus === "failed"
-                    ? (selectedPortion.summaryError ?? "The last run failed.")
+                    ? "You can try again below."
                     : selectedPortionId
                       ? `No summary for ${selectedPortion?.name ?? "this discipline"} yet. Generate one when you need it.`
                       : portionsReady

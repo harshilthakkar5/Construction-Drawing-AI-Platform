@@ -683,3 +683,39 @@ def test_a_reviewers_markup_never_reaches_the_extracted_text(processing, tmp_pat
         assert pdf[0].first_annot is None  # so no render, OCR tile or grid read sees the note either
     assert "FOOTING F1" in seen[0] and "APPROVED" not in seen[0]
     assert fitz.open(path)[0].first_annot is not None  # the stored file keeps its markup
+
+
+def test_a_document_deleted_mid_run_is_never_embedded(monkeypatch, tmp_path):
+    """Embedding costs money; a project deleted while its pages were read has
+    nothing left to search, and its usage rows fail their foreign key."""
+    import contextlib
+
+    import fitz
+
+    import processing as proc
+
+    def fake_download(key, path):
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(path)
+
+    exists = iter([True, False])  # there at the start, gone before embedding
+    fake = {
+        "document_exists": lambda _id: next(exists),
+        "set_document_status": lambda *a: None,
+        "set_document_progress": lambda *a: None,
+        "set_document_pages": lambda *a: None,
+        "combined_offset": lambda *a: 0,
+        "processed_page_numbers": lambda *a: set(),
+        "document_revision_info": lambda _id: {"previous_version_id": None, "revision": 1},
+        "project_lock": lambda _id: contextlib.nullcontext(),
+        "recompute_combined_numbering": lambda _id: None,
+        "chunks_to_embed": lambda _id: pytest.fail("embedding was prepared for a deleted document"),
+    }
+    for name, fn in fake.items():
+        monkeypatch.setattr(proc.db, name, fn)
+    monkeypatch.setattr(proc.storage, "download_to_file", fake_download)
+    monkeypatch.setattr(proc, "_extract_pages", lambda *a, **k: (1, 0))
+    monkeypatch.setattr(proc.embeddings, "embed_document_chunks",
+                        lambda *a, **k: pytest.fail("a deleted document was embedded"))
+    assert proc._process_document("proj", "doc-0123456789", "key") == {"skipped": "document deleted"}

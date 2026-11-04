@@ -1,4 +1,13 @@
-import { ArrowUpRightIcon, CalendarIcon, Loader2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowUpRightIcon,
+  CalendarIcon,
+  Loader2Icon,
+  Maximize2Icon,
+  Minimize2Icon,
+  RotateCwIcon,
+} from "lucide-react";
+import { classifyProblem, problemText } from "@cdip/shared";
 import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -14,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMark } from "@/components/Logo";
@@ -126,6 +136,77 @@ export function Notice({ tone, children }: { tone: "ok" | "error"; children: Rea
     <Alert variant={tone === "ok" ? "success" : "destructive"} role={tone === "ok" ? "status" : "alert"}>
       <AlertDescription>{children}</AlertDescription>
     </Alert>
+  );
+}
+
+/** A running job's one-line status over its bar: documents, summaries, RFI runs. */
+export function JobProgress({ text, percent, label, stalled }: {
+  text: string;
+  percent: number;
+  /** Accessible name for the bar. */
+  label: string;
+  /** No spinner when the job has gone quiet. */
+  stalled?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5" role="status" aria-live="polite">
+      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+        {!stalled && <Spinner />}
+        <span className="truncate">{text}</span>
+        <span className="ml-auto tabular-nums">{percent}%</span>
+      </div>
+      <Progress value={percent} aria-label={label} />
+    </div>
+  );
+}
+
+/**
+ * Why a job stopped, in plain words, with the raw error under "Technical
+ * details". Pass `kind` when the worker classified it; otherwise the raw text
+ * is classified here with the same rules (PROBLEM_RULES in @cdip/shared).
+ * `retrying` shows the amber "trying again" form.
+ */
+export function ProblemNotice({ kind, detail, retrying, extra }: {
+  kind?: string | null;
+  detail?: string | null;
+  retrying?: string;
+  extra?: React.ReactNode;
+}) {
+  const text = problemText(kind ?? classifyProblem(detail));
+  if (retrying) {
+    return (
+      <div className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
+        <p className="flex items-center gap-1.5 font-medium">
+          <RotateCwIcon className="size-3.5 shrink-0" aria-hidden />
+          {text.title}. {retrying}
+        </p>
+        {extra}
+        <TechnicalDetails detail={detail} />
+      </div>
+    );
+  }
+  return (
+    <div role="alert" className="border-destructive/40 bg-destructive/5 rounded-md border p-2.5 text-xs">
+      <p className="text-destructive flex items-center gap-1.5 font-medium">
+        <AlertTriangleIcon className="size-3.5 shrink-0" aria-hidden />
+        {text.title}
+      </p>
+      <p className="text-muted-foreground mt-1">
+        {text.action}
+        {extra}
+      </p>
+      <TechnicalDetails detail={detail} />
+    </div>
+  );
+}
+
+function TechnicalDetails({ detail }: { detail?: string | null }) {
+  if (!detail) return null;
+  return (
+    <details className="text-muted-foreground mt-1">
+      <summary className="cursor-pointer select-none">Technical details</summary>
+      <code className="mt-1 block font-mono text-[11px] break-all whitespace-pre-wrap">{detail}</code>
+    </details>
   );
 }
 

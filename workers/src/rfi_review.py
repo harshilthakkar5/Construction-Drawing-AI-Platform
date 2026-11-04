@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 import fitz
 
 import db
+import doc_errors
 import diagnostics
 import grid
 import llm
@@ -2768,10 +2769,11 @@ def _ask(
             stage_usage.failed_calls += 1
         if reply is None:
             tries = 1 + len(CALL_RETRY_DELAYS)
+            cause = llm.last_failure()
             raise StageFailed(
                 stage,
-                f"the {stage} call to the model failed {tries} times in a row. The worker log has the provider's "
-                "error; a 503 or 429 means the provider is busy, so start the review again later",
+                f"the {stage} call to the model failed {tries} times in a row"
+                + (f". The provider said: {doc_errors.scrub(cause)}" if cause else "; see the worker log"),
             )
         stage_usage.add(reply)
         parsed = parse(reply.text)
@@ -3761,12 +3763,12 @@ def run(run_id: str) -> dict:
         return {"cancelled": True, "reason": "access revoked"}
     except StageFailed as exc:
         stage = exc.stage
-        _set(run_id, status="failed", stage=stage, error=str(exc)[:500], completedAt=_now(),
+        _set(run_id, status="failed", stage=stage, error=doc_errors.scrub(str(exc)), completedAt=_now(),
              checkResults=json.dumps(_failed_results(loaded, stage)))
         log.warning("rfi review %s failed at %s: %s", run_id[:8], stage, exc)
         return {"failed": str(exc), "stage": stage}
     except Exception as exc:
-        _set(run_id, status="failed", error=str(exc)[:500], completedAt=_now())
+        _set(run_id, status="failed", error=doc_errors.scrub(str(exc)), completedAt=_now())
         raise
     finally:
         if rec is not None:

@@ -86,6 +86,60 @@ JOB_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
 }
 
 
+# --- Why a job stopped: raw error text -> plain-words kind (doc_errors.py) ---
+
+PROBLEM_RULES = [
+    [
+        "disk",
+        "no space left on device|disk quota",
+    ],
+    [
+        "memory",
+        "memoryerror|out of memory|cannot allocate|could not create a primitive",
+    ],
+    [
+        "storage",
+        "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore",
+    ],
+    [
+        "disabled",
+        "summaries disabled|_enabled=false",
+    ],
+    [
+        "ai_credits",
+        "credit balance|insufficient[_ ](?:quota|balance|funds)|billing|payment required|\\b402\\b|exceeded your (?:current )?quota|plan limit|trial key|out of credits?",
+    ],
+    [
+        "ai_key",
+        "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key",
+    ],
+    [
+        "ai_busy",
+        "rate[ _-]?limit|too many requests|\\b429\\b|overloaded|\\b529\\b|resource[_ ]exhausted|service unavailable|\\b50[234]\\b|internal server error",
+    ],
+    [
+        "worker_stopped",
+        "worker stopped|stopped responding|presumed dead",
+    ],
+    [
+        "nothing_to_read",
+        "no pages with extracted text|no page summaries|no portion summaries",
+    ],
+    [
+        "ai_reply",
+        "nothing citable|invalid json|not valid json|could not be parsed",
+    ],
+    [
+        "pdf_damaged",
+        "filedataerror|cannot open broken|broken document|format error|password|encrypted|not a pdf|no objects found|zlib",
+    ],
+    [
+        "connection",
+        "connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect",
+    ],
+]
+
+
 # --- Targeted RFI review: check catalogue and depth caps ---
 
 RFI_REVIEW_CHECKS = [

@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -44,6 +45,34 @@ log = logutil.get("pipeline")
 
 # Progress heartbeat for very large PDFs: log every N pages.
 PROGRESS_EVERY = 25
+
+
+class Progress:
+    """What the Documents list shows while this document runs: the stage, and
+    pages read so far. Stage changes are always written; page counts at most
+    every PROGRESS_WRITE_SECONDS, since many threads report at once."""
+
+    PROGRESS_WRITE_SECONDS = 2.0
+
+    def __init__(self, document_id: str):
+        self.document_id = document_id
+        self._last = 0.0
+        self._lock = threading.Lock()
+        self.stage_name: str | None = None
+
+    def stage(self, stage: str, done: int | None = None, total: int | None = None,
+              ocr: int | None = None, throttle: bool = False) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if throttle and now - self._last < self.PROGRESS_WRITE_SECONDS:
+                return
+            self._last = now
+            self.stage_name = stage
+        data = {"stage": stage, "at": datetime.now(timezone.utc).isoformat()}
+        for key, value in (("done", done), ("total", total), ("ocr", ocr)):
+            if value is not None:
+                data[key] = value
+        db.set_document_progress(self.document_id, data)
 
 
 def _thumbnail_jpg(page) -> bytes:
@@ -329,6 +358,7 @@ def _extract_pages(
     page_count: int,
     doc_tag: str,
     spend: "DocumentSpend",
+    progress: "Progress | None" = None,
 ) -> tuple[int, int]:
     """Stage 2 across several pages at once. Returns (processed, ocr_count).
 
@@ -378,6 +408,10 @@ def _extract_pages(
             if used_ocr:
                 counters["ocr"] += 1
             done = counters["processed"]
+            ocr_done = counters["ocr"]
+        if progress is not None:
+            skipped = page_count - len(indices)
+            progress.stage("extract", skipped + done, page_count, ocr_done, throttle=True)
         if done % PROGRESS_EVERY == 0:
             log.info(
                 "[doc %s] stage 2/6 extract: %d/%d pages (%d OCR, x%d)",
@@ -460,6 +494,8 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
         return {"skipped": "document deleted"}
 
     db.set_document_status(document_id, "processing")
+    progress = Progress(document_id)
+    progress.stage("download")
     # A retry re-reads the whole document, so it gets a fresh table-detection
     # budget rather than inheriting a give-up from the attempt that failed.
     tables.reset_budget(document_id)
@@ -495,8 +531,10 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
 
             todo = [i for i in range(page_count) if (i + 1) not in already_done]
             skipped = page_count - len(todo)
+            progress.stage("extract", skipped, page_count)
             processed, ocr_count = _extract_pages(
-                project_id, document_id, pdf_path, todo, offset, page_count, doc_tag, spend
+                project_id, document_id, pdf_path, todo, offset, page_count, doc_tag, spend,
+                progress,
             )
         finally:
             pdf.close()
@@ -516,6 +554,7 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     revision = db.document_revision_info(document_id)
     previous_id = revision["previous_version_id"]
     if previous_id is not None:
+        progress.stage("revisions")
         log.info(
             "[doc %s] stage 3/6 revisions: superseding previous revision %s (rev %d → %d)",
             doc_tag,
@@ -537,6 +576,7 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     # This renumbers EVERY page in the project, so two documents of the same
     # project finishing together would interleave and corrupt the manifest.
     # Documents of different projects never contend for this lock.
+    progress.stage("numbering")
     log.info("[doc %s] stage 4/6 numbering: recomputing combined page numbers", doc_tag)
     try:
         with db.project_lock(project_id):
@@ -549,8 +589,16 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     # Embed this document's new chunks (reusing the previous revision's
     # vectors for unchanged text), then refresh payloads for the rest of the
     # project (portion/discipline/combined page may have shifted).
+    # Embedding is the step that costs money. A document (or its project)
+    # deleted while its pages were read has nothing left to search, so stop
+    # here rather than paying to embed it and logging a foreign-key warning
+    # for every usage row of a project that no longer exists.
+    if not db.document_exists(document_id):
+        log.warning("[doc %s] deleted while processing — stopping before embedding", doc_tag)
+        return {"skipped": "document deleted"}
     to_embed = db.chunks_to_embed(document_id)
     embedded_ids: list[str] = []
+    progress.stage("embed")
     if not config.EMBEDDINGS_ENABLED:
         # EMBEDDINGS_ENABLED=false: skip the provider and Qdrant entirely. Chunks keep a
         # NULL embeddingId and are picked up by a later run once re-enabled, so
@@ -594,7 +642,8 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
             rfi_sources.exclude_if_rfi(conn, document_id)
     except Exception as exc:  # never fail an ingest over this
         log.warning("[doc %s] could not check whether this is an RFI form: %s", doc_tag, exc)
-    db.set_document_status(document_id, "completed")
+    progress.stage("finalize", 1, 1)
+    db.set_document_problem(document_id, None, "completed")
     cache.invalidate_summaries(project_id)
     result = {
         "chunks": len(to_embed),

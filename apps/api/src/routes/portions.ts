@@ -72,6 +72,7 @@ portionsRouter.get("/", async (req, res) => {
     summaryRequestedAt: portion.summaryRequestedAt?.toISOString() ?? null,
     summaryCompletedAt: portion.summaryCompletedAt?.toISOString() ?? null,
     summaryDetail: parseDetail(portion.summaryDetail),
+    summaryProgress: (portion.summaryProgress as PortionDto["summaryProgress"]) ?? null,
     sheetNumberSample: portion.discipline
       ? (sampleByDiscipline.get(portion.discipline) ?? null)
       : null,

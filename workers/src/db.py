@@ -181,6 +181,34 @@ def set_document_status(document_id: str, status: str) -> None:
         )
 
 
+def set_document_progress(document_id: str, progress: dict) -> None:
+    """The progress bar's state. A failed write is a log line, never a failed
+    job: progress is a courtesy, the pages are the work."""
+    try:
+        with connect() as conn:
+            conn.execute(
+                "UPDATE documents SET progress = %s WHERE id = %s",
+                (json.dumps(progress), document_id),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not save progress for %s: %s", document_id[:8], exc)
+
+
+def set_document_problem(document_id: str, problem: dict | None, status: str | None = None) -> None:
+    """Record (or clear, with None) why processing stopped, with the status."""
+    with connect() as conn:
+        if status is None:
+            conn.execute(
+                "UPDATE documents SET problem = %s WHERE id = %s",
+                (json.dumps(problem) if problem else None, document_id),
+            )
+        else:
+            conn.execute(
+                'UPDATE documents SET problem = %s, status = %s::"DocumentStatus" WHERE id = %s',
+                (json.dumps(problem) if problem else None, status, document_id),
+            )
+
+
 def set_document_pages(document_id: str, pages: int) -> None:
     with connect() as conn:
         conn.execute("UPDATE documents SET pages = %s WHERE id = %s", (pages, document_id))
@@ -710,6 +738,7 @@ def set_portion_summary_status(
         # The first beat: a run that dies before the heartbeat thread's first
         # tick is still timed from when it started, not from when it queued.
         sets.append('"summaryHeartbeatAt" = NOW()')
+        sets.append('"summaryProgress" = NULL')  # a new run starts its bar at zero
     if completed:
         sets.append('"summaryCompletedAt" = NOW()')
     params.append(portion_id)
@@ -717,6 +746,19 @@ def set_portion_summary_status(
         conn.execute(
             f'UPDATE portions SET {", ".join(sets)} WHERE id = %s', tuple(params)
         )
+
+
+def set_portion_summary_progress(portion_id: str, progress: dict) -> None:
+    """A running summary's progress bar. A failed write is a log line: the
+    summary is the work, the bar is a courtesy."""
+    try:
+        with connect() as conn:
+            conn.execute(
+                'UPDATE portions SET "summaryProgress" = %s WHERE id = %s',
+                (json.dumps(progress), portion_id),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not save summary progress for %s: %s", portion_id[:8], exc)
 
 
 def touch_portion_heartbeat(portion_id: str) -> None:

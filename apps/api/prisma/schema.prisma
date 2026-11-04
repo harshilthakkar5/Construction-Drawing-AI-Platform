@@ -345,6 +345,13 @@ model Document {
   /// upload or ingest) or "excluded by a user". A historical RFI must never be
   /// review INPUT: it is the answer key.
   rfiExclusionReason   String?
+  /// What the worker is doing right now, for the progress bar:
+  /// {stage, done?, total?, at}. Written by workers/src/processing.py.
+  progress             Json?
+  /// Why processing stopped or is being retried: {kind, detail, attempt,
+  /// attempts, retrying, at}. `kind` is mapped to plain words by
+  /// DOCUMENT_PROBLEMS in @cdip/shared; `detail` is the technical text.
+  problem              Json?
   /// Manifest ordering key: combined numbering orders documents by (createdAt, id).
   createdAt            DateTime       @default(now())
 
@@ -460,6 +467,9 @@ model Portion {
   summaryHeartbeatAt   DateTime?
   /// The size the last run asked for (SUMMARY_DETAILS in @cdip/shared).
   summaryDetail        String?
+  /// What a running summary is doing, for its progress bar: {stage, done?,
+  /// total?, at} (SUMMARY_STAGES in @cdip/shared; written by summarize.py).
+  summaryProgress      Json?
 
   project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   summaryRequestedBy User?     @relation(fields: [summaryRequestedById], references: [id], onDelete: SetNull)

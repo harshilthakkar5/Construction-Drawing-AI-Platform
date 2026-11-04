@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, FileQuestionIcon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  RFI_REVIEW_STAGE_LABELS,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
   suggestSheets,
@@ -14,12 +15,11 @@ import {
 import { api } from "@/api";
 import { AllBox, flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
 import { CandidateCard } from "@/components/RfiReview";
-import { Notice, Spinner } from "@/components/shared";
+import { JobProgress, Notice, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -236,6 +236,7 @@ function SetSummary({ set: s, title }: { set: RfiSetDto; title?: boolean }) {
         {elements} element{elements === 1 ? "" : "s"} · {s.sheets.length} sheet{s.sheets.length === 1 ? "" : "s"}
         {cost ? ` · est. ${cost}` : ""}
       </span>
+      {status.label === "Running" && <SetProgress runs={s.runs} progress={s.progress} />}
       <span className="text-xs">
         {s.findings ? (
           <>
@@ -805,7 +806,7 @@ function RfiSetDialog({
                 <h4 className="text-sm font-semibold">Elements ({d.items.length})</h4>
                 <ul className="flex flex-col divide-y rounded-lg border">
                   {d.items.map((item) => {
-                    const run = d.reviews.find((r) => r.library?.element.id === item.elementId);
+                    const run = newestPerElement(d.reviews).find((r) => r.library?.element.id === item.elementId);
                     const err = errorOf(item.elementId) ?? (run?.status === "failed" || run?.status === "stale" ? run.error : null);
                     const cost = run?.estimate ? usd(run.estimate.costLowUsd, run.estimate.costHighUsd) : null;
                     return (
@@ -821,8 +822,22 @@ function RfiSetDialog({
                             </Badge>
                           </span>
                         </div>
-                        {run && ACTIVE.includes(run.status) && <Progress value={run.progress} className="h-1.5" />}
-                        {err && <span className="text-destructive text-xs">{err}</span>}
+                        {run && ACTIVE.includes(run.status) && (
+                          <JobProgress
+                            text={
+                              run.status === "queued"
+                                ? "Waiting for a free slot…"
+                                : `${RFI_REVIEW_STAGE_LABELS[run.stage ?? "discovery"]}…`
+                            }
+                            percent={run.progress}
+                            label={`${run.library?.element.name ?? "Element"} review`}
+                          />
+                        )}
+                        {run?.status === "failed" && !errorOf(item.elementId) ? (
+                          <ProblemNotice detail={run.error} />
+                        ) : (
+                          err && <span className="text-destructive text-xs">{err}</span>
+                        )}
                       </li>
                     );
                   })}
@@ -848,6 +863,30 @@ function RfiSetDialog({
  * Shown in the card's slider and in its full view; both read the same cached
  * set, so a decision in one shows in the other.
  */
+/** Each element's NEWEST review: a re-run replaces the one before it. */
+function newestPerElement(reviews: RfiSetDetailDto["reviews"]): RfiSetDetailDto["reviews"] {
+  const newest = new Map<string, RfiSetDetailDto["reviews"][number]>();
+  for (const r of [...reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    const key = r.library?.element.id ?? r.id;
+    if (!newest.has(key)) newest.set(key, r);
+  }
+  return [...newest.values()];
+}
+
+/** How many of a running RFI's elements have finished, as a bar. */
+function SetProgress({ runs, progress }: { runs: RfiSetDto["runs"]; progress: number }) {
+  const n = (k: RfiReviewStatus) => runs[k] ?? 0;
+  const total = Object.values(runs).reduce((a, b) => a + (b ?? 0), 0);
+  const done = n("ready") + n("partial") + n("failed") + n("cancelled") + n("stale");
+  return (
+    <JobProgress
+      text={`${done} of ${total} element${total === 1 ? "" : "s"} finished`}
+      percent={progress}
+      label="RFI progress"
+    />
+  );
+}
+
 function SetFindings({ projectId, setId, onFinished }: { projectId: string; setId: string; onFinished: () => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({
@@ -869,8 +908,33 @@ function SetFindings({ projectId, setId, onFinished }: { projectId: string; setI
   const pending = d.candidates.filter((c) => c.status === "pending");
   const decidedCount = d.candidates.length - pending.length;
   const active = d.reviews.some((r) => ACTIVE.includes(r.status));
+  // Each element's newest run, shown while it runs or once it failed;
+  // finished ones speak through their findings.
+  const shown = newestPerElement(d.reviews).filter((r) => ACTIVE.includes(r.status) || r.status === "failed");
   return (
     <div className="flex flex-col gap-2">
+      {shown.length > 0 && (
+        <ul className="flex flex-col gap-2.5 rounded-lg border p-3">
+          {shown.map((run) => (
+            <li key={run.id} className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium">{run.library?.element.name ?? "Review"}</span>
+              {run.status === "failed" ? (
+                <ProblemNotice detail={run.error} />
+              ) : (
+                <JobProgress
+                  text={
+                    run.status === "queued"
+                      ? "Waiting for a free slot…"
+                      : `${RFI_REVIEW_STAGE_LABELS[run.stage ?? "discovery"]}…`
+                  }
+                  percent={run.progress}
+                  label={`${run.library?.element.name ?? "Element"} review`}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {pending.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           {active

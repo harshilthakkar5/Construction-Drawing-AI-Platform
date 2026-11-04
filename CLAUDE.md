@@ -322,6 +322,24 @@ projects/{projectId}/
 - FR-8: Per page, extract text, images, tables, title-block metadata, page number.
 - FR-9: Per-document processing status visible to the user: `uploaded → processing →
   completed / failed`.
+  Beside the status, `documents.progress` ({stage, done, total, ocr, at}, written by
+  `processing.Progress`, page counts at most every 2s) drives a progress bar, and
+  `documents.problem` ({kind, detail, attempt, attempts, retrying}) says why a run stopped.
+  `doc_errors.classify` maps any exception to a kind; the UI shows only the plain words in
+  `PROBLEMS` (`@cdip/shared`) with the raw text under "Technical details" (keys and
+  signed URLs scrubbed). While a retry is coming the document stays `processing`; a damaged
+  PDF, no AI credit or a wrong key (`doc_errors.PERMANENT`) fails at once (`job.discarded`),
+  since retrying the same file fails the same way. `test_doc_errors.py` holds the kinds and
+  stage names equal to the shared lists. The same pieces (`JobProgress`, `ProblemNotice` in
+  `components/shared.tsx`) show discipline summaries (`portions.summaryProgress`, stages
+  `SUMMARY_STAGES`: pages → sections → rollup, written by `summarize._progress` through the
+  run's thread-local context) and RFI runs (each element's NEWEST run on the RFI's page and
+  in its pop-up; the card's bar is `RfiSetDto.progress`). The error RULES live once, as
+  `PROBLEM_RULES` in `@cdip/shared` (codegen copies them to `generated.py`), so a summary or
+  review error stored as text is classified on screen by `classifyProblem` with the worker's
+  own list. A review that gives up after its retries now says what the provider said
+  (`llm.last_failure()`): "see the worker log" hid an empty AI account behind "something
+  went wrong".
 - FR-10–12: Whole-project summary, a separate summary per detected portion (discipline), and
   page-level summaries as the building blocks for both — see hierarchical summarization, above.
 - FR-13: Every fact/summary statement stores source references (chunk IDs → document, page,
