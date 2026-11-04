@@ -589,6 +589,13 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     # Embed this document's new chunks (reusing the previous revision's
     # vectors for unchanged text), then refresh payloads for the rest of the
     # project (portion/discipline/combined page may have shifted).
+    # Embedding is the step that costs money. A document (or its project)
+    # deleted while its pages were read has nothing left to search, so stop
+    # here rather than paying to embed it and logging a foreign-key warning
+    # for every usage row of a project that no longer exists.
+    if not db.document_exists(document_id):
+        log.warning("[doc %s] deleted while processing — stopping before embedding", doc_tag)
+        return {"skipped": "document deleted"}
     to_embed = db.chunks_to_embed(document_id)
     embedded_ids: list[str] = []
     progress.stage("embed")

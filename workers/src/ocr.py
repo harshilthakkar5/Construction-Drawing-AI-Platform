@@ -86,9 +86,14 @@ def _halt(reason: str) -> None:
     global _halted
     _halted = reason
     _free_engine()
+    # The image size in `reason` is the tile, always 1600px; the setting that
+    # sizes the engine's work is OCR_DET_LIMIT, so say what it is now.
+    lower = ("lower OCR_DET_LIMIT to 960 (now %d), " % config.OCR_DET_LIMIT
+             if config.OCR_DET_LIMIT > 960 else "OCR_DET_LIMIT is already %d, so " % config.OCR_DET_LIMIT)
     log.error("OCR STOPPED in this worker until it is restarted: %s. Pages not read stay unmarked and are "
               "read by a later scan. Fixes: give the worker more memory (WORKER_MEM_LIMIT, and the Docker "
-              "VM's memory in .wslconfig on Windows), lower OCR_DET_LIMIT to 960, or OCR_ENABLED=false.", reason)
+              "VM's memory in .wslconfig on Windows), %slower PAGE_CONCURRENCY (now %d) so fewer pages are "
+              "rendered beside the engine, or OCR_ENABLED=false.", reason, lower, config.PAGE_CONCURRENCY)
 
 
 def _free_engine() -> None:
