@@ -326,8 +326,9 @@ projects/{projectId}/
   `processing.Progress`, page counts at most every 2s) drives a progress bar, and
   `documents.problem` ({kind, detail, attempt, attempts, retrying}) says why a run stopped.
   `doc_errors.classify` maps any exception to a kind; the UI shows only the plain words in
-  `PROBLEMS` (`@cdip/shared`) with the raw text under "Technical details" (keys and
-  signed URLs scrubbed). While a retry is coming the document stays `processing`; a damaged
+  `PROBLEMS` (`@cdip/shared`); the raw text (keys and signed URLs scrubbed) is stored for the logs
+  and never shown — an unreachable host is `offline`, ahead of `storage`, since its URL is the
+  storage one but the fix is the network. While a retry is coming the document stays `processing`; a damaged
   PDF, no AI credit or a wrong key (`doc_errors.PERMANENT`) fails at once (`job.discarded`),
   since retrying the same file fails the same way. `test_doc_errors.py` holds the kinds and
   stage names equal to the shared lists. The same pieces (`JobProgress`, `ProblemNotice` in

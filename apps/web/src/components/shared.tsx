@@ -161,9 +161,9 @@ export function JobProgress({ text, percent, label, stalled }: {
 }
 
 /**
- * Why a job stopped, in plain words, with the raw error under "Technical
- * details". Pass `kind` when the worker classified it; otherwise the raw text
- * is classified here with the same rules (PROBLEM_RULES in @cdip/shared).
+ * Why a job stopped, in plain words only: the raw error is kept for the logs
+ * and never shown. Pass `kind` when the worker classified it; otherwise the
+ * raw text is classified here with the same rules (PROBLEM_RULES in @cdip/shared).
  * `retrying` shows the amber "trying again" form.
  */
 export function ProblemNotice({ kind, detail, retrying, extra }: {
@@ -181,7 +181,6 @@ export function ProblemNotice({ kind, detail, retrying, extra }: {
           {text.title}. {retrying}
         </p>
         {extra}
-        <TechnicalDetails detail={detail} />
       </div>
     );
   }
@@ -195,20 +194,10 @@ export function ProblemNotice({ kind, detail, retrying, extra }: {
         {text.action}
         {extra}
       </p>
-      <TechnicalDetails detail={detail} />
     </div>
   );
 }
 
-function TechnicalDetails({ detail }: { detail?: string | null }) {
-  if (!detail) return null;
-  return (
-    <details className="text-muted-foreground mt-1">
-      <summary className="cursor-pointer select-none">Technical details</summary>
-      <code className="mt-1 block font-mono text-[11px] break-all whitespace-pre-wrap">{detail}</code>
-    </details>
-  );
-}
 
 // --- Feedback: spinners, loading states, dialogs ---------------------------
 

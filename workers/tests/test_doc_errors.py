@@ -24,6 +24,10 @@ SHARED = os.path.join(os.path.dirname(__file__), "..", "..", "packages", "shared
         (MemoryError(), "memory"),
         (OSError(28, "No space left on device"), "disk"),
         (ConnectionError("Connection refused"), "connection"),
+        # A laptop that dropped off the network: names the storage URL, but the fix is the network.
+        (RuntimeError('EndpointConnectionError: Could not connect to the endpoint URL: "https://blr1.digitaloceanspaces.com/x" '
+                      "| NameResolutionError: Failed to resolve 'blr1.digitaloceanspaces.com' "
+                      "([Errno 11001] getaddrinfo failed)"), "offline"),
         (ValueError("something odd"), "unknown"),
     ],
 )

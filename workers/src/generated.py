@@ -98,6 +98,10 @@ PROBLEM_RULES = [
         "memoryerror|out of memory|cannot allocate|could not create a primitive",
     ],
     [
+        "offline",
+        "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable|no route to host|internet connection",
+    ],
+    [
         "storage",
         "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore",
     ],

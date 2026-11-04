@@ -34,6 +34,7 @@ describe("job problems from raw error text", () => {
     expect(classifyProblem("the portion rollup produced nothing citable")).toBe("ai_reply");
     expect(classifyProblem("the worker stopped responding during this review")).toBe("worker_stopped");
     expect(classifyProblem("Error code: 529 overloaded_error")).toBe("ai_busy");
+    expect(classifyProblem("Could not connect to the endpoint URL | Failed to resolve 'x' ([Errno 11001] getaddrinfo failed)")).toBe("offline");
     expect(classifyProblem("something odd")).toBe("unknown");
     expect(classifyProblem(null)).toBe("unknown");
   });

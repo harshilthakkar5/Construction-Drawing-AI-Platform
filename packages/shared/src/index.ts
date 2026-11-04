@@ -215,6 +215,10 @@ export const PROBLEMS = {
     title: "The AI service is busy right now",
     action: "Wait a few minutes and try again.",
   },
+  offline: {
+    title: "This computer lost its internet connection",
+    action: "Check the internet connection. It tries again by itself, and pages already read are kept.",
+  },
   storage: {
     title: "We couldn't fetch the uploaded file",
     action: "Try again. If it keeps failing, delete the document and upload it again.",
@@ -265,7 +269,7 @@ export const PROBLEMS = {
   },
   unknown: {
     title: "Something went wrong",
-    action: "Try again. If it keeps failing, contact support with the technical details below.",
+    action: "Try again. If it keeps failing, contact support.",
   },
 } as const;
 export type ProblemKind = keyof typeof PROBLEMS;
@@ -279,6 +283,11 @@ export type ProblemKind = keyof typeof PROBLEMS;
 export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
   ["disk", "no space left on device|disk quota"],
   ["memory", "memoryerror|out of memory|cannot allocate|could not create a primitive"],
+  // Before storage: an unreachable host names the storage URL too, but the
+  // fix is the network, not the file.
+  ["offline",
+    "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable" +
+    "|no route to host|internet connection"],
   ["storage", "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore"],
   ["disabled", "summaries disabled|_enabled=false"],
   ["ai_credits",
