@@ -101,6 +101,8 @@ class GridSystem:
     # (plan_match.page_scales). Empty when none was read — or for a system
     # cached before scales were stored, which compares as before.
     scales: tuple[float, ...] = field(default=(), hash=False, compare=False)
+    # Labels read by OCR (grid.ocr_systems): evidence says so, and rfi_checks.mark_ocr caps the finding.
+    ocr: bool = field(default=False, hash=False, compare=False)
 
     def repeats_a_label(self) -> bool:
         """True when one label is bubbled at two places on its axis: several
@@ -336,6 +338,7 @@ def _evidence(system: GridSystem, page: Page, labels: list[str], name: str, axis
         "chunkId": None,
         "quote": f"{name}: grid lines {shown}",
         "role": "finding",
+        **({"source": "ocr"} if system.ocr else {}),
     }
 
 

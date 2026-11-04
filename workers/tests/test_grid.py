@@ -313,3 +313,74 @@ def test_a_letter_and_number_grid_label_is_a_label():
         assert grid.STYLED_LABEL.fullmatch(label), label
     for word in ("A-2", "ABC", "PLAN"):
         assert not grid.STYLED_LABEL.fullmatch(word), word
+
+
+# --- Grid labels drawn as lines, read by OCR (Victaulic S1.1C/D/G) ---------------
+
+
+def test_a_grid_label_is_read_only_when_ocr_agrees_with_itself():
+    assert grid.label_from_reading(["16.5"]) == "16.5"
+    assert grid.label_from_reading(["e.2"]) == "E.2"
+    assert grid.label_from_reading(["16 5"]) is None  # one copy must be one label: "165" is not a grid label here
+    assert grid.label_from_reading(["EEE"], copies=3) == "E"
+    assert grid.label_from_reading(["KK"], copies=3) == "K"  # a copy the detector dropped
+    assert grid.label_from_reading(["BE"], copies=3) is None  # two copies disagree
+    assert grid.label_from_reading(["E.2E.2F.2"], copies=3) is None
+    assert grid.label_from_reading([], copies=3) is None
+    assert grid.label_from_reading(["NOTE"]) is None
+
+
+def test_a_row_of_labels_is_trusted_only_when_it_runs_in_order():
+    assert grid.in_order(["14", "14.6", "14.7", "15", "15.6", "16", "16.5", "17"])
+    assert grid.in_order(["K", "H", "F.2", "E.2", "E"])  # a row may run either way
+    assert grid.in_order(["E", "E.2", "F.2", "H", "K"])
+    assert not grid.in_order(["15", "5.6", "16"])  # the misread the ring caused before it was erased
+    assert not grid.in_order(["E", "16", "K"])
+    assert not grid.in_order(["E", "E"])
+
+
+def test_rows_of_drawn_bubbles_become_a_grid_marked_as_read_by_ocr(monkeypatch):
+    """No text layer: the bubbles are found by shape, their labels by OCR, and
+    the system says it was read that way so a finding on it is capped."""
+    doc = fitz.open()
+    page = doc.new_page(width=2592, height=1728)
+    shape = page.new_shape()
+    side = {"14": 223, "15": 560, "15.6": 749, "16": 898}
+    bottom = {"E": 194, "H": 801, "K": 1544}
+    for y in side.values():
+        shape.draw_circle((1738, y), 18)
+        shape.finish(color=(0, 0, 0))
+        shape.draw_line((1300, y), (1720, y))
+        shape.finish(color=(0, 0, 0))
+    for x in bottom.values():
+        shape.draw_circle((x, 1424), 18)
+        shape.finish(color=(0, 0, 0))
+        shape.draw_line((x, 200), (x, 1406))
+        shape.finish(color=(0, 0, 0))
+    shape.commit()
+    labels = {**{(1738, y): k for k, y in side.items()}, **{(x, 1424): k for k, x in bottom.items()}}
+
+    def read(_page, shown):
+        cx, cy = (shown.x0 + shown.x1) / 2, (shown.y0 + shown.y1) / 2
+        return next(v for (x, y), v in labels.items() if abs(x - cx) < 2 and abs(y - cy) < 2)
+
+    monkeypatch.setattr(grid, "_ocr_label", read)
+    systems = grid.ocr_systems(page)
+    assert len(systems) == 1 and systems[0]["ocr"] is True
+    assert sorted(systems[0]["along_y"], key=systems[0]["along_y"].get) == ["14", "15", "15.6", "16"]
+    assert sorted(systems[0]["along_x"], key=systems[0]["along_x"].get) == ["E", "H", "K"]
+    # One misread breaks the order and the row is dropped, not guessed at.
+    labels[(1738, 749)] = "5.6"
+    assert not grid.ocr_systems(page)[0]["along_y"]
+
+
+def test_a_row_is_grid_bubbles_only_when_lines_leave_them_across_the_row():
+    """Victaulic S3.4: the circles under its details (4, 5, 6, 7) sit in a row
+    like grid bubbles, but carry only their title's underline, along the row."""
+    bubble = fitz.Rect(100, 100, 136, 136)
+    grid_line = [(118, 136, 118, 900)]  # straight down from a bottom-row bubble
+    underline = [(136, 130, 600, 130)]  # along the row, a detail title
+    assert grid._line_leaves(bubble, False, grid_line)
+    assert not grid._line_leaves(bubble, False, underline)
+    assert grid._line_leaves(bubble, True, underline)  # for a side row the same line runs across it
+    assert not grid._line_leaves(bubble, False, [(118, 400, 118, 900)])  # a line nowhere near

@@ -76,7 +76,7 @@ GRID_CHECK = os.environ.get("RFI_GRID_CHECK", "true").lower() != "false"
 # scales (an enlarged detail and an overall plan) are never compared.
 # 5: a bubble on a kinked leader is placed on the line its leader runs to,
 # not where it is printed (grid.leader_target).
-GRID_CACHE_VERSION = 7  # 6: grid bubbles drawn as rings of short segments; 7: letter+number labels (A2, B7)
+GRID_CACHE_VERSION = 8  # 6: grid bubbles drawn as rings of short segments; 7: letter+number labels (A2, B7); 8: labels drawn as lines, read by OCR
 _redis = None
 
 # The values the WORKER writes into Postgres enums. Mirrored from
@@ -528,7 +528,8 @@ def load_grids(project_id: str, pages: list[Page], progress=None,
                                 document_id[:8], page.page_number, exc)
                 raw[page.id] = found
                 read += 1
-                if cache is not None:
+                # "No grid" is not cached: on a sheet drawn as lines it depends on this worker having OCR.
+                if cache is not None and found:
                     try:
                         cache.set(_grid_key(document_id, page.page_number), json.dumps(found))
                     except Exception:
@@ -577,6 +578,7 @@ def load_grids(project_id: str, pages: list[Page], progress=None,
             page_id, s["style"], s["along_x"], s["along_y"], s.get("bubbles") or {},
             tuple(s["toUnrotated"]) if s.get("toUnrotated") else None,
             tuple(s.get("scales") or ()),
+            bool(s.get("ocr")),
         )
         for page_id, found in raw.items()
         for s in found

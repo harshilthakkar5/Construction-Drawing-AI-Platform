@@ -902,9 +902,9 @@ def test_a_sheet_whose_labels_are_drawn_as_lines_still_gets_strips_from_its_rows
     shape.draw_circle((300, 300), 9)  # a lone small circle: no row
     shape.finish()
     shape.commit()
-    circles = rfi_review.drawn_circles(page)
+    circles = grid.drawn_circles(page)
     assert len([c for c in circles if c.x0 > 1700]) == 6 and all(28 < c.width < 40 for c in circles if c.x0 > 1700)
-    rows = rfi_review.bubble_rows(circles)
+    rows = grid.bubble_rows(circles)
     assert [(v, len(g)) for v, g in rows] == [(True, 6)]
     monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
     strips = rfi_review.grid_strip_regions(page, 2)

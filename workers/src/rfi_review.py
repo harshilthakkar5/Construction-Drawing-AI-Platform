@@ -532,55 +532,6 @@ GRID_STRIP_MAX_PT = 720  # a longer strip is cut: at CROP_EDGE a 10 in strip rea
 GRID_STRIP_BAND = 6  # bubble diameters inward from the bubbles, where the dimension strings run
 
 
-BUBBLE_ROW_TOL_PT = 3.0  # centres this close share a row of bubbles
-BUBBLE_ROW_MIN = 3
-
-
-def drawn_circles(page) -> list[fitz.Rect]:
-    """Every closed path drawn as a circle of grid-bubble size, in UNROTATED
-    space, label or not. A bezier's control points overshoot its arc, so each
-    curve is sampled at its ends and middle: Victaulic S1.1G draws a bubble as
-    two half-circle curves joined by short lines, 36x36 round but 36x47 by its
-    control points. Pure but for `page`."""
-    out = []
-    for d in page.get_drawings():
-        pts = []
-        for item in d["items"]:
-            if item[0] == "c":
-                p0, p1, p2, p3 = item[1:5]
-                pts += [p0, p3, fitz.Point((p0.x + 3 * p1.x + 3 * p2.x + p3.x) / 8, (p0.y + 3 * p1.y + 3 * p2.y + p3.y) / 8)]
-            elif item[0] == "l":
-                pts += [item[1], item[2]]
-            else:
-                pts = []
-                break
-        if sum(1 for item in d["items"] if item[0] == "c") < 2 or not pts or abs(pts[0] - pts[-1]) > 1.0:
-            continue
-        r = fitz.Rect(min(q.x for q in pts), min(q.y for q in pts), max(q.x for q in pts), max(q.y for q in pts))
-        if grid.STYLED_MIN_PT < r.width < grid.STYLED_MAX_PT and grid.BUBBLE_ASPECT[0] < r.width / max(r.height, 0.1) < grid.BUBBLE_ASPECT[1]:
-            out.append(r)
-    return out
-
-
-def bubble_rows(circles: list[fitz.Rect]) -> list[tuple[bool, list[fitz.Rect]]]:
-    """(vertical?, circles) for every row of BUBBLE_ROW_MIN or more circles of
-    one size whose centres share an x (a vertical row, at a sheet's side) or a
-    y (a horizontal row). Pure."""
-    rows = []
-    for vertical in (True, False):
-        key = (lambda r: (r.x0 + r.x1) / 2) if vertical else (lambda r: (r.y0 + r.y1) / 2)
-        group: list[fitz.Rect] = []
-        for r in sorted(circles, key=key) + [None]:
-            if r is not None and group and abs(key(r) - key(group[0])) <= BUBBLE_ROW_TOL_PT \
-                    and abs(r.width - group[0].width) <= 0.15 * group[0].width:
-                group.append(r)
-                continue
-            if len(group) >= BUBBLE_ROW_MIN:
-                rows.append((vertical, group))
-            group = [r] if r is not None else []
-    return rows
-
-
 def grid_strip_regions(page, limit: int) -> list[fitz.Rect]:
     """Where a sheet prints its grid-to-grid dimensions, in UNROTATED space:
     the band inside each row of grid bubbles, cut to GRID_STRIP_MAX_PT, the
@@ -608,7 +559,7 @@ def grid_strip_regions(page, limit: int) -> list[fitz.Rect]:
                 elif label in system["along_x"]:
                     sides["top" if cy < shown.height / 2 else "bottom"].append(r)
     if not any(sides.values()):  # labels drawn as lines: the bubbles' rows still say where the strings are
-        rows = bubble_rows([fitz.Rect(r * page.rotation_matrix).normalize() for r in drawn_circles(page)])
+        rows = grid.bubble_rows([fitz.Rect(r * page.rotation_matrix).normalize() for r in grid.drawn_circles(page)])
         for vertical, row in rows:
             cx = sum((r.x0 + r.x1) / 2 for r in row) / len(row)
             cy = sum((r.y0 + r.y1) / 2 for r in row) / len(row)

@@ -3263,6 +3263,19 @@ grid is evidence too; it is now listed under the naming it carries, `rfi_grid._n
 A1.01 bubbles one line E and F, and position-order matching said "E = F" (`_match` pairs same
 names FIRST); and "MECHANICAL DRAWING E2" was a missing sheet because the cover is T1 (a
 reference must be numbered like the set's sheets of its own prefix).
+A sheet whose grid LABELS are drawn as lines (Victaulic's structural S1.0, S1.1A-G: no text layer) had no grid at
+all for any check. `grid.styled_systems` now falls back, only on such a sheet (`drawn_text`: page_ocr's shape-text
+thresholds) and only where OCR can run, to `ocr_systems`: bubble-sized closed circles (`drawn_circles`, each bezier
+sampled at its midpoint) in rows of 3+ (`bubble_rows`) with a straight line leaving them ACROSS the row
+(`_line_leaves` — S3.4's detail-title circles 4-7 carry only an underline along it), each label read by OCR with the
+ring erased (it clipped "16.5" to "6.5") — once, then three copies side by side for a lone letter the detector skips
+(`label_from_reading`: one copy must be one unbroken label, so "16 5" is never grid 165; copies must agree, so "BE"
+is nothing) — and a row kept only when its labels run in order (`in_order`). An unread line is left out, never named
+from its neighbours. Systems carry `ocr`, `GridSystem.ocr` puts `source: "ocr"` on the evidence, and `mark_ocr`
+caps the finding at medium. Over Victaulic's 114 pages: 8 structural grids read (14, 14.6, 14.7 … 17; E, E.2, F.2 …),
+~90 s of OCR, zero false findings (the disciplines name the grid alike); G and J and some single digits do not read.
+A "no grid" result is no longer cached by the scan (it depends on this worker having OCR) (`GRID_CACHE_VERSION` 8,
+`STYLED_VERSION` 8, `FACTS_VERSION` 7).
 
 ## Claude prompting pattern for grounded answers
 
