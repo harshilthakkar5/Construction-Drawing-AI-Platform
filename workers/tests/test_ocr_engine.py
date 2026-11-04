@@ -268,3 +268,17 @@ def test_free_memory_respects_the_container_limit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ocr, "_cgroup_free_mb", lambda root="": 205.0)
     assert ocr._free_mb() <= 205.0  # the tighter of the VM's and the container's
+
+
+def test_with_ocr_off_a_page_that_needs_it_is_left_for_a_later_scan(monkeypatch):
+    """Uploading with OCR_ENABLED=false must not record a textless page as
+    'checked, nothing to read' — the scan would then never read it."""
+    import fitz
+
+    import page_ocr
+
+    monkeypatch.setattr(ocr, "available", lambda: False)
+    doc = fitz.open()
+    page = doc.new_page()  # no text layer at all
+    reading = page_ocr.read_page(page)
+    assert reading.reason is not None and not reading.ran  # processing leaves it unmarked
