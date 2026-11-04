@@ -2440,6 +2440,16 @@ every `OCR_ENGINE_RECYCLE` images, and stops OCR when the process is still over 
 releasing it (psutil; without it these guards are off). Tiles are padded to one 1600px square
 (`image_lines(pad_to=)`) so the detector sees ONE input shape rather than a new one per edge tile.
 The memory growth itself is the likely cause, not a measured one: PaddleOCR could not be run here.
+The rebuild never released anything, which is why a 16 GB laptop still lost OCR 7 and 22 minutes into
+two uploads at `OCR_DET_LIMIT=960`: Paddle keeps what it allocates for the life of the PROCESS, so
+`_free_engine` dropped a Python object and kept the memory. The engine now runs in its own spawned
+process (`ocr._ProcessEngine`, a pipe; the worker never imports Paddle), which recycling and
+`OCR_MAX_RSS_MB` END — measured on that process, not the worker — returning every byte. A memory
+failure ends the process and fails only that image; the next starts fresh, and only
+`MEMORY_STRIKES` (3) in a row halt OCR. A child that dies (the OS ending it out of memory) reads as a
+memory failure. Callers did not change: the class has the engine's own `ocr()`. Inside a container
+the free-memory guard also reads the cgroup's room (`_cgroup_free_mb`), since psutil reports the
+whole Docker VM.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR

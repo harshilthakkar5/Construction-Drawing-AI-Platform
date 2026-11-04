@@ -120,7 +120,10 @@ def _process_page(
     # pasted schedule picture is read in tiles (page_ocr.py). The old path
     # sent the whole sheet as one image, which the detector shrinks to 960px.
     try:
-        reading = page_ocr.read_page(page) if config.OCR_ENABLED else page_ocr.PageOcr(reason=None)
+        # Planned even with OCR off: a page that NEEDS OCR then comes back
+        # unread (ran=False) and stays unmarked, so a later scan on a worker
+        # with OCR on reads it. Skipping the plan marked it "nothing to read".
+        reading = page_ocr.read_page(page)
     except ocr.OcrError as exc:
         # A broken OCR engine must not fail the page. Not marked examined
         # (ran=False), so the next RFI scan reads it on a working engine.
