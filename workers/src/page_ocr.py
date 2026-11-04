@@ -49,7 +49,7 @@ log = logutil.get("page_ocr")
 
 # Bump when what is read changes; pages read under an older version are read
 # again by the next scan.
-OCR_VERSION = 2  # 2: a picture is illegible only when 1-bit (see Picture.illegible)
+OCR_VERSION = 3  # 2: a picture is illegible only when 1-bit (see Picture.illegible); 3: O read for 0 is repaired (ocr.zeros_for_os)
 SOURCE_MODEL = "ocr:paddleocr"
 
 OCR_DPI = 200          # 8pt CAD text is ~22px tall: PaddleOCR's comfortable range

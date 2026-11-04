@@ -182,6 +182,50 @@ def test_close_ups_aim_at_the_details_whose_titles_name_the_element():
         assert rr.detail_regions(page, [], 3) == [] and rr.detail_regions(page, [["PILE", "CAP"]], 3) == []
 
 
+def test_details_a_reviewed_plan_cuts_get_the_close_ups_first():
+    """Leland S4.10: details 13 and 8 are titled BASEMENT WALL DETAIL, detail 10 only "10/S4.10" — and
+    S2.31-A cuts 10 (RFI 009). Both slots went to 13 and 8; the project map says which details to show."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=2000, height=1200)
+    for x, y, num, title, inside in ((100, 500, "15", "TOPPING SLAB TRANSITION DETAIL", "TOPX"),
+                                     (1100, 500, "10", "10/S4.10", "TENX"),
+                                     (100, 1000, "13", "BASEMENT WALL DETAIL", "THIRTEENX"),
+                                     (1100, 1000, "8", "BASEMENT WALL DETAIL", "EIGHTX")):
+        page.insert_text((x + 60, y - 200), inside, fontsize=12)
+        page.insert_text((x - 40, y), num, fontsize=14)
+        page.insert_text((x, y), title, fontsize=12)
+        page.insert_text((x, y + 18), 'SCALE: 3/4" = 1\'-0"', fontsize=9)
+    walls = rr.element_title_words("Retaining walls (building)")
+
+    def shown(cut=frozenset(), alternatives=walls):
+        markers = ("TOPX", "TENX", "THIRTEENX", "EIGHTX")
+        return [[m for m in markers if m in {w[4] for w in page.get_text("words", clip=r)}]
+                for r in rr.detail_regions(page, alternatives, 2, cut)]
+
+    assert shown() == [["THIRTEENX"], ["EIGHTX"]]                 # by title alone, top to bottom
+    assert shown({"10", "13"}) == [["TENX"], ["THIRTEENX"]]       # what the plan cuts comes first
+    assert shown({"8"}) == [["EIGHTX"], ["THIRTEENX"]]            # cut beats higher on the sheet
+    assert shown({"15"}) == [["THIRTEENX"], ["EIGHTX"]]           # cut, but titled as something else
+    assert shown({"10"}, alternatives=[]) == [["TENX"]]           # a bare reference counts only when cut
+
+
+def test_the_project_map_says_which_details_the_reviewed_sheets_cut(monkeypatch):
+    import sys
+    import detail_map
+
+    entries = {("d", 1): {"links": [{"detail": "10", "sheet": "S4.10"}, {"detail": "8", "sheet": "s4.10"}]},
+               ("d", 2): {"links": [{"detail": "24", "sheet": "S4.02"}]}}
+    monkeypatch.setattr(detail_map, "ensure", lambda pages, open_page: entries)
+    scope = {"pages": [{"pageId": "p1", "documentId": "d", "pageNumber": 1}, {"pageId": "p2", "documentId": "d", "pageNumber": 2}]}
+    assert rr.details_cut(scope, None) == {"S4.10": {"10", "8"}, "S4.02": {"24"}}
+
+    def broken(pages, open_page):
+        raise RuntimeError("database down")
+    monkeypatch.setattr(detail_map, "ensure", broken)
+    assert rr.details_cut(scope, None) == {}  # never fails a review: only the title order is lost
+
+
 def test_a_title_touching_its_scale_line_is_still_a_title_and_its_cell_reaches_the_next_column():
     import fitz
     doc = fitz.open()
@@ -475,6 +519,19 @@ def test_an_unescaped_inch_mark_does_not_cost_a_whole_retry():
     assert rr.parse_json_object("no json here") is None
 
 
+def test_an_inch_mark_before_a_comma_does_not_cost_a_whole_retry():
+    # 2 Nov, Leland: `-4'-0", 8" CMU` — the quote after 0 sits before a comma, so it looks like the
+    # end of the string to any pattern; the retry that replaced this reply lost its reading of detail 10.
+    raw = ('{"observations":[{"statement":"Printed values: T.O.WALL 2\'-0" VFY W/ ARCH, T.O.WALL -4\'-0", '
+           '8" CMU wall above","confidence":"high"}],"gaps":[]}')
+    d = rr.parse_json_object(raw)
+    assert d["observations"][0]["statement"] == ("Printed values: T.O.WALL 2'-0\" VFY W/ ARCH, T.O.WALL -4'-0\", "
+                                                  '8" CMU wall above')
+    assert d["observations"][0]["confidence"] == "high" and d["gaps"] == []
+    # A break that is not an inch mark is still a reply to retry, never a guess.
+    assert rr.parse_json_object('{"a": "x" "b": "y"}') is None
+
+
 def test_a_bare_word_value_does_not_cost_a_whole_retry():
     # The fourth paid run: "confidence":medium, beside an inch mark in the same reply.
     raw = '{"observations":[{"statement":"~20" thick wall","confidence":medium},' \
@@ -686,3 +743,84 @@ def test_a_placement_claim_is_shown_the_largest_closeups_of_the_sheets_it_cites(
     # Not a placement claim, or not a missing/ambiguity one: unchanged.
     assert rr.with_sheet_closeups(dict(claim, issue="No load test is specified."), evidence)["evidenceIds"] == claim["evidenceIds"]
     assert rr.with_sheet_closeups(dict(claim, kind="conflict"), evidence)["evidenceIds"] == claim["evidenceIds"]
+
+
+def test_a_question_may_name_a_sheet_the_review_read_but_not_one_it_did_not():
+    # Victaulic S1.1A: a kept bearing-pressure conflict cited S0.1 and S1.0 and asked
+    # which value governs "the foundation shown on S1.1A" — the sheet under review.
+    def e(eid, sheet, text):
+        page = {"S0.1": 35, "S1.0": 38, "S1.1A": 39}[sheet]
+        return rr.Evidence(id=eid, kind="text", document_id="d", page_number=page, combined_page_number=page,
+                           sheet_number=sheet, side=None, bbox=None, text=text)
+    ev = {"ev11": e("ev11", "S0.1", "MINIMUM SOIL BEARING CAPACITY 2,500 PSF"),
+          "ev16": e("ev16", "S1.0", "ALLOWABLE BEARING 2000 PSF (ASSUMED)"),
+          "ev1": e("ev1", "S1.1A", "FOUNDATION PLAN")}
+    c = {"checkId": "CE-04-01-Q07", "kind": "conflict", "evidenceIds": ["ev11", "ev16"], "element": "Soil bearing"}
+    asked = {"subject": "Bearing 2000 vs 2500 psf",
+             "question": "S0.1 says 2500 psf and S1.0 says 2000 psf. Which governs the footings on S1.1A?"}
+    assert rr.guard(c, asked, ev, []) is None
+    assert rr.guard(c, dict(asked, question=asked["question"].replace("S1.1A", "S1.1B")), ev, []) is not None
+    assert rr.guard(c, dict(asked, question=asked["question"] + " Is it 3000 psf?"), ev, []) is not None
+
+
+def _drawn_text_plan(rotation=0):
+    """A sheet with no text layer: a dense knot of linework in one area, a
+    little elsewhere, and a block of glyph-sized strokes (drawn lettering)."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=3456, height=2592) if rotation in (0, 180) else doc.new_page(width=2592, height=3456)
+    page.set_rotation(rotation)
+    to_page = page.derotation_matrix  # display space -> the page's own space
+    shape = page.new_shape()
+
+    def line(x0, y0, x1, y1):
+        shape.draw_line(fitz.Point(x0, y0) * to_page, fitz.Point(x1, y1) * to_page)
+
+    for i in range(60):  # the knot: footing walls and steps, upper left in display space
+        line(500 + (i % 10) * 60, 400 + (i // 10) * 60, 540 + (i % 10) * 60, 400 + (i // 10) * 60)
+    for i in range(6):  # scattered linework
+        line(2600 + i * 100, 1800, 2640 + i * 100, 1800)
+    for i in range(400):  # drawn lettering in the notes: strokes shorter than DRAWING_STROKE_MIN_PT
+        line(2900 + (i % 40) * 10, 200 + (i // 40) * 12, 2906 + (i % 40) * 10, 200 + (i // 40) * 12)
+    shape.finish(color=(0, 0, 0))
+    shape.commit()
+    return doc, page
+
+
+def test_a_drawn_text_sheet_gets_its_close_ups_where_it_is_drawn():
+    # Victaulic S1.1A: no text layer, its one close-up went to the notes and the
+    # footing step the client clouded (RFI 003) was only seen whole at ~45 DPI.
+    import fitz
+    for rotation in (0, 90):
+        doc, page = _drawn_text_plan(rotation)
+        first, second = rr.drawing_regions(page, 2)
+        knot = fitz.Point(800, 550) * page.derotation_matrix  # the knot's middle, in the stored frame
+        assert first.contains(knot), rotation
+        shown = fitz.Rect(first * page.rotation_matrix).normalize()
+        assert shown.width < page.rect.width / 2 and shown.height < page.rect.height / 2  # a close-up
+        assert (first & second).get_area() <= 0.25 * first.get_area()
+        # Lettering is not linework: no window is spent on the notes block.
+        notes = fitz.Point(3100, 220) * page.derotation_matrix
+        assert not any(r.contains(notes) for r in (first, second)), rotation
+        # What is already shown is not shown twice.
+        [after] = rr.drawing_regions(page, 1, taken=[first])
+        assert after != first and (after & first).get_area() <= 0.25 * first.get_area()
+        # A box nearly the size of the sheet is no close-up and blocks nothing.
+        assert rr.drawing_regions(page, 1, taken=[rr._unrotated_rect(page)])[0] == first
+        assert rr.drawing_regions(page, 0) == []
+
+
+def test_drawing_slots_become_drawing_close_ups_and_text_pieces_stay():
+    doc, page = _drawn_text_plan()
+    note = {"chunkId": "c1", "bbox": {"x": 2900, "y": 190, "width": 400, "height": 130}}
+    scope = {"pages": [{"pageId": "p1", "documentId": "d1", "pageNumber": 1, "sheetNumber": "S1.1A", "visual": True,
+                        "crops": [note, {"chunkId": "drawing:1", "bbox": None, "drawing": True},
+                                  {"chunkId": "drawing:2", "bbox": None, "drawing": True}]}]}
+    items = rr.image_evidence(scope, lambda d, n: page, start=1)
+    crops = [e for e in items if e.kind == "crop"]
+    assert len(crops) == 3  # as many images as the plan priced
+    assert crops[0].chunk_id == "c1"
+    import fitz
+    knot = fitz.Point(800, 550)
+    assert any(fitz.Rect(c.bbox["x"], c.bbox["y"], c.bbox["x"] + c.bbox["width"], c.bbox["y"] + c.bbox["height"]).contains(knot)
+               for c in crops[1:])

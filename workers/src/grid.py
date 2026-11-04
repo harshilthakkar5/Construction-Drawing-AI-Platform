@@ -59,7 +59,7 @@ def centre(rect: fitz.Rect) -> tuple[float, float]:
 
 # Bump with rfi_scan.GRID_CACHE_VERSION (a test holds them equal): a review
 # shares styled_systems readings through Redis under this version.
-STYLED_VERSION = 7
+STYLED_VERSION = 8
 
 
 def bubbles(page: fitz.Page) -> list[tuple[str, float, float]]:
@@ -484,7 +484,15 @@ def styled_systems(page: fitz.Page) -> list[dict]:
     through Redis, any other (page_memo). Untagged pages are read every time."""
     import page_memo
 
-    return page_memo.memo(f"styled_systems@{STYLED_VERSION}", page, lambda: _styled_systems(page), shared=True)
+    found = page_memo.memo(f"styled_systems@{STYLED_VERSION}", page, lambda: _styled_systems(page), shared=True)
+    if found or not drawn_text(page):
+        return found
+    import ocr
+
+    # Memoised only where OCR can run: a worker without it must not pin "no grid" for one that has it.
+    if not ocr.available():
+        return []
+    return page_memo.memo(f"ocr_systems@{OCR_GRID_VERSION}", page, lambda: ocr_systems(page), shared=True)
 
 
 def _styled_systems(page: fitz.Page) -> list[dict]:
@@ -527,6 +535,16 @@ def _styled_systems(page: fitz.Page) -> list[dict]:
             shown = rect * to_display
             by_colour.setdefault(colour, []).append((label, *centre(shown), shown, rect.width))
 
+    return _systems_from(page, by_colour)
+
+
+def _systems_from(page: fitz.Page, by_colour: dict[str, list[tuple[str, float, float, fitz.Rect, float]]],
+                  ocr: bool = False) -> list[dict]:
+    """Grid systems from labelled bubbles found by colour: (label, display x,
+    display y, display rect, size). `ocr` marks systems whose labels were read
+    by OCR (`ocr_systems`), so a finding built on them is capped like any
+    other OCR finding."""
+    to_display = ~page.derotation_matrix
     # A crowded grid end pushes its bubbles sideways on a kinked LEADER, so the
     # bubble no longer sits on its line. Read at the bubble, S2.106's G.9 and H
     # were 18pt (2 ft at 1/8") off the lines A3.25 draws them on, and the grid
@@ -574,7 +592,10 @@ def _styled_systems(page: fitz.Page) -> list[dict]:
         for label, _, _, shown in found:
             if label in along_x or label in along_y:
                 boxes.setdefault(label, []).append([shown.x0, shown.y0, shown.x1, shown.y1])
-        systems.append({"style": style, "along_x": along_x, "along_y": along_y, "bubbles": boxes})
+        system = {"style": style, "along_x": along_x, "along_y": along_y, "bubbles": boxes}
+        if ocr:
+            system["ocr"] = True
+        systems.append(system)
     return systems
 
 
@@ -731,3 +752,164 @@ def orientation(pairs) -> list[str]:
         f"Drawn vertically on the sheet, left to right: {', '.join(vertical)} (the {v_name} lines).",
         f"Drawn horizontally on the sheet, top to bottom: {', '.join(horizontal)} (the {h_name} lines).",
     ]
+
+
+# --- Grids whose labels are drawn as lines -------------------------------------
+
+BUBBLE_ROW_TOL_PT = 3.0  # centres this close share a row of bubbles
+BUBBLE_ROW_MIN = 3
+OCR_GRID_VERSION = 1
+# More bubbles than this in rows is not a grid (a fixture or symbol pattern), and each costs OCR calls.
+OCR_GRID_MAX_BUBBLES = 80
+OCR_GRID_PX = 300  # a bubble rendered this wide: its label reads at about 120px high
+OCR_GRID_INNER = 0.8  # the disk kept inside a bubble: the ring itself clipped "16.5" to "6.5"
+
+
+def drawn_text(page: fitz.Page) -> bool:
+    """Whether a sheet's words are drawn as lines (no text layer to read grid
+    labels from): the page_ocr thresholds for "text drawn as shapes"."""
+    import config
+
+    return (len(page.get_text("words")) <= config.OCR_SHAPE_TEXT_MAX_WORDS
+            and len(page.get_cdrawings()) >= config.OCR_SHAPE_TEXT_MIN_DRAWINGS)
+
+
+def drawn_circles(page: fitz.Page) -> list[fitz.Rect]:
+    """Every closed path drawn as a circle of grid-bubble size, in UNROTATED
+    space, label or not. A bezier's control points overshoot its arc, so each
+    curve is sampled at its ends and middle: Victaulic S1.1G draws a bubble as
+    two half-circle curves joined by short lines, 36x36 round but 36x47 by its
+    control points."""
+    out = []
+    for d in page.get_drawings():
+        pts = []
+        for item in d["items"]:
+            if item[0] == "c":
+                p0, p1, p2, p3 = item[1:5]
+                pts += [p0, fitz.Point((p0.x + 3 * p1.x + 3 * p2.x + p3.x) / 8, (p0.y + 3 * p1.y + 3 * p2.y + p3.y) / 8), p3]
+            elif item[0] == "l":
+                pts += [item[1], item[2]]
+            else:
+                pts = []
+                break
+        if sum(1 for item in d["items"] if item[0] == "c") < 2 or not pts or abs(pts[0] - pts[-1]) > 1.0:
+            continue
+        r = fitz.Rect(min(q.x for q in pts), min(q.y for q in pts), max(q.x for q in pts), max(q.y for q in pts))
+        if STYLED_MIN_PT < r.width < STYLED_MAX_PT and BUBBLE_ASPECT[0] < r.width / max(r.height, 0.1) < BUBBLE_ASPECT[1]:
+            out.append(r)
+    return out
+
+
+def bubble_rows(circles: list[fitz.Rect]) -> list[tuple[bool, list[fitz.Rect]]]:
+    """(vertical?, circles) for every row of BUBBLE_ROW_MIN or more circles of
+    one size whose centres share an x (a vertical row, at a sheet's side) or a
+    y (a horizontal row). Pure."""
+    rows = []
+    for vertical in (True, False):
+        key = (lambda r: (r.x0 + r.x1) / 2) if vertical else (lambda r: (r.y0 + r.y1) / 2)
+        group: list[fitz.Rect] = []
+        for r in sorted(circles, key=key) + [None]:
+            if r is not None and group and abs(key(r) - key(group[0])) <= BUBBLE_ROW_TOL_PT \
+                    and abs(r.width - group[0].width) <= 0.15 * group[0].width:
+                group.append(r)
+                continue
+            if len(group) >= BUBBLE_ROW_MIN:
+                rows.append((vertical, group))
+            group = [r] if r is not None else []
+    return rows
+
+
+def label_from_reading(texts: list[str], copies: int = 1) -> str | None:
+    """The grid label OCR read, or None. Pure. One copy must read as exactly one
+    label; `copies` side by side (a lone letter the detector skips alone) must
+    read as one label repeated, so "EEE" is E and "BE" is nothing."""
+    # One copy read in pieces ("16 5") is a missed decimal point, never grid 165.
+    if copies == 1 and (len(texts) != 1 or re.search(r"\s", texts[0].strip())):
+        return None
+    text = re.sub(r"\s+", "", "".join(texts)).upper()
+    if not text:
+        return None
+    for n in ((1,) if copies == 1 else range(copies, 1, -1)):
+        if len(text) % n == 0:
+            label = text[: len(text) // n]
+            if label * n == text and STYLED_LABEL.fullmatch(label):
+                return label
+    return None
+
+
+def in_order(labels: list[str]) -> bool:
+    """Whether labels in position order run one way: every number, or every
+    letter-led label, strictly rising or strictly falling. Pure. A misread
+    ("5.6" between 15 and 16) breaks the run, and the whole row is then not
+    trusted rather than guessed at."""
+    def key(label):
+        m = re.fullmatch(r"([A-Z]{0,2})\.?(\d+(?:\.\d+)?)?", label)
+        return (m.group(1), float(m.group(2) or 0)) if m else None
+    keys = [key(x) for x in labels]
+    if None in keys or len({bool(k[0]) for k in keys}) > 1:
+        return False
+    pairs = list(zip(keys, keys[1:]))
+    return all(a < b for a, b in pairs) or all(a > b for a, b in pairs)
+
+
+def _ocr_label(page: fitz.Page, shown: fitz.Rect) -> str | None:
+    """The label inside one bubble (DISPLAY rect), read by OCR: the ring erased,
+    the disk set on white, read once, then three copies side by side."""
+    import numpy as np
+
+    import ocr
+
+    zoom = OCR_GRID_PX / shown.width
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=shown, alpha=False)
+    disk = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, :3].copy()
+    h, w = disk.shape[:2]
+    yy, xx = np.mgrid[:h, :w]
+    disk[(yy - h / 2) ** 2 + (xx - w / 2) ** 2 > (min(h, w) / 2 * OCR_GRID_INNER) ** 2] = 255
+    for copies in (1, 3):
+        canvas = np.full((h * 3, w * (copies + 3), 3), 255, dtype=np.uint8)
+        for k in range(copies):
+            x = w + int(k * 0.6 * w)
+            canvas[h:2 * h, x:x + w] = np.minimum(canvas[h:2 * h, x:x + w], disk)
+        image = fitz.Pixmap(fitz.csRGB, canvas.shape[1], canvas.shape[0], canvas.tobytes(), False)
+        label = label_from_reading([t for _, t, conf in ocr.image_lines(image) if conf >= 0.5], copies)
+        if label:
+            return label
+    return None
+
+
+def _line_leaves(bubble: fitz.Rect, vertical_row: bool, segments) -> bool:
+    """Whether a straight line leaves this bubble at right angles to its row:
+    a grid line runs across the drawing from its bubble, while a detail
+    title's circle carries only its underline, which runs ALONG the row. Pure."""
+    cx, cy = centre(bubble)
+    size = bubble.width
+    for x0, y0, x1, y1 in segments:
+        across = abs(y1 - y0) <= 1.0 if vertical_row else abs(x1 - x0) <= 1.0
+        if not across or math.hypot(x1 - x0, y1 - y0) < 0.4 * size:
+            continue
+        if any(0.35 * size <= math.hypot(x - cx, y - cy) <= 1.0 * size for x, y in ((x0, y0), (x1, y1))):
+            return True
+    return False
+
+
+def ocr_systems(page: fitz.Page) -> list[dict]:
+    """Grid systems of a sheet whose labels are drawn as lines: the bubbles in
+    rows (`bubble_rows`), each label read by OCR, a row kept only when its
+    labels run in order (`in_order`). Lines whose label does not read are left
+    out, never named from their neighbours. Victaulic's structural sheets
+    (S1.1C, S1.1D, S1.1G) have no text layer, so no grid check could see them."""
+    to_display = page.rotation_matrix
+    rows = bubble_rows([fitz.Rect(r * to_display).normalize() for r in drawn_circles(page)])
+    if not rows or sum(len(row) for _, row in rows) > OCR_GRID_MAX_BUBBLES:
+        return []
+    segments = _segments(page, to_display)
+    found = []
+    for vertical, row in rows:
+        if sum(_line_leaves(r, vertical, segments) for r in row) * 2 < len(row):
+            continue  # a row of detail-title circles, not grid bubbles (Victaulic S3.4's 4, 5, 6, 7)
+        read = [(r, _ocr_label(page, r)) for r in sorted(row, key=lambda r: (r.y0, r.x0) if vertical else (r.x0, r.y0))]
+        read = [(r, label) for r, label in read if label]
+        if len(read) < 2 or not in_order([label for _, label in read]):
+            continue
+        found += [(label, *centre(r), r, r.width) for r, label in read]
+    return _systems_from(page, {"ocr": found}, ocr=True) if found else []

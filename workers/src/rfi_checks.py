@@ -57,13 +57,15 @@ CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid
                "illegible_schedule", "missing_plan_level",
                # read off the PDF by rfi_scan (element_marks.py, column_schedule.py):
                "unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap",
+               # detail_map.py: a symbol pointing at a detail its sheet does not have
+               "missing_detail",
                # geometry_checks.py, on the sheet pairs the scan lines up:
                "grid_spacing", "column_mismatch")
 # The two above that compare a PAIR of sheets the scan lined up
 # (geometry_checks.py) rather than the text run_all reads.
 PAIR_CHECK_TYPES = ("grid_spacing", "column_mismatch")
 # Read off one sheet's PDF by rfi_scan (element_marks.py), not by run_all.
-PDF_CHECK_TYPES = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap")
+PDF_CHECK_TYPES = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail")
 # Written only by the targeted review. Empty since the scan lines up sheet
 # pairs itself (column_mismatch used to need a review's two named sheets).
 REVIEW_CHECK_TYPES: tuple[str, ...] = ()
@@ -923,7 +925,9 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
                      and not part_of_other_label(upper, h.start(), h.end())
                      and not referenced(upper, h.start())
                      # "WIND LOADS ON S0.0": the start of sheet S0.01, cut off.
-                     and not ("." in h.group(0) and any(s.startswith(h.group(0)) for s in sheet_numbers))),
+                     and not ("." in h.group(0) and any(s.startswith(h.group(0)) for s in sheet_numbers))
+                     # "FP3-1": sheet FP3-1 (Victaulic), not fire pump FP3.
+                     and not any(len(s) > len(h.group(0)) and upper.startswith(s, h.start()) for s in sheet_numbers)),
                     None,
                 )
                 if hit is None:
@@ -1003,6 +1007,8 @@ _OPEN_ITEM_PATTERNS: list[tuple[re.Pattern, str, str]] = [
 _OTHER_PARTY = re.compile(
     r"\b(?:CONTRACTOR|SUB-?CONTRACTOR|G\.?C\.?|FABRICATOR|SUPPLIER|MANUFACTURER|VENDOR|INSTALLER|"
     r"SUBMITTALS?|SHOP\s+DRAWINGS?|DELEGATED|BY\s+OTHERS|IN\s+FIELD|ON\s+SITE|"
+    # Victaulic E0.1: "TO BE DETERMINED BY OWNER", "TBD … PROVIDE A $2,500 ALLOWANCE".
+    r"OWNER|ALLOWANCES?|"
     # UT Law A1.02: "TO BE CONFIRMED AT LATER DATE BY FIELD TESTING IF FULL
     # ERRC SYSTEM IS REQUIRED" — settled by a test on site, not by a designer.
     r"FIELD\s+TEST(?:S|ING)?)\b"
@@ -1114,9 +1120,9 @@ def open_item_notes(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Findin
     notes: list[str] = []
     if handed_off:
         notes.append(
-            f"Open-item check: {handed_off} open-item note(s) assign the item to the contractor, a supplier "
-            "or a submittal (\"… BY CONTRACTOR\", \"VERIFY IN FIELD\"); that is their work, not a question for "
-            "the designer, so none was proposed as an RFI."
+            f"Open-item check: {handed_off} open-item note(s) assign the item to the contractor, a supplier, "
+            "a submittal or the owner (\"… BY CONTRACTOR\", \"VERIFY IN FIELD\", \"BY OWNER\", an allowance); "
+            "that is their decision, not a question for the designer, so none was proposed as an RFI."
         )
     if ruled:
         notes.append(
@@ -1149,9 +1155,14 @@ def _table_title(text: str) -> str | None:
 def _sentence(text: str, start: int, end: int) -> str:
     """The sentence (or note line) around a match: back to the previous full
     stop or line break, forward to the next."""
-    left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
-    stops = [i for i in (text.find(".", end), text.find("\n", end)) if i != -1]
-    return text[left + 1 : min(stops) if stops else len(text)]
+    # A dot between digits is a decimal ("$2,500.00"), not a full stop.
+    stops = [m.start() for m in _STOP.finditer(text)]
+    left = max([i for i in stops if i < start], default=-1)
+    right = min([i for i in stops if i >= end], default=len(text))
+    return text[left + 1 : right]
+
+
+_STOP = re.compile(r"\n|\.(?!(?<=\d\.)\d)")
 
 
 # --- Running them -------------------------------------------------------------

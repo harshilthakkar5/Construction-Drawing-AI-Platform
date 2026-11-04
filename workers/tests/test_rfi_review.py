@@ -161,6 +161,17 @@ def test_the_question_may_not_introduce_a_number_or_a_mark():
     assert "C-9" in rfi_review.guard(cand, _decision(question="Is it C-9?"), evidence, [])
 
 
+def test_the_question_may_name_what_a_search_showed_verification():
+    """Victaulic RFI 005: base plates BP1/BP2 are printed on S3.2, which the
+    review searched and showed the verifier; the kept question named them."""
+    evidence = {"ev1": ev("ev1", "text", 1, "PIER 2'-2\" X 2'-5\" HOLD"), "ev2": ev("ev2", "text", 2, "BASE PLATE (BP1)")}
+    cand = {"checkId": "C01", "kind": "missing", "element": "", "location": "", "evidenceIds": ["ev1"]}
+    question = _decision(subject="Base plate size not shown", question="What are the base plate sizes (BP1)?")
+    assert "BP1" in rfi_review.guard(cand, question, evidence, [])
+    cand["searched"] = ["ev2", "ev99"]  # an id the run never issued is ignored
+    assert rfi_review.guard(cand, question, evidence, []) is None
+
+
 def test_a_member_size_is_checked_digit_by_digit():
     """The digits in W14x90 touch letters, which the scan's number pattern
     skips — so a size nothing showed would pass unchecked."""
@@ -839,3 +850,122 @@ def test_grounded_accepts_a_printed_length_in_the_other_unit_and_nothing_looser(
     assert not rfi_review.grounded('Detail 4 shows an 18" slab.', 'SLAB 1\'-4" THICK vs 8"')[0]
     assert not rfi_review.grounded("Provide #4 bars at level 1.", 'SLAB 16" THICK')[0]
     assert not rfi_review.grounded('Use 6 dowels.', 'PIER 36" DIA')[0]
+
+
+def test_grid_strips_sit_inside_the_bubbles_densest_first_and_map_to_unrotated(monkeypatch):
+    """Victaulic RFI 007: the grid strings that disagree run down A1.3's right
+    edge, past its bottom string. Strips cover the band inside each row of
+    bubbles, the densest first, returned in the page's UNROTATED space."""
+    import fitz
+    import grid
+
+    def bubble(x, y):
+        return [x - 12, y - 12, x + 12, y + 12]
+
+    right = {f"R{i}": [bubble(2287, 430 + 120 * i)] for i in range(6)}  # six lines, 120pt apart
+    bottom = {f"B{i}": [bubble(300 + 300 * i, 1409)] for i in range(6)}  # six lines, 300pt apart
+    system = {"style": "black 24pt", "along_y": {k: v[0][1] + 12 for k, v in right.items()},
+              "along_x": {k: v[0][0] + 12 for k, v in bottom.items()}, "bubbles": {**right, **bottom}}
+    for rotation in (0, 90):
+        doc = fitz.open()
+        page = doc.new_page(width=2592, height=1728) if rotation == 0 else doc.new_page(width=1728, height=2592)
+        page.set_rotation(rotation)
+        monkeypatch.setattr(grid, "styled_systems", lambda _p: [system])
+        got = rfi_review.grid_strip_regions(page, 3)
+        shown = [fitz.Rect(r * page.rotation_matrix).normalize() for r in got]
+        assert len(shown) == 3
+        # The right row is denser, so its windows come first; each is inside the bubbles, reaching the strings.
+        assert all(r.x1 <= 2300 and r.x0 < 2287 - 100 for r in shown[:2])
+        assert shown[2].y1 <= 1422 and shown[2].y0 < 1409 - 100
+        assert all(r.height <= rfi_review.GRID_STRIP_MAX_PT + 1 and r.width <= rfi_review.GRID_STRIP_MAX_PT + 1 for r in shown)
+    monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
+    assert rfi_review.grid_strip_regions(page, 3) == []
+    assert rfi_review.grid_strip_regions(page, 0) == []
+
+
+def test_a_sheet_whose_labels_are_drawn_as_lines_still_gets_strips_from_its_rows_of_bubbles(monkeypatch):
+    """Victaulic S1.1G: no text layer, so no grid can be read — but its bubbles
+    are circles in a row, and the string that disagrees (13'-11 1/4") runs
+    beside them. A lone circle, or circles of another size, make no row."""
+    import fitz
+    import grid
+
+    doc = fitz.open()
+    page = doc.new_page(width=2592, height=1728)
+    shape = page.new_shape()
+    for y in (226, 560, 750, 897, 1053, 1235):  # a right-hand row, each drawn as two half-circles + lines
+        shape.draw_bezier((1756, y - 2), (1751, y - 23), (1725, y - 22), (1721, y - 2))
+        shape.draw_line((1721, y - 2), (1721, y + 2))
+        shape.draw_bezier((1721, y + 2), (1723, y + 22), (1751, y + 24), (1756, y + 4))
+        shape.draw_line((1756, y + 4), (1756, y - 2))
+        shape.finish(closePath=False)
+    shape.draw_circle((300, 300), 9)  # a lone small circle: no row
+    shape.finish()
+    shape.commit()
+    circles = grid.drawn_circles(page)
+    assert len([c for c in circles if c.x0 > 1700]) == 6 and all(28 < c.width < 40 for c in circles if c.x0 > 1700)
+    rows = grid.bubble_rows(circles)
+    assert [(v, len(g)) for v, g in rows] == [(True, 6)]
+    monkeypatch.setattr(grid, "styled_systems", lambda _p: [])
+    strips = rfi_review.grid_strip_regions(page, 2)
+    assert len(strips) == 2 and all(r.x1 <= 1757 and r.x0 < 1600 for r in strips)
+    # Cut at bubbles: the 15 -> 15.6 string (y 560-750) lies whole inside one strip.
+    assert any(r.y0 <= 560 and r.y1 >= 750 for r in strips)
+
+
+def test_grid_spacings_go_into_the_inventory_one_span_per_sheet_and_code_compares_them():
+    """Victaulic RFI 007: S1.1G prints 13'-11 1/4" for grid 15 to 15.6 where S1.1D
+    prints 14'-0". Discovery read both and compared neither; recorded as one span
+    per sheet, value_conflicts proposes the conflict."""
+    assert "grid 15 to 15.6" in rfi_review.discovery_system(["G01"])
+    assert "Grid spacing" not in rfi_review.discovery_system(["F01"])
+    rows = [
+        {"checkId": "G01", "entity": "grid 15 to 15.6", "location": "", "source": "S1.1G",
+         "fields": [{"name": "spacing", "value": "13'-11 1/4\"", "state": "supported", "evidenceIds": ["ev51"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 15 to 15.6", "location": "", "source": "S1.1D",
+         "fields": [{"name": "spacing", "value": "14'-0\"", "state": "supported", "evidenceIds": ["ev55"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 14 to 15", "location": "", "source": "S1.1G",
+         "fields": [{"name": "spacing", "value": "25'-0\"", "state": "supported", "evidenceIds": ["ev51"], "derived": False}]},
+        {"checkId": "G01", "entity": "grid 14 to 15", "location": "", "source": "S1.1D",
+         "fields": [{"name": "spacing", "value": "25'-0\"", "state": "supported", "evidenceIds": ["ev55"], "derived": False}]},
+    ]
+    got = rfi_review.value_conflicts(rows)
+    assert len(got) == 1 and got[0]["element"] == "grid 15 to 15.6"
+    assert "13'-11 1/4" in got[0]["issue"] and "14'-0" in got[0]["issue"]
+
+
+def test_grid_strips_are_read_again_for_every_span_and_the_closer_reading_wins():
+    """Victaulic RFI 007: discovery recorded A1.3's and S1.1D's spans, which agree,
+    and none of S1.1G's. One follow-up shown only the strips fills them in."""
+    strip = ev("ev51", "crop", 45)
+    strip.caption, strip.sheet_number = rfi_review.GRID_STRIP_CAPTION, "S1.1G"
+    other = ev("ev9", "crop", 6)
+
+    def span(entity, source, value, eid):
+        return {"checkId": "G01", "entity": entity, "location": "", "source": source,
+                "fields": [{"name": "spacing", "value": value, "state": "supported", "evidenceIds": [eid], "derived": False}]}
+
+    first = [span("grid 15 to 15.6", "S1.1D", "14'-0\"", "ev9"), span("grid 15 to 15.6", "S1.1G", "14'-0\"", "ev9")]
+    seen = {}
+
+    def ask(user, shown):
+        seen["shown"] = [e.id for e in shown]
+        assert "grid_spans" in user
+        return [span("grid 15 to 15.6", "S1.1G", "13'-11 1/4\"", "ev51"), span("Grid 14 to 15", "s1.1g", "25'-0\"", "ev51"),
+                span("column C-6", "S1.1G", "14 x 30", "ev51")]
+
+    got, note = rfi_review.complete_grid_spans(first, [strip, other], ask)
+    assert seen["shown"] == ["ev51"]  # only the strips
+    by = {(r["entity"].lower(), r["source"].upper()): r["fields"][0]["value"] for r in got}
+    assert by[("grid 15 to 15.6", "S1.1G")] == "13'-11 1/4\"" and by[("grid 15 to 15.6", "S1.1D")] == "14'-0\""
+    assert ("grid 14 to 15", "S1.1G") in by and not any(e.startswith("column") for e, _ in by)
+    assert "S1.1G" in note and "1 added, 1 re-read" in note
+    assert len(rfi_review.value_conflicts(got)) == 1
+    # No strips: nothing asked. A failed call keeps what discovery had.
+    assert rfi_review.complete_grid_spans(first, [other], ask) == (first, None)
+
+    def fails(user, shown):
+        raise rfi_review.StageFailed("discovery", "boom")
+
+    kept, why = rfi_review.complete_grid_spans(first, [strip], fails)
+    assert kept == first and "not read again" in why

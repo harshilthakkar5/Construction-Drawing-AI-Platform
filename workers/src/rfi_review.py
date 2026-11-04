@@ -369,16 +369,24 @@ _SCALE_LINE = re.compile(
 )
 
 
-def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz.Rect]:
+def detail_regions(page, alternatives: list[list[str]], limit: int, cut: set[str] = frozenset()) -> list[fitz.Rect]:
     """Where the element is DRAWN on a detail sheet, in UNROTATED space: each
     detail whose title names it ("ELEVATOR PIT DETAIL", with its SCALE line
     right below — never a "SEE ELEVATOR PIT" note), cut as the cell above that
     title, up to the scale line of the detail above and the next column. A
     sheet's text pieces are too wide to aim a close-up with (one on Leland's
     S4.00 spans 2,400pt across several details), so the words' own positions
-    are. [] when no title names the element."""
-    if not alternatives:
+    are. [] when no title names the element.
+
+    `cut`: the detail numbers the review's own sheets call out on this one (the
+    project map). Those come first — they are where a reviewed plan sends its
+    reader — and a detail titled only by its own reference ("10/S4.10") counts
+    when it is one: nothing says it is NOT about the element. Leland RFI 009 is
+    10/S4.10, cut on S2.31-A, and both slots went to the titled details 13 and 8."""
+    if not alternatives and not cut:
         return []
+    import review_aids
+
     to_display = page.rotation_matrix
     lines = []
     for block in page.get_text("dict")["blocks"]:
@@ -386,13 +394,19 @@ def detail_regions(page, alternatives: list[list[str]], limit: int) -> list[fitz
             text = " ".join(s["text"] for s in line["spans"]).strip()
             if text:
                 lines.append((text, fitz.Rect(line["bbox"]) * to_display))
+    numbers = {(round(b.x0), round(b.y0)): n for n, _, b in review_aids.detail_titles(review_aids._display_lines(page)) if n}
     scales = [r for t, r in lines if _SCALE_LINE.match(t)]
     shown = page.rect  # display space
     regions: list[fitz.Rect] = []
-    for text, box in sorted(lines, key=lambda l: (l[1].y0, l[1].x0)):
+    picked = []
+    for text, box in lines:
         tokens = {re.sub(r"(?<!S)S$", "", w) for w in re.findall(r"[A-Z]{3,}", text.upper())}
-        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not any(set(a) <= tokens for a in alternatives):
+        number = numbers.get((round(box.x0), round(box.y0)))
+        bare = bool(review_aids._OWN_REFERENCE.match(text)) and number in cut
+        if text.upper().startswith(("SEE ", "REFER", "-SEE")) or not (bare or any(set(a) <= tokens for a in alternatives)):
             continue
+        picked.append((number not in cut, box.y0, box.x0, text, box))
+    for *_, text, box in sorted(picked):
         # Right below, or touching: "COLUMN PIER CAP PLANS" on Leland S0.03 overlaps its scale by 8pt.
         under = [s for s in scales if -15 <= s.y0 - box.y1 <= 40 and s.y0 > box.y0 and s.x0 < box.x1 and s.x1 > box.x0]
         if not under:
@@ -471,7 +485,139 @@ def plan_regions(page, limit: int) -> list[fitz.Rect]:
     return [fitz.Rect((r & page.rect) * back).normalize() for r in regions]
 
 
-def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
+DRAWING_STROKE_MIN_PT = 20  # shorter is a glyph of stroke-drawn text, not linework
+
+
+def drawing_regions(page, limit: int, taken: list[fitz.Rect] = ()) -> list[fitz.Rect]:
+    """Where a sheet whose words are drawn as lines is DRAWN, in UNROTATED space:
+    windows a third of the sheet a side over the most linework, overlapping
+    each other and `taken` by at most a quarter. Victaulic S1.1A has no text
+    layer, so its one close-up went to the notes block and the footing step of
+    the client's RFI 003 was only ever seen whole, at ~45 DPI. Pure but for `page`."""
+    if limit <= 0:
+        return []
+    area = _unrotated_rect(page)
+    strokes = []
+    for d in page.get_drawings():  # unrotated, like get_text
+        for item in d["items"]:  # each piece: one path often holds a whole layer
+            pts = [p for p in item[1:] if isinstance(p, fitz.Point)] or (
+                [item[1].tl, item[1].br] if isinstance(item[1], fitz.Rect) else
+                [item[1].ul, item[1].lr] if isinstance(item[1], fitz.Quad) else [])
+            if not pts:
+                continue
+            r = fitz.Rect(min(p.x for p in pts), min(p.y for p in pts), max(p.x for p in pts), max(p.y for p in pts))
+            if DRAWING_STROKE_MIN_PT <= max(r.width, r.height) and r.width < 0.6 * area.width and r.height < 0.6 * area.height:
+                strokes.append(fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+    w, h = area.width * PLAN_WINDOW, area.height * PLAN_WINDOW
+    steps = round(1 / PLAN_WINDOW) * 2 - 1  # half-window stride
+    windows = [fitz.Rect(area.x0 + i * w / 2, area.y0 + j * h / 2, area.x0 + i * w / 2 + w, area.y0 + j * h / 2 + h)
+               for i in range(steps) for j in range(steps)]
+    scored = sorted(((sum(win.contains(p) for p in strokes), k, win) for k, win in enumerate(windows)),
+                    key=lambda t: (-t[0], t[1]))
+    # Only a real close-up counts as already shown: S1.1A's notes piece spans 80%
+    # of the sheet's width, renders at ~47 DPI, and would push every window off
+    # the very band the client clouded.
+    shown = [r for r in taken if r.get_area() <= 2 * w * h]
+    regions: list[fitz.Rect] = []
+    for count, _, win in scored:
+        if len(regions) >= limit or count == 0:
+            break
+        if any((win & r).get_area() > 0.25 * win.get_area() for r in [*shown, *regions]):
+            continue
+        regions.append(win)
+    return regions
+
+
+GRID_STRIP_MAX_PT = 720  # a longer strip is cut: at CROP_EDGE a 10 in strip reads at ~140 DPI
+GRID_STRIP_BAND = 6  # bubble diameters inward from the bubbles, where the dimension strings run
+
+
+def grid_strip_regions(page, limit: int) -> list[fitz.Rect]:
+    """Where a sheet prints its grid-to-grid dimensions, in UNROTATED space:
+    the band inside each row of grid bubbles, cut to GRID_STRIP_MAX_PT, the
+    windows with the most bubbles per length first. Victaulic RFI 007 (A1.3's
+    13'-11 1/4" against S1.1D's 14'-0") was missed because A1.3's one close-up
+    went to its bottom string and the strings that disagree run down its right
+    edge. [] when the grid cannot be read (the caller falls back to drawing
+    windows). Pure but for `page`."""
+    if limit <= 0:
+        return []
+    try:
+        systems = grid.styled_systems(page)
+    except Exception:
+        log.exception("rfi review: reading the grid for its dimension strips failed")
+        return []
+    shown = page.rect  # styled_systems reports display coordinates
+    sides: dict[str, list[fitz.Rect]] = {"left": [], "right": [], "top": [], "bottom": []}
+    for system in systems:
+        for label, boxes in system["bubbles"].items():
+            for b in boxes:
+                r = fitz.Rect(b)
+                cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+                if label in system["along_y"]:  # a line at a y: bubbled at its left and right ends
+                    sides["left" if cx < shown.width / 2 else "right"].append(r)
+                elif label in system["along_x"]:
+                    sides["top" if cy < shown.height / 2 else "bottom"].append(r)
+    if not any(sides.values()):  # labels drawn as lines: the bubbles' rows still say where the strings are
+        rows = grid.bubble_rows([fitz.Rect(r * page.rotation_matrix).normalize() for r in grid.drawn_circles(page)])
+        for vertical, row in rows:
+            cx = sum((r.x0 + r.x1) / 2 for r in row) / len(row)
+            cy = sum((r.y0 + r.y1) / 2 for r in row) / len(row)
+            side = ("left" if cx < shown.width / 2 else "right") if vertical else ("top" if cy < shown.height / 2 else "bottom")
+            sides[side] += row
+    windows = []
+    for order, (side, rs) in enumerate(sides.items()):
+        if len(rs) < 2:
+            continue
+        size = sorted(max(r.width, r.height) for r in rs)[len(rs) // 2]
+        band = GRID_STRIP_BAND * size
+        x0, y0 = min(r.x0 for r in rs), min(r.y0 for r in rs)
+        x1, y1 = max(r.x1 for r in rs), max(r.y1 for r in rs)
+        box = {"right": fitz.Rect(x0 - band, y0 - size, x1, y1 + size),
+               "left": fitz.Rect(x0, y0 - size, x1 + band, y1 + size),
+               "bottom": fitz.Rect(x0 - size, y0 - band, x1 + size, y1),
+               "top": fitz.Rect(x0 - size, y0, x1 + size, y1 + band)}[side] & shown
+        across = side in ("top", "bottom")
+        # Cut AT bubbles, neighbours sharing one, so every string between two
+        # neighbouring lines lies whole inside a piece.
+        centre = (lambda r: (r.x0 + r.x1) / 2) if across else (lambda r: (r.y0 + r.y1) / 2)
+        at = sorted({round(centre(r), 1) for r in rs})
+        reach = GRID_STRIP_MAX_PT - 2 * size
+        start = 0
+        while start < len(at) - 1:
+            end = start + 1
+            while end + 1 < len(at) and at[end + 1] - at[start] <= reach:
+                end += 1
+            lo, hi = at[start] - size, at[end] + size
+            win = (fitz.Rect(lo, box.y0, hi, box.y1) if across else fitz.Rect(box.x0, lo, box.x1, hi)) & shown
+            windows.append((-(end - start + 1) / max(hi - lo, 1.0), order, start, win))
+            start = end
+    windows.sort(key=lambda t: t[:3])
+    return [fitz.Rect(win * page.derotation_matrix).normalize() for *_, win in windows[:limit]]
+
+
+def details_cut(scope: dict, open_page) -> dict[str, set[str]]:
+    """Sheet -> the detail numbers the review's own pages call out on it, read
+    from the project map (detail_map, saved per page; a page not yet mapped is
+    read now). {} on any failure: this only orders close-ups, never decides."""
+    import detail_map
+
+    try:
+        pages = [rfi_checks.Page(id=p["pageId"], document_id=p["documentId"], page_number=p["pageNumber"],
+                                 combined_page_number=p.get("combinedPageNumber"), sheet_number=p.get("sheetNumber"))
+                 for p in scope.get("pages", []) if p.get("pageId")]
+        entries = detail_map.ensure(pages, open_page)
+    except Exception:
+        log.exception("rfi review: reading the project map failed; close-ups keep the title order")
+        return {}
+    out: dict[str, set[str]] = {}
+    for entry in entries.values():
+        for link in entry.get("links") or []:
+            out.setdefault(link["sheet"].upper(), set()).add(link["detail"].upper())
+    return out
+
+
+def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str]] | None = None) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
     `open_page(document_id, page_number)` returns a fitz.Page (the job opens
@@ -505,13 +651,30 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
         # name the element (By element), then at a plan's rare tags (By
         # element), then at the planned text pieces: as many images as the plan
         # priced, never more.
-        planned = p.get("crops", [])
+        # A grid review's strip slots are its own: never re-aimed at details or tags.
+        gridded = [a for a in p.get("crops", []) if a.get("grid")]
+        planned = [a for a in p.get("crops", []) if not a.get("grid")]
         library = scope.get("library")
-        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned))
+        cut = (cut_by or {}).get((p.get("sheetNumber") or "").upper(), set()) if library else set()
+        aimed = detail_regions(page, element_title_words(((library or {}).get("element") or {}).get("name")), len(planned), cut)
         if library:  # a plan's slots go where it departs from its own pattern
             aimed += plan_regions(page, len(planned) - len(aimed))
         anchors = [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in aimed]
         anchors += planned[: len(planned) - len(aimed)]
+        if gridded:  # a grid it cannot read falls back to drawing windows
+            strips = grid_strip_regions(page, len(gridded))
+            anchors += [{"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True, "strip": True}
+                        for r in strips]
+            anchors += [{"chunkId": a["chunkId"], "bbox": None, "drawing": True} for a in gridded[len(strips):]]
+        # A sheet whose words are drawn as lines: the planner gave it drawing slots.
+        drawing = [a for a in anchors if a.get("drawing")]
+        if drawing:
+            def _rect(b):
+                return fitz.Rect(b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"])
+            taken = [_rect(a["bbox"]) for a in anchors if not a.get("drawing") and a.get("bbox")]
+            windows = drawing_regions(page, len(drawing), taken)
+            anchors = [a for a in anchors if not a.get("drawing")] + [
+                {"bbox": {"x": r.x0, "y": r.y0, "width": r.width, "height": r.height}, "detail": True} for r in windows]
         for anchor in anchors:
             b = anchor["bbox"]
             # A detail cell is already the region to show; a text piece gets crop_box's padding.
@@ -526,6 +689,7 @@ def image_evidence(scope: dict, open_page, start: int) -> list[Evidence]:
                     kind="crop",
                     bbox={"x": box.x0, "y": box.y0, "width": box.width, "height": box.height},
                     chunk_id=anchor.get("chunkId"),
+                    caption=GRID_STRIP_CAPTION if anchor.get("strip") else None,
                     image=vlm.render_crop(page, shown, CROP_EDGE),
                     **common,
                 )
@@ -570,7 +734,7 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -582,6 +746,7 @@ CODE_CHECK_WORDS = {
     "unsized_column": "a column in the schedule with no size",
     "twin_column_cap": "a pier cap carrying two columns with no detail called out",
     "untagged_pile_cap": "a pile cap drawn with no tag or size",
+    "missing_detail": "a detail referred to that its sheet does not have",
 }
 
 
@@ -722,14 +887,16 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import cap_tags
     import column_schedule
+    import detail_map
     import element_marks
     import pier_caps
     for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
-                               ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags)):
+                               ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags),
+                               ("missing_detail", detail_map)):
         if check_type in wanted:
             try:
-                # cap_tags reads the titles of the sheets a cap symbol points to, which need not be reviewed.
-                extra = {"every": pages} if module is cap_tags else {}
+                # These read the sheets a symbol points to, which need not be reviewed.
+                extra = {"every": pages} if module in (cap_tags, detail_map) else {}
                 found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more
@@ -753,6 +920,19 @@ def _checks_block(check_ids: list[str], *, rules: bool = False, catalogue: dict 
             lines.append(f'  Compare: {c["comparisonRules"]}')
             lines.append(f'  A candidate only when: {c["candidateRules"]}')
     return "\n".join(lines)
+
+
+# Grid spacings compared by CODE (value_conflicts), never left to the model: Victaulic RFI 007 —
+# discovery read S1.1G's 13'-11 1/4" and S1.1D's and A1.3's 14'-0" for grid 15 to 15.6, wrote them
+# into three separate observations as runs of numbers, and nothing put the two side by side.
+GRID_SPANS_RULE = (
+    "- Grid spacing: for EVERY pair of NEIGHBOURING grid lines a sheet dimensions, add one inventory entry "
+    "per sheet: entity \"grid <a> to <b>\" with the two labels exactly as printed, the lower one first "
+    "(\"grid 15 to 15.6\", \"grid E to E.2\"), the same name on every sheet, no location, the sheet as its "
+    "`source`, and ONE field named \"spacing\" holding that one dimension as printed. Never a run of "
+    "dimensions in one value, never an overall; when a sheet prints a span as two pieces (13'-3\" and 9\"), "
+    "record each piece as its own entry between the lines it runs between, or leave the span out.\n"
+)
 
 
 def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str:
@@ -781,7 +961,8 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "only the ones a question names: the code compares sources field by field. A field is `supported` only "
         "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
         "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
-        "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
+        + (GRID_SPANS_RULE if "G01" in check_ids else "")
+        + "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
         "the evidence shows do not exist here (e.g. no beams on a slab plan), with the evidence that shows it.\n"
         'Respond with ONLY JSON, no prose and no code fences: {"observations": [{"checkId": "C01", '
         '"element": "...", "location": "...", "statement": "...", "evidenceIds": ["ev3"], '
@@ -907,8 +1088,28 @@ def parse_json_object(raw: str | None) -> dict | None:
             except (json.JSONDecodeError, TypeError):
                 continue
         if data is None:
+            data = _escape_inches_where_it_breaks(_STRAY_ESCAPE.sub(r'\1"', _INCH_MARK.sub(r'\\"', body)))
+        if data is None:
             return None
     return data if isinstance(data, dict) else None
+
+
+def _escape_inches_where_it_breaks(body: str, tries: int = 25):
+    """Parse, escaping an inch mark at each place the parse breaks: the last
+    quote before the error, when a digit precedes it. `-4'-0", 8" CMU` (Leland,
+    2 Nov) looks like a string ending at `0"` to any pattern, and re-sent a
+    whole 160k-token discovery call. None when that does not settle it. Pure."""
+    for _ in range(tries):
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as exc:
+            q = body.rfind('"', 0, exc.pos)
+            if q < 1 or not body[q - 1].isdigit():
+                return None
+            body = body[:q] + "\\" + body[q:]
+        except TypeError:
+            return None
+    return None
 
 
 # A double quote right after a digit that JSON's grammar cannot close a string with
@@ -1271,6 +1472,45 @@ def complete_inventory(inventory: list[dict], pool: list[Evidence], ask) -> tupl
     if left:
         note += f" Still merged: {'; '.join(r['entity'] for r in left)[:200]}."
     return out, note
+
+
+GRID_STRIP_CAPTION = "grid dimension strip"
+GRID_SPANS_REQUEST = (
+    "<grid_spans>\nThe close-ups shown are the strips beside each sheet's grid bubbles. For EVERY sheet shown, read "
+    "every dimension printed between two NEIGHBOURING grid lines and return one inventory entry per span per sheet, "
+    "as the grid spacing rule says: entity \"grid <a> to <b>\" (lower label first), the sheet as `source`, one "
+    "\"spacing\" field, cited to the strip it is read from. A value you cannot read is left out. Return inventory "
+    "entries only; observations may be empty.\n</grid_spans>\n\n"
+)
+
+
+def complete_grid_spans(inventory: list[dict], pool: list[Evidence], ask) -> tuple[list[dict], str | None]:
+    """ONE follow-up call shown only the grid strip close-ups, for every span on every
+    sheet. Victaulic RFI 007: the one discovery call recorded twelve spans from A1.3
+    and S1.1D, which agree, and none from S1.1G, whose 13'-11 1/4" is the RFI — while
+    noting S1.1G's bubbles in the same reply. A span read here replaces the first
+    pass's for that sheet (the strip is the closer look); `ask(user, shown)` returns
+    inventory rows. A failed call keeps the inventory as it was."""
+    strips = [ev for ev in pool if ev.caption == GRID_STRIP_CAPTION]
+    if not strips:
+        return inventory, None
+    try:
+        rows = ask(GRID_SPANS_REQUEST, strips)
+    except (StageFailed, BudgetStop) as exc:
+        return inventory, f"The grid strips were not read again ({exc})."
+    spans = [r for r in rows if _key(r.get("entity")).startswith("grid ") and r.get("source")]
+    out = list(inventory)
+    added = replaced = 0
+    for row in spans:
+        same = next((i for i, r in enumerate(out) if _source_key(r) == _source_key(row)), None)
+        if same is None:
+            out.append(row)
+            added += 1
+        else:
+            out[same] = row
+            replaced += 1
+    sheets = sorted({ev.sheet_number or "?" for ev in strips})
+    return out, f"Grid strips of {', '.join(sheets)} read for every span: {added} added, {replaced} re-read."
 
 
 def value_conflicts(inventory: list[dict]) -> list[dict]:
@@ -1742,6 +1982,17 @@ def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
     return sorted(set(ids) | set(extra), key=lambda e: int(e[2:]))
 
 
+def _deferral(candidate: dict) -> bool:
+    return bool(_DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"))
+
+
+def deferral_claim(issue: str | None) -> str:
+    """The sentences of an issue that say a value is only a reference ("T.O.C.
+    is 'SEE PLAN' but the plan gives only slab elevations"), or "". Pure."""
+    # A period after a lone capital is an abbreviation ("T.O.C. is"), not a sentence end.
+    return " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (issue or "").strip()) if _DEFERS.search(s))
+
+
 def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
@@ -1761,13 +2012,19 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
+    defers = bool(candidate and _deferral(candidate))
+    if defers:
+        # The problem's own evidence is the details that DEFER the value; pointing back at them
+        # shows the pointer again, not the value. Leland RFI 009, re-checked: "detail 8 (ev51)
+        # prints the 10\" wall thickness" — an answer to another claim in the same problem.
+        cited -= set(candidate.get("evidenceIds") or [])
     if cited & shown:
         return False
     # A problem ABOUT a deferred value ("the details give the offset only as
     # SEE PLAN") is settled only by evidence printing that value: "nothing
     # shows the plan lacks it" is not that. Leland RFI 002 was proposed in two
     # Claude runs and rejected both times on exactly that reason.
-    if candidate and _DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"):
+    if defers:
         return True
     basis = decision.get("basis") or "other"
     if basis == "answered_elsewhere":
@@ -1856,6 +2113,13 @@ def overruled(candidate: dict, decision: dict) -> dict:
     question = decision.get("question") or (
         f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
     )
+    # Kept because a deferred value was never shown, so it asks about THAT value only. Leland RFI
+    # 009's problem bundled "T.O.C. SEE PLAN, the plan gives only slab elevations" with a heel/toe
+    # and a thickness claim, and the verifier's own question asked only about the thickness.
+    deferred = deferral_claim(candidate.get("issue"))
+    if deferred:
+        subject = _text(f"{candidate.get('element') or 'Value'}: {deferred}", 120)
+        question = f"{deferred.rstrip('.')}. Please provide it, or confirm which drawing shows it."
     # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
     location = candidate.get("location") or ""
     if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
@@ -1866,6 +2130,59 @@ def overruled(candidate: dict, decision: dict) -> dict:
     ).strip()
     return dict(decision, decision="keep", subject=subject, question=question, why=why,
                 confidence="low", priority="normal")
+
+
+# A problem about WHERE an element is: its location, or a dimension to a grid.
+# "at location B/4" names a place for some other claim and does not count.
+_LOCATES = re.compile(r"(?<!\bat )\blocat\w*|\bwhere\b|\bposition\w*|\bw\.?\s?r\.?\s?t\.?(?!\w)"
+                      r"|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b", re.I)
+_DETAIL_REF = re.compile(r"\b\d{1,3}\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b|\btypical\s+detail\b", re.I)
+_QUOTES_LENGTH = re.compile(r"\d+\s*'\s*-?\s*\d+")
+# What a reason must say to have answered WHERE: a place, a grid, an offset or a dimension to something.
+_SPEAKS_OF_PLACE = re.compile(r"\bgrids?\b|\boffsets?\b|\bdimensioned\b|\bdimensions?\s+(?:to|from)\b", re.I)
+
+
+def place_unanswered(decision: dict | None, candidate: dict) -> bool:
+    """A rejection of a "where is it" problem that never says where. Pure.
+    Two shapes, each a client RFI set aside on Victaulic:
+      * it rests on a detail reference — a detail shows how an element is built,
+        not where each one is (RFI 003: "note 13 sends the step itself to detail
+        8/S3.1");
+      * it answers a SIZE and says nothing of place (RFI 001: "wall footing width
+        is given on the S3.1 sections: 2'-6\" wide", against "no dimensions to grids").
+    A reason calling it a duplicate, or naming the specs or the field, stands; so
+    does a detail reason quoting a length, and a size reason speaking of a grid or offset."""
+    if not decision or decision.get("decision") != "reject" or candidate.get("kind") not in ("missing", "ambiguity"):
+        return False
+    reason = decision.get("reason") or ""
+    if _SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or re.search(r"\bduplicat", reason, re.I):
+        return False
+    issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
+    if not _LOCATES.search(issue):
+        return False
+    by_detail = bool(_DETAIL_REF.search(reason)) and not _QUOTES_LENGTH.search(reason)
+    by_size = bool(_QUOTES_LENGTH.search(reason)) and not (_LOCATES.search(reason) or _SPEAKS_OF_PLACE.search(reason))
+    return by_detail or by_size
+
+
+def kept_for_placement(candidate: dict, decision: dict) -> dict:
+    """The decision a `place_unanswered` rejection becomes: LOW, asking where
+    each one is, worded from the issue's sentences about place (an issue often
+    bundles size claims the verifier did answer). The verifier's own question
+    is used only when it asks where. Pure."""
+    asked = decision.get("question") or ""
+    issue = candidate.get("issue") or ""
+    claim = " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", issue.strip()) if _LOCATES.search(s)) or issue
+    question = asked if _LOCATES.search(asked) else f"{claim.rstrip('.')}. Please locate each one from the grids."
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
+        question = f"{question.rstrip()} ({location})"
+    why = (
+        f"{decision.get('why') or candidate.get('why') or ''} Verification answered something other than where it "
+        "is (a detail, or a size); neither places it on the plan."
+    ).strip()
+    return dict(decision, decision="keep", subject=decision.get("subject") or _text(candidate.get("element") or claim, 90),
+                question=question, why=why, confidence="low", priority="normal")
 
 
 def _implied_decision(item: dict) -> str:
@@ -1924,8 +2241,10 @@ def parse_decisions(raw: str | None, count: int) -> dict[int, dict] | None:
 def _material(candidate: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str:
     """Everything a kept question may draw its identifiers and numbers from:
     the cited evidence's own words and sheet names, and what discovery said
-    about THOSE pieces of evidence (the only record of what the images show)."""
-    cited = set(candidate["evidenceIds"])
+    about THOSE pieces of evidence (the only record of what the images show).
+    What a search found for this problem counts too: verification was shown it
+    (Victaulic RFI 005 was kept naming BP1 from S3.2's searched text, and refused)."""
+    cited = set(candidate["evidenceIds"]) | {e for e in candidate.get("searched") or [] if e in evidence}
     parts = [candidate.get("element", ""), candidate.get("location", ""), candidate.get("printed", "")]
     for eid in cited:
         ev = evidence[eid]
@@ -2002,10 +2321,19 @@ def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observ
     if not decision["subject"] or not decision["question"]:
         return "the verification kept it but wrote no question"
     material = _material(candidate, evidence, observations)
-    ok, why = grounded(f"{decision['subject']}\n{decision['question']}", material)
+    ok, why = grounded(_without_run_sheets(f"{decision['subject']}\n{decision['question']}", evidence), material)
     if not ok:
         return f"its wording {why}"
     return None
+
+
+def _without_run_sheets(text: str, evidence: dict[str, Evidence]) -> str:
+    """`text` with the sheet numbers of every page this run read blanked out: naming
+    the sheet under review is context, not a fact the wording invented (Victaulic
+    S1.1A, "which bearing value governs the footings on S1.1A?", was refused for it)."""
+    for sheet in sorted({ev.sheet_number for ev in evidence.values() if ev.sheet_number}, key=len, reverse=True):
+        text = re.sub(rf"(?<![A-Z0-9.-]){re.escape(sheet)}(?![A-Z0-9])", " ", text, flags=re.I)
+    return text
 
 
 MAX_SET_ASIDE = 5  # per question
@@ -3520,7 +3848,8 @@ def _run(run: dict) -> dict:
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
                                   for p in scope.get("pages", [])
                                   if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
-        visuals = image_evidence(scope, open_page, start=len(texts) + 1)
+        visuals = image_evidence(scope, open_page, start=len(texts) + 1,
+                                 cut_by=details_cut(scope, open_page) if scope.get("library") else None)
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
         overlay = plan_overlay(
@@ -3642,6 +3971,14 @@ def _run(run: dict) -> dict:
         )["inventory"])
         if split_note:
             notes.append(split_note)
+        if "G01" in asked:
+            inventory, spans_note = complete_grid_spans(inventory, sent, lambda user, shown: _ask(
+                "discovery", discovery_system(asked, catalogue), user + "\n".join(_evidence_block(ev) for ev in shown),
+                lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
+                run=run, usage=usage, images=shown,
+            )["inventory"])
+            if spans_note:
+                notes.append(spans_note)
         _set(run_id, observations=json.dumps(observations), inventory=json.dumps(inventory))
         notes.append(f"Discovery: {len(observations)} observation(s) from {len(batches)} call(s).")
         _checkpoint(run_id, "reasoning", 45, run)
@@ -3804,6 +4141,12 @@ def _run(run: dict) -> dict:
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
                         continue
+                    if place_unanswered(decision, candidate):
+                        notes.append(f"Kept {label} low: verification answered something other than where it is.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=decision,
+                                          rule="a detail or a size does not say where an element is")
+                        accept(candidate, kept_for_placement(candidate, decision))
+                        continue
                     set_aside(candidate, decision["reason"] or "rejected", "model", decision)
                     diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                       reason=decision["reason"] or "rejected", rule="model")
@@ -3867,6 +4210,11 @@ def _run(run: dict) -> dict:
                         # Kept only because the system pushed back on the first
                         # rejection: never more than medium.
                         accept(candidate, dict(decision, confidence="low" if decision["confidence"] == "low" else "medium"))
+                    elif decision is not None and place_unanswered(decision, candidate):
+                        notes.append(f"Kept {label} low: verification answered something other than where it is.")
+                        diagnostics.event("rejection_overruled", candidate=candidate, first=first, second=decision,
+                                          rule="a detail or a size does not say where an element is")
+                        accept(candidate, kept_for_placement(candidate, decision))
                     elif decision is not None and not contested(decision, {e for e in cited2 if evidence[e].kind != "aid"}, candidate):
                         set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,

@@ -96,7 +96,14 @@ documentsRouter.post("/", async (req, res) => {
   const key = objectKeys.originalPdf(projectId, document.id);
   await prisma.document.update({ where: { id: document.id }, data: { spacesKey: key } });
 
-  const uploadId = await createMultipartUpload(key, "application/pdf");
+  let uploadId: string;
+  try {
+    uploadId = await createMultipartUpload(key, "application/pdf");
+  } catch (err) {
+    // previousVersionId is unique: a row with no upload behind it would refuse every later revision of this document.
+    await prisma.document.delete({ where: { id: document.id } }).catch(() => undefined);
+    throw err;
+  }
   res.status(201).json({
     documentId: document.id,
     uploadId,

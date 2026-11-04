@@ -381,8 +381,9 @@ Now the code-check scan (`rfi_scan._run`) plans this scan itself, in the same pa
    that name the same grid lines but draw a bay a different size at the scale both print (refused
    when a shared name lands on another line of the other sheet: that is a naming dispute, and the
    client's RFI 002 sheets read as "F-G is 21'-1" here and 28'-10" there" until this guard existed);
-   `column_mismatch` — rfi_columns' overlay on architectural/structural pairs and enlarged plans
-   (sizes are not compared across disciplines; a sheet whose columns the reader cannot see gets a
+   `column_mismatch` — rfi_columns' overlay on architectural/structural/interiors pairs, enlarged plans
+   included — never two consultant sheets, whose columns are copied background (Victaulic M2-1
+   over M1-3 read a ceiling-fan hub as a moved column) (sizes are not compared across disciplines; a sheet whose columns the reader cannot see gets a
    "not compared" note, never silence).
 3. **Triage** (`geometry_checks.triage_tiles`): an area is SETTLED and never sent when one sheet draws
    nothing there, or one sheet is an exact copy of the other there (≥85% of its wall lines land

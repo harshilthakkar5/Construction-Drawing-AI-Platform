@@ -238,3 +238,18 @@ def test_the_scan_stops_at_once_when_ocr_was_stopped_for_memory(monkeypatch):
     notes = rfi_scan.ocr_pending("project-1")
     assert len(calls) == 1  # the first failure, then no more asking
     assert "OCR FAILED on 10 page(s)" in notes[0]
+
+
+def test_a_letter_o_read_where_a_zero_belongs_is_a_zero():
+    # Victaulic: every structural sheet is stroke text, and OCR read S0.1 as "SO.1"
+    # twenty times, so no reference to the footing schedule reached its sheet.
+    import ocr
+
+    assert ocr.zeros_for_os("FOOTING SCHEDULE SEE SHEET SO.1.") == "FOOTING SCHEDULE SEE SHEET S0.1."
+    assert ocr.zeros_for_os("SHEET SO.2 AND SO.3") == "SHEET S0.2 AND S0.3"
+    assert ocr.zeros_for_os("DEAD LOAD = 1O psf, 3OOO psi, SCH 4O, IBC 17O4") == \
+        "DEAD LOAD = 10 psf, 3000 psi, SCH 40, IBC 1704"
+    assert ocr.zeros_for_os("AT 2O' AND 1OO’ INTERVAL") == "AT 20' AND 100’ INTERVAL"
+    # Words keep their O: no digit run, no discipline prefix, or more letters around it.
+    for kept in ("SO THAT", "NO.1", "TO BE", "O2 SENSOR", "4OD", "SCHOOL 2", "C-1O1A", "SOME 1.5"):
+        assert ocr.zeros_for_os(kept) == kept, kept

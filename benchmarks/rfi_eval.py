@@ -282,7 +282,8 @@ def main() -> int:
         candidates = code_only(candidates, code_check_types())
     failed = 0
     for case_id in wanted:
-        failed += report(score(cases[case_id], candidates), len(candidates))
+        # A By element run answers its library questions, so the case's elements count here too.
+        failed += report(score(cases[case_id], candidates, tuple(cases[case_id].get("elements", []))), len(candidates))
     return 1 if failed else 0
 
 

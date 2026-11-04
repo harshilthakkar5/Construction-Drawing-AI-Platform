@@ -396,11 +396,15 @@ def test_the_evidence_box_is_stored_where_its_labels_are_printed(rotate):
     assert words and words <= set(STRUCT_ROWS) | set(ARCH_ROWS), words
 
 
-def test_a_page_without_enough_grid_words_is_not_scanned(monkeypatch):
+def test_a_page_without_enough_grid_words_is_never_read_by_ocr(monkeypatch):
+    """A notes page is counted for drawings (is its text drawn as lines?) and,
+    having few, never reaches OCR."""
+    import ocr
+
     doc = fitz.open()
     pg = doc.new_page()
     pg.insert_text((72, 72), "GENERAL NOTES", fontsize=12)
-    monkeypatch.setattr(fitz.Page, "get_cdrawings", lambda self: pytest.fail("scanned a notes page"))
+    monkeypatch.setattr(ocr, "available", lambda: pytest.fail("OCR asked about a notes page"))
     assert grid.styled_systems(pg) == []
 
 
@@ -621,3 +625,19 @@ def test_evidence_shows_both_namings_and_one_item_per_sheet_first():
     struct = [item("S1.101", 4, 20), item("S2.105", 5, 27)]
     picked = [e["sheetNumber"] for e in rfi_grid._pick_evidence([arch, struct])]
     assert picked == ["A3.01", "S2.105", "A3.02", "S1.101", "A3.03"]
+
+
+def test_a_grid_read_by_ocr_marks_its_evidence_so_the_finding_is_capped():
+    """Victaulic's structural grids are drawn as lines and read by OCR; a
+    finding built on one must say so and be no more than medium."""
+    import rfi_checks
+
+    page = Page(id="p1", document_id="d", page_number=1, combined_page_number=1, sheet_number="S1.1D")
+    drawn = rfi_grid.GridSystem("p1", "ocr 36pt", {}, {"14": 100.0, "15": 300.0}, {"14": [[90, 90, 110, 110]]}, ocr=True)
+    typed = rfi_grid.GridSystem("p1", "black 24pt", {}, {"14": 100.0, "15": 300.0}, {"14": [[90, 90, 110, 110]]})
+    assert rfi_grid._evidence(drawn, page, ["14"], "S1.1D", "y")["source"] == "ocr"
+    assert "source" not in rfi_grid._evidence(typed, page, ["14"], "S1.1D", "y")
+    finding = rfi_checks.Finding(check_type=rfi_grid.CHECK_TYPE, fingerprint="f", confidence="high", subject="s",
+                                 question="q?", facts={}, evidence=[rfi_grid._evidence(drawn, page, ["14"], "S1.1D", "y")])
+    rfi_checks.mark_ocr(finding)
+    assert finding.confidence == "medium" and "OCR" in finding.question

@@ -6,6 +6,7 @@ warning is logged instead of failing the whole document.
 """
 
 import gc
+import re
 import threading
 
 import config
@@ -241,8 +242,22 @@ def ocr_png_bytes(png: bytes) -> str:
         for item in block or []:
             # item = [box, (text, confidence)]
             if len(item) >= 2 and item[1]:
-                lines.append(str(item[1][0]))
+                lines.append(zeros_for_os(str(item[1][0])))
     return "\n".join(lines)
+
+
+# OCR reads a zero drawn as strokes as the letter O. Victaulic's structural sheets
+# printed "SO.1" twenty times for S0.1 (so no reference reached the footing
+# schedule's sheet), "1O psf", "3OOO psi" and "IBC 17O4". Two narrow shapes only:
+# a discipline prefix before ".digit", and an O inside a run that starts with digits.
+_SHEET_O = re.compile(r"\b(FP|FA|IT|AV|A|C|E|F|G|H|I|L|M|P|S|T|X)O(?=\.\d)")
+_NUMBER_O = re.compile(r"(?<![A-Za-z0-9.])\d+[O\d]*O[O\d]*(?![A-Za-z0-9])")
+
+
+def zeros_for_os(text: str) -> str:
+    """`text` with an O OCR read where a zero is printed put back. Pure."""
+    text = _SHEET_O.sub(r"\g<1>0", text)
+    return _NUMBER_O.sub(lambda m: m.group(0).replace("O", "0"), text)
 
 
 def available() -> bool:
@@ -276,5 +291,5 @@ def image_lines(pix, pad_to: int | None = None) -> list[tuple[list, str, float]]
     for block in _predict(np.ascontiguousarray(img)) or []:
         for item in block or []:
             if len(item) >= 2 and item[1]:
-                out.append((item[0], str(item[1][0]), float(item[1][1])))
+                out.append((item[0], zeros_for_os(str(item[1][0])), float(item[1][1])))
     return out

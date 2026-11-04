@@ -2391,7 +2391,11 @@ side to long side, since images are placed rotated): 1-BIT, placed under 100 DPI
 found, under half of them readable = ILLEGIBLE, and becomes the `illegible_schedule` finding asking
 for a legible copy. The 1-bit condition was paid for: without it the JETRIGHT run flagged six sheets,
 four of them grey/colour 72-DPI screenshots (a UL listing, a product sheet, a gate-operator table)
-that a person reads easily; only E0.04/E0.05 (1-bit, 67 DPI) are real (`OCR_VERSION` 2). OCR text may
+that a person reads easily; only E0.04/E0.05 (1-bit, 67 DPI) are real (`OCR_VERSION` 2). OCR reads a stroke-drawn zero as the letter O: Victaulic's structural sheets gave "SO.1" twenty times, so
+no reference reached the sheet holding the footing schedule (a paid review then called that schedule "not in the
+project"), plus "1O psf", "3OOO psi", "IBC 17O4". `ocr.zeros_for_os` repairs every line the engine returns, in two
+narrow shapes only — a discipline prefix before ".digit", and an O inside a run that starts with digits; on the 60 hits
+in Victaulic's stored OCR every repair was right (`OCR_VERSION` 3, so older readings are re-read by the scan). OCR text may
 never RAISE a missing sheet or an unscheduled mark — one misread glyph mints a sheet ("FP0.O1",
 "1/16 in" read "l/i6" → I6) — it only suppresses them (an OCR-read schedule row counts as listed),
 and a finding whose deciding schedule was OCR-read is capped like any other OCR finding. Nothing is guessed off it: E0.05's seven panel schedules (67 DPI, letters missing
@@ -2491,7 +2495,8 @@ false one is a question someone has to answer:
     two scheduled marks before it counts as a schedule; the SCHEDULE PAGE counts, not just the
     chunk carrying the word, because schedules split across chunks; a mark must share the
     schedule's shape (a slab schedule of S1, S2 says nothing about S501) and must not be a sheet
-    number (a small set numbered P1..P3 beside a P4..P6 fixture schedule). High when called out
+    number (a small set numbered P1..P3 beside a P4..P6 fixture schedule) or the START of one
+    (Victaulic's "FP3-1" is a sheet, not fire pump FP3). High when called out
     in two places. The cost of the page rule is blindness on a plan sheet that carries its own
     schedule — a missed finding, the direction an error here is allowed to fall. A schedule is a
     HEADING (`schedule_titles`: "FOR STUD RAIL SCHEDULE … SEE SHEET S5.131" points elsewhere and
@@ -2530,8 +2535,21 @@ false one is a question someone has to answer:
     with up to five evidence locations. VERIFY IN FIELD is NOT an open item: field verification is
     the contractor's contractual duty, not a question for the designer. Nor is a note that hands
     the item to another party (`_OTHER_PARTY`, read on the note's own sentence: BY CONTRACTOR,
-    FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD…) — that is settled through their
-    channel. Both are counted in the scan's notes.
+    FABRICATOR, SUPPLIER, SHOP DRAWINGS, SUBMITTAL, IN FIELD, OWNER, ALLOWANCE…) — that is settled
+    through their channel (Victaulic E0.1: fixtures "TO BE DETERMINED BY OWNER", "TBD … $2,500.00
+    allowance"; a dot between digits is a decimal, never the sentence's end). Both are counted in the scan's notes.
+  * `missing_detail` (`workers/src/detail_map.py`, the PROJECT MAP) — a symbol or note pointing at a
+    detail its sheet does not have: Leland S4.10 prints "T.O.C. SEE 24/S4.02" and S4.02 titles 6,
+    11, 21 and 26 (a paid review had accepted that pointer as the answer). The map is each page's
+    titled details, its section/detail symbols and the largest size each detail-number token is
+    printed at, read once per `MAP_VERSION` (~1 s a page) and saved on `pages.detailMap`. A sheet is
+    trusted only with ≥ `MIN_TITLED` (3) titles read, and a number printed ≥ `LARGE_SHARE` of its
+    detail numbers' size is a title the reader missed, never a missing detail. A sheet not in the set
+    is `dangling_reference`'s. Linked to library U-07. Measured before shipping: 2 on Leland
+    (24/S4.02, "SEE 0/S4.00"), 1 on UT Law. Tried and rejected at the same time: saving one AI
+    reading per picture for reuse — a "note everything" reading held 69% of what element reviews
+    needed, ran ~1,350 tokens, and at that length saves 7–10% on a whole-library run and costs more
+    on one package.
   * `missing_plan_level` (`workers/src/plan_series.py`) — a level missing from a series of plans,
     the client's RFI 007 ("provide the forming plan at level 6"). A series is a whole title line
     "<…> PLAN - LEVEL n[-m]" (never ENLARGED/PARTIAL/qualified), needs three levels and two sheets,
@@ -2725,7 +2743,9 @@ discovery by `maxInputTokens` into at most `maxBatches` calls (the rest is writt
 an evidence id the server did not issue is dropped, description-only or aid-only support is
 rejected, an evidence id the model wrote into prose is shown as its SHEET (`readable`: subject, question,
 why-flagged, set-asides, notes — lowercase `ev12` only, so a drawing's tag EV1 stays), a conflict needs two pages, and a question may not contain an identifier or ANY digit
-run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern).
+run the cited evidence does not (`W14x90` slipped past the scan's free-standing-number pattern) — except the
+sheet number of a page the run read (`_without_run_sheets`: Victaulic's kept "which bearing value governs the
+footings on S1.1A?" was refused for naming the sheet under review).
 `maxTotalTokens` is checked BEFORE each call and stops the run `partial` with what it found saved.
 Usage rows carry `reviewRunId`/`stage`/`attempt` (`usage.tagged`, a ContextVar). G01 runs the
 scan's exact `rfi_grid` comparison and keeps its fingerprint. A failed call fails the run at a
@@ -2775,7 +2795,10 @@ reported "missing". `levelOf` (API) and `rfi_columns.level_of` share
 Two same-scale sheets of ONE discipline are never overlaid either: on the full UT Law set, A3.04
 (Level 5 floor plan) over A1.42 / A1.52 / A3.20 (that level's life-safety, exhibit and ceiling
 plans) reported planters and light fixtures as 17 "missing" columns. Same scale needs two
-disciplines; an enlarged plan over its overall plan is unaffected.
+disciplines; an enlarged plan over its overall plan is unaffected. Columns are compared only between
+architectural, structural and interiors sheets (`geometry_checks._column_pair`), an enlarged pair
+included: a consultant's columns are copied background — Victaulic M2-1 over M1-3 read a ceiling-fan
+hub as a column moved 2'-0".
 `plan_match.differences` reports a difference only where it can be true, and each rule is a false
 finding from the offline sweep of every library element (Leland S2.30-A/B and A2.30-A/B over
 S2.20/A2.20): inside the area the matched columns span plus one typical spacing (`COVER_BAYS`; a
@@ -2855,7 +2878,7 @@ detail title UNDER it, as an aid — so whether the plan gives that length no lo
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
-Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers.
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers. A DETAIL or a SIZE does not say where an element is: `place_unanswered` keeps LOW a rejection of a location problem (`_LOCATES`) resting on a detail reference ("note 13 sends the step itself to detail 8/S3.1", unless it quotes a length) or quoting a size with no word of place ("wall footing width is given on S3.1: 2'-6\" wide" against "no dimensions to grids" — Victaulic RFI 001), unless it calls it a duplicate or names the specs or the field — Victaulic RFI 003 (footing steps on S1.1A, no dimension to the grids) was set aside twice that way on Claude while Argon raised it; replayed from the run's four recorded replies, it is now kept.
 Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
@@ -2897,6 +2920,25 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     `concedes_the_value` makes such a rejection contested: it claims the value is elsewhere while a sentence of
     absence in its own reason shares two words with the problem's element. Kept on overrule, a question naming no
     sheet gets the problem's location appended (`overruled`).
+    The 2 Nov paid run (S4.10 + S4.02 + S2.31-A) lost it a fourth way: reasoning BUNDLED three claims (heel/toe
+    not printed; "T.O.C. is 'SEE PLAN' but the plan gives only slab elevations"; detail 13 has no thickness) and
+    the re-check rejected the bundle citing ev50/ev51 — the very details that print "SEE PLAN" — for their
+    thickness. For a deferral problem `contested` no longer counts a citation of the problem's OWN evidence
+    (pointing back at the pointer shows no value), and `overruled` words the kept finding from the deferral
+    sentence alone (`deferral_claim`, abbreviation-safe), never the verifier's question about another claim.
+    Replayed offline from the run's export with the four recorded replies: the old code reproduces the miss
+    exactly, the new keeps it LOW with S2.31-A/S2.32-A callouts of 8 and 13/S4.10 as context, and
+    `rfi_eval.py --run` scores 008 and 009 as hits (it now credits the case's `elements`, as
+    `--project-reviews` already did).
+    Detail 10 itself was never IN VIEW: close-up slots went to details whose title names the element, top
+    to bottom (13 and 8), and 10 is titled only "10/S4.10". `detail_regions(…, cut)` now puts first the
+    details the review's own sheets call out (`details_cut`, read from the project map), and a bare-reference
+    title counts when one is cut — same number of images. The next paid run showed detail 10 (its text:
+    "T.O.C. SEE 24/S4.02", "T.O.C. SEE PLAN", "T.O. WEIR SEE CIVIL" — the `missing_detail` finding is the
+    same callout) and still raised nothing on it: the discovery reply that described it ("T.O.C. as 'SEE
+    PLAN' … pointers to plan, not values") broke on `-4'-0", 8" CMU` — an inch mark before a comma reads as
+    a string's end to any pattern — and the retry that replaced it (a second 160k-token call) dropped it.
+    `_escape_inches_where_it_breaks` escapes the last quote before each parse error when a digit precedes it.
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
@@ -2974,6 +3016,34 @@ from its own pattern. Leland RFIs 002 and 004 are both in S2.30-B's shear-wall c
 ever saw it legibly: its one close-up was a 2983x2214pt text piece, the whole sheet again at ~64 DPI. The
 value is matched UNDER its tag in display space (a rotated sheet's stored frame turns "under" sideways);
 under `PLAN_MIN_TAGS` tagged values, or none rare, the planned text pieces are used as before.
+A sheet whose words are DRAWN AS LINES has neither text tags nor text pieces to aim at: Victaulic S1.1A got
+one close-up, of a notes chunk 80% of the sheet wide (~47 DPI), and verification called the client's RFI 003
+footing step "speculative" because it never saw the step. The planner now marks such a page `drawnText` (its OCR
+reading says no text layer / text drawn as shapes, or it holds no text) and fills its free close-up slots with
+`drawing` slots, priced like any other (`withDrawingSlots`); the worker turns each into a window a third of the
+sheet a side over the most drawn linework (`drawing_regions`: line PIECES ≥ 20pt, so stroke lettering and one
+path holding a whole layer both count right), overlapping what is shown by at most a quarter — and a planned box
+over twice a window's area is no close-up, so it blocks nothing. On S1.1A the two windows cover the clouded dock
+corner and top band at ~117 DPI. Not yet re-run on a model.
+A grid question (G01) is answered by the dimension strings beside the grid bubbles, which a whole sheet shows at
+~45 DPI: Victaulic RFI 007 (A1.3's 13'-11 1/4" and 11'-0 3/4" against S1.1D's 14'-0" and 11'-0") was missed because
+A1.3's one close-up went to its bottom string and the strings that disagree run down its right edge. When a review
+asks G01, the planner gives the NAMED sheets' free slots to `grid` slots (`withGridSlots`, priced), and the worker
+aims them at the band inside each row of bubbles (`grid_strip_regions`: `grid.styled_systems` bubbles split by side,
+6 bubble diameters inward, cut AT bubbles with neighbouring pieces sharing one so every string between two lines lies
+whole in a piece, most bubbles per length first; ~220 DPI on A1.3). The disagreeing strings were in fact on S1.1G
+(13'-11 1/4", 11'-0 3/4"), whose labels are drawn as lines, so no grid can be read there: its strips come from ROWS of
+equal circles (`drawn_circles` samples each bezier's midpoint, since S1.1G draws a bubble as two half-curves whose
+control points overshoot; `bubble_rows`: 3+ sharing an x or a y). With neither, drawing windows. Grid slots are never
+re-aimed at titled details or rare tags.
+The paid run with those strips READ both values (S1.1G 13'-11 1/4", S1.1D and A1.3 14'-0") and compared neither: they
+sat in separate observations as runs of numbers, and the inventory held three lumped rows. So a grid review's
+discovery is told (`GRID_SPANS_RULE`, only when G01 is asked) to record every span between NEIGHBOURING lines on every
+sheet as its own inventory entry — "grid 15 to 15.6", lower label first, one `spacing` value, the sheet as source —
+and `value_conflicts` compares them like any other field. The next paid run recorded twelve such spans, all from A1.3 and S1.1D (which
+agree) and none from S1.1G, while noting S1.1G's bubbles in the same reply: one call reading 26 pages leaves gaps. So
+when G01 is asked, `complete_grid_spans` makes ONE follow-up shown only the strip close-ups (captioned
+`GRID_STRIP_CAPTION`), asking for every span on every sheet; its reading replaces the first pass's for that sheet.
 
 C03 is judged per column OCCURRENCE, not per mark (`workers/src/column_locate.py`,
 `rfi_review.occurrence_check`; docs/rfi-targeted-review.md "C03: one column occurrence at a
@@ -3193,6 +3263,19 @@ grid is evidence too; it is now listed under the naming it carries, `rfi_grid._n
 A1.01 bubbles one line E and F, and position-order matching said "E = F" (`_match` pairs same
 names FIRST); and "MECHANICAL DRAWING E2" was a missing sheet because the cover is T1 (a
 reference must be numbered like the set's sheets of its own prefix).
+A sheet whose grid LABELS are drawn as lines (Victaulic's structural S1.0, S1.1A-G: no text layer) had no grid at
+all for any check. `grid.styled_systems` now falls back, only on such a sheet (`drawn_text`: page_ocr's shape-text
+thresholds) and only where OCR can run, to `ocr_systems`: bubble-sized closed circles (`drawn_circles`, each bezier
+sampled at its midpoint) in rows of 3+ (`bubble_rows`) with a straight line leaving them ACROSS the row
+(`_line_leaves` — S3.4's detail-title circles 4-7 carry only an underline along it), each label read by OCR with the
+ring erased (it clipped "16.5" to "6.5") — once, then three copies side by side for a lone letter the detector skips
+(`label_from_reading`: one copy must be one unbroken label, so "16 5" is never grid 165; copies must agree, so "BE"
+is nothing) — and a row kept only when its labels run in order (`in_order`). An unread line is left out, never named
+from its neighbours. Systems carry `ocr`, `GridSystem.ocr` puts `source: "ocr"` on the evidence, and `mark_ocr`
+caps the finding at medium. Over Victaulic's 114 pages: 8 structural grids read (14, 14.6, 14.7 … 17; E, E.2, F.2 …),
+~90 s of OCR, zero false findings (the disciplines name the grid alike); G and J and some single digits do not read.
+A "no grid" result is no longer cached by the scan (it depends on this worker having OCR) (`GRID_CACHE_VERSION` 8,
+`STYLED_VERSION` 8, `FACTS_VERSION` 7).
 
 ## Claude prompting pattern for grounded answers
 
@@ -3214,7 +3297,8 @@ rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBa
      idempotencyKey, heartbeatAt, ...)   // + rfi_full_scan_tiles(scanId, pairIndex, tileIndex,
      windows, status, issues[+verdict], outcome, outcomeNote, dropped); pages.sheetKind/level/scales/gridSummary/factsVersion
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
-      discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource)
+      discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource,
+      detailMap, detailMapVersion)   // detailMap: the project map's entry (detail_map.py)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, summaryHeartbeatAt, summaryDetail, ...)
          // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert

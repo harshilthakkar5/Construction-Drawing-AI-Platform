@@ -152,7 +152,7 @@ export const LINKS: Record<string, Link> = {
   "CE-12-09": { catalogue: ["FL01"] },
   "CE-12-12": { catalogue: ["FL02", "C01", "C02"] },
   "U-01": { codeChecks: ["unscheduled_mark", "unmarked_element"] },
-  "U-07": { codeChecks: ["dangling_reference"] },
+  "U-07": { codeChecks: ["dangling_reference", "missing_detail"] },
 };
 
 const text = (cell: ExcelJS.Cell): string => {

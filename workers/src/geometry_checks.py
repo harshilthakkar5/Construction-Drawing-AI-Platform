@@ -13,8 +13,8 @@ mistakes. This module makes them do the work first:
         draw them a different distance apart, at the scale both print.
       - `column_findings`: rfi_columns' column overlay — a column one sheet
         draws and the other does not, or draws feet away — on the pairs where
-        a column must agree (architectural / structural, or one discipline's
-        enlarged plan over its overall plan).
+        a column must agree (architectural / structural / interiors sheets;
+        a consultant's columns are copied background).
   * TRIAGE (`triage_tiles`). A window the code can settle is not sent to the
     AI: one side draws nothing there, or every wall line both sheets draw lines
     up exactly and no line has a parallel twin 3 in to 2 ft off (the shape of a
@@ -240,8 +240,8 @@ def _column_pair(pair) -> bool:
     a, b = pair.a.discipline, pair.b.discipline
     if pair.kind == "sections":
         return False  # two details on one sheet: nothing to overlay
-    if pair.kind == "enlarged":
-        return a == b or (a in COLUMN_DISCIPLINES and b in COLUMN_DISCIPLINES)
+    # Even a consultant's enlarged plan over its own overall plan: both columns
+    # are copied background. Victaulic M2-1 over M1-3 read a fan hub as a column.
     return a in COLUMN_DISCIPLINES and b in COLUMN_DISCIPLINES
 
 

@@ -405,6 +405,12 @@ model Page {
   gridSummary  Json?
   factsVersion Int?
 
+  /// The project map (workers/src/detail_map.py): this sheet's titled details,
+  /// the section/detail symbols it prints and how large each detail number is
+  /// printed. Read once per detailMapVersion; NULL until a scan reads the page.
+  detailMap        Json?
+  detailMapVersion Int?
+
   /// workers/src/page_ocr.py's reading of the text the text layer does not
   /// hold (words drawn as shapes, pasted pictures): its lines with boxes,
   /// and each large picture with the DPI it was placed at and whether it is

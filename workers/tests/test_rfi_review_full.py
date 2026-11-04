@@ -525,6 +525,47 @@ def test_a_rejection_resting_on_a_reference_callout_is_contested():
                                      "reason": "Mix strength is governed by the specifications; see ACI 301."}, shown)
 
 
+# Leland RFI 009 as a real Claude run proposed it (2 Nov): three claims in one problem, the real
+# one being "T.O.C. is 'SEE PLAN' but the plan gives only slab elevations".
+_BUNDLED = {
+    "checkId": "CE-04-12-Q01", "kind": "missing", "location": "S4.10 details 8 and 13",
+    "element": "Basement retaining walls, details 8 and 13 on S4.10",
+    "issue": "Wall height, heel and toe dimensions are not printed. T.O.C. is 'SEE PLAN' but the plan gives only "
+             "slab elevations. Detail 13 gives no wall thickness.",
+    "why": "The T.O.C. reference to the plan is not answered by the plan.",
+    "evidenceIds": ["ev51", "ev50", "ev1", "ev2"],
+}
+_RECHECK_REJECTION = {
+    "decision": "reject", "basis": "other", "answeredBy": [], "confidence": "low",
+    "subject": "Basement retaining wall dimensions on S4.10 details 8 and 13",
+    "question": "Are the wall height and footing dimensions at details 8 and 13 given?",
+    "reason": "The problem as written is not supported by the cited evidence. Detail 8 (ev51) prints the 10\" wall "
+              "thickness, the 2'-0\" and 8\" vertical dimensions, and the grade beam reinforcement reference. Detail 13 "
+              "(ev50) is a CMU wall on a retaining wall and drilled pier by the specialty retension subcontractor.",
+}
+
+
+def test_pointing_back_at_the_details_that_defer_a_value_does_not_settle_it():
+    shown = {"ev1", "ev2", "ev50", "ev51", "ev55"}
+    assert rfi_review.contested(_RECHECK_REJECTION, shown, _BUNDLED)
+    # Citing OTHER evidence — the plan, say — still lets the rejection stand.
+    assert not rfi_review.contested(dict(_RECHECK_REJECTION, answeredBy=["ev55"]), shown, _BUNDLED)
+    # A problem that is not about a deferred value keeps the old rule: its own evidence cited stands.
+    plain = dict(_BUNDLED, issue="Wall height, heel and toe dimensions are not printed.", why="")
+    assert not rfi_review.contested(_RECHECK_REJECTION, shown, plain)
+
+
+def test_an_overruled_deferral_asks_only_about_the_deferred_value():
+    kept = rfi_review.overruled(_BUNDLED, _RECHECK_REJECTION)
+    assert kept["question"] == ("T.O.C. is 'SEE PLAN' but the plan gives only slab elevations. Please provide it, or "
+                                "confirm which drawing shows it. (S4.10 details 8 and 13)")
+    assert "heel" not in kept["question"] + kept["subject"] and "thickness" not in kept["question"] + kept["subject"]
+    assert kept["subject"].startswith("Basement retaining walls, details 8 and 13 on S4.10: T.O.C. is 'SEE PLAN'")
+    assert kept["confidence"] == "low" and kept["decision"] == "keep"
+    assert rfi_review.deferral_claim("No sizes are given. Openings SEE ARCH. Depth unknown.") == "Openings SEE ARCH."
+    assert rfi_review.deferral_claim("Shaft openings have no sizes.") == ""
+
+
 def test_the_prompts_say_a_reference_is_not_a_value():
     assert "A reference is not a value" in rfi_review.reasoning_system(["F04"])
     assert "is not the value it points to" in rfi_review.verification_system()
@@ -893,3 +934,61 @@ def test_a_rejection_that_cites_another_drawing_but_concedes_the_value_is_contes
     casing = {"decision": "reject", "basis": "other", "answeredBy": [],
               "reason": "Permanent casing is not indicated anywhere, so nothing is shown as missing."}
     assert not rfi_review.concedes_the_value(casing, {"element": "Permanent pier casing"})
+
+
+# --- A detail shows how an element is built, not where it is (Victaulic RFI 003) ---
+
+_STEPS = {"checkId": "CE-04-05-Q01", "kind": "missing", "element": "Footing steps", "location": "S1.1A/S1.1B/S1.1C",
+          "issue": "Plan note 13 defines a footing step symbol and says \"SEE 8/S3.1\". On S1.1A the steps appear as jogs "
+                   "in the boxed elevation leaders. No dimension of step location from a grid is printed on the plan.",
+          "why": "A value needed to place this element is not given."}
+# The re-check's verdict, as Sonnet 5.5 returned it.
+_STEPS_REJECT = {"decision": "reject", "basis": "not_visible", "confidence": "low", "priority": "normal",
+                 "reason": "The evidence does not show that a step-location dimension is required. The boxed values on "
+                           "the plan are footing top elevations, and note 13 sends the step itself to detail 8/S3.1.",
+                 "subject": "Footing step location dimensions not given on plan",
+                 "question": "Note 13 refers to detail 8/S3.1 for footing steps, and no grid dimension locates the steps "
+                             "on the plan. Where along the footing does each step occur?"}
+
+
+def test_a_location_question_rejected_by_pointing_at_a_detail_is_kept_low():
+    assert rfi_review.place_unanswered(_STEPS_REJECT, _STEPS)
+    kept = rfi_review.kept_for_placement(_STEPS, _STEPS_REJECT)
+    assert kept["decision"] == "keep" and kept["confidence"] == "low"
+    assert kept["question"] == _STEPS_REJECT["question"]  # the verifier's own, since it asks where
+    # A verifier question about something else is replaced, and the sheet is named.
+    other = rfi_review.kept_for_placement(_STEPS, dict(_STEPS_REJECT, question="What step height does 8/S3.1 require?"))
+    assert "locate each one from the grids" in other["question"] and "S1.1A" in other["question"]
+
+
+def test_a_detail_pointer_does_not_overrule_other_rejections():
+    placed = rfi_review.place_unanswered
+    # The verifier quoted the value: it found one.
+    assert not placed(dict(_STEPS_REJECT, reason="Detail 3/S4.00 locates the step 4'-0\" from grid A."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="The plan gives a 4'-0\" offset to each step."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="This duplicates problem 0, which covers 8/S3.1."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="Step locations are to be verified in field per 8/S3.1."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, reason="No detail is referenced; the plan shows it."), _STEPS)
+    assert not placed(dict(_STEPS_REJECT, decision="keep"), _STEPS)
+    # A size question: a detail can answer that, even when it names a place.
+    size = dict(_STEPS, issue="The footing size at location B/4 is not given.", element="Footing")
+    assert not placed(dict(_STEPS_REJECT, reason="Detail 1/S3.5 gives it."), size)
+    assert not placed(_STEPS_REJECT, dict(_STEPS, kind="conflict"))
+
+
+def test_a_location_question_rejected_by_quoting_a_size_is_kept_low():
+    """Victaulic RFI 001: "no dimensions to grids" was rejected because S3.1
+    gives the footing WIDTH — an answer about size, not place."""
+    footings = {"checkId": "F02", "kind": "missing", "element": "", "location": "S1.1A",
+                "issue": "Wall footings have no marks, no printed widths, no extents and no dimensions to grids. "
+                         "They are shown only by top-of-footing elevation tags.", "why": ""}
+    reject = {"decision": "reject", "basis": "answered_elsewhere", "subject": "", "question": "",
+              "reason": "Wall footing width and reinforcement are given on the S3.1 wall sections (5, 6 and 7: 2'-6\" "
+                        "wide with (4) #5 continuous). The missing marks and widths are not demonstrated."}
+    assert rfi_review.place_unanswered(reject, footings)
+    kept = rfi_review.kept_for_placement(footings, reject)
+    assert kept["confidence"] == "low" and "elevation tags" not in kept["question"]
+    assert kept["question"].startswith("Wall footings have no marks") and "S1.1A" in kept["question"]
+    # A size question answered with a size stands.
+    widths = dict(footings, issue="Wall footing widths are not printed.")
+    assert not rfi_review.place_unanswered(reject, widths)
