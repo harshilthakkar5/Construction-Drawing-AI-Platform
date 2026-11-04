@@ -91,6 +91,12 @@ OCR_DET_LIMIT = int(os.environ.get("OCR_DET_LIMIT", "1600"))
 OCR_MIN_FREE_MB = int(os.environ.get("OCR_MIN_FREE_MB", "1024"))
 OCR_MAX_RSS_MB = int(os.environ.get("OCR_MAX_RSS_MB", "4096"))
 OCR_ENGINE_RECYCLE = int(os.environ.get("OCR_ENGINE_RECYCLE", "100"))
+# Intel's CPU speed-up (MKL-DNN / oneDNN) for OCR: roughly 2-3x faster on a
+# modern Intel or AMD CPU. Off by default because it was the suspect in the
+# "could not create a primitive" failures on a small laptop; the engine now
+# runs in its own process, and the first failure turns it off for the rest
+# of the worker's life (ocr._predict), so a server can safely try it.
+OCR_MKLDNN = os.environ.get("OCR_MKLDNN", "false").lower() == "true"
 
 # FR-8: lift schedules out of the page as whole tables instead of letting the
 # block extractor shred them. Detection is a heuristic (workers/src/tables.py);

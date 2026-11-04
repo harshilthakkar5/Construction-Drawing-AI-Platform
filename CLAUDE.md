@@ -2459,7 +2459,8 @@ failure ends the process and fails only that image; the next starts fresh, and o
 `MEMORY_STRIKES` (3) in a row halt OCR. A child that dies (the OS ending it out of memory) reads as a
 memory failure. Callers did not change: the class has the engine's own `ocr()`. Inside a container
 the free-memory guard also reads the cgroup's room (`_cgroup_free_mb`), since psutil reports the
-whole Docker VM.
+whole Docker VM. `OCR_MKLDNN=true` (default off) builds that process with Intel's CPU speed-up
+(MKL-DNN, ~2-3x); the first engine failure turns it off for the rest of the worker's life.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR

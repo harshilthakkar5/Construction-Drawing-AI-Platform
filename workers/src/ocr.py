@@ -48,6 +48,8 @@ _calls = 0
 # goes back to the OS) and the next image starts a fresh one; only a run of
 # them says the machine cannot hold even one engine, and stops OCR.
 _memory_strikes = 0
+# Turned off after the first engine failure while it is on (see config.OCR_MKLDNN).
+_mkldnn = config.OCR_MKLDNN
 MEMORY_STRIKES = 3
 
 # How oneDNN, Paddle and the C++ runtime say "no memory left". "could not
@@ -147,7 +149,7 @@ def _free_engine() -> None:
     gc.collect()
 
 
-def _child_main(conn, det_limit: int) -> None:
+def _child_main(conn, det_limit: int, mkldnn: bool = False) -> None:
     """The OCR engine's own process: build PaddleOCR, then read images from
     `conn` until told to stop. Paddle keeps the memory it allocates for the
     life of the process, so rebuilding the engine in the worker never gave it
@@ -156,7 +158,7 @@ def _child_main(conn, det_limit: int) -> None:
     try:
         from paddleocr import PaddleOCR
 
-        engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False, enable_mkldnn=False,
+        engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False, enable_mkldnn=mkldnn,
                            det_limit_side_len=det_limit, det_limit_type="max")
     except BaseException as exc:  # noqa: BLE001 - reported to the parent, which decides
         conn.send(("missing" if isinstance(exc, ImportError) else "error", f"{type(exc).__name__}: {exc}"))
@@ -181,12 +183,12 @@ class _ProcessEngine:
     START_SECONDS = 600  # the first start may download the models
     CALL_SECONDS = 600
 
-    def __init__(self, det_limit: int):
+    def __init__(self, det_limit: int, mkldnn: bool = False):
         import multiprocessing
 
         ctx = multiprocessing.get_context("spawn")  # the same on Windows, macOS and Linux
         self._conn, child = ctx.Pipe()
-        self._proc = ctx.Process(target=_child_main, args=(child, det_limit), daemon=True,
+        self._proc = ctx.Process(target=_child_main, args=(child, det_limit, mkldnn), daemon=True,
                                  name="ocr-engine")
         self._proc.start()
         child.close()
@@ -281,7 +283,7 @@ def _get_engine():
         # Dockerfile pre-warms them). det_limit_side_len: PaddleOCR shrinks
         # anything larger to 960px by default, which throws away the tile's
         # resolution; small crops are not enlarged ("max").
-        _engine = _ProcessEngine(config.OCR_DET_LIMIT)
+        _engine = _ProcessEngine(config.OCR_DET_LIMIT, _mkldnn)
     except (ImportError, ModuleNotFoundError) as exc:
         # Permanent: the package genuinely isn't installed. Latch it, so every
         # page doesn't retry an import that cannot start working.
@@ -316,7 +318,7 @@ def _predict(img):
     retried — OCR stops in this worker instead (`_halt`). Raises OcrError when
     nothing could be read — never an empty reading, since "could not read" and
     "nothing there" must stay tellable apart."""
-    global _calls, _memory_strikes
+    global _calls, _memory_strikes, _mkldnn
     import cv2
 
     with _lock:
@@ -338,6 +340,10 @@ def _predict(img):
             failure = f"{exc}" or type(exc).__name__
         del engine
         _free_engine()
+        if _mkldnn:
+            _mkldnn = False
+            log.warning("OCR: the Intel speed-up (OCR_MKLDNN) is turned off for the rest of this worker "
+                        "after the engine failed with \"%s\"; OCR carries on without it", failure)
         if _looks_like_memory(failure):
             # Not retried now: the engine's process is gone with its memory,
             # and the NEXT image starts a fresh one. Only a run of these stops OCR.

@@ -309,13 +309,14 @@ class PaddleOCR:
     def __init__(self, **kwargs):
         if os.environ.get("FAKE_OCR_FAIL_START"):
             raise RuntimeError("model download dropped")
+        self.mkldnn = kwargs.get("enable_mkldnn")
 
     def ocr(self, img, cls=True):
         if img.shape[0] == 13:  # the process dies, as the OS ends one out of memory
             os._exit(9)
         if img.shape[0] == 7:
             raise RuntimeError("unsupported input layout")
-        return [[[[[0, 0], [1, 0], [1, 1], [0, 1]], ("RTU-3", 0.99)]]]
+        return [[[[[0, 0], [1, 0], [1, 1], [0, 1]], ("MKLDNN" if self.mkldnn else "RTU-3", 0.99)]]]
 """
 
 
@@ -353,3 +354,18 @@ def test_an_engine_that_cannot_start_says_why(fake_paddle, monkeypatch):
     monkeypatch.setenv("FAKE_OCR_FAIL_START", "1")
     with pytest.raises(RuntimeError, match="model download dropped"):
         ocr._ProcessEngine(960)
+
+
+def test_the_intel_speed_up_reaches_the_engine_process(fake_paddle):
+    engine = ocr._ProcessEngine(960, True)
+    try:
+        assert engine.ocr(np.zeros((20, 20, 3), dtype=np.uint8))[0][0][1][0] == "MKLDNN"
+    finally:
+        engine.close()
+
+
+def test_the_intel_speed_up_is_turned_off_after_the_first_failure(engines, monkeypatch):
+    engines(fail_above=ocr.FALLBACK_LIMIT)
+    monkeypatch.setattr(ocr, "_mkldnn", True)
+    assert ocr._predict(np.zeros((1600, 1200, 3), dtype=np.uint8))  # retried smaller and read
+    assert ocr._mkldnn is False  # every engine from now on is built without it

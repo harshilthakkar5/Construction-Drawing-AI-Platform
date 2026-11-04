@@ -126,6 +126,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `OCR_DET_LIMIT` | `1600` | Worker | Longest side (px) the OCR detector works at. Lower it (e.g. `960`) on a worker short of memory; a tile the engine fails on is retried at 960 anyway. |
 | `OCR_MIN_FREE_MB` | `1024` | Worker | An OCR call is refused (the page waits for a later scan) when the machine — or Docker's VM — has less free memory than this. `0` = off. |
 | `OCR_ENGINE_RECYCLE` | `100` | Worker | Restart the OCR engine's process every N images, returning all its memory to the system. `0` = never. |
+| `OCR_MKLDNN` | `false` | Worker | Intel's CPU speed-up for OCR (MKL-DNN), roughly 2-3x faster on a modern Intel or AMD CPU. Recommended on a server. The first engine failure turns it off for the rest of the worker's life. |
 | `OCR_MAX_RSS_MB` | `4096` | Worker | Restart the OCR engine's process when it grows past this. An out-of-memory engine error ("could not create a primitive") ends that process and the next image starts a fresh one; three in a row stop OCR until the worker restarts. `0` = off. |
 | `PAGE_RENDER_ZOOM` | `2` | Worker | Page image resolution (2 = 144 DPI). Bigger = sharper viewer, more memory and storage. |
 | `THUMB_WIDTH` | `200` | Worker | Thumbnail width in pixels. |
