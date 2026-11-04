@@ -53,6 +53,7 @@ def engines(monkeypatch):
     made = {"kwargs": {}, "alive_at_build": []}
     monkeypatch.setattr(ocr, "_halted", None)
     monkeypatch.setattr(ocr, "_calls", 0)
+    monkeypatch.setattr(ocr, "_memory_strikes", 0)
     # Guards off unless a test turns one on: these tests are about the engine.
     monkeypatch.setattr(ocr.config, "OCR_MIN_FREE_MB", 0)
     monkeypatch.setattr(ocr.config, "OCR_MAX_RSS_MB", 0)
@@ -107,21 +108,38 @@ def test_an_engine_that_fails_every_time_raises_rather_than_reading_nothing(engi
     assert ocr.halted() is None  # not a memory failure: the next page may still read
 
 
-def test_a_memory_failure_stops_ocr_in_the_worker_instead_of_building_another_engine(engines):
-    # "could not create a primitive" is oneDNN failing to allocate. Retrying
-    # builds a second engine on a machine already out of memory — the step
-    # that took Docker and the terminal down with the worker.
+def test_a_memory_failure_ends_the_engine_and_only_a_run_of_them_stops_ocr(engines):
+    # "could not create a primitive" is oneDNN failing to allocate. The engine
+    # lives in its own process, so ending it hands its memory back and the
+    # next image starts fresh; retrying THIS image at once is what took Docker
+    # and the terminal down, so it is never retried on the spot.
     engines(always_fail=True, error="could not create a primitive")
     img = np.zeros((1600, 1600, 3), dtype=np.uint8)
-    with pytest.raises(ocr.OcrError, match="running out of memory"):
+    for built in (1, 2):
+        with pytest.raises(ocr.OcrError, match="running out of memory"):
+            ocr._predict(img)
+        assert FakeEngine.built == built and ocr._engine is None  # ended, not rebuilt on the spot
+        assert ocr.halted() is None  # one bad image is not a broken machine
+    with pytest.raises(ocr.OcrError, match="3 times in a row"):
         ocr._predict(img)
-    assert FakeEngine.built == 1 and ocr._engine is None  # released, never rebuilt
     assert ocr.halted()
     calls = len(FakeEngine.shapes)
     with pytest.raises(ocr.OcrError):
         ocr._predict(img)
-    assert len(FakeEngine.shapes) == calls and FakeEngine.built == 1  # never asked again
+    assert len(FakeEngine.shapes) == calls  # never asked again
     assert ocr.available() is False
+
+
+def test_a_success_between_memory_failures_resets_the_count(engines, monkeypatch):
+    engines(always_fail=True, error="could not create a primitive")
+    monkeypatch.setattr(ocr, "_memory_strikes", 0)
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    for _ in range(2):
+        with pytest.raises(ocr.OcrError):
+            ocr._predict(img)
+    engines()  # a fresh, working engine
+    assert ocr._predict(img)
+    assert ocr._memory_strikes == 0
 
 
 def test_low_free_memory_refuses_the_call_without_stopping_ocr(engines, monkeypatch):
@@ -135,17 +153,14 @@ def test_low_free_memory_refuses_the_call_without_stopping_ocr(engines, monkeypa
     assert ocr._predict(np.zeros((50, 50, 3), dtype=np.uint8))
 
 
-def test_a_worker_too_large_releases_the_engine_and_stops_only_if_that_does_not_help(engines, monkeypatch):
+def test_an_engine_over_the_memory_cap_is_replaced_not_stopped(engines, monkeypatch):
     engines()
     monkeypatch.setattr(ocr.config, "OCR_MAX_RSS_MB", 4000)
-    readings = iter([4500.0, 3000.0])  # over the cap, and under it once the engine is gone
-    monkeypatch.setattr(ocr, "_rss_mb", lambda: next(readings))
-    ocr._predict(np.zeros((50, 50, 3), dtype=np.uint8))
-    assert ocr.halted() is None
-    monkeypatch.setattr(ocr, "_rss_mb", lambda: 4500.0)
-    with pytest.raises(ocr.OcrError, match="OCR_MAX_RSS_MB=4000"):
-        ocr._predict(np.zeros((50, 50, 3), dtype=np.uint8))
-    assert ocr.halted()
+    img = np.zeros((50, 50, 3), dtype=np.uint8)
+    ocr._predict(img)
+    ocr._engine.rss_mb = lambda: 4500.0  # the engine's own process grew past the cap
+    ocr._predict(img)
+    assert FakeEngine.built == 2 and ocr.halted() is None
 
 
 def test_the_engine_is_rebuilt_every_n_images(engines, monkeypatch):
@@ -282,3 +297,57 @@ def test_with_ocr_off_a_page_that_needs_it_is_left_for_a_later_scan(monkeypatch)
     page = doc.new_page()  # no text layer at all
     reading = page_ocr.read_page(page)
     assert reading.reason is not None and not reading.ran  # processing leaves it unmarked
+
+
+FAKE_PADDLEOCR = """
+import os
+
+
+class PaddleOCR:
+    def __init__(self, **kwargs):
+        if os.environ.get("FAKE_OCR_FAIL_START"):
+            raise RuntimeError("model download dropped")
+
+    def ocr(self, img, cls=True):
+        if img.shape[0] == 13:  # the process dies, as the OS ends one out of memory
+            os._exit(9)
+        if img.shape[0] == 7:
+            raise RuntimeError("unsupported input layout")
+        return [[[[[0, 0], [1, 0], [1, 1], [0, 1]], ("RTU-3", 0.99)]]]
+"""
+
+
+@pytest.fixture
+def fake_paddle(tmp_path, monkeypatch):
+    pkg = tmp_path / "paddleocr"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(FAKE_PADDLEOCR)
+    monkeypatch.syspath_prepend(str(tmp_path))  # a spawned child gets the parent's sys.path
+    return tmp_path
+
+
+def test_the_engine_runs_in_its_own_process(fake_paddle):
+    engine = ocr._ProcessEngine(960)
+    try:
+        assert engine._proc.pid != __import__("os").getpid()
+        assert engine.ocr(np.zeros((20, 20, 3), dtype=np.uint8))[0][0][1][0] == "RTU-3"
+        with pytest.raises(RuntimeError, match="unsupported input layout"):
+            engine.ocr(np.zeros((7, 20, 3), dtype=np.uint8))
+        assert engine.ocr(np.zeros((20, 20, 3), dtype=np.uint8))  # an error is not a dead engine
+    finally:
+        engine.close()
+    assert not engine._proc.is_alive()  # closing ends the process and its memory
+
+
+def test_a_process_that_dies_reads_as_running_out_of_memory(fake_paddle):
+    engine = ocr._ProcessEngine(960)
+    with pytest.raises(RuntimeError) as failure:
+        engine.ocr(np.zeros((13, 20, 3), dtype=np.uint8))
+    assert ocr._looks_like_memory(str(failure.value))
+    assert not engine._proc.is_alive()
+
+
+def test_an_engine_that_cannot_start_says_why(fake_paddle, monkeypatch):
+    monkeypatch.setenv("FAKE_OCR_FAIL_START", "1")
+    with pytest.raises(RuntimeError, match="model download dropped"):
+        ocr._ProcessEngine(960)

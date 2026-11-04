@@ -84,8 +84,9 @@ OCR_DET_LIMIT = int(os.environ.get("OCR_DET_LIMIT", "1600"))
 # and one ran a laptop's Docker VM out of memory and took Docker and the
 # terminal down with it. Before every OCR call: under OCR_MIN_FREE_MB of free
 # memory on the machine the call is refused (the page is left for later); the
-# engine is rebuilt every OCR_ENGINE_RECYCLE images to drop what it caches;
-# and a worker above OCR_MAX_RSS_MB even after that stops OCR until restarted.
+# engine runs in its own process (ocr._ProcessEngine), restarted every
+# OCR_ENGINE_RECYCLE images and whenever that process grows past
+# OCR_MAX_RSS_MB — ending a process is the only way Paddle gives memory back.
 # 0 turns a guard off.
 OCR_MIN_FREE_MB = int(os.environ.get("OCR_MIN_FREE_MB", "1024"))
 OCR_MAX_RSS_MB = int(os.environ.get("OCR_MAX_RSS_MB", "4096"))
