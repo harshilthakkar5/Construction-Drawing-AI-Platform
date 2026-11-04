@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { objectKeys } from "@cdip/shared";
+import { objectKeys, type DocumentProblemKind } from "@cdip/shared";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { processDocumentQueue } from "../queues.js";
@@ -31,6 +32,12 @@ import {
  * pluggable malware-scan hook after completion (both read at most a presigned
  * range — never the whole file), and FR-4 revisions via replacesDocumentId.
  */
+
+/** A failure the upload route decided itself (the worker writes its own). */
+function problem(kind: DocumentProblemKind) {
+  return { kind, at: new Date().toISOString() };
+}
+
 export const documentsRouter = Router({ mergeParams: true });
 
 const projectParam = z.object({ projectId: z.string().uuid() });
@@ -169,7 +176,7 @@ documentsRouter.post("/:documentId/upload/:uploadId/complete", async (req, res) 
   // Content validation: reject anything that isn't actually a PDF.
   if (!(await objectLooksLikePdf(key))) {
     await deleteObject(key).catch(() => {});
-    await prisma.document.update({ where: { id: documentId }, data: { status: "failed" } });
+    await prisma.document.update({ where: { id: documentId }, data: { status: "failed", problem: problem("not_pdf") } });
     return void res.status(422).json({ error: "uploaded file is not a PDF" });
   }
 
@@ -180,12 +187,12 @@ documentsRouter.post("/:documentId/upload/:uploadId/complete", async (req, res) 
     verdict = await scanUploadedObject(key);
   } catch (err) {
     console.error("malware scan failed", err);
-    await prisma.document.update({ where: { id: documentId }, data: { status: "failed" } });
+    await prisma.document.update({ where: { id: documentId }, data: { status: "failed", problem: problem("scan_unavailable") } });
     return void res.status(502).json({ error: "upload rejected: the malware scan is unavailable" });
   }
   if (verdict === "infected") {
     await deleteObject(key).catch(() => {});
-    await prisma.document.update({ where: { id: documentId }, data: { status: "failed" } });
+    await prisma.document.update({ where: { id: documentId }, data: { status: "failed", problem: problem("malware") } });
     return void res.status(422).json({ error: "upload failed malware scan" });
   }
 
@@ -219,7 +226,7 @@ documentsRouter.post("/:documentId/reprocess", async (req, res) => {
       error: "the original PDF is missing (the upload did not finish or was rejected). Delete this document and upload it again.",
     });
   }
-  await prisma.document.update({ where: { id: documentId }, data: { status: "uploaded" } });
+  await prisma.document.update({ where: { id: documentId }, data: { status: "uploaded", progress: Prisma.DbNull, problem: Prisma.DbNull } });
   await processDocumentQueue.add("process", {
     projectId,
     documentId,
@@ -268,7 +275,7 @@ documentsRouter.post("/reindex", async (req, res) => {
   let queued = 0;
   for (const document of documents) {
     if (!(await objectExists(document.spacesKey))) continue; // original is gone
-    await prisma.document.update({ where: { id: document.id }, data: { status: "uploaded" } });
+    await prisma.document.update({ where: { id: document.id }, data: { status: "uploaded", progress: Prisma.DbNull, problem: Prisma.DbNull } });
     await processDocumentQueue.add("process", {
       projectId,
       documentId: document.id,

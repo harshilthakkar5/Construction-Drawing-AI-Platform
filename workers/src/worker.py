@@ -18,11 +18,13 @@ Retry policy for process-document is set by the producer
 
 import asyncio
 import signal
+from datetime import datetime, timezone
 
 from bullmq import Queue, Worker
 
 import config
 import db
+import doc_errors
 import logutil
 import processing
 import rfi_package
@@ -101,18 +103,37 @@ async def process_document(job, job_token: str):
                 region["version"],
             )
         return result
-    except Exception:
+    except Exception as exc:
+        kind, detail = doc_errors.classify(exc)
+        attempt = job.attemptsMade + 1
+        attempts = int((job.opts or {}).get("attempts") or 1)
+        if kind in doc_errors.PERMANENT:
+            job.discarded = True  # BullMQ: fail now, no further attempts
+        retrying = attempt < attempts and not job.discarded
         log.exception(
-            "process-document job %s FAILED (attempt %d/5) for document %s — "
-            "BullMQ will retry with backoff",
+            "process-document job %s FAILED (attempt %d/%d) for document %s%s",
             job.id,
-            job.attemptsMade + 1,
+            attempt,
+            attempts,
             payload.document_id,
+            " — BullMQ will retry with backoff" if retrying else "",
         )
+        problem = {
+            "kind": kind,
+            "detail": detail,
+            "attempt": attempt,
+            "attempts": attempts,
+            "retrying": retrying,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
         try:
             # Skip if the document was deleted — status writes would fail too.
+            # While a retry is coming the document is still in progress, so it
+            # stays "processing" and the UI says it will try again by itself.
             if db.document_exists(payload.document_id):
-                db.set_document_status(payload.document_id, "failed")
+                db.set_document_problem(
+                    payload.document_id, problem, "processing" if retrying else "failed"
+                )
         except Exception:
             log.exception("could not mark document %s as failed", payload.document_id)
         raise

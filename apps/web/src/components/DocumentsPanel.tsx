@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { DocumentDto, DocumentStatus } from "@cdip/shared";
-import { FileTextIcon, UploadIcon } from "lucide-react";
+import {
+  DOCUMENT_STAGES,
+  documentPercent,
+  documentProblemText,
+  documentStageText,
+  type DocumentDto,
+  type DocumentStatus,
+} from "@cdip/shared";
+import { AlertTriangleIcon, FileTextIcon, RotateCwIcon, UploadIcon } from "lucide-react";
 import { api } from "@/api";
 import { ConfirmDialog, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
@@ -206,13 +213,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                     />
                     RFI review input
                   </label>
-                  {(doc.status === "uploaded" || doc.status === "processing") && (
-                    <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Spinner />
-                      {doc.status === "uploaded" ? "Queued…" : "Processing…"}
-                    </span>
-                  )}
-                  {doc.status === "failed" && (
+                  {(doc.status === "failed" || isFrozen(doc)) && (
                     <Button
                       variant="link"
                       className="ml-auto h-auto gap-1.5 p-0 text-xs"
@@ -224,7 +225,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                       {retry.isPending ? "Retrying…" : "Retry"}
                     </Button>
                   )}
-                  {doc.status === "failed" && (
+                  {(doc.status === "failed" || isFrozen(doc)) && (
                     <Button
                       variant="link"
                       className="text-destructive h-auto p-0 text-xs"
@@ -240,6 +241,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
                 </>
               )}
             </div>
+            {!doc.supersededAt && <ProcessingStatus doc={doc} />}
             {!doc.supersededAt && !doc.includeInRfiAnalysis && (
               <p className="text-muted-foreground mt-1 text-xs">
                 Not used by RFI reviews: {doc.rfiExclusionReason ?? "excluded"}
@@ -282,5 +284,94 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
         />
       )}
     </section>
+  );
+}
+
+/** No progress written for this long while "processing" means the worker
+ * probably stopped (restarted, crashed, or out of memory). */
+const FROZEN_MS = 10 * 60_000;
+
+function lastUpdate(doc: DocumentDto): number | null {
+  const at = doc.progress?.at ?? doc.problem?.at;
+  return at ? Date.parse(at) : null;
+}
+
+/** Processing, but silent for long enough that Retry should be offered. */
+function isFrozen(doc: DocumentDto): boolean {
+  const at = lastUpdate(doc);
+  return doc.status === "processing" && !doc.problem?.retrying && at !== null && Date.now() - at > FROZEN_MS;
+}
+
+/** FR-9 in words: what is happening to this PDF now, or why it stopped. */
+function ProcessingStatus({ doc }: { doc: DocumentDto }) {
+  const problem = doc.problem;
+  const stopped = doc.progress ? DOCUMENT_STAGES[doc.progress.stage]?.label : undefined;
+
+  if (doc.status === "failed") {
+    const text = documentProblemText(problem?.kind);
+    return (
+      <div role="alert" className="border-destructive/40 bg-destructive/5 mt-2 rounded-md border p-2.5 text-xs">
+        <p className="text-destructive flex items-center gap-1.5 font-medium">
+          <AlertTriangleIcon className="size-3.5 shrink-0" aria-hidden />
+          {text.title}
+        </p>
+        <p className="text-muted-foreground mt-1">
+          {text.action}
+          {stopped && ` Stopped at the step: ${stopped}.`}
+        </p>
+        <TechnicalDetails detail={problem?.detail} />
+      </div>
+    );
+  }
+
+  if (doc.status !== "uploaded" && doc.status !== "processing") return null;
+
+  const percent = documentPercent(doc.progress);
+  const frozen = isFrozen(doc);
+  return (
+    <div className="mt-2 space-y-1.5" role="status" aria-live="polite">
+      {problem?.retrying && (
+        <div className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
+          <p className="flex items-center gap-1.5 font-medium">
+            <RotateCwIcon className="size-3.5 shrink-0" aria-hidden />
+            {documentProblemText(problem.kind).title}. Trying again automatically
+            {problem.attempt && problem.attempts
+              ? ` (attempt ${problem.attempt + 1} of ${problem.attempts})`
+              : ""}
+            .
+          </p>
+          {(doc.progress?.done ?? 0) > 0 && (
+            <p className="text-muted-foreground mt-0.5">Pages already read are kept.</p>
+          )}
+          <TechnicalDetails detail={problem.detail} />
+        </div>
+      )}
+      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+        {!frozen && <Spinner />}
+        <span className="truncate">
+          {doc.status === "uploaded" && !doc.progress
+            ? "Waiting for a free processing slot…"
+            : documentStageText(doc.progress)}
+        </span>
+        <span className="ml-auto tabular-nums">{percent}%</span>
+      </div>
+      <Progress value={percent} aria-label={`${doc.filename} processing`} />
+      {frozen && (
+        <p className="border-warning/40 bg-warning/10 rounded-md border p-2 text-xs">
+          No progress for over 10 minutes. The processing server may have stopped; press Retry to
+          continue from where it left off.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TechnicalDetails({ detail }: { detail?: string }) {
+  if (!detail) return null;
+  return (
+    <details className="text-muted-foreground mt-1">
+      <summary className="cursor-pointer select-none">Technical details</summary>
+      <code className="mt-1 block font-mono text-[11px] break-all whitespace-pre-wrap">{detail}</code>
+    </details>
   );
 }

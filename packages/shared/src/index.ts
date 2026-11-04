@@ -171,7 +171,123 @@ export interface DocumentDto {
    * never input), and switchable on the Docs tab. */
   includeInRfiAnalysis: boolean;
   rfiExclusionReason: string | null;
+  /** What the worker is doing now (null before it starts). */
+  progress: DocumentProgress | null;
+  /** Why processing stopped or is being retried (null when all is well). */
+  problem: DocumentProblem | null;
   createdAt: string;
+}
+
+/** Pipeline stages in the order the worker runs them
+ * (workers/src/processing.py writes these exact names). */
+export const DOCUMENT_STAGES = {
+  download: { label: "Opening the PDF", from: 0, to: 5 },
+  extract: { label: "Reading pages", from: 5, to: 80 },
+  revisions: { label: "Replacing the older version", from: 80, to: 82 },
+  numbering: { label: "Putting pages in order", from: 82, to: 85 },
+  embed: { label: "Making the drawings searchable", from: 85, to: 98 },
+  finalize: { label: "Finishing up", from: 98, to: 100 },
+} as const;
+export type DocumentStage = keyof typeof DOCUMENT_STAGES;
+
+export interface DocumentProgress {
+  stage: DocumentStage;
+  done?: number;
+  total?: number;
+  /** Pages read by OCR so far (extract stage). */
+  ocr?: number;
+  at: string;
+}
+
+/** Failure kinds. The worker (workers/src/doc_errors.py) and the upload route
+ * write the key; the UI shows these words, never the raw error. */
+export const DOCUMENT_PROBLEMS = {
+  ai_credits: {
+    title: "The AI service has run out of credit",
+    action: "Ask your administrator to top up the AI account, then press Retry.",
+  },
+  ai_key: {
+    title: "The AI service connection isn't set up correctly",
+    action: "Ask your administrator to check the AI service key, then press Retry.",
+  },
+  ai_busy: {
+    title: "The AI service is busy right now",
+    action: "Wait a few minutes and press Retry.",
+  },
+  storage: {
+    title: "We couldn't fetch the uploaded file",
+    action: "Press Retry. If it keeps failing, delete the document and upload it again.",
+  },
+  pdf_damaged: {
+    title: "This PDF looks damaged or password-protected",
+    action: "Save or export it again from your PDF software without a password, then upload it again.",
+  },
+  not_pdf: {
+    title: "This file isn't a PDF",
+    action: "Delete it and upload the drawing set as a PDF.",
+  },
+  malware: {
+    title: "The virus scan flagged this file",
+    action: "Delete it and upload a clean copy.",
+  },
+  scan_unavailable: {
+    title: "The virus scanner wasn't available",
+    action: "Delete it and upload it again in a few minutes.",
+  },
+  memory: {
+    title: "The server ran out of memory on this file",
+    action: "Ask your administrator to give the processing server more memory, then press Retry.",
+  },
+  disk: {
+    title: "The server ran out of disk space",
+    action: "Ask your administrator to free up space, then press Retry.",
+  },
+  connection: {
+    title: "A connection between our services dropped",
+    action: "Press Retry. Pages already read are kept.",
+  },
+  unknown: {
+    title: "Something went wrong while processing this file",
+    action: "Press Retry. If it keeps failing, contact support with the technical details below.",
+  },
+} as const;
+export type DocumentProblemKind = keyof typeof DOCUMENT_PROBLEMS;
+
+export interface DocumentProblem {
+  kind: DocumentProblemKind;
+  /** Technical text, for support — shown collapsed. */
+  detail?: string;
+  attempt?: number;
+  attempts?: number;
+  /** True while the queue will try again by itself. */
+  retrying?: boolean;
+  at: string;
+}
+
+/** Percent done for a progress bar, from the stage's slice of 0–100. */
+export function documentPercent(p: DocumentProgress | null | undefined): number {
+  if (!p) return 0;
+  const s = DOCUMENT_STAGES[p.stage];
+  if (!s) return 0;
+  const frac = p.total ? Math.min(1, (p.done ?? 0) / p.total) : 0;
+  return Math.round(s.from + (s.to - s.from) * frac);
+}
+
+/** One plain sentence for the current step. */
+export function documentStageText(p: DocumentProgress | null | undefined): string {
+  if (!p) return "Waiting to start…";
+  const label = DOCUMENT_STAGES[p.stage]?.label ?? "Working";
+  if (p.stage === "extract" && p.total) {
+    const ocr = p.ocr ? ` (${p.ocr} read from drawn text)` : "";
+    return `${label}: ${p.done ?? 0} of ${p.total}${ocr}`;
+  }
+  return `${label}…`;
+}
+
+/** The problem's plain words, falling back to "unknown" for a kind this
+ * client does not know yet. */
+export function documentProblemText(kind: string | null | undefined): { title: string; action: string } {
+  return DOCUMENT_PROBLEMS[(kind ?? "unknown") as DocumentProblemKind] ?? DOCUMENT_PROBLEMS.unknown;
 }
 
 /**

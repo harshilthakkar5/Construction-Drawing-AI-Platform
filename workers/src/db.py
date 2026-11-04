@@ -181,6 +181,34 @@ def set_document_status(document_id: str, status: str) -> None:
         )
 
 
+def set_document_progress(document_id: str, progress: dict) -> None:
+    """The progress bar's state. A failed write is a log line, never a failed
+    job: progress is a courtesy, the pages are the work."""
+    try:
+        with connect() as conn:
+            conn.execute(
+                "UPDATE documents SET progress = %s WHERE id = %s",
+                (json.dumps(progress), document_id),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not save progress for %s: %s", document_id[:8], exc)
+
+
+def set_document_problem(document_id: str, problem: dict | None, status: str | None = None) -> None:
+    """Record (or clear, with None) why processing stopped, with the status."""
+    with connect() as conn:
+        if status is None:
+            conn.execute(
+                "UPDATE documents SET problem = %s WHERE id = %s",
+                (json.dumps(problem) if problem else None, document_id),
+            )
+        else:
+            conn.execute(
+                'UPDATE documents SET problem = %s, status = %s::"DocumentStatus" WHERE id = %s',
+                (json.dumps(problem) if problem else None, status, document_id),
+            )
+
+
 def set_document_pages(document_id: str, pages: int) -> None:
     with connect() as conn:
         conn.execute("UPDATE documents SET pages = %s WHERE id = %s", (pages, document_id))
