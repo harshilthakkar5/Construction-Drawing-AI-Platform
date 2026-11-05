@@ -17,6 +17,11 @@ paddlepaddle==2.6.2
 # OCR_ENGINE_UPLOAD / OCR_ENGINE_RFI. Needs its English model in workers/models
 # (the Dockerfile downloads it; see config.OCR_RAPID_REC_MODEL).
 rapidocr_onnxruntime==1.4.4
+# Pinned: onnxruntime 1.24+ requires protobuf>=4.25, which pip installs over
+# the protobuf<=3.20.2 that paddlepaddle 2.6.2 needs on Windows, breaking Paddle.
+# 1.23.2 is the newest that accepts any protobuf.
+onnxruntime==1.23.2
+protobuf==3.20.2; platform_system == "Windows"
 opencv-python-headless==4.10.0.84
 # Memory readings for the OCR guards (ocr.py); without it the guards are off.
 psutil==6.1.1
