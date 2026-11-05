@@ -848,7 +848,7 @@ function RfiSetDialog({
                 <h4 className="text-sm font-semibold">
                   Findings {pending.length > 0 && <span className="text-muted-foreground font-normal">({pending.length} to review)</span>}
                 </h4>
-                <SetFindings projectId={projectId} setId={setId} onFinished={onFinished} />
+                <SetFindings projectId={projectId} setId={setId} onFinished={onFinished} showRuns={false} />
               </section>
             </>
           )}
@@ -887,7 +887,18 @@ function SetProgress({ runs, progress }: { runs: RfiSetDto["runs"]; progress: nu
   );
 }
 
-function SetFindings({ projectId, setId, onFinished }: { projectId: string; setId: string; onFinished: () => void }) {
+function SetFindings({
+  projectId,
+  setId,
+  onFinished,
+  showRuns = true,
+}: {
+  projectId: string;
+  setId: string;
+  onFinished: () => void;
+  /** Off where the Elements list above already shows each run's progress and failure. */
+  showRuns?: boolean;
+}) {
   const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: ["rfi-set", projectId, setId],
@@ -910,7 +921,7 @@ function SetFindings({ projectId, setId, onFinished }: { projectId: string; setI
   const active = d.reviews.some((r) => ACTIVE.includes(r.status));
   // Each element's newest run, shown while it runs or once it failed;
   // finished ones speak through their findings.
-  const shown = newestPerElement(d.reviews).filter((r) => ACTIVE.includes(r.status) || r.status === "failed");
+  const shown = showRuns ? newestPerElement(d.reviews).filter((r) => ACTIVE.includes(r.status) || r.status === "failed") : [];
   return (
     <div className="flex flex-col gap-2">
       {shown.length > 0 && (
