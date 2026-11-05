@@ -7,6 +7,7 @@ import {
   chatScope,
   serializeChunks,
   stripPromptScaffolding,
+  plainPageNames,
 } from "./answer.js";
 
 /**
@@ -318,5 +319,16 @@ describe("stripPromptScaffolding", () => {
     const prompt = buildSystemPrompt("construction");
     expect(prompt).toMatch(/NEVER open an answer by naming the kind of question it is/);
     expect(prompt).toMatch(/do not label the answer with the rule number or category/);
+  });
+});
+
+describe("plainPageNames", () => {
+  it("turns the prompt's attribute name into a page a reader knows", () => {
+    expect(plainPageNames("Per combined_page 58, the anchor bolt projection")).toBe("Per page 58, the anchor bolt projection");
+    expect(plainPageNames('see combined_page="12" and Combined page 3')).toBe("see page 12 and page 3");
+  });
+  it("leaves ordinary text alone", () => {
+    const said = "Per S3.5 (page 58), a 4\" projection.";
+    expect(plainPageNames(said)).toBe(said);
   });
 });
