@@ -447,7 +447,7 @@ def test_the_rapid_engine_runs_in_its_own_process(tmp_path, monkeypatch):
         engine.close()
 
 
-def test_rapid_without_its_english_model_is_refused_not_run(tmp_path, monkeypatch):
+def test_rapid_without_its_english_model_is_refused_not_run(tmp_path, monkeypatch, caplog):
     """The model bundled with RapidOCR runs words together ("RTU-380MBH"), so
     with the English model missing the engine is unavailable, never degraded."""
     pkg = tmp_path / "rapidocr_onnxruntime"
@@ -458,8 +458,11 @@ def test_rapid_without_its_english_model_is_refused_not_run(tmp_path, monkeypatc
     monkeypatch.setattr(ocr, "_unavailable", set())
     monkeypatch.setattr(ocr.config, "OCR_ENABLED", True)
     monkeypatch.setattr(ocr.config, "OCR_RAPID_REC_MODEL", str(tmp_path / "missing.onnx"))
-    assert ocr._get_engine("rapid") is None
+    with caplog.at_level("WARNING", logger=ocr.log.name):
+        assert ocr._get_engine("rapid") is None
     assert "rapid" in ocr._unavailable and not ocr._engines
+    # The fix it names is the model, not a package install that would change nothing.
+    assert "download the model" in caplog.text and "pip install" not in caplog.text
 
 
 def test_real_rapidocr_keeps_the_spaces_between_words():
