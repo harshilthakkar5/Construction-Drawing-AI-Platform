@@ -328,10 +328,12 @@ def _get_engine(kind: str = "paddle"):
         # Name the consequence, not just the cause: without OCR a scanned or
         # flattened sheet yields no text at all — no page content to chunk, and
         # an empty title-block region, so the sheet ends up unclassified.
+        missing_model = kind == "rapid" and "model is missing" in str(exc)
         log.warning(
-            "%s not installed, OCR disabled for it (%s) — scanned pages will "
-            "return no text and no sheet number. Fix: pip install -r requirements.txt",
-            _NAME[kind], exc,
+            "%s %s, OCR disabled for it (%s) — scanned pages will return no text and no sheet number. Fix: %s",
+            _NAME[kind], "cannot start" if missing_model else "not installed", exc,
+            "download the model into workers/models (see README), and leave OCR_RAPID_REC_MODEL unset "
+            "or give it a FULL path" if missing_model else "pip install -r requirements.txt",
         )
         _unavailable.add(kind)
     except Exception as exc:
