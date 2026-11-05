@@ -184,10 +184,14 @@ def _child_main(conn, det_limit: int, mkldnn: bool = False, kind: str = "paddle"
             # Find text at OCR_DET_LIMIT, as PaddleOCR does: RapidOCR's "max" mode picks its own
             # limit (2000px for a 1600px tile), so the two engines did different work per image.
             # Detection only; each line is still read from the full-size image.
-            from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
+            # A RapidOCR that moved these internals keeps its own sizing: slower, never broken.
+            try:
+                from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
 
-            det = rapid.text_det
-            det.get_preprocess = lambda max_wh: DetPreProcess(det_limit, "max", det.mean, det.std)
+                det = rapid.text_det
+                det.get_preprocess = lambda max_wh: DetPreProcess(det_limit, "max", det.mean, det.std)
+            except (ImportError, AttributeError):
+                pass
 
             def read(img):
                 return _rapid_as_paddle(rapid(img)[0])
