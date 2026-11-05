@@ -50,6 +50,7 @@ import type {
   RfiProjectSettings,
   RfiLibraryDto,
 } from "@cdip/shared";
+import { userMessage } from "@cdip/shared";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -63,6 +64,17 @@ export const authToken = {
 
 /** Thrown on 401 so the app can drop back to the login screen. */
 export class UnauthorizedError extends Error {}
+
+/** A failed request: `message` is plain words for the person, `status` is
+ * what code branches on (0 when the server could not be reached). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+/** The HTTP status of a failed request, or 0. */
+export const statusOf = (err: unknown): number => (err instanceof ApiError ? err.status : 0);
 
 /**
  * Endpoints where a 401 means "those credentials are wrong", NOT "your session
@@ -118,30 +130,38 @@ export interface RfiReviewOptions {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authToken.get();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    // The browser's own wording ("Failed to fetch") becomes "lost its connection".
+    throw new ApiError(userMessage(String(err)), 0);
+  }
   if (res.status === 401 && !CREDENTIAL_PATHS.some((p) => path.startsWith(p))) {
     authToken.clear();
     throw new UnauthorizedError("session expired, sign in again");
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    // The API answers errors as JSON; surface its own wording (and the `fix`
-    // hint it sends for recoverable setup problems) instead of a raw dump.
+    // Only plain words reach the screen: the API's own sentence when it reads
+    // like one, otherwise the kind of problem (userMessage). The method, path,
+    // status and any setup hint are for the server log, not the person.
     let detail = body;
     try {
-      const parsed = JSON.parse(body) as { error?: string; fix?: string };
-      detail = [parsed.error, parsed.fix].filter(Boolean).join(". ") || body;
+      detail = (JSON.parse(body) as { error?: string }).error ?? "";
     } catch {
-      // not JSON — keep the raw text
+      // not JSON: a proxy's page or a crash, never shown as it is
+      detail = "";
     }
-    throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status} ${detail}`);
+    console.warn(`${init?.method ?? "GET"} ${path} → ${res.status}`, body);
+    throw new ApiError(userMessage(res.status >= 500 && !detail ? "internal error" : detail), res.status);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -273,7 +293,7 @@ export const api = {
     try {
       return await request<SheetRegionDto>(`/projects/${projectId}/region`);
     } catch (err) {
-      if (err instanceof Error && err.message.includes("→ 404")) return null;
+      if (statusOf(err) === 404) return null;
       throw err;
     }
   },
@@ -311,7 +331,7 @@ export const api = {
       RegionPreviewDto | { status: "pending" } | { status: "failed"; error: string }
     >(`/projects/${projectId}/region/preview/${jobId}`);
     if ("status" in result) {
-      if (result.status === "failed") throw new Error(result.error);
+      if (result.status === "failed") throw new Error(userMessage(result.error));
       return null;
     }
     return result;

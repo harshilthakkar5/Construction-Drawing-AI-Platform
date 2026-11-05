@@ -1,11 +1,15 @@
-"""PaddleOCR wrapper (FR-7): run only on pages with no text layer.
+"""OCR wrapper (FR-7): PaddleOCR or RapidOCR, chosen per stage.
 
-PaddleOCR is a heavy optional dependency; if it isn't installed (or
-OCR_ENABLED=false), pages without a text layer keep empty text and a
-warning is logged instead of failing the whole document.
+`OCR_ENGINE_UPLOAD` reads documents and title blocks as they are processed,
+`OCR_ENGINE_RFI` reads for the RFI scan, reviews and grid labels: each is
+paddle | rapid | off. RapidOCR runs the same PP-OCR models on ONNX Runtime.
+Either is an optional dependency; if it isn't installed (or OCR_ENABLED=false),
+pages without a text layer keep empty text and a warning is logged instead of
+failing the whole document.
 """
 
 import gc
+import os
 import re
 import threading
 
@@ -14,8 +18,13 @@ import logutil
 
 log = logutil.get("ocr")
 
-_engine = None
-_unavailable = False
+# One engine process per kind, so an upload and a scan using different engines
+# never rebuild each other's engine on every image.
+ENGINES = ("paddle", "rapid")
+_PACKAGE = {"paddle": "paddleocr", "rapid": "rapidocr_onnxruntime"}
+_NAME = {"paddle": "PaddleOCR", "rapid": "RapidOCR"}
+_engines: dict = {}
+_unavailable: set = set()
 
 # ONE call into the engine at a time. A Paddle predictor is not thread-safe,
 # and the engine is shared by every thread in the worker: PAGE_CONCURRENCY
@@ -43,11 +52,13 @@ class OcrError(RuntimeError):
 # few pages is recoverable (they stay unmarked for the next scan); a machine
 # that falls over is not.
 _halted: str | None = None
-_calls = 0
+_calls: dict = {}  # images read per engine since it was (re)started
 # Memory failures in a row. Each one ends the engine's process (all its memory
 # goes back to the OS) and the next image starts a fresh one; only a run of
 # them says the machine cannot hold even one engine, and stops OCR.
 _memory_strikes = 0
+# Turned off after the first engine failure while it is on (see config.OCR_MKLDNN).
+_mkldnn = config.OCR_MKLDNN
 MEMORY_STRIKES = 3
 
 # How oneDNN, Paddle and the C++ runtime say "no memory left". "could not
@@ -134,30 +145,55 @@ def _halt(reason: str) -> None:
               config.PAGE_CONCURRENCY)
 
 
-def _free_engine() -> None:
-    """Drop the engine AND end its process before anything new is built: a
-    new engine next to a dead one doubles the memory at the worst moment."""
-    global _engine, _calls
-    engine, _engine = _engine, None
-    _calls = 0
-    close = getattr(engine, "close", None)
-    if close:
-        close()
-    del engine
+def _free_engine(kind: str | None = None) -> None:
+    """Drop one engine (every engine with no kind) AND end its process before
+    anything new is built: a new engine next to a dead one doubles the memory
+    at the worst moment."""
+    for k in [kind] if kind else list(_engines):
+        engine = _engines.pop(k, None)
+        _calls.pop(k, None)
+        close = getattr(engine, "close", None)
+        if close:
+            close()
+        del engine
     gc.collect()
 
 
-def _child_main(conn, det_limit: int) -> None:
-    """The OCR engine's own process: build PaddleOCR, then read images from
+def engine_for(stage: str) -> str:
+    """paddle | rapid | off for a stage: "rfi", or anything else for upload."""
+    return config.OCR_ENGINE_RFI if stage == "rfi" else config.OCR_ENGINE_UPLOAD
+
+
+def _rapid_as_paddle(result) -> list:
+    """RapidOCR's [[box, text, score], ...] (or None) in PaddleOCR's shape,
+    [[[box, (text, score)], ...]], so every caller reads one format."""
+    return [[[box, (text, float(score))] for box, text, score in result or []]]
+
+
+def _child_main(conn, det_limit: int, mkldnn: bool = False, kind: str = "paddle") -> None:
+    """The OCR engine's own process: build the engine, then read images from
     `conn` until told to stop. Paddle keeps the memory it allocates for the
     life of the process, so rebuilding the engine in the worker never gave it
     back and a long run grew until an allocation failed; ending this process
     does."""
     try:
-        from paddleocr import PaddleOCR
+        if kind == "rapid":
+            from rapidocr_onnxruntime import RapidOCR
 
-        engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False, enable_mkldnn=False,
-                           det_limit_side_len=det_limit, det_limit_type="max")
+            # "max" reads an image at its own size up to 2000px, so a 1600px tile
+            # keeps its resolution (its default, "min", scales to 736px).
+            rapid = RapidOCR(det_limit_type="max", rec_model_path=config.OCR_RAPID_REC_MODEL)
+
+            def read(img):
+                return _rapid_as_paddle(rapid(img)[0])
+        else:
+            from paddleocr import PaddleOCR
+
+            paddle = PaddleOCR(use_angle_cls=True, lang="en", show_log=False, enable_mkldnn=mkldnn,
+                               det_limit_side_len=det_limit, det_limit_type="max")
+
+            def read(img):
+                return paddle.ocr(img, cls=True)
     except BaseException as exc:  # noqa: BLE001 - reported to the parent, which decides
         conn.send(("missing" if isinstance(exc, ImportError) else "error", f"{type(exc).__name__}: {exc}"))
         return
@@ -170,23 +206,23 @@ def _child_main(conn, det_limit: int) -> None:
         if img is None:
             return
         try:
-            conn.send(("ok", engine.ocr(img, cls=True)))
+            conn.send(("ok", read(img)))
         except Exception as exc:  # noqa: BLE001
             conn.send(("error", f"{exc}" or type(exc).__name__))
 
 
 class _ProcessEngine:
-    """PaddleOCR in a child process, with the engine's own `ocr` method."""
+    """An OCR engine in a child process, with PaddleOCR's own `ocr` method."""
 
     START_SECONDS = 600  # the first start may download the models
     CALL_SECONDS = 600
 
-    def __init__(self, det_limit: int):
+    def __init__(self, det_limit: int, mkldnn: bool = False, kind: str = "paddle"):
         import multiprocessing
 
         ctx = multiprocessing.get_context("spawn")  # the same on Windows, macOS and Linux
         self._conn, child = ctx.Pipe()
-        self._proc = ctx.Process(target=_child_main, args=(child, det_limit), daemon=True,
+        self._proc = ctx.Process(target=_child_main, args=(child, det_limit, mkldnn, kind), daemon=True,
                                  name="ocr-engine")
         self._proc.start()
         child.close()
@@ -242,46 +278,49 @@ class _ProcessEngine:
         self._conn.close()
 
 
-def _guard_memory() -> None:
+def _guard_memory(kind: str = "paddle") -> None:
     """Before a call: refuse it when the machine is nearly out of memory, and
     recycle (or stop) the engine when this process has grown too large."""
-    global _calls
     free = _free_mb()
     if config.OCR_MIN_FREE_MB and free is not None and free < config.OCR_MIN_FREE_MB:
         _free_engine()
         raise OcrError(f"only {free:.0f} MB of memory free (OCR_MIN_FREE_MB={config.OCR_MIN_FREE_MB}); "
                        "OCR skipped so the machine does not run out")
-    if config.OCR_ENGINE_RECYCLE and _calls >= config.OCR_ENGINE_RECYCLE:
-        log.info("OCR: restarting the engine after %d images to release its memory", _calls)
-        _free_engine()
+    calls = _calls.get(kind, 0)
+    if config.OCR_ENGINE_RECYCLE and calls >= config.OCR_ENGINE_RECYCLE:
+        log.info("OCR: restarting %s after %d images to release its memory", _NAME[kind], calls)
+        _free_engine(kind)
     # OCR_MAX_RSS_MB caps the ENGINE's process: past it, the process is
     # replaced, which hands every byte it held back to the OS.
-    measure = getattr(_engine, "rss_mb", None)
+    measure = getattr(_engines.get(kind), "rss_mb", None)
     rss = measure() if measure else None
     if config.OCR_MAX_RSS_MB and rss is not None and rss > config.OCR_MAX_RSS_MB:
-        log.info("OCR: the engine uses %.0f MB (OCR_MAX_RSS_MB=%d); restarting it", rss, config.OCR_MAX_RSS_MB)
-        _free_engine()
+        log.info("OCR: %s uses %.0f MB (OCR_MAX_RSS_MB=%d); restarting it", _NAME[kind], rss,
+                 config.OCR_MAX_RSS_MB)
+        _free_engine(kind)
 
 
-def _get_engine():
-    global _engine, _unavailable
-    if _engine is not None or _unavailable:
-        return _engine
+def _get_engine(kind: str = "paddle"):
+    if kind in _engines or kind in _unavailable:
+        return _engines.get(kind)
     if not config.OCR_ENABLED:
-        _unavailable = True
+        _unavailable.add(kind)
         return None
     try:
         import importlib.util
 
         # Checked without importing: importing Paddle here would put it in the
         # worker's own memory, which is what the separate process avoids.
-        if importlib.util.find_spec("paddleocr") is None:
-            raise ImportError("No module named 'paddleocr'")
+        if importlib.util.find_spec(_PACKAGE[kind]) is None:
+            raise ImportError(f"No module named '{_PACKAGE[kind]}'")
+        if kind == "rapid" and not os.path.isfile(config.OCR_RAPID_REC_MODEL):
+            raise ImportError(f"RapidOCR's English model is missing at {config.OCR_RAPID_REC_MODEL} "
+                              "(OCR_RAPID_REC_MODEL); without it words run together")
         # The first start downloads ~15 MB of models to ~/.paddleocr (the
         # Dockerfile pre-warms them). det_limit_side_len: PaddleOCR shrinks
         # anything larger to 960px by default, which throws away the tile's
         # resolution; small crops are not enlarged ("max").
-        _engine = _ProcessEngine(config.OCR_DET_LIMIT)
+        _engines[kind] = _ProcessEngine(config.OCR_DET_LIMIT, _mkldnn and kind == "paddle", kind)
     except (ImportError, ModuleNotFoundError) as exc:
         # Permanent: the package genuinely isn't installed. Latch it, so every
         # page doesn't retry an import that cannot start working.
@@ -290,25 +329,25 @@ def _get_engine():
         # flattened sheet yields no text at all — no page content to chunk, and
         # an empty title-block region, so the sheet ends up unclassified.
         log.warning(
-            "PaddleOCR not installed, OCR disabled (%s) — scanned pages will "
+            "%s not installed, OCR disabled for it (%s) — scanned pages will "
             "return no text and no sheet number. Fix: pip install -r requirements.txt",
-            exc,
+            _NAME[kind], exc,
         )
-        _unavailable = True
+        _unavailable.add(kind)
     except Exception as exc:
         # Usually the model download dropping partway. Transient, so do NOT
         # latch: a blip during one page must not leave the whole worker without
         # OCR until it is restarted. The next page tries again.
         log.warning(
-            "PaddleOCR could not start (%s) — skipping OCR for this page and "
-            "retrying on the next. If it repeats, pre-download the models: "
+            "%s could not start (%s) — skipping OCR for this page and retrying on the next. "
+            "If it repeats with PaddleOCR, pre-download the models: "
             "python -c \"from paddleocr import PaddleOCR; PaddleOCR(lang='en')\"",
-            exc,
+            _NAME[kind], exc,
         )
-    return _engine
+    return _engines.get(kind)
 
 
-def _predict(img):
+def _predict(img, kind: str = "paddle"):
     """engine.ocr(img), serialised and memory-guarded, with one recovery: on a
     failure the engine is released and rebuilt and the image retried at
     FALLBACK_LIMIT (scaled back, so the caller sees pixel coordinates of the
@@ -316,20 +355,20 @@ def _predict(img):
     retried — OCR stops in this worker instead (`_halt`). Raises OcrError when
     nothing could be read — never an empty reading, since "could not read" and
     "nothing there" must stay tellable apart."""
-    global _calls, _memory_strikes
+    global _memory_strikes, _mkldnn
     import cv2
 
     with _lock:
         if _halted:
             raise OcrError(_halted)
-        _guard_memory()
-        engine = _get_engine()
+        _guard_memory(kind)
+        engine = _get_engine(kind)
         if engine is None:
             return None
         failure = None
         try:
             result = engine.ocr(img, cls=True)
-            _calls += 1
+            _calls[kind] = _calls.get(kind, 0) + 1
             _memory_strikes = 0
             return result
         except Exception as exc:
@@ -337,7 +376,11 @@ def _predict(img):
             # holds the failed engine's frames, which must be freed with it.
             failure = f"{exc}" or type(exc).__name__
         del engine
-        _free_engine()
+        _free_engine(kind)
+        if _mkldnn and kind == "paddle":
+            _mkldnn = False
+            log.warning("OCR: the Intel speed-up (OCR_MKLDNN) is turned off for the rest of this worker "
+                        "after the engine failed with \"%s\"; OCR carries on without it", failure)
         if _looks_like_memory(failure):
             # Not retried now: the engine's process is gone with its memory,
             # and the NEXT image starts a fresh one. Only a run of these stops OCR.
@@ -352,7 +395,7 @@ def _predict(img):
             raise OcrError(message)
         log.warning("OCR engine failed on a %dx%d image (%s); rebuilding it and retrying at %dpx",
                     img.shape[1], img.shape[0], failure, FALLBACK_LIMIT)
-        engine = _get_engine()
+        engine = _get_engine(kind)
         if engine is None:
             raise OcrError(f"{failure} (and the engine could not be restarted)")
         scale = min(1.0, FALLBACK_LIMIT / max(img.shape[:2]))
@@ -360,13 +403,13 @@ def _predict(img):
         second = None
         try:
             result = engine.ocr(small, cls=True)
-            _calls += 1
+            _calls[kind] = _calls.get(kind, 0) + 1
         except Exception as exc:
             second = f"{exc}" or type(exc).__name__
         _memory_strikes = 0 if second is None else _memory_strikes
         if second is not None:
             del engine
-            _free_engine()
+            _free_engine(kind)
             if _looks_like_memory(second):
                 _memory_strikes += 1
                 if _memory_strikes >= MEMORY_STRIKES:
@@ -379,8 +422,8 @@ def _predict(img):
                 for block in result or []]
 
 
-def ocr_png_bytes(png: bytes) -> str:
-    if not available():
+def ocr_png_bytes(png: bytes, stage: str = "upload") -> str:
+    if not available(stage):
         return ""
     import cv2
     import numpy as np
@@ -388,7 +431,7 @@ def ocr_png_bytes(png: bytes) -> str:
     img = cv2.imdecode(np.frombuffer(png, dtype=np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         return ""
-    result = _predict(img)
+    result = _predict(img, engine_for(stage))
     lines: list[str] = []
     for block in result or []:
         for item in block or []:
@@ -412,15 +455,17 @@ def zeros_for_os(text: str) -> str:
     return _NUMBER_O.sub(lambda m: m.group(0).replace("O", "0"), text)
 
 
-def available() -> bool:
-    """Whether OCR can run at all (loads the engine on first call). False once
-    OCR has been stopped in this worker (`halted`)."""
+def available(stage: str = "upload") -> bool:
+    """Whether OCR can run for this stage (loads its engine on first call).
+    False when the stage's engine is "off", and once OCR has been stopped in
+    this worker (`halted`)."""
+    kind = engine_for(stage)
     with _lock:
-        return _halted is None and _get_engine() is not None
+        return kind != "off" and _halted is None and _get_engine(kind) is not None
 
 
-def image_lines(pix, pad_to: int | None = None) -> list[tuple[list, str, float]]:
-    """Every line PaddleOCR finds in a fitz Pixmap (RGB, no alpha), as
+def image_lines(pix, pad_to: int | None = None, stage: str = "upload") -> list[tuple[list, str, float]]:
+    """Every line the stage's OCR engine finds in a fitz Pixmap (RGB, no alpha), as
     (four corner points in pixels, text, confidence). Raises OcrError when
     the engine cannot read it.
 
@@ -428,7 +473,7 @@ def image_lines(pix, pad_to: int | None = None) -> list[tuple[list, str, float]]
     square, so every tile reaches the detector at ONE size: Paddle keeps work
     buffers per input shape, and the edge tiles of every page were each a new
     shape. Coordinates are unchanged, since the padding is after the image."""
-    if not available():
+    if not available(stage):
         return []
     import numpy as np
 
@@ -440,7 +485,7 @@ def image_lines(pix, pad_to: int | None = None) -> list[tuple[list, str, float]]
         padded[: img.shape[0], : img.shape[1]] = img
         img = padded
     out = []
-    for block in _predict(np.ascontiguousarray(img)) or []:
+    for block in _predict(np.ascontiguousarray(img), engine_for(stage)) or []:
         for item in block or []:
             if len(item) >= 2 and item[1]:
                 out.append((item[0], zeros_for_os(str(item[1][0])), float(item[1][1])))

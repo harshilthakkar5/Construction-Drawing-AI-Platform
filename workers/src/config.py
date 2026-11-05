@@ -68,6 +68,29 @@ THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
 
 # FR-7: OCR pages with no text layer. Disable to run without PaddleOCR installed.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() != "false"
+
+
+def _ocr_engine(name: str, default: str) -> str:
+    value = (os.environ.get(name) or "").strip().lower() or default
+    if value not in ("paddle", "rapid", "off"):
+        raise ValueError(f"{name}={value!r}: use paddle, rapid or off")
+    return value
+
+
+# Which OCR engine reads, per stage: paddle (PaddleOCR) | rapid (RapidOCR, the
+# same PP-OCR models on ONNX Runtime) | off. UPLOAD = processing a document and
+# reading its title blocks; RFI = the RFI scan, reviews and grid labels drawn as
+# lines. A page skipped at upload (off) is left unread, so the next RFI scan
+# reads it. Each falls back to OCR_ENGINE; OCR_ENABLED=false still turns all off.
+OCR_ENGINE = _ocr_engine("OCR_ENGINE", "paddle")
+OCR_ENGINE_UPLOAD = _ocr_engine("OCR_ENGINE_UPLOAD", OCR_ENGINE)
+OCR_ENGINE_RFI = _ocr_engine("OCR_ENGINE_RFI", OCR_ENGINE)
+# RapidOCR's English recognition model. The model bundled with RapidOCR is the
+# Chinese+English one, which drops the spaces between words at CAD text sizes
+# ("RTU-3 80 MBH" read as "RTU-380MBH"), so RapidOCR does not run without this.
+# The worker image downloads it; a native install fetches it once (README).
+OCR_RAPID_REC_MODEL = os.environ.get("OCR_RAPID_REC_MODEL") or str(
+    Path(__file__).resolve().parents[1] / "models" / "en_PP-OCRv3_rec_infer.onnx")
 # page_ocr.py: also read pages whose words are DRAWN (CAD SHX fonts exported
 # as strokes) — few text-layer words over a lot of linework — and pages with a
 # large pasted picture. A page OCRs in ~40s of CPU, so this is bounded per scan.
@@ -91,6 +114,12 @@ OCR_DET_LIMIT = int(os.environ.get("OCR_DET_LIMIT", "1600"))
 OCR_MIN_FREE_MB = int(os.environ.get("OCR_MIN_FREE_MB", "1024"))
 OCR_MAX_RSS_MB = int(os.environ.get("OCR_MAX_RSS_MB", "4096"))
 OCR_ENGINE_RECYCLE = int(os.environ.get("OCR_ENGINE_RECYCLE", "100"))
+# Intel's CPU speed-up (MKL-DNN / oneDNN) for OCR: roughly 2-3x faster on a
+# modern Intel or AMD CPU. Off by default because it was the suspect in the
+# "could not create a primitive" failures on a small laptop; the engine now
+# runs in its own process, and the first failure turns it off for the rest
+# of the worker's life (ocr._predict), so a server can safely try it.
+OCR_MKLDNN = os.environ.get("OCR_MKLDNN", "false").lower() == "true"
 
 # FR-8: lift schedules out of the page as whole tables instead of letting the
 # block extractor shred them. Detection is a heuristic (workers/src/tables.py);

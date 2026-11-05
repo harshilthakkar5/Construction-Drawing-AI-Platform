@@ -54,6 +54,16 @@ python src/worker.py       # consumes process-document, scrape-region,
                            # summarize-portion and summarize-project
 ```
 
+RapidOCR (`OCR_ENGINE_UPLOAD` / `OCR_ENGINE_RFI` = `rapid`) also needs its English
+model in `workers/models` (the worker image downloads it itself), once:
+
+```bash
+mkdir -p models && curl -L -o models/en_PP-OCRv3_rec_infer.onnx \
+  https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx
+```
+
+On Windows PowerShell: `mkdir models; curl.exe -L -o models\en_PP-OCRv3_rec_infer.onnx <same URL>`.
+
 Or containerized, which is also how you scale it:
 
 ```bash

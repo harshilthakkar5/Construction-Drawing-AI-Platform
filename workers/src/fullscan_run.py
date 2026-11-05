@@ -1904,7 +1904,7 @@ def finish(run: Run) -> dict:
     notes = [n for n in run.notes if not n.startswith("Full scan:")]
     a = summary["areas"]
     notes.append(
-        f"Full scan: {counts.get('done', 0)} tile pair(s) looked at, {counts.get('failed', 0)} failed, "
+        f"AI comparison: {counts.get('done', 0)} area(s) compared, {counts.get('failed', 0)} failed, "
         f"{counts.get('pending', 0)} not reached"
         + (f", {counts['skipped']} settled by the code without the AI" if counts.get("skipped") else "")
         + f"; {len(issues)} possible problem(s) on the first look, "
@@ -1920,7 +1920,7 @@ def finish(run: Run) -> dict:
     if summary["unplaceable"]:
         notes.append(
             f"{summary['unplaceable']} possible problem(s) were dropped because their location could not be read "
-            "(a box that was not fractions 0-1), after one request to restate it."
+            "even after the AI was asked to restate it."
         )
     if summary["pagesRead"]:
         notes.append(

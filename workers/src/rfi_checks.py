@@ -45,6 +45,7 @@ check's confidence.
 from __future__ import annotations
 
 import hashlib
+import doc_errors
 import re
 from dataclasses import dataclass, field
 
@@ -524,7 +525,7 @@ def dangling_references(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Fi
         )
     if ocr_only:
         notes.append(
-            f"Reference check: {ocr_only} sheet reference(s) were read only by OCR (words drawn as shapes) and "
+            f"Reference check: {ocr_only} sheet reference(s) were read only from text drawn as lines and "
             "were not checked. One misread character invents a sheet number, so OCR text never raises a "
             "missing-sheet RFI."
         )
@@ -1350,8 +1351,8 @@ def _cap(check_type: str, findings: list[Finding], notes: list[str]) -> list[Fin
     findings.sort(key=lambda f: _RANK[f.confidence])
     if len(findings) > MAX_FINDINGS_PER_CHECK:
         notes.append(
-            f"{check_type}: {len(findings)} findings, only the first "
-            f"{MAX_FINDINGS_PER_CHECK} (strongest first) were kept."
+            f"{doc_errors.check_label(check_type)}: {len(findings)} found; only the "
+            f"{MAX_FINDINGS_PER_CHECK} strongest are listed."
         )
         return findings[:MAX_FINDINGS_PER_CHECK]
     return findings

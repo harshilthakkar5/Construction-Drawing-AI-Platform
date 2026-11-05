@@ -24,6 +24,10 @@ SHARED = os.path.join(os.path.dirname(__file__), "..", "..", "packages", "shared
         (MemoryError(), "memory"),
         (OSError(28, "No space left on device"), "disk"),
         (ConnectionError("Connection refused"), "connection"),
+        # A laptop that dropped off the network: names the storage URL, but the fix is the network.
+        (RuntimeError('EndpointConnectionError: Could not connect to the endpoint URL: "https://blr1.digitaloceanspaces.com/x" '
+                      "| NameResolutionError: Failed to resolve 'blr1.digitaloceanspaces.com' "
+                      "([Errno 11001] getaddrinfo failed)"), "offline"),
         (ValueError("something odd"), "unknown"),
     ],
 )
@@ -87,3 +91,34 @@ def test_a_failed_model_call_remembers_why(monkeypatch):
     monkeypatch.setattr(llm, "_complete_claude", boom)
     assert llm.complete("s", "u", provider="claude", claude_model="m", gemini_model="g", max_tokens=10, kind="rfi") is None
     assert doc_errors.classify_text(llm.last_failure()) == "ai_credits"
+
+
+def _note_calls():
+    """Every `<...notes>.append/extend(...)` in the worker, with its file and line."""
+    import ast
+    import glob
+
+    for path in sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "src", "*.py"))):
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("append", "extend") and isinstance(node.func.value, ast.Name)
+                    and "note" in node.func.value.id.lower()):
+                yield os.path.basename(path), node.lineno, node
+
+
+def test_no_note_shows_a_setting_name_or_a_raw_error():
+    """Scan and review notes are read by people. A setting's name, or an
+    exception pasted in as it came, belongs in the worker log."""
+    import ast
+
+    setting = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]{2,}\b")
+    bad = []
+    for name, line, call in _note_calls():
+        for node in ast.walk(call):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and setting.search(node.value):
+                bad.append(f"{name}:{line} names a setting: {setting.search(node.value).group(0)}")
+            if (isinstance(node, ast.FormattedValue) and isinstance(node.value, ast.Name)
+                    and node.value.id in ("exc", "e", "err", "error")):
+                bad.append(f"{name}:{line} pastes the raw error {{{node.value.id}}}")
+    assert not bad, "\n".join(bad)

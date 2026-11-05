@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, FileQuestionIcon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
+import { userMessage,
   RFI_REVIEW_STAGE_LABELS,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
@@ -836,7 +836,7 @@ function RfiSetDialog({
                         {run?.status === "failed" && !errorOf(item.elementId) ? (
                           <ProblemNotice detail={run.error} />
                         ) : (
-                          err && <span className="text-destructive text-xs">{err}</span>
+                          err && <span className="text-destructive text-xs">{userMessage(err)}</span>
                         )}
                       </li>
                     );

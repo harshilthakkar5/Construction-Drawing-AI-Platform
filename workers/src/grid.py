@@ -490,7 +490,7 @@ def styled_systems(page: fitz.Page) -> list[dict]:
     import ocr
 
     # Memoised only where OCR can run: a worker without it must not pin "no grid" for one that has it.
-    if not ocr.available():
+    if not ocr.available("rfi"):
         return []
     return page_memo.memo(f"ocr_systems@{OCR_GRID_VERSION}", page, lambda: ocr_systems(page), shared=True)
 
@@ -871,7 +871,7 @@ def _ocr_label(page: fitz.Page, shown: fitz.Rect) -> str | None:
             x = w + int(k * 0.6 * w)
             canvas[h:2 * h, x:x + w] = np.minimum(canvas[h:2 * h, x:x + w], disk)
         image = fitz.Pixmap(fitz.csRGB, canvas.shape[1], canvas.shape[0], canvas.tobytes(), False)
-        label = label_from_reading([t for _, t, conf in ocr.image_lines(image) if conf >= 0.5], copies)
+        label = label_from_reading([t for _, t, conf in ocr.image_lines(image, stage="rfi") if conf >= 0.5], copies)
         if label:
             return label
     return None

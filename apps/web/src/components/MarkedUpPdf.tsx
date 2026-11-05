@@ -1,3 +1,4 @@
+import { userMessage } from "@cdip/shared";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { DownloadIcon, FileSearchIcon, PencilRulerIcon, RotateCcwIcon } from "lucide-react";
 import { useState } from "react";
@@ -48,7 +49,7 @@ export function MarkedUpPdfButton({
   });
   const status = pkg.data?.status ?? (create.isPending ? "queued" : create.data?.status);
   const busy = create.isPending || status === "queued" || status === "running";
-  const error = create.error ?? pkg.error ?? (status === "failed" ? new Error(pkg.data?.error ?? "rendering failed") : null);
+  const error = create.error ?? pkg.error ?? (status === "failed" ? new Error(userMessage(pkg.data?.error)) : null);
 
   if (status === "ready" && pkg.data?.downloadUrl) {
     return (

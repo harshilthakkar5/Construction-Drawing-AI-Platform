@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, CoinsIcon, DownloadIcon, PlayIcon, SearchIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
+import { userMessage,
   RFI_REVIEW_CHECKS,
   RFI_REVIEW_DEPTHS,
   type RfiCheckOutcome,
@@ -941,8 +941,8 @@ function RunView({
       {run.status === "failed" && <ProblemNotice detail={run.error} />}
       {(run.status === "stale" || (run.status === "cancelled" && run.error)) && (
         <Notice tone="error">
-          {run.status === "stale" ? "The drawings changed since this plan was made: " : "Stopped: "}
-          {run.error}
+          {run.status === "stale" ? "The drawings changed since this plan was made. " : "Stopped. "}
+          {userMessage(run.error)}
         </Notice>
       )}
       {run.status === "failed" && run.checkResults && <Outcomes projectId={projectId} run={run} />}

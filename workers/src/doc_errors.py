@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from generated import PROBLEM_RULES
+from generated import PROBLEM_RULES, PROBLEMS, RFI_CHECK_LABELS, TECHNICAL_PATTERN
 
 _RULES = [(kind, re.compile(pattern, re.I)) for kind, pattern in PROBLEM_RULES]
 
@@ -46,3 +46,24 @@ def classify(exc: BaseException) -> tuple[str, str]:
     """(kind, detail) for a failure. Never raises."""
     text = _text(exc)
     return classify_text(text), scrub(text)
+
+
+_TECHNICAL = re.compile(TECHNICAL_PATTERN, re.I)
+
+
+def user_message(raw) -> str:
+    """The words a person may see for an error or exception: userMessage in
+    @cdip/shared, rule for rule. A sentence written for people is kept;
+    anything technical becomes its kind's plain words. The raw text belongs
+    in the log, never in a note or a stored error the screen shows."""
+    text = (_text(raw) if isinstance(raw, BaseException) else str(raw or "")).strip()
+    kind = classify_text(text)
+    if not text or kind != "unknown" or _TECHNICAL.search(text):
+        words = PROBLEMS.get(kind) or PROBLEMS["unknown"]
+        return f"{words['title']}. {words['action']}"
+    return text[:1].upper() + text[1:]
+
+
+def check_label(check_type: str) -> str:
+    """A check's name as people read it ("Missing sheet"), never its key."""
+    return RFI_CHECK_LABELS.get(check_type) or check_type.replace("_", " ")

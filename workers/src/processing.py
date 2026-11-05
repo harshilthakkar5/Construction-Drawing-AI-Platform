@@ -123,7 +123,7 @@ def _process_page(
         # Planned even with OCR off: a page that NEEDS OCR then comes back
         # unread (ran=False) and stays unmarked, so a later scan on a worker
         # with OCR on reads it. Skipping the plan marked it "nothing to read".
-        reading = page_ocr.read_page(page)
+        reading = page_ocr.read_page(page, "upload")
     except ocr.OcrError as exc:
         # A broken OCR engine must not fail the page. Not marked examined
         # (ran=False), so the next RFI scan reads it on a working engine.

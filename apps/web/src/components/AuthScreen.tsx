@@ -8,7 +8,7 @@ import {
   MailIcon,
   UserIcon,
 } from "lucide-react";
-import { api, authToken } from "@/api";
+import { api, authToken, statusOf } from "@/api";
 import { AuthArt } from "@/components/AuthArt";
 import { Logo } from "@/components/Logo";
 import { ModeToggle } from "@/components/theme-provider";
@@ -74,7 +74,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: UserDto) => void
       authToken.set(res.token);
       onSignedIn(res.user);
     } catch (err) {
-      setError(friendlyError((err as Error).message, isRegister));
+      setError(friendlyError(err, isRegister));
     } finally {
       setBusy(false);
     }
@@ -391,7 +391,7 @@ function ResetPasswordForm({
       authToken.set(res.token);
       onSignedIn(res.user);
     } catch (err) {
-      setError(friendlyError((err as Error).message, false));
+      setError(friendlyError(err, false));
       setBusy(false);
     }
   }
@@ -474,24 +474,19 @@ function ResetPasswordForm({
 }
 
 /** Turns the raw `POST /auth/... → 401 {...}` into something a person reads. */
-function friendlyError(message: string, isRegister: boolean): string {
-  if (message.includes("401") || message.includes("invalid credentials")) {
-    return "That email or password is not right. Check both and try again.";
-  }
-  if (message.includes("409")) return "That email is already registered. Try logging in.";
-  if (message.includes("429")) return "Too many attempts. Wait a minute and try again.";
-  if (message.includes("validation failed") || message.includes("400")) {
+function friendlyError(err: unknown, isRegister: boolean): string {
+  const status = statusOf(err);
+  if (status === 401) return "That email or password is not right. Check both and try again.";
+  if (status === 409) return "That email is already registered. Try logging in.";
+  if (status === 429) return "Too many attempts. Wait a minute and try again.";
+  if (status === 400) {
     return isRegister
-      ? "Check your details a valid email and a password of 8+ characters are required."
-      : "Check your details that does not look like a valid email address.";
+      ? "Check your details: a valid email and a password of 8+ characters are required."
+      : "Check your details: that does not look like a valid email address.";
   }
-  if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
-    return "Can't reach the server. Check your connection and try again.";
-  }
-  if (message.includes("500") || message.includes("503")) {
-    return "The server had a problem with that request. Try again in a moment.";
-  }
-  return message;
+  if (status === 0) return "Can't reach the server. Check your connection and try again.";
+  if (status >= 500) return "The server had a problem with that request. Try again in a moment.";
+  return (err as Error).message; // already plain words (api.ts userMessage)
 }
 
 function Field({

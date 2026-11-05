@@ -37,6 +37,7 @@ import redis as redis_lib
 
 import config
 import db
+import doc_errors
 import grid
 import llm
 import logutil
@@ -379,7 +380,9 @@ def word(
 def _pages_left_for_ocr(project_id: str) -> bool:
     import page_ocr
 
-    if not config.OCR_ENABLED:
+    import ocr
+
+    if not config.OCR_ENABLED or ocr.engine_for("rfi") == "off":
         return False
     try:
         return bool(db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION))
@@ -750,7 +753,8 @@ def sheet_pairs(project_id: str, open_page, progress, full_scan_id: str | None, 
         notes.append("The AI comparison's plan was cancelled, so the sheet pairs were not compared either.")
     except Exception as exc:
         log.exception("rfi scan: sheet pairs failed for project %s", project_id[:8])
-        notes.append(f"The sheet pairs could not be built ({exc}), so no pair of sheets was compared.")
+        notes.append("The sheets that should agree could not be matched up this time, so none were compared. "
+                     + doc_errors.user_message(exc))
         if full_scan_id:
             _fail_ai_plan(full_scan_id, str(exc))
     return None
@@ -784,7 +788,8 @@ def geometry_findings(plan, pages: list[Page], open_page,
             notes += more
         except Exception as exc:  # one comparison failing is a note, not a failed scan
             log.exception("rfi scan: %s comparison failed", name)
-            notes.append(f"The {name} comparison of the sheet pairs did not run ({exc}).")
+            notes.append(f"The {name} comparison could not run this time, so its problems are not listed. "
+                         + doc_errors.user_message(exc))
             failed.add(check_type)
     return findings, notes, failed
 
@@ -963,18 +968,17 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
     import ocr
     import page_ocr
 
-    if not config.OCR_ENABLED:
+    if not config.OCR_ENABLED or ocr.engine_for("rfi") == "off":
         return []
     todo = db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION)
     if not todo:
         return []
-    engine = ocr.available()
+    engine = ocr.available("rfi")
     read: list[str] = []
     deferred = 0
     unread = 0
     unopened = 0
     failed: list[str] = []
-    failure = ""
     streak = 0
     illegible: list[str] = []
 
@@ -1011,7 +1015,7 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
                        f"OCR on page {done + 1} of {len(todo)}: {name} ({reason}) "
                        f"· about a minute a page · {len(read)} read so far", force=True)
                 started = time.monotonic()
-                result = page_ocr.read_page(page)
+                result = page_ocr.read_page(page, "rfi")
                 rss = ocr._rss_mb()
                 log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs%s", document_id[:8],
                          page_number, reason, len(result.lines), sum(p.illegible for p in result.pictures),
@@ -1025,7 +1029,6 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
             except ocr.OcrError as exc:
                 # Not marked examined: the next scan (on a working engine) reads it.
                 failed.append(name)
-                failure = str(exc)
                 # Stopped for memory: asking again would only fail again (or
                 # worse), so the rest of this scan's OCR is skipped at once.
                 streak = OCR_FAILURE_STREAK if ocr.halted() else streak + 1
@@ -1042,36 +1045,35 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
         # Never silent: these pages were not examined and stay unmarked, so
         # the next scan tries them again.
         notes.append(
-            f"OCR could not open {unopened} page(s) because the worker could not download or open the drawing "
-            f"file ({'; '.join(sorted(set(errors.values())))[:300] or 'see the worker log'}). Their text drawn as "
-            "shapes was NOT read. Check the worker can reach the object store, then scan again."
+            f"The text drawn as lines on {unopened} page(s) was not read, because their drawing file could "
+            "not be opened. Scan again; if it keeps happening, ask your administrator to check the file storage."
         )
     if read:
         report("ocr", len(todo), len(todo), f"Indexing the text OCR read on {len(read)} page(s) so chat can find it",
                force=True)
         _index_new_chunks(project_id, sorted({d for d, _, _ in todo}))
         notes.append(
-            f"OCR read {len(read)} page(s) whose words are drawn as shapes or pasted as pictures "
-            f"({_list(read)}). Findings resting on OCR text say so: check them against the sheet."
+            f"Read the text on {len(read)} page(s) whose words are drawn as lines or pasted as pictures "
+            f"({_list(read)}). Findings that rest on that text say so: check them against the sheet."
         )
     if illegible:
         notes.append(f"Pictures too coarse to read reliably on {_list(illegible)}: nothing was guessed off them.")
     if deferred:
         notes.append(
-            f"OCR: {deferred} more page(s) need reading; the next scan reads up to "
-            f"{config.OCR_MAX_PAGES_PER_SCAN} more (OCR_MAX_PAGES_PER_SCAN)."
+            f"{deferred} more page(s) still have text drawn as lines to read; the next scan reads up to "
+            f"{config.OCR_MAX_PAGES_PER_SCAN} more."
         )
     if failed:
         notes.append(
-            f"OCR FAILED on {len(failed)} page(s) ({_list(failed)}): the OCR engine raised "
-            f"\"{failure[:160]}\". Their text drawn as shapes was NOT read and they stay unmarked, so the next "
-            f"scan tries them again. {OCR_FAILURE_HELP}"
+            f"The text drawn as lines could not be read on {len(failed)} page(s) ({_list(failed)}). The next "
+            "scan tries them again. If it keeps happening, ask your administrator to check the processing "
+            "server's memory."
         )
     if unread:
         notes.append(
-            f"OCR is not available on this worker, so {unread} page(s) whose words are drawn as shapes or "
-            "pasted as pictures were NOT read, so the checks cannot see their text. Install PaddleOCR and its "
-            "models (workers/Dockerfile) and scan again."
+            f"{unread} page(s) whose words are drawn as lines or pasted as pictures were not read, because "
+            "text reading is not set up on the processing server, so the checks cannot see their text. Ask "
+            "your administrator to turn it on, then scan again."
         )
     return notes
 
@@ -1260,7 +1262,8 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
                 notes += more
             except Exception as exc:  # one check failing is a note, not a failed scan
                 log.exception("rfi scan: %s check failed", check_type)
-                notes.append(f"The check for {what} did not run ({exc}).")
+                notes.append(f"The check for {what} could not run this time, so its problems are not listed. "
+                             + doc_errors.user_message(exc))
                 not_run.add(check_type)
         progress("pinpoint", detail=f"Pinpointing {len(findings)} finding(s) on their sheets")
         pinpoint_evidence(project_id, findings, open_page)

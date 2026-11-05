@@ -18,7 +18,10 @@ import {
   JOB_FIELDS,
   JOB_FIELD_TYPES,
   OBJECT_KEY_TEMPLATES,
+  PROBLEMS,
   PROBLEM_RULES,
+  RFI_CHECK_LABELS,
+  TECHNICAL_PATTERN,
   QUEUES,
   RFI_REVIEW_CATALOGUE_VERSION,
   RFI_REVIEW_CHECKS,
@@ -117,6 +120,12 @@ function render() {
 
   lines.push("", "# --- Why a job stopped: raw error text -> plain-words kind (doc_errors.py) ---", "");
   lines.push(`PROBLEM_RULES = ${py(PROBLEM_RULES)}`);
+  lines.push("");
+  lines.push(`PROBLEMS = ${py(PROBLEMS)}`);
+  lines.push("");
+  lines.push(`TECHNICAL_PATTERN = ${py(TECHNICAL_PATTERN)}`);
+  lines.push("");
+  lines.push(`RFI_CHECK_LABELS = ${py(RFI_CHECK_LABELS)}`);
   lines.push("");
 
   lines.push("", "# --- Targeted RFI review: check catalogue and depth caps ---", "");

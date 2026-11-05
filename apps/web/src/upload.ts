@@ -1,3 +1,4 @@
+import { userMessage } from "@cdip/shared";
 import { api } from "./api";
 
 /**
@@ -93,5 +94,7 @@ async function putWithRetry(url: string, blob: Blob): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
   }
-  throw lastError;
+  // The storage service's status or the browser's network error is not for
+  // the person; the upload resumes from the parts that did arrive.
+  throw new Error(userMessage(String(lastError)));
 }

@@ -326,8 +326,18 @@ projects/{projectId}/
   `processing.Progress`, page counts at most every 2s) drives a progress bar, and
   `documents.problem` ({kind, detail, attempt, attempts, retrying}) says why a run stopped.
   `doc_errors.classify` maps any exception to a kind; the UI shows only the plain words in
-  `PROBLEMS` (`@cdip/shared`) with the raw text under "Technical details" (keys and
-  signed URLs scrubbed). While a retry is coming the document stays `processing`; a damaged
+  `PROBLEMS` (`@cdip/shared`); the raw text (keys and signed URLs scrubbed) is stored for the logs
+  and never shown — an unreachable host is `offline`, ahead of `storage`, since its URL is the
+  storage one but the fix is the network. The same holds for EVERY error on screen: `userMessage` (`@cdip/shared`)
+  keeps a sentence our code wrote for people and turns anything technical (error class, env-var
+  name, URL, id, status code, stack, "internal error") into its kind's plain words. The web
+  `request` helper throws `ApiError` (plain message + `status`; 0 = unreachable) and logs the
+  method/path/body to the console instead of the screen, so code branches on `statusOf(err)`,
+  never on message text — AuthScreen, AccountPage and `getRegion` matched "401"/"409"/"→ 404". Scan and
+  review NOTES follow the same rule from the worker side: `doc_errors.user_message(exc)` (the shared
+  `TECHNICAL_PATTERN` + `PROBLEMS`, codegen'd) and `doc_errors.check_label` (`RFI_CHECK_LABELS`) word
+  them, the raw error and the fix that names a setting go to the log, and
+  `test_no_note_shows_a_setting_name_or_a_raw_error` reads every `notes.append` in `workers/src`. While a retry is coming the document stays `processing`; a damaged
   PDF, no AI credit or a wrong key (`doc_errors.PERMANENT`) fails at once (`job.discarded`),
   since retrying the same file fails the same way. `test_doc_errors.py` holds the kinds and
   stage names equal to the shared lists. The same pieces (`JobProgress`, `ProblemNotice` in
@@ -2449,7 +2459,16 @@ failure ends the process and fails only that image; the next starts fresh, and o
 `MEMORY_STRIKES` (3) in a row halt OCR. A child that dies (the OS ending it out of memory) reads as a
 memory failure. Callers did not change: the class has the engine's own `ocr()`. Inside a container
 the free-memory guard also reads the cgroup's room (`_cgroup_free_mb`), since psutil reports the
-whole Docker VM.
+whole Docker VM. `OCR_MKLDNN=true` (default off) builds that process with Intel's CPU speed-up
+(MKL-DNN, ~2-3x); the first engine failure turns it off for the rest of the worker's life.
+The engine is chosen PER STAGE: `OCR_ENGINE_UPLOAD` (processing, title blocks) and `OCR_ENGINE_RFI` (scan,
+reviews, grid labels) = `paddle | rapid | off`, falling back to `OCR_ENGINE`; callers pass `stage=` to
+`ocr.available` / `image_lines` / `ocr_png_bytes` / `page_ocr.read_page`, and each kind keeps its own engine
+process so an upload and a scan never rebuild each other's. `rapid` is RapidOCR (`rapidocr_onnxruntime`, the
+PP-OCR models on ONNX Runtime, replies reshaped by `_rapid_as_paddle`) and runs ONLY with its English model
+(`OCR_RAPID_REC_MODEL`, downloaded by the Dockerfile by hash): the bundled Chinese+English model read
+"RTU-3 80 MBH" as "RTU-380MBH" at 6-12pt, which the tag check would read as unit RTU-380. Measured here:
+~1.1 s a 1600px tile on 4 cores, 146 lines off one stroke-text sheet; not yet compared with Paddle on one machine.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR

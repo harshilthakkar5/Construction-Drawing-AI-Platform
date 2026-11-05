@@ -215,6 +215,10 @@ export const PROBLEMS = {
     title: "The AI service is busy right now",
     action: "Wait a few minutes and try again.",
   },
+  offline: {
+    title: "This computer lost its internet connection",
+    action: "Check the internet connection. It tries again by itself, and pages already read are kept.",
+  },
   storage: {
     title: "We couldn't fetch the uploaded file",
     action: "Try again. If it keeps failing, delete the document and upload it again.",
@@ -263,9 +267,17 @@ export const PROBLEMS = {
     title: "The processing server stopped while working on this",
     action: "Try again. Work already finished is kept.",
   },
+  invalid_input: {
+    title: "Some of the details entered aren't valid",
+    action: "Check what you entered and try again.",
+  },
+  not_found: {
+    title: "That item no longer exists",
+    action: "Refresh the page. It may have been deleted.",
+  },
   unknown: {
     title: "Something went wrong",
-    action: "Try again. If it keeps failing, contact support with the technical details below.",
+    action: "Try again. If it keeps failing, contact support.",
   },
 } as const;
 export type ProblemKind = keyof typeof PROBLEMS;
@@ -279,14 +291,20 @@ export type ProblemKind = keyof typeof PROBLEMS;
 export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
   ["disk", "no space left on device|disk quota"],
   ["memory", "memoryerror|out of memory|cannot allocate|could not create a primitive"],
+  // Before storage: an unreachable host names the storage URL too, but the
+  // fix is the network, not the file.
+  ["offline",
+    "getaddrinfo|name ?resolution|failed to resolve|nodename nor servname|network is unreachable" +
+    "|no route to host|internet connection|failed to fetch|networkerror|load failed"],
   ["storage", "nosuchkey|nosuchbucket|accessdenied|getobject|headobject|endpoint url|botocore"],
-  ["disabled", "summaries disabled|_enabled=false"],
+  ["disabled", "summaries disabled|_enabled=false|\\bis (?:switched |turned )?off\\b|=off\\b"],
   ["ai_credits",
     "credit balance|insufficient[_ ](?:quota|balance|funds)|billing|payment required|\\b402\\b" +
     "|exceeded your (?:current )?quota|plan limit|trial key|out of credits?"],
   ["ai_key",
     "invalid[ _-]?(?:x-)?api[ _-]?key|api key not valid|incorrect api key|authentication[_ ]error" +
-    "|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key"],
+    "|unauthori[sz]ed|\\b401\\b|permission[_ ]denied|no (?:anthropic|gemini|voyage|cohere)_api_key" +
+    "|no api key|api_key (?:is )?not set"],
   ["ai_busy",
     "rate[ _-]?limit|too many requests|\\b429\\b|overloaded|\\b529\\b|resource[_ ]exhausted" +
     "|service unavailable|\\b50[234]\\b|internal server error"],
@@ -298,6 +316,8 @@ export const PROBLEM_RULES: readonly (readonly [ProblemKind, string])[] = [
     "|no objects found|zlib"],
   ["connection",
     "connection (?:refused|reset|aborted|error)|timed? ?out|operationalerror|qdrant|could not connect"],
+  ["invalid_input", "validation failed"],
+  ["not_found", "^not found$"],
 ];
 
 /** The kind for a raw error text ("unknown" when nothing matches). */
@@ -342,6 +362,25 @@ export function documentStageText(p: DocumentProgress | null | undefined): strin
  * client does not know yet. */
 export function problemText(kind: string | null | undefined): { title: string; action: string } {
   return PROBLEMS[(kind ?? "unknown") as ProblemKind] ?? PROBLEMS.unknown;
+}
+
+// Marks of text written for a developer, not a person: error class names,
+// env-variable names, URLs, ids, status codes, stack frames, file paths.
+// Case-insensitive; codegen copies it to the worker (doc_errors.user_message).
+export const TECHNICAL_PATTERN =
+  "[A-Za-z]+(?:Error|Exception)\\b|\\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\\b|https?:\\/\\/|\\b[0-9a-f]{8}-[0-9a-f]{4}-|\\b(?:HTTP|status|code)[ =:]*\\d{3}\\b|\\bat \\S+ \\(|\\.(?:py|ts|js)\\b|[{}]|\u2192|errno|traceback|prisma|psycopg|botocore|\\bsql\\b|\\bnull\\b|\\bundefined\\b|internal error|env file|worker log";
+const TECHNICAL = new RegExp(TECHNICAL_PATTERN, "i");
+
+/** The words a person may see for an error. A sentence our own code wrote for
+ * people is kept; anything technical becomes the plain words for its kind
+ * (PROBLEMS), so no error class, key name, URL or id ever reaches the screen. */
+export function userMessage(raw: string | null | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text || TECHNICAL.test(text) || classifyProblem(text) !== "unknown") {
+    const p = problemText(classifyProblem(text));
+    return `${p.title}. ${p.action}`;
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Summary run stages (workers/src/summarize.py writes these names). */
