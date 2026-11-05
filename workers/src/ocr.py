@@ -170,6 +170,23 @@ def _rapid_as_paddle(result) -> list:
     return [[[box, (text, float(score))] for box, text, score in result or []]]
 
 
+def _paddle_device() -> str:
+    """Where PaddleOCR runs: the same test it applies itself (tools/infer/utility.check_gpu),
+    which falls back to the CPU without a word when the GPU build sees no card."""
+    try:
+        import paddle
+
+        built_for_gpu = paddle.is_compiled_with_cuda()
+        on_cpu = paddle.device.get_device() == "cpu"
+    except Exception:  # noqa: BLE001 - a report, never a reason to stop OCR
+        return "CPU"
+    if not built_for_gpu:
+        return "CPU"
+    if on_cpu:
+        return "CPU (the GPU version is installed but no graphics card is visible: see docker-compose.gpu.yml)"
+    return "GPU"
+
+
 def _child_main(conn, det_limit: int, mkldnn: bool = False, kind: str = "paddle") -> None:
     """The OCR engine's own process: build the engine, then read images from
     `conn` until told to stop. Paddle keeps the memory it allocates for the
@@ -195,6 +212,8 @@ def _child_main(conn, det_limit: int, mkldnn: bool = False, kind: str = "paddle"
 
             def read(img):
                 return _rapid_as_paddle(rapid(img)[0])
+
+            device = "CPU"
         else:
             from paddleocr import PaddleOCR
 
@@ -203,10 +222,12 @@ def _child_main(conn, det_limit: int, mkldnn: bool = False, kind: str = "paddle"
 
             def read(img):
                 return paddle.ocr(img, cls=True)
+
+            device = _paddle_device()
     except BaseException as exc:  # noqa: BLE001 - reported to the parent, which decides
         conn.send(("missing" if isinstance(exc, ImportError) else "error", f"{type(exc).__name__}: {exc}"))
         return
-    conn.send(("ready", None))
+    conn.send(("ready", device))
     while True:
         try:
             img = conn.recv()
@@ -242,6 +263,7 @@ class _ProcessEngine:
         if kind != "ready":
             self.close()
             raise RuntimeError(detail)
+        self.device = detail or "CPU"
 
     def _reply(self, seconds: float, doing: str):
         try:
@@ -330,6 +352,7 @@ def _get_engine(kind: str = "paddle"):
         # anything larger to 960px by default, which throws away the tile's
         # resolution; small crops are not enlarged ("max").
         _engines[kind] = _ProcessEngine(config.OCR_DET_LIMIT, _mkldnn and kind == "paddle", kind)
+        log.info("OCR: %s started on %s", _NAME[kind], _engines[kind].device)
     except (ImportError, ModuleNotFoundError) as exc:
         # Permanent: the package genuinely isn't installed. Latch it, so every
         # page doesn't retry an import that cannot start working.

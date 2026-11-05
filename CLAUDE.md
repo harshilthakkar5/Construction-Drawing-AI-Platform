@@ -2473,6 +2473,11 @@ RapidOCR's "max" mode picks its OWN detection size (2000px for a 1600px tile) an
 a laptop at `OCR_DET_LIMIT=960` it did ~2.8x the detection work Paddle did and ran ~5.3 s an image against Paddle's
 ~2.7 s. `_child_main` now replaces its `get_preprocess` so both find text at `OCR_DET_LIMIT` (detection only; lines
 are still read from the full image). Same sheet here: 1600 = 1.22 s a tile, 267 confident lines; 960 = 0.45 s, 246.
+An NVIDIA card runs PaddleOCR through `deploy/docker-compose.gpu.yml` (an add-on to the local file) and
+`workers/Dockerfile.gpu`: `paddlepaddle-gpu` 2.6.2 from PyPI is built for CUDA 11.8 + cuDNN 8, so the image is
+`nvidia/cuda:11.8.0-cudnn8-runtime` (Python 3.10) with the bare `lib*.so` names linked. PaddleOCR picks the card
+itself and silently uses the CPU when none is visible, so the engine reports where it runs at start
+(`OCR: PaddleOCR started on GPU`, `ocr._paddle_device`). Not yet built or run on a card.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
