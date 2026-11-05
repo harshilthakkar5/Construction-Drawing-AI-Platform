@@ -3306,7 +3306,10 @@ label says what it is; `level_claim_unsupported` rejects a kept height/elevation
 close-up prints EL./T.O./SLOPE/STEP/SECTION. The package cover's "Issue:" field is now read off
 each finding sheet's title block (`rfi_package.title_block_issue`: issue line + date in the right
 or bottom quarter, the plot stamp ignored, NOT FOR CONSTRUCTION a status and never an issue,
-each sheet listed when they differ) instead of "Revision: Unknown". The real job on all 103
+each sheet listed when they differ) instead of "Revision: Unknown". A title block DRAWN AS SHAPES (Victaulic's structural
+sheets) is read from its stored OCR lines (`db.page_ocr_lines`, passed into `render` by the job), and one with no
+issue wording gives its labelled DATE and REV fields ("Rev 0, dated 03-03-26", `_labelled_fields`); a hyphenated
+date counts only inside a DATE field, since "6-19-68" beside an issue line once picked the wrong issue. The real job on all 103
 pages returned 10 findings (the three above, the numbered grid 8 = 7 between S2.01 and P1.03,
 G1.22 referenced and absent from the index, five TBDs) — and found three bugs the per-check tests
 had not: the grid merge raised KeyError: 'plumbing' (a consultant sheet drawn on the architect's

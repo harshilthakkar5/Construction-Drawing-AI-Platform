@@ -332,6 +332,34 @@ def test_the_latest_issue_in_a_revision_list_wins():
     assert rp.title_block_issue(doc[0]) == "03/31/26 UPDATE FOR PRICING"
 
 
+def test_a_title_block_with_no_issue_wording_gives_its_date_and_rev_fields():
+    """Victaulic's title blocks say only "DATE:" over "03-03-26" and "REV." over "0";
+    the cover read "Issue: Unknown" on every sheet of the set."""
+    doc = _titled([(2100, 1660, "DATE:"), (2101, 1672, "03-03-26"), (2501, 1634, "REV."), (2505, 1648, "0"),
+                   (2420, 1634, "DRAWING NO."), (2420, 1648, "S1.1A"), (2190, 1660, "JOB NO."), (2190, 1672, "T2125")])
+    assert rp.title_block_issue(doc[0]) == "Rev 0, dated 03-03-26"
+    # on one line works too, and issue wording still wins when there is some
+    assert rp.title_block_issue(_titled([(2300, 1600, "DATE: 3/6/26")])[0]) == "dated 3/6/26"
+    assert rp.title_block_issue(_titled([(2240, 1600, "03/31/26"), (2300, 1600, "ISSUED FOR PERMIT"),
+                                         (2100, 1660, "DATE: 01/02/26")])[0]) == "03/31/26 ISSUED FOR PERMIT"
+
+
+def test_a_hyphenated_number_is_a_date_only_in_a_date_field():
+    """UT Law: "6-19-68" beside an issue line is not its date; dating it picked the wrong issue."""
+    doc = _titled([(2240, 1580, "6-19-68"), (2300, 1580, "ISSUE FOR PERMIT"), (2300, 1600, "ISSUED FOR PRICING")])
+    assert rp.title_block_issue(doc[0]) != "6-19-68 ISSUE FOR PERMIT"
+    assert rp.title_block_issue(_titled([(2300, 1600, "6-19-68")])[0]) is None  # no DATE label, no date
+
+
+def test_a_title_block_drawn_as_shapes_is_read_from_its_ocr_lines():
+    """The structural sheets have no text layer: the stored OCR lines are what the reader gets."""
+    doc = _titled([])
+    ocr = [((2100, 1652, 2122, 1663), "DATE:"), ((2100, 1662, 2159, 1676), "03-03-26"),
+           ((2501, 1625, 2520, 1637), "REV."), ((2505, 1640, 2512, 1652), "0")]
+    assert rp.title_block_issue(doc[0]) is None
+    assert rp.title_block_issue(doc[0], ocr) == "Rev 0, dated 03-03-26"
+
+
 def test_the_cover_shows_each_sheets_issue_when_they_differ():
     a = _titled([(2240, 1600, "03/31/26"), (2300, 1600, "UPDATE FOR PRICING")])
     s = _titled([(2240, 1600, "03/31/26"), (2300, 1600, "95% MNAA-AIR REVIEW SUB")])

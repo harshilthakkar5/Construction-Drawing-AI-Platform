@@ -408,6 +408,18 @@ def set_page_ocr(document_id: str, page_number: int, ocr: dict, version: int) ->
         )
 
 
+def page_ocr_lines(document_id: str, page_number: int) -> list[tuple[tuple, str]]:
+    """The OCR lines stored for one page, as (unrotated rect, text): what
+    page_ocr read off text drawn as shapes. Empty when the page was never read."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT ocr FROM pages WHERE "documentId" = %s AND "pageNumber" = %s',
+            (document_id, page_number),
+        ).fetchone()
+    lines = ((row[0] if row else None) or {}).get("lines") or []
+    return [(tuple(l["b"]), l["t"]) for l in lines if l.get("t") and len(l.get("b") or ()) == 4]
+
+
 def pages_needing_ocr(project_id: str, version: int) -> list[tuple[str, str, int]]:
     """(documentId, spacesKey, pageNumber) of every live, processed page not
     yet examined by the current OCR reader, in combined-page order."""
