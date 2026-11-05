@@ -1,0 +1,22 @@
+# Add-on for a PC with an NVIDIA graphics card: builds the worker with GPU
+# PaddleOCR and hands it the card. Use it ON TOP of the local file, always both:
+#
+#   docker compose --env-file deploy/.env.local -f deploy/docker-compose.local.yml \
+#     -f deploy/docker-compose.gpu.yml up -d --build worker
+#
+# Needs the NVIDIA driver on Windows and Docker Desktop's WSL 2 engine; test with
+#   docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+# Set OCR_ENGINE_UPLOAD=paddle and OCR_ENGINE_RFI=paddle: RapidOCR does not use the card.
+# On a PC without an NVIDIA card Docker refuses to start the worker with this file.
+services:
+  worker:
+    build:
+      context: ../workers
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

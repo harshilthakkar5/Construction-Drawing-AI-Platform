@@ -1,0 +1,49 @@
+# The worker with PaddleOCR on an NVIDIA graphics card (deploy/docker-compose.gpu.yml).
+# Same code and packages as ./Dockerfile; only Paddle and the base image differ.
+#
+# paddlepaddle-gpu 2.6.2 from PyPI is built for CUDA 11.8 + cuDNN 8 (its
+# paddle/version/__init__.py says so), so the image carries exactly that pair and
+# the host needs only the NVIDIA driver. PaddleOCR picks the card by itself and
+# falls back to the CPU when none is visible; the worker log says which
+# ("OCR: PaddleOCR started on GPU"). RapidOCR stays on the CPU in this image.
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+WORKDIR /app
+
+# Ubuntu 22.04's Python is 3.10; every pinned package supports it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python-is-python3 libgl1 libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Paddle opens some CUDA libraries by their bare name (libcudnn.so), and a runtime
+# image ships only the numbered ones (libcudnn.so.8). Link the bare names.
+RUN for f in /usr/lib/x86_64-linux-gnu/libcudnn*.so.[0-9]* /usr/local/cuda/lib64/lib*.so.[0-9]*; do \
+      [ -e "$f" ] || continue; bare="${f%%.so.*}.so"; \
+      [ -e "$bare" ] || ln -s "$(basename "$f")" "$bare"; \
+    done
+
+COPY requirements.txt .
+RUN sed 's/^paddlepaddle==/paddlepaddle-gpu==/' requirements.txt > requirements.gpu.txt \
+ && grep -q '^paddlepaddle-gpu==' requirements.gpu.txt
+
+# Install and verify in one layer with one retry: see ./Dockerfile for why.
+ARG PY_IMPORT_CHECK="import requests, paddleocr, paddle, rapidocr_onnxruntime, cv2, fitz, pdfplumber, boto3, psycopg, psycopg_pool, PIL, anthropic, httpx, dotenv, bullmq, redis, prometheus_client; import google.genai; assert paddle.is_compiled_with_cuda(), 'paddle is not the GPU build'"
+RUN pip install --no-cache-dir -r requirements.gpu.txt \
+ && ( python -c "$PY_IMPORT_CHECK" \
+      || ( echo "a package installed but does not import — reinstalling once" >&2 \
+           && pip install --no-cache-dir --force-reinstall -r requirements.gpu.txt \
+           && python -c "$PY_IMPORT_CHECK" ) )
+
+# Models, as in ./Dockerfile (no card at build time, so this runs on the CPU).
+RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en', show_log=False)" \
+    || echo "WARNING: OCR model pre-download failed; the worker will fetch them at first use"
+RUN python -c "import hashlib, os, urllib.request; \
+url = 'https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx'; \
+data = urllib.request.urlopen(url, timeout=300).read(); \
+assert hashlib.sha256(data).hexdigest() == 'ef7abd8bd3629ae57ea2c28b425c1bd258a871b93fd2fe7c433946ade9b5d9ea', 'model hash mismatch'; \
+os.makedirs('models', exist_ok=True); open('models/en_PP-OCRv3_rec_infer.onnx', 'wb').write(data)"
+
+COPY src/ src/
+
+CMD ["python", "src/worker.py"]

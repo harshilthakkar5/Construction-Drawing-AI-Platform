@@ -1221,13 +1221,18 @@ def describe_crops(
     )
 
 
-def render(page: fitz.Page, max_edge: int = MAX_EDGE_PX) -> bytes:
-    """The page as PNG bytes, scaled so its long edge is `max_edge`.
+def render(page: fitz.Page, max_edge: int | None = None) -> bytes:
+    """The page as PNG bytes, scaled so its long edge is `max_edge` (the vision
+    pass's own VLM_MAX_EDGE when None). Only the vision pass's own render reports
+    its DPI and settings: an RFI review borrows this at its own size, on its own
+    provider, and logging the vision pass's settings there described the wrong run.
 
     `page.rect` and `get_pixmap` are both rotation-aware, so a rotated CAD
     sheet renders the way it is seen — unlike `get_text(clip=...)`, which is
     the trap `region.py` exists to document.
     """
+    own = max_edge is None
+    max_edge = MAX_EDGE_PX if own else max_edge
     rect = page.rect
     longest = max(rect.width, rect.height)
     zoom = (max_edge / longest) if longest else 1.0
@@ -1240,7 +1245,8 @@ def render(page: fitz.Page, max_edge: int = MAX_EDGE_PX) -> bytes:
     # that hypothesis showed it.
     if zoom > 1.0 and not _has_vector_text(page):
         zoom = 1.0
-    _report_resolution(rect, zoom, max_edge)
+    if own:
+        _report_resolution(rect, zoom, max_edge)
     return page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
 
 

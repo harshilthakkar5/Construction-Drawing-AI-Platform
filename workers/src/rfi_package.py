@@ -550,11 +550,18 @@ _ISSUE_LINE = re.compile(
     r"|ADDENDUM\s*#?\s*\d+|REVISION\s*#?\s*\d+)\b"
 )
 _ISSUE_DATE = re.compile(r"(?<![\d/])(\d{1,2}/\d{1,2}/\d{2,4})(?![\d/])(?!\s*\d{1,2}:\d{2})")
+# Inside a field labelled DATE a hyphen is a date too ("03-03-26"); anywhere else in the band
+# "6-19-68" is as likely a part or job number, which once picked the wrong issue line.
+_FIELD_DATE = re.compile(r"(?<![\d/-])(\d{1,2}([/-])\d{1,2}\2\d{2,4})(?![\d/-])(?!\s*\d{1,2}:\d{2})")
+# A title block with no issue wording still labels its fields: "DATE:" over "03-03-26", "REV." over "0".
+_DATE_LABEL = re.compile(r"^DATE\b[:.]?")
+_REV_LABEL = re.compile(r"^REV(?:ISION)?\b\.?(?:\s*(?:NO|#)\.?)?:?")
+_REV_VALUE = re.compile(r"^[A-Z0-9]{1,3}$")
 _NOT_FOR_CONSTRUCTION = re.compile(r"\bNOT\s+FOR\s+CONSTRUCTION\b")
 TITLE_BLOCK_SHARE = 0.25  # the right-hand quarter (or bottom quarter) of the sheet
 
 
-def title_block_issue(page) -> str | None:
+def title_block_issue(page, ocr_lines=()) -> str | None:
     """"03/31/26 90% MNAA-AIR REVIEW SUBMITTAL" (plus "NOT FOR CONSTRUCTION"
     when the sheet says so), read from the title block, or None.
 
@@ -562,18 +569,27 @@ def title_block_issue(page) -> str | None:
     sheet as displayed — count, so a general note saying "ISSUED FOR
     CONSTRUCTION DRAWINGS SHALL..." in the body is not read as the issue. A
     date followed by a clock time is the plot stamp, not the issue date. When
-    the block lists several issues, the one with the latest date wins."""
+    the block lists several issues, the one with the latest date wins.
+
+    `ocr_lines` — (unrotated rect, text), what OCR read off a title block drawn
+    as shapes — count like the text layer's. With no issue wording at all, the
+    block's labelled DATE and REV fields are read instead ("Rev 0, dated 03-03-26")."""
     rect = page.rect
+    raw = [
+        (line["bbox"], " ".join(s["text"] for s in line["spans"]))
+        for block in page.get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+    ]
     lines = []
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            text = " ".join(s["text"] for s in line["spans"]).strip()
-            if not text:
-                continue
-            box = fitz.Rect(line["bbox"]) * page.rotation_matrix
-            if box.x0 < rect.width * (1 - TITLE_BLOCK_SHARE) and box.y0 < rect.height * (1 - TITLE_BLOCK_SHARE):
-                continue
-            lines.append((box, " ".join(text.upper().split())))
+    for bbox, text in raw + list(ocr_lines):
+        text = " ".join(text.upper().split())
+        if not text:
+            continue
+        box = fitz.Rect(bbox) * page.rotation_matrix
+        box.normalize()
+        if box.x0 < rect.width * (1 - TITLE_BLOCK_SHARE) and box.y0 < rect.height * (1 - TITLE_BLOCK_SHARE):
+            continue
+        lines.append((box, text))
     # "NOT FOR CONSTRUCTION" is a status, never an issue: the issue pattern
     # would read "FOR CONSTRUCTION" out of it, the opposite of what it says.
     issues = [
@@ -586,7 +602,10 @@ def title_block_issue(page) -> str | None:
     band = " ".join(text for _, text in sorted(lines, key=lambda l: (round(l[0].y0), l[0].x0)))
     stamped = _NOT_FOR_CONSTRUCTION.search(band) is not None
     if not issues:
-        return "NOT FOR CONSTRUCTION" if stamped else None
+        fields = _labelled_fields(lines)
+        if stamped:
+            return f"{fields} (NOT FOR CONSTRUCTION)" if fields else "NOT FOR CONSTRUCTION"
+        return fields
     dated = []
     for box, issue in issues:
         near = [
@@ -604,7 +623,42 @@ def title_block_issue(page) -> str | None:
     return out
 
 
-def sheet_issues(item: Item, open_doc) -> str | None:
+def _field_value(lines, label: re.Pattern, value: re.Pattern) -> str | None:
+    """The value of a labelled title-block field: after the label on its own line,
+    else the nearest line to its right on the same row or just under it."""
+    best = None
+    for box, text in lines:
+        m = label.match(text)
+        if not m:
+            continue
+        rest = text[m.end():].strip()
+        found = value.search(rest) if rest else None
+        if found:
+            return found.group(1) if found.groups() else found.group(0)
+        h = max(box.height, 4.0)
+        for b, t in lines:
+            if b == box:
+                continue
+            right = abs((b.y0 + b.y1) / 2 - (box.y0 + box.y1) / 2) <= h and 0 <= b.x0 - box.x1 <= 8 * h
+            # under: lower than the label, allowed to touch it (OCR boxes overlap by a point or two)
+            under = -h / 2 <= b.y0 - box.y1 <= 3 * h and b.y0 > box.y0 and b.x0 < box.x1 + 4 * h and b.x1 > box.x0 - 4 * h
+            v = value.search(t) if (right or under) else None
+            if v:
+                dist = abs(b.x0 - box.x0) + abs(b.y0 - box.y0)
+                if best is None or dist < best[0]:
+                    best = (dist, v.group(1) if v.groups() else v.group(0))
+    return best[1] if best else None
+
+
+def _labelled_fields(lines) -> str | None:
+    """"Rev 0, dated 03-03-26" from a title block's DATE and REV fields, or None."""
+    date = _field_value(lines, _DATE_LABEL, _FIELD_DATE)
+    rev = _field_value(lines, _REV_LABEL, _REV_VALUE)
+    parts = ([f"Rev {rev}"] if rev else []) + ([f"dated {date}"] if date else [])
+    return ", ".join(parts) or None
+
+
+def sheet_issues(item: Item, open_doc, ocr_lines=None) -> str | None:
     """The issue the finding's sheets were printed under: one line when they
     agree, each sheet's own when they do not — that difference is itself
     evidence, and the reader should see it without opening the title blocks."""
@@ -619,7 +673,12 @@ def sheet_issues(item: Item, open_doc) -> str | None:
         issue = None
         if doc is not None and 1 <= m.page_number <= doc.page_count:
             try:
-                issue = title_block_issue(doc[m.page_number - 1])
+                try:
+                    ocr = ocr_lines(m.document_id, m.page_number) if ocr_lines else []
+                except Exception as exc:  # no stored OCR is no OCR, never a failed package
+                    log.warning("rfi package: OCR of %s unreadable: %s", label, exc)
+                    ocr = []
+                issue = title_block_issue(doc[m.page_number - 1], ocr)
             except Exception as exc:  # an unreadable title block is an unknown issue
                 log.warning("rfi package: title block of %s unreadable: %s", label, exc)
         issues[label] = issue
@@ -634,13 +693,15 @@ def sheet_issues(item: Item, open_doc) -> str | None:
 def _date_key(date: str | None) -> tuple[int, int, int]:
     if not date:
         return (0, 0, 0)
-    m, d, y = (int(x) for x in date.split("/"))
+    m, d, y = (int(x) for x in re.split(r"[/-]", date))
     return (y + 2000 if y < 100 else y, m, d)
 
 
-def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
+def render(items: list[Item], open_doc, ocr_lines=None) -> tuple[fitz.Document, list[str]]:
     """The whole package. `open_doc(document_id)` returns a fitz.Document of
-    the ORIGINAL PDF, or None when it cannot be had."""
+    the ORIGINAL PDF, or None when it cannot be had. `ocr_lines(document_id,
+    page_number)` gives a page's stored OCR lines (db.page_ocr_lines in the job),
+    so a title block drawn as shapes still gives its issue."""
     out = fitz.open()
     notes: list[str] = []
     for item in items:
@@ -686,7 +747,7 @@ def render(items: list[Item], open_doc) -> tuple[fitz.Document, list[str]]:
         if len(order) > MAX_SHEETS_PER_ITEM:
             missing.append(f"{len(order) - MAX_SHEETS_PER_ITEM} more sheet(s) are cited; only the first {MAX_SHEETS_PER_ITEM} are included.")
         if item.revision is None:
-            item.revision = sheet_issues(item, open_doc)
+            item.revision = sheet_issues(item, open_doc, ocr_lines)
         cover_page(out, item, snippets, missing)
         if sheets.page_count:  # inserting an empty document is an error
             out.insert_pdf(sheets, annots=True)
@@ -863,7 +924,7 @@ def run(package_id: str) -> dict:
                 return opened[doc_id]
 
             try:
-                out, notes = render(items, open_doc)
+                out, notes = render(items, open_doc, db.page_ocr_lines)
                 data = out.tobytes(garbage=3, deflate=True)
                 pages = out.page_count
                 out.close()

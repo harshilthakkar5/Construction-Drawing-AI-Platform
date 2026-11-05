@@ -1577,3 +1577,17 @@ class TestWhatTheClientSheetTaught:
         assert "Drawn vertically on the sheet, left to right:" in text
         assert "(the column lines)." in text.split("\n")[2]
         doc.close()
+
+
+def test_only_the_vision_pass_reports_its_settings(monkeypatch):
+    """A review borrows render() at its own size and provider; logging the vision
+    pass's DPI and settings there described a run that was not happening."""
+    import fitz
+
+    reported = []
+    monkeypatch.setattr(vlm, "_report_resolution", lambda *a: reported.append(a))
+    page = fitz.open().new_page(width=300, height=200)
+    vlm.render(page, 1600)
+    assert reported == []
+    vlm.render(page)
+    assert len(reported) == 1

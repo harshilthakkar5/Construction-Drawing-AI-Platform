@@ -2473,6 +2473,11 @@ RapidOCR's "max" mode picks its OWN detection size (2000px for a 1600px tile) an
 a laptop at `OCR_DET_LIMIT=960` it did ~2.8x the detection work Paddle did and ran ~5.3 s an image against Paddle's
 ~2.7 s. `_child_main` now replaces its `get_preprocess` so both find text at `OCR_DET_LIMIT` (detection only; lines
 are still read from the full image). Same sheet here: 1600 = 1.22 s a tile, 267 confident lines; 960 = 0.45 s, 246.
+An NVIDIA card runs PaddleOCR through `deploy/docker-compose.gpu.yml` (an add-on to the local file) and
+`workers/Dockerfile.gpu`: `paddlepaddle-gpu` 2.6.2 from PyPI is built for CUDA 11.8 + cuDNN 8, so the image is
+`nvidia/cuda:11.8.0-cudnn8-runtime` (Python 3.10) with the bare `lib*.so` names linked. PaddleOCR picks the card
+itself and silently uses the CPU when none is visible, so the engine reports where it runs at start
+(`OCR: PaddleOCR started on GPU`, `ocr._paddle_device`). Not yet built or run on a card.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
@@ -3306,7 +3311,10 @@ label says what it is; `level_claim_unsupported` rejects a kept height/elevation
 close-up prints EL./T.O./SLOPE/STEP/SECTION. The package cover's "Issue:" field is now read off
 each finding sheet's title block (`rfi_package.title_block_issue`: issue line + date in the right
 or bottom quarter, the plot stamp ignored, NOT FOR CONSTRUCTION a status and never an issue,
-each sheet listed when they differ) instead of "Revision: Unknown". The real job on all 103
+each sheet listed when they differ) instead of "Revision: Unknown". A title block DRAWN AS SHAPES (Victaulic's structural
+sheets) is read from its stored OCR lines (`db.page_ocr_lines`, passed into `render` by the job), and one with no
+issue wording gives its labelled DATE and REV fields ("Rev 0, dated 03-03-26", `_labelled_fields`); a hyphenated
+date counts only inside a DATE field, since "6-19-68" beside an issue line once picked the wrong issue. The real job on all 103
 pages returned 10 findings (the three above, the numbered grid 8 = 7 between S2.01 and P1.03,
 G1.22 referenced and absent from the index, five TBDs) — and found three bugs the per-check tests
 had not: the grid merge raised KeyError: 'plumbing' (a consultant sheet drawn on the architect's

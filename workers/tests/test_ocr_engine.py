@@ -487,3 +487,28 @@ def test_real_rapidocr_keeps_the_spaces_between_words():
         engine.close()
     read = {text for _, (text, _) in lines}
     assert {"FOOTING SCHEDULE F6.0", "RTU-3 80 MBH SEE 5/S-501"} <= read
+
+
+@pytest.mark.parametrize("cuda, device, expected", [
+    (True, "gpu:0", "GPU"),
+    (True, "cpu", "CPU (the GPU version is installed but no graphics card is visible"),
+    (False, "cpu", "CPU"),
+])
+def test_the_engine_says_whether_it_runs_on_the_graphics_card(fake_paddle, cuda, device, expected):
+    (fake_paddle / "paddle").mkdir()
+    (fake_paddle / "paddle" / "__init__.py").write_text(
+        f"import types\nis_compiled_with_cuda = lambda: {cuda}\n"
+        f"device = types.SimpleNamespace(get_device=lambda: {device!r})\n")
+    engine = ocr._ProcessEngine(960)
+    try:
+        assert engine.device.startswith(expected)
+    finally:
+        engine.close()
+
+
+def test_no_paddle_to_ask_reads_as_cpu(fake_paddle):
+    engine = ocr._ProcessEngine(960)  # the fake paddleocr ships without a paddle package
+    try:
+        assert engine.device == "CPU"
+    finally:
+        engine.close()

@@ -93,7 +93,7 @@ const PROJECT_RULES = `1. QUESTIONS ABOUT THIS PROJECT — anything about what t
    - Every factual claim about the project MUST be followed by a citation of the chunk it came from, formatted exactly as [chunk:<chunk id>]. Multiple citations may follow one claim, each in its own brackets.
    - Only cite chunk ids that appear in the provided chunks. Never invent one.
    - If the chunks do not contain enough information, say so plainly instead of guessing. NEVER fill a gap in the drawings with your own knowledge — a reader must be able to tell what the set actually says from what is merely typical.
-   - Say WHERE a fact comes from using the chunk's sheet attribute, e.g. "per S-004". That is the name the drawings use for themselves. Fall back to the combined_page number when a chunk carries no sheet attribute, and never refer to a chunk by its document filename — an upload artifact the reader did not choose and will not recognise.
+   - Say WHERE a fact comes from using the chunk's sheet attribute, e.g. "per S-004". That is the name the drawings use for themselves. When a chunk carries no sheet attribute, give its combined_page number as "page 58" — never write the attribute's name "combined_page" — and never refer to a chunk by its document filename — an upload artifact the reader did not choose and will not recognise.
    - A chunk carrying kind="description" is NOT text from the drawing. It is a description of what the drawing SHOWS, written by a vision model that looked at the sheet — useful for geometry the text cannot express, such as which column sits on which footing at which grid intersection. Cite it like any other chunk, but never quote it as if the words were printed on the sheet, and word the claim as a reading of the drawing ("the drawing shows a HSS6X6X1/2 column on the F10 footing at grid 7/F") rather than as something the drawing states. A chunk with no kind attribute IS text from the sheet and may be quoted.
    - Where a description and the sheet's own text disagree, the text wins and is worth saying so. The description is one reading of a drawing; the text is what is printed on it.
    - A chunk carrying kind="gridmarks" lists which mark (a column, stud-rail, footing or pile-cap mark, or a member size) is PRINTED nearest to which grid crossing, computed from the positions of the sheet's own text and grid bubbles — not by a model. For "what is at grid X/Y" it is the most reliable source: prefer it over a description when they disagree, and say "C-6 is printed at 3/C" rather than asserting more than placement. A mark it lists as "between" two crossings is not assigned to either; say so rather than choosing one. It uses the sheet's own "Drawn vertically / Drawn horizontally" lines for which grid lines run which way — repeat those, never infer direction from the words "column" or "row".
@@ -221,7 +221,7 @@ export async function answerFromChunks(
   // silently merged into the previous model's total.
   await recordUsage(projectId ?? null, "chat", result.model, result.tokens);
 
-  const text = stripPromptScaffolding(result.text);
+  const text = plainPageNames(stripPromptScaffolding(result.text));
   if (!result.truncated) return text;
   console.warn(
     `[chat] ${result.model} stopped at the output cap (${maxAnswerTokens()} tokens, CHAT_THINKING=${chatThinking()}) — ` +
@@ -282,6 +282,12 @@ export function stripPromptScaffolding(text: string): string {
     while (start < lines.length && !(lines[start] ?? "").trim()) start += 1;
   }
   return start ? lines.slice(start).join("\n") : text;
+}
+
+/** "combined_page 58" / combined_page="58" → "page 58": the prompt's attribute name is
+ * machinery, and a model told to fall back to it sometimes writes it verbatim. */
+export function plainPageNames(text: string): string {
+  return text.replace(/\bcombined[_ ]page(?:\s*(?:=|:|number)?\s*)"?(\d+)"?/gi, "page $1");
 }
 
 const RFI_LINE = /\n?[ \t]*RFI:[ \t]*(.+?)[ \t]*$/i;

@@ -254,13 +254,28 @@ docker compose -f deploy/docker-compose.local.yml run --rm \
 
 Point it at a real drawing set — a synthetic PDF measures nothing.
 
-**The RTX 3050 is not used.** Nothing in the pipeline asks for a GPU: PyMuPDF
-renders on the CPU, and PaddleOCR is installed as the CPU build
-(`paddlepaddle==2.6.2` in `workers/requirements.txt`). OCR runs only on pages
-that arrive with no text layer, which for CAD-exported drawings is usually few
-of them — so a GPU build would speed up a step that is rarely the bottleneck,
-at the cost of a CUDA image and a pinned driver. Worth doing only if the logs
-show OCR dominating a real ingest.
+**OCR on the RTX 3050 (or any NVIDIA card).** A set whose text is drawn as lines
+(Victaulic: 82 of 114 pages) spends most of its upload in OCR, about a minute a
+page on a laptop CPU. `deploy/docker-compose.gpu.yml` builds the worker from
+`workers/Dockerfile.gpu` (PaddleOCR's GPU build: CUDA 11.8 + cuDNN 8 inside the
+image) and hands it the card:
+
+1. Windows: install the current NVIDIA driver (GeForce/Studio). Nothing inside
+   WSL. Docker Desktop on the WSL 2 engine passes the card through.
+2. Check: `docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi`
+   must list the card.
+3. In `deploy/.env.local`: `OCR_ENGINE_UPLOAD=paddle` and `OCR_ENGINE_RFI=paddle`
+   (RapidOCR stays on the CPU).
+4. Build and start with BOTH files, every time from now on:
+
+```bash
+docker compose --env-file deploy/.env.local -f deploy/docker-compose.local.yml \
+  -f deploy/docker-compose.gpu.yml up -d --build --force-recreate worker
+```
+
+The worker log says `OCR: PaddleOCR started on GPU`; `CPU (the GPU version is
+installed but no graphics card is visible …)` means step 1 or 2 is not done.
+Leaving out the second `-f` rebuilds the CPU worker. The image is ~4 GB larger.
 
 ## 9. What you are accepting
 
