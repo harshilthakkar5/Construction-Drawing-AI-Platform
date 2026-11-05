@@ -123,7 +123,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `OCR_SHAPE_TEXT_MAX_WORDS` | `400` | Worker | A page with at most this many text-layer words… |
 | `OCR_SHAPE_TEXT_MIN_DRAWINGS` | `2000` | Worker | …over at least this many drawing paths is read for text drawn as shapes. |
 | `OCR_MAX_PAGES_PER_SCAN` | `60` | Worker | New pages the RFI scan OCRs per run (~40-70s each); the rest wait for the next scan. |
-| `OCR_DET_LIMIT` | `1600` | Worker | Longest side (px) the OCR detector works at. Lower it (e.g. `960`) on a worker short of memory; a tile the engine fails on is retried at 960 anyway. |
+| `OCR_DET_LIMIT` | `1600` | Worker | Longest side (px) the OCR detector works at. Applies to both engines. Lower it (e.g. `960`) on a worker short of memory or time: measured on RapidOCR, 960 ran 2.7x faster than 1600 and found 92% of the confident lines. A tile the engine fails on is retried at 960 anyway. |
 | `OCR_MIN_FREE_MB` | `1024` | Worker | An OCR call is refused (the page waits for a later scan) when the machine — or Docker's VM — has less free memory than this. `0` = off. |
 | `OCR_ENGINE_RECYCLE` | `100` | Worker | Restart the OCR engine's process every N images, returning all its memory to the system. `0` = never. |
 | `OCR_MKLDNN` | `false` | Worker | Intel's CPU speed-up for OCR (MKL-DNN), roughly 2-3x faster on a modern Intel or AMD CPU. Recommended on a server. The first engine failure turns it off for the rest of the worker's life. |

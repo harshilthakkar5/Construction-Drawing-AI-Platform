@@ -2469,6 +2469,10 @@ PP-OCR models on ONNX Runtime, replies reshaped by `_rapid_as_paddle`) and runs 
 (`OCR_RAPID_REC_MODEL`, downloaded by the Dockerfile by hash): the bundled Chinese+English model read
 "RTU-3 80 MBH" as "RTU-380MBH" at 6-12pt, which the tag check would read as unit RTU-380. Measured here:
 ~1.1 s a 1600px tile on 4 cores, 146 lines off one stroke-text sheet; not yet compared with Paddle on one machine.
+RapidOCR's "max" mode picks its OWN detection size (2000px for a 1600px tile) and ignored `OCR_DET_LIMIT`, so on
+a laptop at `OCR_DET_LIMIT=960` it did ~2.8x the detection work Paddle did and ran ~5.3 s an image against Paddle's
+~2.7 s. `_child_main` now replaces its `get_preprocess` so both find text at `OCR_DET_LIMIT` (detection only; lines
+are still read from the full image). Same sheet here: 1600 = 1.22 s a tile, 267 confident lines; 960 = 0.45 s, 246.
 
 A scan reports what it is doing (`rfi_scan.ScanProgress` → `rfi_scans.stage/progress/detail/
 heartbeatAt`, `RfiReview.tsx` `ScanProgressView`): step n of 8, a bar weighted by wall clock (OCR
