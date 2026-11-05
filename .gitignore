@@ -41,3 +41,6 @@ benchmarks/runs/
 # RFI diagnostic exports (RFI_DIAGNOSTICS=on): every prompt, image and reply of a
 # run, including the client's drawing content. Never commit them.
 workers/diagnostics/
+
+# RapidOCR English model (downloaded, ~9 MB; see workers/Dockerfile)
+workers/models/

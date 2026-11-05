@@ -633,7 +633,7 @@ class TestPageOcrAtIngest:
         import ocr
         import test_page_ocr
 
-        monkeypatch.setattr(ocr, "available", lambda: available)
+        monkeypatch.setattr(ocr, "available", lambda stage="upload": available)
         monkeypatch.setattr(ocr, "image_lines", test_page_ocr._boxes_engine)
 
     def test_a_page_with_no_text_layer_is_read_and_marked_examined(self, processing, monkeypatch):

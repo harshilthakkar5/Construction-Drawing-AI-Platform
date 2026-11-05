@@ -52,7 +52,7 @@ def engines(monkeypatch):
     FakeEngine.shapes = []
     made = {"kwargs": {}, "alive_at_build": []}
     monkeypatch.setattr(ocr, "_halted", None)
-    monkeypatch.setattr(ocr, "_calls", 0)
+    monkeypatch.setattr(ocr, "_calls", {})
     monkeypatch.setattr(ocr, "_memory_strikes", 0)
     # Guards off unless a test turns one on: these tests are about the engine.
     monkeypatch.setattr(ocr.config, "OCR_MIN_FREE_MB", 0)
@@ -61,17 +61,17 @@ def engines(monkeypatch):
 
     def install(**kwargs):
         made["kwargs"] = kwargs
-        monkeypatch.setattr(ocr, "_engine", None)
-        monkeypatch.setattr(ocr, "_unavailable", False)
-        monkeypatch.setattr(ocr, "_get_engine", lambda: ocr._engine or _build())
+        monkeypatch.setattr(ocr, "_engines", {})
+        monkeypatch.setattr(ocr, "_unavailable", set())
+        monkeypatch.setattr(ocr, "_get_engine", lambda kind="paddle": ocr._engines.get(kind) or _build(kind))
         return made
 
-    def _build():
+    def _build(kind):
         # How many earlier engines are still in memory when a new one is made.
         made["alive_at_build"].append(sum(1 for r in made.setdefault("refs", []) if r() is not None))
-        ocr._engine = FakeEngine(**made["kwargs"])
-        made["refs"].append(weakref.ref(ocr._engine))
-        return ocr._engine
+        ocr._engines[kind] = FakeEngine(**made["kwargs"])
+        made["refs"].append(weakref.ref(ocr._engines[kind]))
+        return ocr._engines[kind]
 
     return install
 
@@ -118,7 +118,7 @@ def test_a_memory_failure_ends_the_engine_and_only_a_run_of_them_stops_ocr(engin
     for built in (1, 2):
         with pytest.raises(ocr.OcrError, match="running out of memory"):
             ocr._predict(img)
-        assert FakeEngine.built == built and ocr._engine is None  # ended, not rebuilt on the spot
+        assert FakeEngine.built == built and not ocr._engines  # ended, not rebuilt on the spot
         assert ocr.halted() is None  # one bad image is not a broken machine
     with pytest.raises(ocr.OcrError, match="3 times in a row"):
         ocr._predict(img)
@@ -158,7 +158,7 @@ def test_an_engine_over_the_memory_cap_is_replaced_not_stopped(engines, monkeypa
     monkeypatch.setattr(ocr.config, "OCR_MAX_RSS_MB", 4000)
     img = np.zeros((50, 50, 3), dtype=np.uint8)
     ocr._predict(img)
-    ocr._engine.rss_mb = lambda: 4500.0  # the engine's own process grew past the cap
+    ocr._engines["paddle"].rss_mb = lambda: 4500.0  # the engine's own process grew past the cap
     ocr._predict(img)
     assert FakeEngine.built == 2 and ocr.halted() is None
 
@@ -194,11 +194,11 @@ def test_the_scan_stops_asking_a_broken_engine_and_says_so(monkeypatch):
     monkeypatch.setattr(rfi_scan.config, "OCR_ENABLED", True)
     monkeypatch.setattr(rfi_scan.db, "pages_needing_ocr", lambda *a: todo)
     monkeypatch.setattr(rfi_scan, "_sheet_names", lambda pid: {})
-    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": True)
     monkeypatch.setattr(page_ocr, "plan", lambda page: "text drawn as shapes")
     calls = []
 
-    def broken(page):
+    def broken(page, stage="upload"):
         calls.append(page)
         raise ocr.OcrError("could not create a primitive")
 
@@ -235,12 +235,12 @@ def test_the_scan_stops_at_once_when_ocr_was_stopped_for_memory(monkeypatch):
     monkeypatch.setattr(rfi_scan.config, "OCR_ENABLED", True)
     monkeypatch.setattr(rfi_scan.db, "pages_needing_ocr", lambda *a: todo)
     monkeypatch.setattr(rfi_scan, "_sheet_names", lambda pid: {})
-    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": True)
     monkeypatch.setattr(page_ocr, "plan", lambda page: "text drawn as shapes")
     monkeypatch.setattr(ocr, "_halted", None)
     calls = []
 
-    def out_of_memory(page):
+    def out_of_memory(page, stage="upload"):
         calls.append(page)
         monkeypatch.setattr(ocr, "_halted", "the worker ran out of memory")
         raise ocr.OcrError("the worker ran out of memory")
@@ -294,7 +294,7 @@ def test_with_ocr_off_a_page_that_needs_it_is_left_for_a_later_scan(monkeypatch)
 
     import page_ocr
 
-    monkeypatch.setattr(ocr, "available", lambda: False)
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": False)
     doc = fitz.open()
     page = doc.new_page()  # no text layer at all
     reading = page_ocr.read_page(page)
@@ -369,3 +369,118 @@ def test_the_intel_speed_up_is_turned_off_after_the_first_failure(engines, monke
     monkeypatch.setattr(ocr, "_mkldnn", True)
     assert ocr._predict(np.zeros((1600, 1200, 3), dtype=np.uint8))  # retried smaller and read
     assert ocr._mkldnn is False  # every engine from now on is built without it
+
+
+# --- choosing the engine per stage -------------------------------------------
+
+FAKE_RAPIDOCR = """
+class RapidOCR:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def __call__(self, img):
+        if img.shape[0] == 5:
+            return None, None  # nothing found
+        return [[[[0, 0], [1, 0], [1, 1], [0, 1]], "RTU-3", 0.97]], [0.1]
+"""
+
+
+def test_engine_settings_fall_back_and_refuse_a_typo(monkeypatch):
+    import config
+
+    monkeypatch.delenv("OCR_X", raising=False)
+    assert config._ocr_engine("OCR_X", "paddle") == "paddle"
+    monkeypatch.setenv("OCR_X", " Rapid ")
+    assert config._ocr_engine("OCR_X", "paddle") == "rapid"
+    monkeypatch.setenv("OCR_X", "tesseract")
+    with pytest.raises(ValueError, match="paddle, rapid or off"):
+        config._ocr_engine("OCR_X", "paddle")
+
+
+def test_each_stage_uses_its_own_engine_and_keeps_it(engines, monkeypatch):
+    import fitz
+
+    engines()
+    built = []
+    monkeypatch.setattr(ocr, "_get_engine", lambda kind="paddle": ocr._engines.get(kind)
+                        or ocr._engines.setdefault(kind, built.append(kind) or FakeEngine()))
+    monkeypatch.setattr(ocr.config, "OCR_ENGINE_UPLOAD", "rapid")
+    monkeypatch.setattr(ocr.config, "OCR_ENGINE_RFI", "paddle")
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 40, 40), False)
+    for stage in ("upload", "rfi", "upload", "rfi"):
+        assert ocr.image_lines(pix, stage=stage)[0][1] == "RTU-3"
+    # Built once each and both kept: an upload and a scan never rebuild each other's engine.
+    assert built == ["rapid", "paddle"] and set(ocr._engines) == {"rapid", "paddle"}
+
+
+def test_a_stage_set_off_reads_nothing_and_leaves_the_page_for_the_scan(engines, monkeypatch):
+    import fitz
+
+    import page_ocr
+
+    engines()
+    monkeypatch.setattr(ocr.config, "OCR_ENGINE_UPLOAD", "off")
+    monkeypatch.setattr(ocr.config, "OCR_ENGINE_RFI", "paddle")
+    assert ocr.available("upload") is False and ocr.available("rfi") is True
+    page = fitz.open().new_page()  # no text layer: needs OCR
+    assert page_ocr.read_page(page, "upload").ran is False  # unmarked, so a scan reads it
+    assert page_ocr.read_page(page, "rfi").ran is True
+
+
+def test_rapidocr_replies_are_read_in_paddles_shape():
+    box = [[0, 0], [9, 0], [9, 4], [0, 4]]
+    assert ocr._rapid_as_paddle([[box, "F6.0", 0.9]]) == [[[box, ("F6.0", 0.9)]]]
+    assert ocr._rapid_as_paddle(None) == [[]]  # nothing found is an empty reading, not a failure
+
+
+def test_the_rapid_engine_runs_in_its_own_process(tmp_path, monkeypatch):
+    pkg = tmp_path / "rapidocr_onnxruntime"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(FAKE_RAPIDOCR)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    engine = ocr._ProcessEngine(960, False, "rapid")
+    try:
+        [[(quad, (text, conf))]] = engine.ocr(np.zeros((20, 20, 3), dtype=np.uint8))
+        assert text == "RTU-3" and conf == 0.97 and quad[2] == [1, 1]
+        assert engine.ocr(np.zeros((5, 20, 3), dtype=np.uint8)) == [[]]
+    finally:
+        engine.close()
+
+
+def test_rapid_without_its_english_model_is_refused_not_run(tmp_path, monkeypatch):
+    """The model bundled with RapidOCR runs words together ("RTU-380MBH"), so
+    with the English model missing the engine is unavailable, never degraded."""
+    pkg = tmp_path / "rapidocr_onnxruntime"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(FAKE_RAPIDOCR)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(ocr, "_engines", {})
+    monkeypatch.setattr(ocr, "_unavailable", set())
+    monkeypatch.setattr(ocr.config, "OCR_ENABLED", True)
+    monkeypatch.setattr(ocr.config, "OCR_RAPID_REC_MODEL", str(tmp_path / "missing.onnx"))
+    assert ocr._get_engine("rapid") is None
+    assert "rapid" in ocr._unavailable and not ocr._engines
+
+
+def test_real_rapidocr_keeps_the_spaces_between_words():
+    """Runs where RapidOCR and its English model are installed (the worker
+    image); skipped elsewhere. CAD text sizes, read at page_ocr's 200 DPI."""
+    import os
+
+    pytest.importorskip("rapidocr_onnxruntime")
+    if not os.path.isfile(ocr.config.OCR_RAPID_REC_MODEL):
+        pytest.skip("RapidOCR's English model is not downloaded")
+    import fitz
+
+    page = fitz.open().new_page(width=400, height=160)
+    page.insert_text((30, 50), "FOOTING SCHEDULE F6.0", fontsize=8)
+    page.insert_text((30, 100), "RTU-3 80 MBH SEE 5/S-501", fontsize=8)
+    pix = page.get_pixmap(dpi=200, alpha=False)
+    engine = ocr._ProcessEngine(1600, False, "rapid")
+    try:
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)[:, :, ::-1].copy()
+        [lines] = engine.ocr(img)
+    finally:
+        engine.close()
+    read = {text for _, (text, _) in lines}
+    assert {"FOOTING SCHEDULE F6.0", "RTU-3 80 MBH SEE 5/S-501"} <= read

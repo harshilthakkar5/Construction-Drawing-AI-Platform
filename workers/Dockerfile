@@ -13,7 +13,7 @@ COPY requirements.txt .
 # cannot disagree. Every native or heavy dependency is named — those are the
 # ones that break — plus requests, which nothing here imports directly but
 # paddleocr and google-genai both need.
-ARG PY_IMPORT_CHECK="import requests, paddleocr, paddle, cv2, fitz, pdfplumber, boto3, psycopg, psycopg_pool, PIL, anthropic, httpx, dotenv, bullmq, redis, prometheus_client; import google.genai"
+ARG PY_IMPORT_CHECK="import requests, paddleocr, paddle, rapidocr_onnxruntime, cv2, fitz, pdfplumber, boto3, psycopg, psycopg_pool, PIL, anthropic, httpx, dotenv, bullmq, redis, prometheus_client; import google.genai"
 
 # Install AND verify in ONE layer, with one self-healing retry.
 #
@@ -42,6 +42,16 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # runtime download remains as the fallback.
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en', show_log=False)" \
     || echo "WARNING: OCR model pre-download failed; the worker will fetch them at first use"
+
+# RapidOCR's English recognition model (OCR_ENGINE_*=rapid). The model bundled
+# with RapidOCR is Chinese+English and runs words together at CAD text sizes, so
+# the worker refuses RapidOCR without this file. Checked by hash; a failed
+# download fails the build rather than shipping an engine that cannot start.
+RUN python -c "import hashlib, os, urllib.request; \
+url = 'https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx'; \
+data = urllib.request.urlopen(url, timeout=300).read(); \
+assert hashlib.sha256(data).hexdigest() == 'ef7abd8bd3629ae57ea2c28b425c1bd258a871b93fd2fe7c433946ade9b5d9ea', 'model hash mismatch'; \
+os.makedirs('models', exist_ok=True); open('models/en_PP-OCRv3_rec_infer.onnx', 'wb').write(data)"
 
 COPY src/ src/
 

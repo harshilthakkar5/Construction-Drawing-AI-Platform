@@ -127,7 +127,7 @@ def extract_region_text(
     try:
         # get_pixmap IS rotation-aware, so it takes the display-space rectangle.
         pix = page.get_pixmap(clip=clip_display, dpi=ocr_dpi)
-        ocr_text = ocr.ocr_png_bytes(pix.tobytes("png")).strip()
+        ocr_text = ocr.ocr_png_bytes(pix.tobytes("png"), "upload").strip()
         if ocr_text:
             return " ".join(ocr_text.split()), "ocr"
     except Exception as exc:

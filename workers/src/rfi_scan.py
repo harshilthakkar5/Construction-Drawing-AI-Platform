@@ -380,7 +380,9 @@ def word(
 def _pages_left_for_ocr(project_id: str) -> bool:
     import page_ocr
 
-    if not config.OCR_ENABLED:
+    import ocr
+
+    if not config.OCR_ENABLED or ocr.engine_for("rfi") == "off":
         return False
     try:
         return bool(db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION))
@@ -966,12 +968,12 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
     import ocr
     import page_ocr
 
-    if not config.OCR_ENABLED:
+    if not config.OCR_ENABLED or ocr.engine_for("rfi") == "off":
         return []
     todo = db.pages_needing_ocr(project_id, page_ocr.OCR_VERSION)
     if not todo:
         return []
-    engine = ocr.available()
+    engine = ocr.available("rfi")
     read: list[str] = []
     deferred = 0
     unread = 0
@@ -1013,7 +1015,7 @@ def ocr_pending(project_id: str, progress=None, open_page=None) -> list[str]:
                        f"OCR on page {done + 1} of {len(todo)}: {name} ({reason}) "
                        f"· about a minute a page · {len(read)} read so far", force=True)
                 started = time.monotonic()
-                result = page_ocr.read_page(page)
+                result = page_ocr.read_page(page, "rfi")
                 rss = ocr._rss_mb()
                 log.info("ocr: %s p%d (%s): %d lines, %d illegible picture(s) in %.0fs%s", document_id[:8],
                          page_number, reason, len(result.lines), sum(p.illegible for p in result.pictures),

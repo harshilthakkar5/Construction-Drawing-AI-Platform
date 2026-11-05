@@ -68,6 +68,29 @@ THUMB_WIDTH = int(os.environ.get("THUMB_WIDTH", "200"))
 
 # FR-7: OCR pages with no text layer. Disable to run without PaddleOCR installed.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() != "false"
+
+
+def _ocr_engine(name: str, default: str) -> str:
+    value = (os.environ.get(name) or "").strip().lower() or default
+    if value not in ("paddle", "rapid", "off"):
+        raise ValueError(f"{name}={value!r}: use paddle, rapid or off")
+    return value
+
+
+# Which OCR engine reads, per stage: paddle (PaddleOCR) | rapid (RapidOCR, the
+# same PP-OCR models on ONNX Runtime) | off. UPLOAD = processing a document and
+# reading its title blocks; RFI = the RFI scan, reviews and grid labels drawn as
+# lines. A page skipped at upload (off) is left unread, so the next RFI scan
+# reads it. Each falls back to OCR_ENGINE; OCR_ENABLED=false still turns all off.
+OCR_ENGINE = _ocr_engine("OCR_ENGINE", "paddle")
+OCR_ENGINE_UPLOAD = _ocr_engine("OCR_ENGINE_UPLOAD", OCR_ENGINE)
+OCR_ENGINE_RFI = _ocr_engine("OCR_ENGINE_RFI", OCR_ENGINE)
+# RapidOCR's English recognition model. The model bundled with RapidOCR is the
+# Chinese+English one, which drops the spaces between words at CAD text sizes
+# ("RTU-3 80 MBH" read as "RTU-380MBH"), so RapidOCR does not run without this.
+# The worker image downloads it; a native install fetches it once (README).
+OCR_RAPID_REC_MODEL = os.environ.get("OCR_RAPID_REC_MODEL") or str(
+    Path(__file__).resolve().parents[1] / "models" / "en_PP-OCRv3_rec_infer.onnx")
 # page_ocr.py: also read pages whose words are DRAWN (CAD SHX fonts exported
 # as strokes) — few text-layer words over a lot of linework — and pages with a
 # large pasted picture. A page OCRs in ~40s of CPU, so this is bounded per scan.

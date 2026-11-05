@@ -13,6 +13,10 @@ pdfplumber==0.11.5
 setuptools>=70
 paddleocr==2.9.1
 paddlepaddle==2.6.2
+# RapidOCR: the same PP-OCR models on ONNX Runtime, picked per stage with
+# OCR_ENGINE_UPLOAD / OCR_ENGINE_RFI. Needs its English model in workers/models
+# (the Dockerfile downloads it; see config.OCR_RAPID_REC_MODEL).
+rapidocr_onnxruntime==1.4.4
 opencv-python-headless==4.10.0.84
 # Memory readings for the OCR guards (ocr.py); without it the guards are off.
 psutil==6.1.1

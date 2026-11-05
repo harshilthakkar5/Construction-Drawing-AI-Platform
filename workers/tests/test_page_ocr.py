@@ -21,7 +21,7 @@ import ocr  # noqa: E402
 import page_ocr  # noqa: E402
 
 
-def _boxes_engine(pix, pad_to=None):
+def _boxes_engine(pix, pad_to=None, stage="upload"):
     """Each connected run of black pixels -> one 'line' reading BOX."""
     img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, 0]
     dark = img < 60
@@ -45,7 +45,7 @@ def _boxes_engine(pix, pad_to=None):
 
 @pytest.fixture
 def engine(monkeypatch):
-    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": True)
     monkeypatch.setattr(ocr, "image_lines", _boxes_engine)
 
 
@@ -97,7 +97,7 @@ def test_text_the_text_layer_already_has_is_not_read_again(engine):
 
 
 def test_without_an_engine_nothing_is_claimed(monkeypatch):
-    monkeypatch.setattr(ocr, "available", lambda: False)
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": False)
     doc, page = _sheet()
     result = page_ocr.read(page)
     assert result.ran is False and result.lines == []
@@ -146,8 +146,8 @@ def test_illegible_means_coarse_one_bit_full_of_text_and_mostly_unread(dpi, line
 
 
 def test_a_line_is_dropped_below_the_confidence_floor(monkeypatch):
-    monkeypatch.setattr(ocr, "available", lambda: True)
-    monkeypatch.setattr(ocr, "image_lines", lambda pix, pad_to=None: [(q, t, 0.5) for q, t, _ in _boxes_engine(pix)])
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": True)
+    monkeypatch.setattr(ocr, "image_lines", lambda pix, pad_to=None, stage="upload": [(q, t, 0.5) for q, t, _ in _boxes_engine(pix)])
     doc, page = _sheet()
     assert page_ocr.read(page).lines == []
 

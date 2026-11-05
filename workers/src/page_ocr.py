@@ -180,12 +180,12 @@ def _overlaps(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
-def read(page, clips: list[fitz.Rect] | None = None) -> PageOcr:
+def read(page, clips: list[fitz.Rect] | None = None, stage: str = "upload") -> PageOcr:
     """OCR the page (or just `clips`, display rects) and return what the text
     layer does not already hold. With no OCR engine installed, `ran` is False
     and nothing is claimed about the page."""
     result = PageOcr(reason=None, pictures=pictures(page))
-    if not ocr.available():
+    if not ocr.available(stage):
         return result
     result.ran = True
     zoom = OCR_DPI / 72
@@ -197,7 +197,7 @@ def read(page, clips: list[fitz.Rect] | None = None) -> PageOcr:
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csRGB, alpha=False)
             if pix.width < 8 or pix.height < 8 or _blank(pix):
                 continue
-            for quad, text, conf in ocr.image_lines(pix, pad_to=TILE_PX):
+            for quad, text, conf in ocr.image_lines(pix, pad_to=TILE_PX, stage=stage):
                 xs = [clip.x0 + p[0] / zoom for p in quad]
                 ys = [clip.y0 + p[1] / zoom for p in quad]
                 shown = fitz.Rect(min(xs), min(ys), max(xs), max(ys))
@@ -271,7 +271,7 @@ def to_chunks(result: PageOcr, page) -> list[chunker.Chunk]:
     return out
 
 
-def read_page(page) -> PageOcr:
+def read_page(page, stage: str = "upload") -> PageOcr:
     """`plan` then `read`: a whole-page read for text drawn as shapes or a
     page with no text layer, the pictures alone when they are all there is."""
     reason = plan(page)
@@ -284,8 +284,8 @@ def read_page(page) -> PageOcr:
             r = fitz.Rect(p.rect) * to_display
             r.normalize()
             clips.append(r & page.rect)
-        result = read(page, clips)
+        result = read(page, clips, stage)
     else:
-        result = read(page)
+        result = read(page, stage=stage)
     result.reason = reason
     return result

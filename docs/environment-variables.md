@@ -127,6 +127,10 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `OCR_MIN_FREE_MB` | `1024` | Worker | An OCR call is refused (the page waits for a later scan) when the machine — or Docker's VM — has less free memory than this. `0` = off. |
 | `OCR_ENGINE_RECYCLE` | `100` | Worker | Restart the OCR engine's process every N images, returning all its memory to the system. `0` = never. |
 | `OCR_MKLDNN` | `false` | Worker | Intel's CPU speed-up for OCR (MKL-DNN), roughly 2-3x faster on a modern Intel or AMD CPU. Recommended on a server. The first engine failure turns it off for the rest of the worker's life. |
+| `OCR_ENGINE` | `paddle` | Worker | Default OCR engine: `paddle` (PaddleOCR), `rapid` (RapidOCR, the same PP-OCR models on ONNX Runtime, lighter and usually faster on a CPU) or `off`. A typo stops the worker at startup. |
+| `OCR_ENGINE_UPLOAD` | `OCR_ENGINE` | Worker | Engine for document processing and title blocks. `off` leaves pages that need OCR unread, and the next RFI scan reads them. |
+| `OCR_ENGINE_RFI` | `OCR_ENGINE` | Worker | Engine for the RFI scan, reviews and grid labels drawn as lines. |
+| `OCR_RAPID_REC_MODEL` | `workers/models/en_PP-OCRv3_rec_infer.onnx` | Worker | RapidOCR's English recognition model. Without it RapidOCR is not used (its bundled model runs words together). The worker image downloads it; see README for a native install. |
 | `OCR_MAX_RSS_MB` | `4096` | Worker | Restart the OCR engine's process when it grows past this. An out-of-memory engine error ("could not create a primitive") ends that process and the next image starts a fresh one; three in a row stop OCR until the worker restarts. `0` = off. |
 | `PAGE_RENDER_ZOOM` | `2` | Worker | Page image resolution (2 = 144 DPI). Bigger = sharper viewer, more memory and storage. |
 | `THUMB_WIDTH` | `200` | Worker | Thumbnail width in pixels. |

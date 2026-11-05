@@ -404,7 +404,7 @@ def test_a_page_without_enough_grid_words_is_never_read_by_ocr(monkeypatch):
     doc = fitz.open()
     pg = doc.new_page()
     pg.insert_text((72, 72), "GENERAL NOTES", fontsize=12)
-    monkeypatch.setattr(ocr, "available", lambda: pytest.fail("OCR asked about a notes page"))
+    monkeypatch.setattr(ocr, "available", lambda stage="upload": pytest.fail("OCR asked about a notes page"))
     assert grid.styled_systems(pg) == []
 
 
