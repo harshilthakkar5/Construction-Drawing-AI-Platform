@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { processingLabel, type ProcessingStateDto } from "@cdip/shared";
+import { PlayIcon } from "lucide-react";
 import { api } from "@/api";
 import { JobProgress } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -24,52 +25,86 @@ export function useProcessing(projectId: string) {
 
 export function useStartProcessing(projectId: string) {
   const queryClient = useQueryClient();
+  const key = ["processing", projectId];
   return useMutation({
     mutationFn: (body: { disciplines?: string[]; all?: boolean }) => api.startProcessing(projectId, body),
+    // Show the discipline as queued the moment it is clicked: the worker takes a
+    // few seconds to pick the job up, and the button must not come back meanwhile.
+    onMutate: async (body) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData<ProcessingStateDto>(key);
+      if (before) {
+        queryClient.setQueryData<ProcessingStateDto>(key, {
+          ...before,
+          disciplines: before.disciplines.map((d) =>
+            body.all || body.disciplines?.includes(d.discipline) ? { ...d, chosen: true } : d,
+          ),
+        });
+      }
+      return { before };
+    },
+    onError: (_err, _body, context) => {
+      if (context?.before) queryClient.setQueryData(key, context.before);
+    },
     onSuccess: (result) => {
-      queryClient.setQueryData(["processing", projectId], result.state);
-      for (const key of ["documents", "manifest", "portions"]) {
-        void queryClient.invalidateQueries({ queryKey: [key, projectId] });
+      queryClient.setQueryData(key, result.state);
+      for (const name of ["documents", "manifest", "portions"]) {
+        void queryClient.invalidateQueries({ queryKey: [name, projectId] });
       }
     },
   });
 }
 
-/** Every page of this discipline has had the full pass. */
-export function isProcessed(state: ProcessingStateDto | undefined, discipline: string) {
+/** Where one discipline stands: done, waiting for a click, or chosen and not finished. */
+export function processingStage(state: ProcessingStateDto | undefined, discipline: string) {
   const row = state?.disciplines.find((d) => d.discipline === discipline);
-  return !row || row.processed >= row.pages;
+  if (!row || row.processed >= row.pages) return { stage: "done" as const, row };
+  return { stage: row.chosen ? ("processing" as const) : ("waiting" as const), row };
 }
 
-/** "Process now (40 pages)", or its progress while it runs; nothing once done. */
-export function ProcessNow({ projectId, discipline }: { projectId: string; discipline: string }) {
+/** "Process now (14 pages)", only while the discipline waits for a click. */
+export function ProcessNowButton({ projectId, discipline }: { projectId: string; discipline: string }) {
   const state = useProcessing(projectId);
   const start = useStartProcessing(projectId);
-  const row = state.data?.disciplines.find((d) => d.discipline === discipline);
-  if (!row || row.processed >= row.pages) return null;
+  const { stage, row } = processingStage(state.data, discipline);
+  if (stage !== "waiting" || !row) return null;
   const waiting = row.pages - row.processed;
-
-  if (row.chosen && state.data?.running) {
-    return (
-      <div className="mt-2 w-full">
-        <JobProgress
-          text={`Processing ${row.processed} of ${row.pages} pages`}
-          percent={Math.round((row.processed / row.pages) * 100)}
-          label={`${processingLabel(discipline)} processing`}
-        />
-      </div>
-    );
-  }
   return (
     <Button
       size="sm"
-      className="h-6 shrink-0 px-2 text-[11px]"
-      disabled={start.isPending}
+      className="h-6 shrink-0 gap-1 px-2 text-[11px]"
       onClick={() => start.mutate({ disciplines: [discipline] })}
       title={`Read and index the ${processingLabel(discipline)} sheets so chat, summaries and RFIs can use them`}
     >
-      {start.isPending ? "Starting…" : `Process now (${waiting} page${waiting === 1 ? "" : "s"})`}
+      <PlayIcon className="size-3" />
+      Process now · {waiting} page{waiting === 1 ? "" : "s"}
     </Button>
+  );
+}
+
+/** The progress of a discipline that was chosen and is not finished yet. */
+export function ProcessingProgress({ projectId, discipline }: { projectId: string; discipline: string }) {
+  const state = useProcessing(projectId);
+  const start = useStartProcessing(projectId);
+  const { stage, row } = processingStage(state.data, discipline);
+  if (stage !== "processing" || !row) return null;
+  const queued = row.processed === 0 && !state.data?.running;
+  return (
+    <div className="mt-2">
+      <JobProgress
+        text={queued ? "Queued, waiting for the worker…" : `Processing ${row.processed} of ${row.pages} pages`}
+        percent={Math.round((row.processed / row.pages) * 100)}
+        label={`${processingLabel(discipline)} processing`}
+      />
+      {!state.data?.running && !start.isPending && (
+        <button
+          className="text-muted-foreground hover:text-foreground mt-1 text-[11px] underline-offset-2 hover:underline"
+          onClick={() => start.mutate({ disciplines: [discipline] })}
+        >
+          Not starting? Queue it again
+        </button>
+      )}
+    </div>
   );
 }
 

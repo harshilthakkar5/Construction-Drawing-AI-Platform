@@ -3,7 +3,13 @@ import { useState } from "react";
 import { processingKey, summaryProgressView, UNSORTED, type PortionDto, type PortionSummaryStatus, type SummaryDetail } from "@cdip/shared";
 import { api } from "@/api";
 import { JobProgress, ProblemNotice } from "@/components/shared";
-import { isProcessed, ProcessAllRemaining, ProcessNow, useProcessing } from "@/components/Processing";
+import {
+  ProcessAllRemaining,
+  ProcessingProgress,
+  ProcessNowButton,
+  processingStage,
+  useProcessing,
+} from "@/components/Processing";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,7 +161,9 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           const chip = CHIP[portion.summaryStatus];
           const busy =
             portion.summaryStatus === "queued" || portion.summaryStatus === "running";
-          const processed = isProcessed(processingState.data, processingKey(portion.discipline));
+          const key = processingKey(portion.discipline);
+          const { stage } = processingStage(processingState.data, key);
+          const processed = stage === "done";
           // Fall back to the span only while the manifest is still loading.
           const pages = pagesOf(portion);
           const range = pages.length
@@ -204,29 +212,38 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     {(pages.length || portion.pageCount) === 1 ? "" : "s"}
                     {portion.sheetNumberSample && ` · ${portion.sheetNumberSample}`}
                   </span>
-                  <Badge variant={chip.variant} className="text-[11px]">
-                    {chip.label}
-                  </Badge>
-                  <ProcessNow projectId={projectId} discipline={processingKey(portion.discipline)} />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-tour="generate-summary"
-                    className="ml-auto h-6 shrink-0 px-2 text-[11px]"
-                    disabled={busy || summarize.isPending || !processed}
-                    onClick={() => confirm(portion.id, portion.summaryDetail)}
-                    title={
-                      !processed
-                        ? "Process this discipline first"
-                        : CAN_START.includes(portion.summaryStatus)
-                        ? `Summarize the ${portion.name} sheets`
-                        : "Regenerate this summary"
-                    }
-                  >
-                    {busy ? "Working…" : buttonLabel(portion.summaryStatus)}
-                  </Button>
+                  {processed ? (
+                    <Badge variant={chip.variant} className="text-[11px]">
+                      {chip.label}
+                    </Badge>
+                  ) : (
+                    <Badge variant={stage === "processing" ? "warning" : "outline"} className="text-[11px]">
+                      {stage === "processing" ? "Processing…" : "Not processed"}
+                    </Badge>
+                  )}
+                  <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                    <ProcessNowButton projectId={projectId} discipline={key} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-tour="generate-summary"
+                      className="h-6 shrink-0 px-2 text-[11px]"
+                      disabled={busy || summarize.isPending || !processed}
+                      onClick={() => confirm(portion.id, portion.summaryDetail)}
+                      title={
+                        !processed
+                          ? "Process this discipline first"
+                          : CAN_START.includes(portion.summaryStatus)
+                            ? `Summarize the ${portion.name} sheets`
+                            : "Regenerate this summary"
+                      }
+                    >
+                      {busy ? "Working…" : buttonLabel(portion.summaryStatus)}
+                    </Button>
+                  </div>
                 </div>
 
+                <ProcessingProgress projectId={projectId} discipline={key} />
                 {busy && (
                   <div className="mt-2">
                     <JobProgress
@@ -258,7 +275,10 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         {portions.data?.length === 0 && unsorted && unsorted.processed < unsorted.pages && (
           <li className="mb-1 flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5">
             <span className="min-w-0 flex-1 text-sm">Unsorted pages ({unsorted.pages})</span>
-            <ProcessNow projectId={projectId} discipline={UNSORTED} />
+            <ProcessNowButton projectId={projectId} discipline={UNSORTED} />
+            <div className="w-full">
+              <ProcessingProgress projectId={projectId} discipline={UNSORTED} />
+            </div>
           </li>
         )}
         {portions.data?.length === 0 && (
