@@ -435,8 +435,9 @@ def _extract_pages(
             done = counters["processed"]
             ocr_done = counters["ocr"]
         if progress is not None:
-            skipped = page_count - len(indices)
-            progress.stage("extract", skipped + done, page_count, ocr_done, throttle=True)
+            # This run's pages: a full pass of 13 Fire Protection sheets reads "1 of 13",
+            # not "102 of 114" with the pages that needed nothing counted as done.
+            progress.stage("extract", done, len(indices), ocr_done, throttle=True)
         if done % PROGRESS_EVERY == 0:
             log.info(
                 "[doc %s] stage 2/6 extract: %d/%d pages (%d OCR, x%d)",
@@ -590,7 +591,7 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
                     quick,
                     full,
                 )
-                progress.stage("extract", page_count - len(modes), page_count)
+                progress.stage("extract", 0, len(modes))
                 done, ocr = _extract_pages(
                     project_id, document_id, pdf_path, sorted(modes), offset, page_count,
                     doc_tag, spend, progress, modes,
