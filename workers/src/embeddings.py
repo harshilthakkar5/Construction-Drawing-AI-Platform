@@ -281,11 +281,18 @@ def upsert_chunks(chunks: list[dict], vectors: list[list[float]]) -> None:
 def refresh_payloads(chunks: list[dict]) -> None:
     """Re-write payloads for already-embedded chunks after portion rebuilds
     shift portion/discipline/combined page (vectors untouched)."""
+    # One request per 256 chunks, not one per chunk: a 400-page project has
+    # thousands, and every title-block read refreshes all of them.
     with httpx.Client(timeout=120) as client:
-        for chunk in chunks:
+        for start in range(0, len(chunks), 256):
             client.post(
-                f"{QDRANT_URL}/collections/{COLLECTION}/points/payload?wait=true",
-                json={"payload": _chunk_payload(chunk), "points": [chunk["chunk_id"]]},
+                f"{QDRANT_URL}/collections/{COLLECTION}/points/batch?wait=true",
+                json={
+                    "operations": [
+                        {"set_payload": {"payload": _chunk_payload(c), "points": [c["chunk_id"]]}}
+                        for c in chunks[start : start + 256]
+                    ]
+                },
             ).raise_for_status()
 
 
