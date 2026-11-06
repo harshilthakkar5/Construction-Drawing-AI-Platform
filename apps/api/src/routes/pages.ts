@@ -1,9 +1,11 @@
 import { Router } from "express";
-import { objectKeys } from "@cdip/shared";
+import { PROJECT_ROLE_VALUES, UNSORTED, objectKeys } from "@cdip/shared";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { buildPageManifest, findManifestEntry, type ManifestDocument } from "../manifest.js";
 import { presignGetObject } from "../s3.js";
+import { chooseDisciplines, processingState, queueDueProcessing } from "../disciplineProcessing.js";
+import { scrapeRegionQueue } from "../queues.js";
 
 /**
  * Combined-view endpoints. buildPageManifest/findManifestEntry are the
@@ -49,6 +51,7 @@ pagesRouter.get("/manifest", async (req, res) => {
       sheetNumber: true,
       sheetKind: true,
       level: true,
+      fullyProcessed: true,
     },
   });
   const storedByKey = new Map(stored.map((p) => [`${p.documentId}:${p.pageNumber}`, p]));
@@ -66,6 +69,7 @@ pagesRouter.get("/manifest", async (req, res) => {
         sheetNumber: page?.sheetNumber ?? null,
         sheetKind: page?.sheetKind ?? null,
         level: page?.level ?? null,
+        processed: page?.fullyProcessed ?? false,
       };
     }),
   );
@@ -139,4 +143,53 @@ pagesRouter.get("/pages/:combined/thumb", async (req, res) => {
     302,
     await presignGetObject(objectKeys.pageThumb(projectId, entry.documentId, entry.pageNumber)),
   );
+});
+
+/** Which disciplines are processed (OCR + search), and how far each has got. */
+pagesRouter.get("/processing", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  res.json(await processingState(projectId));
+});
+
+const DISCIPLINES = new Set<string>([...PROJECT_ROLE_VALUES, "other"]);
+const DISCIPLINE = z.string().refine((v) => DISCIPLINES.has(v), "unknown discipline");
+// "unclassified" is what the title-block read writes when no page of a set has a sheet number.
+const DISCIPLINE_OR_UNSORTED = z
+  .string()
+  .refine((v) => DISCIPLINES.has(v) || v === UNSORTED || v === "unclassified", "unknown discipline");
+
+/** "Start processing" / "Process now" / "Process all remaining". Adds to the
+ * project's choice (never removes) and queues the documents with work. */
+pagesRouter.post("/processing", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const body = z
+    .object({ disciplines: z.array(DISCIPLINE_OR_UNSORTED).max(50).default([]), all: z.boolean().default(false) })
+    .parse(req.body ?? {});
+  const queued = await chooseDisciplines(projectId, body.disciplines, body.all);
+  res.status(202).json({ queued, state: await processingState(projectId) });
+});
+
+/** Move one page to another discipline by hand. The title-block read is re-run
+ * so the discipline groups follow, and keeps this choice (disciplineSource
+ * "manual"). A page moved into a processed discipline is then processed. */
+pagesRouter.patch("/pages/:combined/discipline", async (req, res) => {
+  const { projectId, combined } = pageParams.parse(req.params);
+  const { discipline } = z
+    .object({ discipline: DISCIPLINE })
+    .parse(req.body ?? {});
+  const entry = await resolvePage(projectId, combined);
+  if (!entry) return void res.status(404).json({ error: "page not found" });
+  const updated = await prisma.page.updateMany({
+    where: { documentId: entry.documentId, pageNumber: entry.pageNumber },
+    data: { discipline, disciplineSource: "manual" },
+  });
+  if (!updated.count) return void res.status(404).json({ error: "page not processed yet" });
+  const region = await prisma.sheetRegion.findUnique({ where: { projectId } });
+  if (region) {
+    // Regroups the disciplines; its completion queues the full pass if due.
+    await scrapeRegionQueue.add("scrape", { projectId, regionVersion: region.version });
+  } else {
+    await queueDueProcessing(projectId);
+  }
+  res.json({ combinedPageNumber: combined, discipline });
 });

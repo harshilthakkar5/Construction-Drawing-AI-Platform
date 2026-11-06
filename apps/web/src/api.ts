@@ -10,6 +10,7 @@ import type {
   InitiateUploadResponse,
   ManifestEntryDto,
   PortionDto,
+  ProcessingStateDto,
   ProjectDto,
   RegionBox,
   RegionPreviewDto,
@@ -669,6 +670,19 @@ export const api = {
     withToken(`${API_URL}/projects/${projectId}/rfis/export.xlsx`),
 
   manifest: (projectId: string) => request<ManifestEntryDto[]>(`/projects/${projectId}/manifest`),
+  /** Which disciplines get the full pass (OCR + search), and how far each has got. */
+  processing: (projectId: string) => request<ProcessingStateDto>(`/projects/${projectId}/processing`),
+  /** "Start processing" / "Process now" / "Process all remaining". */
+  startProcessing: (projectId: string, body: { disciplines?: string[]; all?: boolean }) =>
+    request<{ queued: number; state: ProcessingStateDto }>(`/projects/${projectId}/processing`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setPageDiscipline: (projectId: string, combinedPage: number, discipline: string) =>
+    request<{ discipline: string }>(`/projects/${projectId}/pages/${combinedPage}/discipline`, {
+      method: "PATCH",
+      body: JSON.stringify({ discipline }),
+    }),
   rfiLibrary: (projectId: string) => request<RfiLibraryDto>(`/projects/${projectId}/rfis/library`),
   rfiLibraryHeadings: (projectId: string) => request<Record<number, string[]>>(`/projects/${projectId}/rfis/library/headings`),
   rfiLibraryTitles: (projectId: string) => request<Record<number, string>>(`/projects/${projectId}/rfis/library/titles`),

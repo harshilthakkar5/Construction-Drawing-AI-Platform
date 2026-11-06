@@ -169,6 +169,15 @@ portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) =>
   if (portion.pageCount === 0) {
     return void res.status(409).json({ error: "this portion has no pages to summarize" });
   }
+  // A summary reads the search chunks, which only the full pass writes.
+  const waiting = await prisma.page.count({
+    where: { discipline: portion.discipline, fullyProcessed: false, document: { projectId, supersededAt: null } },
+  });
+  if (waiting) {
+    return void res
+      .status(409)
+      .json({ error: `Process this discipline first: ${waiting} of its pages are not processed yet.` });
+  }
 
   const job = await summarizePortionQueue.add("summarize", {
     projectId,

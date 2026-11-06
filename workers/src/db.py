@@ -295,14 +295,55 @@ def matching_embedded_chunks(old_document_id: str, hashes: list[str]) -> dict[st
         return {r[0]: r[1] for r in rows}
 
 
-def processed_page_numbers(document_id: str) -> set[int]:
-    """Pages already fully processed — lets a retried job resume (partial results preserved)."""
+UNSORTED = "unsorted"  # a page with no discipline, in projects.processDisciplines
+
+
+def processing_choice(project_id: str) -> tuple[bool, set[str]]:
+    """(processAll, the disciplines chosen for the full pass)."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT "processAll", "processDisciplines" FROM projects WHERE id = %s', (project_id,)
+        ).fetchone()
+    return (bool(row[0]), set(row[1] or ())) if row else (False, set())
+
+
+def is_due(discipline: str | None, fully_processed: bool, choice: tuple[bool, set[str]]) -> bool:
+    """Does this page still need the full pass (OCR, chunks, search index)?"""
+    process_all, chosen = choice
+    return not fully_processed and (process_all or (discipline or UNSORTED) in chosen)
+
+
+def page_states(document_id: str) -> dict[int, tuple[str | None, bool]]:
+    """page number -> (discipline, fullyProcessed) for pages the quick pass wrote."""
     with connect() as conn:
         rows = conn.execute(
-            'SELECT "pageNumber" FROM pages WHERE "documentId" = %s AND "imageUrl" IS NOT NULL',
+            'SELECT "pageNumber", discipline, "fullyProcessed" FROM pages '
+            'WHERE "documentId" = %s AND "imageUrl" IS NOT NULL',
             (document_id,),
         ).fetchall()
-        return {r[0] for r in rows}
+    return {r[0]: (r[1], r[2]) for r in rows}
+
+
+def document_page_count(document_id: str) -> int | None:
+    with connect() as conn:
+        row = conn.execute("SELECT pages FROM documents WHERE id = %s", (document_id,)).fetchone()
+    return row[0] if row else None
+
+
+def set_page_fully_processed(document_id: str, page_number: int) -> None:
+    with connect() as conn:
+        conn.execute(
+            'UPDATE pages SET "fullyProcessed" = true WHERE "documentId" = %s AND "pageNumber" = %s',
+            (document_id, page_number),
+        )
+
+
+def set_page_text(document_id: str, page_number: int, text: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            'UPDATE pages SET text = %s WHERE "documentId" = %s AND "pageNumber" = %s',
+            (text.replace("\x00", ""), document_id, page_number),
+        )
 
 
 def upsert_page(
@@ -422,14 +463,16 @@ def page_ocr_lines(document_id: str, page_number: int) -> list[tuple[tuple, str]
 
 def pages_needing_ocr(project_id: str, version: int) -> list[tuple[str, str, int]]:
     """(documentId, spacesKey, pageNumber) of every live, processed page not
-    yet examined by the current OCR reader, in combined-page order."""
+    yet examined by the current OCR reader, in combined-page order. A page of a
+    discipline nobody chose to process is left alone: OCR is part of the full
+    pass, which "Process now" runs."""
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT d.id, d."spacesKey", p."pageNumber"
               FROM pages p JOIN documents d ON d.id = p."documentId"
              WHERE d."projectId" = %s AND d."supersededAt" IS NULL
-               AND d.status::text = 'completed'
+               AND d.status::text = 'completed' AND p."fullyProcessed"
                AND (p."ocrVersion" IS NULL OR p."ocrVersion" < %s)
              ORDER BY p."combinedPageNumber" NULLS LAST, p."pageNumber"
             """,

@@ -68,7 +68,7 @@ export function useLibrarySheets(projectId: string): LibrarySheet[] {
         ? [{
             combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
             sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
-            titleBlock: titles.data?.[p.combinedPageNumber],
+            titleBlock: titles.data?.[p.combinedPageNumber], processed: p.processed,
           }]
         : [],
     );
@@ -519,6 +519,11 @@ export function SheetPicker({
                         <span className="text-muted-foreground ml-2 font-normal">
                           {[s.discipline, s.sheetKind, s.level].filter(Boolean).join(" · ")}
                         </span>
+                        {s.processed === false && (
+                          <Badge variant="warning" className="ml-2 text-[10px]" title="Process its discipline first, in Summary & categories">
+                            Not processed
+                          </Badge>
+                        )}
                       </span>
                       {(s.titleBlock || s.headings?.[0]) && (
                         <span className="text-muted-foreground truncate text-xs">

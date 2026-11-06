@@ -1,4 +1,10 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  DEFAULT_PROCESS_DISCIPLINES,
+  PROJECT_ROLES,
+  processingKey,
+  processingLabel,
+} from "@cdip/shared";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -11,11 +17,13 @@ import { useEffect, useState } from "react";
 import { api } from "@/api";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { RegionBanner } from "@/components/RegionBanner";
+import { useProcessing, useStartProcessing } from "@/components/Processing";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { formatRanges, pagePrefix } from "@/lib/pageRanges";
 import { cn } from "@/lib/utils";
 
 /**
@@ -79,7 +87,7 @@ export function useSetupProgress(projectId: string) {
 const STEPS = [
   { key: "upload", label: "Upload drawings", icon: UploadIcon },
   { key: "region", label: "Mark the title block", icon: ScanLineIcon },
-  { key: "categories", label: "Categorise sheets", icon: LayersIcon },
+  { key: "categories", label: "Check the disciplines", icon: LayersIcon },
 ] as const;
 
 export function ProjectSetup({
@@ -108,8 +116,9 @@ export function ProjectSetup({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Set up this project</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Three steps and the drawings are searchable. You can skip and come back the
-            workspace has all of these controls too.
+            Three steps, then the disciplines you pick are read in full. You can skip and come
+            back: the workspace has all of these controls too, and nothing is read in full until
+            you ask.
           </p>
         </div>
 
@@ -220,7 +229,7 @@ function UploadStep({ projectId, progress }: { projectId: string; progress: Prog
   return (
     <StepCard
       title="Upload the drawing PDFs"
-      description="Add every PDF in the set. They upload straight to storage and are processed page by page, so a 1 GB set is fine."
+      description="Add every PDF in the set. They upload straight to storage and each page is made viewable, so a 1 GB set is fine. The full reading (OCR and search) waits until you choose disciplines in step 3."
       state={
         <Badge variant={progress.processed ? "success" : "secondary"}>
           {progress.processed
@@ -266,11 +275,8 @@ function RegionStep({ projectId, progress }: { projectId: string; progress: Prog
 
 function CategoriesStep({ projectId, progress }: { projectId: string; progress: Progress }) {
   const queryClient = useQueryClient();
-  const portions = useQuery({
-    queryKey: ["portions", projectId],
-    queryFn: () => api.listPortions(projectId),
-    refetchInterval: progress.scraped ? false : 3000,
-  });
+  const state = useProcessing(projectId);
+  const start = useStartProcessing(projectId);
   const manifest = useQuery({
     queryKey: ["manifest", projectId],
     queryFn: () => api.manifest(projectId),
@@ -282,59 +288,140 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
   const scraped = progress.scraped;
   useEffect(() => {
     if (!scraped) return;
-    void queryClient.invalidateQueries({ queryKey: ["portions", projectId] });
-    void queryClient.invalidateQueries({ queryKey: ["manifest", projectId] });
+    for (const key of ["portions", "manifest", "processing"]) {
+      void queryClient.invalidateQueries({ queryKey: [key, projectId] });
+    }
   }, [scraped, projectId, queryClient]);
 
+  // General, Architectural and Structural are ticked to begin with.
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set(DEFAULT_PROCESS_DISCIPLINES));
+  const [open, setOpen] = useState<string | null>(null);
+  const move = useMutation({
+    mutationFn: ({ page, discipline }: { page: number; discipline: string }) =>
+      api.setPageDiscipline(projectId, page, discipline),
+    onSuccess: () => {
+      for (const key of ["region", "manifest", "processing", "portions"]) {
+        void queryClient.invalidateQueries({ queryKey: [key, projectId] });
+      }
+    },
+  });
+
   const region = progress.region;
-  const found = portions.data?.length ?? 0;
+  const rows = (state.data?.disciplines ?? []).filter((d) => d.pages > 0);
   const scanned = region?.scrapedPages ?? 0;
   const totalPages = region?.totalPages ?? 0;
   const percent = totalPages > 0 ? Math.round((scanned / totalPages) * 100) : 0;
+  const toStart = rows.filter((d) => ticked.has(d.discipline) && !d.chosen).map((d) => d.discipline);
 
   return (
     <StepCard
-      title="Categorise the sheets"
-      description="Each sheet number is read from your box and mapped to a discipline. Nothing is summarized until you ask, per category."
+      title="Check the disciplines"
+      description="Each sheet number is read from your box and sorted into a discipline. The ticked disciplines are read in full (OCR and search) when you press Start; the others can be processed any time with Process now in Summary & categories."
       state={
-        <Badge
-          variant={
-            progress.scraped ? (found > 0 ? "success" : "warning") : "secondary"
-          }
-        >
+        <Badge variant={progress.scraped ? (rows.length > 0 ? "success" : "warning") : "secondary"}>
           {progress.scraped
-            ? found > 0
-              ? `${found} categor${found === 1 ? "y" : "ies"} detected`
-              : "No categories detected. Try adjusting the box."
+            ? rows.length > 0
+              ? `${rows.length} discipline${rows.length === 1 ? "" : "s"} found`
+              : "No disciplines found. Try adjusting the box."
             : region
-              ? `Scanning sheets… ${scanned}/${totalPages || "?"}`
+              ? `Reading sheet numbers… ${scanned}/${totalPages || "?"}`
               : "Waiting for a region"}
         </Badge>
       }
     >
       {!progress.scraped && region && <Progress value={percent} />}
 
-      {portions.data && portions.data.length > 0 && (
+      {rows.length > 0 && (
         <ul className="divide-y rounded-lg border">
-          {portions.data.map((portion) => {
-            const pages = (manifest.data ?? [])
-              .filter((e) => (e.discipline ?? "unclassified") === portion.discipline)
-              .map((e) => e.combinedPageNumber);
+          {rows.map((row) => {
+            const sheets = (manifest.data ?? []).filter(
+              (e) => processingKey(e.discipline) === row.discipline,
+            );
+            const done = row.processed >= row.pages;
             return (
-              <li key={portion.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate font-medium">{portion.name}</span>
-                <span className="text-muted-foreground text-xs tabular-nums">
-                  {pages.length || portion.pageCount} sheet
-                  {(pages.length || portion.pageCount) === 1 ? "" : "s"}
-                </span>
-                <span className="text-muted-foreground w-40 truncate text-right text-xs tabular-nums">
-                  {pages.length ? `${pagePrefix(pages)} ${formatRanges(pages, 2)}` : ""}
-                </span>
+              <li key={row.discipline} className="px-3 py-2 text-sm">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id={`process-${row.discipline}`}
+                    checked={row.chosen || ticked.has(row.discipline)}
+                    disabled={row.chosen}
+                    onCheckedChange={(on) =>
+                      setTicked((prev) => {
+                        const next = new Set(prev);
+                        if (on) next.add(row.discipline);
+                        else next.delete(row.discipline);
+                        return next;
+                      })
+                    }
+                    aria-label={`Process ${processingLabel(row.discipline)}`}
+                  />
+                  <label htmlFor={`process-${row.discipline}`} className="min-w-0 flex-1 truncate font-medium">
+                    {processingLabel(row.discipline)}
+                  </label>
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    {done
+                      ? "Processed"
+                      : row.chosen
+                        ? `Processing ${row.processed}/${row.pages}`
+                        : "Not processed"}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setOpen(open === row.discipline ? null : row.discipline)}
+                    aria-expanded={open === row.discipline}
+                  >
+                    {row.pages} sheet{row.pages === 1 ? "" : "s"}
+                  </Button>
+                </div>
+                {open === row.discipline && (
+                  <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto pl-7">
+                    {sheets.map((sheet) => (
+                      <li key={sheet.combinedPageNumber} className="flex items-center gap-2 text-xs">
+                        <span className="sheet-reference min-w-0 flex-1 truncate">
+                          {sheet.sheetNumber ?? `Page ${sheet.combinedPageNumber}`}
+                        </span>
+                        <Select
+                          value={sheet.discipline && sheet.discipline !== "unclassified" ? sheet.discipline : undefined}
+                          onValueChange={(discipline) => move.mutate({ page: sheet.combinedPageNumber, discipline })}
+                          disabled={move.isPending}
+                        >
+                          <SelectTrigger size="sm" className="h-7 w-44 text-xs" aria-label="Move this sheet to">
+                            <SelectValue placeholder="Move to…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[...PROJECT_ROLES, { value: "other", label: "Other" }].map((r) => (
+                              <SelectItem key={r.value} value={r.value} className="text-xs">
+                                {r.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             );
           })}
         </ul>
       )}
+
+      {rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={!toStart.length || start.isPending} onClick={() => start.mutate({ disciplines: toStart })}>
+            {start.isPending ? "Starting…" : "Start processing"}
+          </Button>
+          <p className="text-muted-foreground text-xs">
+            {toStart.length
+              ? `${toStart.map(processingLabel).join(", ")} will be read in full.`
+              : "Nothing new ticked. Untouched disciplines keep a Process now button."}
+          </p>
+        </div>
+      )}
+      {move.isError && <p className="text-destructive text-xs">{(move.error as Error).message}</p>}
+      {start.isError && <p className="text-destructive text-xs">{(start.error as Error).message}</p>}
 
       {progress.scraped && (region?.notFoundPages ?? 0) > 0 && (
         <p className="text-muted-foreground text-xs">
