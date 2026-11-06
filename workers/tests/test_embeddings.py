@@ -316,3 +316,31 @@ def test_a_concurrent_creation_at_the_wrong_width_still_fails(monkeypatch):
 
     with pytest.raises(RuntimeError, match="1024-dimension vectors"):
         embeddings.ensure_collection()
+
+
+def test_payload_refresh_is_one_request_per_256_chunks(monkeypatch):
+    """A refresh used to be one request per chunk: 245 log lines for one 114-page
+    set, thousands for a 400-page one."""
+    posted: list[tuple[str, dict]] = []
+
+    class Client:
+        def __init__(self, **_kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def post(self, url, json):
+            posted.append((url, json))
+            return types.SimpleNamespace(raise_for_status=lambda: None)
+
+    monkeypatch.setattr(embeddings.httpx, "Client", Client)
+    chunks = [_chunk(f"c{i}", f"text {i}") | {"discipline": "structural"} for i in range(300)]
+    embeddings.refresh_payloads(chunks)
+    assert [len(body["operations"]) for _url, body in posted] == [256, 44]
+    assert all(url.endswith("/points/batch?wait=true") for url, _ in posted)
+    first = posted[0][1]["operations"][0]["set_payload"]
+    assert first["points"] == ["c0"] and first["payload"]["discipline"] == "structural"

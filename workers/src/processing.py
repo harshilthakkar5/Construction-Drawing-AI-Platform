@@ -442,7 +442,7 @@ def _extract_pages(
                 "[doc %s] stage 2/6 extract: %d/%d pages (%d OCR, x%d)",
                 doc_tag,
                 done,
-                page_count,
+                len(indices),  # this run's pages, not the document's: a full pass may do 45 of 114
                 counters["ocr"],
                 workers,
             )

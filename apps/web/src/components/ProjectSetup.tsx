@@ -13,7 +13,7 @@ import {
   ScanLineIcon,
   UploadIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { RegionBanner } from "@/components/RegionBanner";
@@ -67,9 +67,10 @@ export function useSetupProgress(projectId: string) {
 
   const live = (documents.data ?? []).filter((d) => !d.supersededAt);
   const uploaded = live.length > 0;
-  // The region is drawn on a rendered page, so step 2 waits for one.
-  const processed = live.some((d) => d.status === "completed");
   const hasRegion = Boolean(region.data);
+  // The region is drawn on a rendered page, so step 2 waits for one. A document
+  // goes back to "processing" for its full pass; its pages are still viewable.
+  const processed = live.some((d) => d.status === "completed") || hasRegion;
   const scraped = region.data?.scrapeStatus === "completed";
 
   return {
@@ -100,7 +101,10 @@ export function ProjectSetup({
   onSkip: () => void;
 }) {
   const progress = useSetupProgress(projectId);
-  const done = [progress.uploaded && progress.processed, progress.hasRegion, progress.scraped];
+  const processing = useProcessing(projectId);
+  // The workspace opens once the disciplines started here are read in full.
+  const busy = processing.data?.disciplines.some((d) => d.chosen && d.processed < d.pages) ?? false;
+  const done = [progress.uploaded && progress.processed, progress.hasRegion, progress.scraped && !busy];
   // Open on the first unfinished step; the user can still walk back.
   const [step, setStep] = useState(() => {
     const first = done.findIndex((d) => !d);
@@ -183,7 +187,7 @@ export function ProjectSetup({
             className="ml-auto"
             disabled={!canContinue}
             onClick={() => (last ? onFinish() : setStep((s) => s + 1))}
-            title={canContinue ? undefined : "Finish this step first"}
+            title={canContinue ? undefined : busy ? "Wait until processing finishes" : "Finish this step first"}
           >
             {last ? "Open the workspace" : "Next"}
             <ArrowRightIcon />
@@ -312,6 +316,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
   const totalPages = region?.totalPages ?? 0;
   const percent = totalPages > 0 ? Math.round((scanned / totalPages) * 100) : 0;
   const toStart = rows.filter((d) => ticked.has(d.discipline) && !d.chosen).map((d) => d.discipline);
+  const eta = useProcessingEta(rows.filter((d) => d.chosen));
 
   return (
     <StepCard
@@ -330,6 +335,16 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
       }
     >
       {!progress.scraped && region && <Progress value={percent} />}
+
+      {eta && (
+        <div className="space-y-1.5">
+          <Progress value={Math.round((eta.done / eta.total) * 100)} />
+          <p className="text-muted-foreground text-xs tabular-nums">
+            {eta.done} of {eta.total} pages processed · {eta.total - eta.done} waiting
+            {eta.minutesLeft != null && ` · about ${eta.minutesLeft} min left`}. The workspace opens when this finishes.
+          </p>
+        </div>
+      )}
 
       {rows.length > 0 && (
         <ul className="divide-y rounded-lg border">
@@ -431,4 +446,21 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
       )}
     </StepCard>
   );
+}
+
+/** Pages done and waiting across the disciplines being processed, and the time
+ * left at the rate seen since this screen opened. Null when nothing is running. */
+function useProcessingEta(chosen: { pages: number; processed: number }[]) {
+  const total = chosen.reduce((sum, d) => sum + d.pages, 0);
+  const done = chosen.reduce((sum, d) => sum + d.processed, 0);
+  const first = useRef<{ at: number; done: number } | null>(null);
+  if (total === 0 || done >= total) {
+    first.current = null;
+    return null;
+  }
+  first.current ??= { at: Date.now(), done };
+  const gained = done - first.current.done;
+  const minutesLeft =
+    gained > 0 ? Math.max(1, Math.round(((Date.now() - first.current.at) / gained) * (total - done) / 60_000)) : null;
+  return { total, done, minutesLeft };
 }
