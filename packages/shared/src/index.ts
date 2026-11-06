@@ -53,6 +53,37 @@ export const PROJECT_ROLES: { value: Discipline; label: string }[] = [
 
 export const PROJECT_ROLE_VALUES = PROJECT_ROLES.map((r) => r.value);
 
+/**
+ * Discipline-first processing. An upload gets only a quick pass (picture,
+ * thumbnail, text layer); the full pass (OCR, search index) runs for the
+ * disciplines a person chooses. These are ticked by default on the setup
+ * screen. "unsorted" stands for pages with no discipline read.
+ */
+export const DEFAULT_PROCESS_DISCIPLINES: Discipline[] = ["general", "architectural", "structural"];
+export const UNSORTED = "unsorted";
+
+export interface ProcessingDisciplineDto {
+  /** A `Discipline`, or "unsorted". */
+  discipline: string;
+  pages: number;
+  processed: number;
+  chosen: boolean;
+}
+
+export interface ProcessingStateDto {
+  /** Every page is processed as it arrives (projects created before this existed). */
+  processAll: boolean;
+  disciplines: ProcessingDisciplineDto[];
+  /** A document of the project is being processed right now. */
+  running: boolean;
+}
+
+export const processingLabel = (discipline: string) =>
+  discipline === UNSORTED ? "Unsorted" : discipline === "unclassified" ? "Unclassified" : roleLabel(discipline);
+
+/** The processing key of a portion or manifest discipline (null = unsorted). */
+export const processingKey = (discipline: string | null | undefined) => discipline ?? UNSORTED;
+
 export const roleLabel = (value: string) =>
   PROJECT_ROLES.find((r) => r.value === value)?.label ?? value;
 
@@ -459,6 +490,8 @@ export interface ManifestEntryDto extends PageManifestEntry {
    * scan's page facts; null until a scan has read the page. */
   sheetKind?: SheetKind | null;
   level?: string | null;
+  /** The full pass (OCR, search index) has run on this page. */
+  processed?: boolean;
 }
 
 /** FR-15: one portion per discipline, spanning all of its pages. */
@@ -2357,6 +2390,8 @@ export interface LibrarySheet {
   headings?: string[];
   /** What the project's title-block box reads on it (pages.sheetRegionText), for searching sheets by title. */
   titleBlock?: string;
+  /** False until its discipline is processed (OCR + search): a review can still look at it, but has no text to read. */
+  processed?: boolean;
 }
 
 /** The sheet title out of a title-block reading: the words after "SHEET

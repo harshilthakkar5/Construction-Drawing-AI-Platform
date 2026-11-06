@@ -237,6 +237,12 @@ model Project {
   /// created. They steer what a summary emphasises (see workers/src/summarize.py);
   /// they never filter what is extracted, classified or indexed.
   roles       String[] @default([])
+  /// Discipline-first processing: which disciplines get the full pass (OCR,
+  /// chunks, search index). "unsorted" stands for pages with no discipline.
+  /// `processAll` = every page, as before this existed (backfilled true for
+  /// projects created earlier, so they behave exactly as they did).
+  processAll         Boolean  @default(false)
+  processDisciplines String[] @default([])
   /// Nullable for projects created before auth existed; those are visible to
   /// any authenticated user (documented in README).
   ownerId     String?
@@ -374,6 +380,9 @@ model Page {
   combinedPageNumber Int
   imageUrl           String?
   text               String?
+  /// False after the quick pass (picture, thumbnail, text layer); true once the
+  /// full pass (OCR, chunks) has run, which only happens for chosen disciplines.
+  fullyProcessed     Boolean @default(false)
   /// Discipline slug for this page (from the sheet-number prefix / title
   /// block). Chunks and summaries are grouped by this so one discipline maps
   /// to one portion even when its pages are non-contiguous.

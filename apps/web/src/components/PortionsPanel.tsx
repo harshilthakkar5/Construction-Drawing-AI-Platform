@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { summaryProgressView, type PortionDto, type PortionSummaryStatus, type SummaryDetail } from "@cdip/shared";
+import { processingKey, summaryProgressView, UNSORTED, type PortionDto, type PortionSummaryStatus, type SummaryDetail } from "@cdip/shared";
 import { api } from "@/api";
 import { JobProgress, ProblemNotice } from "@/components/shared";
+import { isProcessed, ProcessAllRemaining, ProcessNow, useProcessing } from "@/components/Processing";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,9 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   const selectPortion = useAppStore((s) => s.selectPortion);
   const setPageFilter = useAppStore((s) => s.setPageFilter);
   const requestJump = useAppStore((s) => s.requestJump);
+
+  const processingState = useProcessing(projectId);
+  const unsorted = processingState.data?.disciplines.find((d) => d.discipline === UNSORTED);
 
   const documents = useQuery({
     queryKey: ["documents", projectId],
@@ -145,11 +149,13 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
 
   return (
     <section>
+      <ProcessAllRemaining projectId={projectId} />
       <ul className="px-2">
         {portions.data?.map((portion) => {
           const chip = CHIP[portion.summaryStatus];
           const busy =
             portion.summaryStatus === "queued" || portion.summaryStatus === "running";
+          const processed = isProcessed(processingState.data, processingKey(portion.discipline));
           // Fall back to the span only while the manifest is still loading.
           const pages = pagesOf(portion);
           const range = pages.length
@@ -201,15 +207,18 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   <Badge variant={chip.variant} className="text-[11px]">
                     {chip.label}
                   </Badge>
+                  <ProcessNow projectId={projectId} discipline={processingKey(portion.discipline)} />
                   <Button
                     variant="outline"
                     size="sm"
                     data-tour="generate-summary"
                     className="ml-auto h-6 shrink-0 px-2 text-[11px]"
-                    disabled={busy || summarize.isPending}
+                    disabled={busy || summarize.isPending || !processed}
                     onClick={() => confirm(portion.id, portion.summaryDetail)}
                     title={
-                      CAN_START.includes(portion.summaryStatus)
+                      !processed
+                        ? "Process this discipline first"
+                        : CAN_START.includes(portion.summaryStatus)
                         ? `Summarize the ${portion.name} sheets`
                         : "Regenerate this summary"
                     }
@@ -246,6 +255,12 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
           );
         })}
 
+        {portions.data?.length === 0 && unsorted && unsorted.processed < unsorted.pages && (
+          <li className="mb-1 flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5">
+            <span className="min-w-0 flex-1 text-sm">Unsorted pages ({unsorted.pages})</span>
+            <ProcessNow projectId={projectId} discipline={UNSORTED} />
+          </li>
+        )}
         {portions.data?.length === 0 && (
           <li className="text-muted-foreground px-2 py-1 text-sm">
             {processing

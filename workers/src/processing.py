@@ -99,9 +99,13 @@ def _process_page(
     index: int,
     offset: int,
     spend: "DocumentSpend | None" = None,
+    quick: bool = True,
+    full: bool = True,
 ) -> bool:
-    """One page: extract → render → (OCR) → store → chunk. Returns True when
-    the page needed OCR."""
+    """One page. The QUICK pass (picture, thumbnail, text layer) makes it
+    viewable and lets the title block be read; the FULL pass (OCR, chunks, grid
+    marks, vision) makes it searchable, and runs only for a discipline someone
+    chose to process. Returns True when the page needed OCR."""
     page_number = index + 1
     page = pdf.load_page(index)
     # A reviewer's markup is not the drawing: a stamp's words come back from
@@ -112,9 +116,10 @@ def _process_page(
     # strip_nul: PostgreSQL rejects NUL (0x00) bytes, which PDF extraction
     # can produce with unusual font encodings.
     text = chunker.strip_nul(page.get_text("text")).strip()
-
-    zoom = fitz.Matrix(config.PAGE_RENDER_ZOOM, config.PAGE_RENDER_ZOOM)
-    png = page.get_pixmap(matrix=zoom).tobytes("png")
+    if quick:
+        _quick_page(project_id, document_id, page, page_number, offset, text)
+    if not full:
+        return False
 
     # FR-7, widened: a page with no text layer, words drawn as shapes, or a
     # pasted schedule picture is read in tiles (page_ocr.py). The old path
@@ -131,31 +136,14 @@ def _process_page(
         reading = page_ocr.PageOcr(reason="ocr failed")
     used_ocr = bool(reading.reason) and reading.ran
     if not text and reading.lines:
+        # A page with no text layer: what OCR read becomes its text.
         text = chunker.strip_nul("\n".join(line.text for line in reading.lines))
-
-    storage.put_bytes(
-        storage.page_image_key(project_id, document_id, page_number), png, "image/png"
-    )
-    storage.put_bytes(
-        storage.page_thumb_key(project_id, document_id, page_number),
-        _thumbnail_jpg(page),
-        "image/jpeg",
-    )
-    storage.put_bytes(
-        storage.page_text_key(project_id, document_id, page_number),
-        text.encode("utf-8"),
-        "text/plain; charset=utf-8",
-    )
-    db.upsert_page(
-        document_id,
-        page_number,
-        offset + page_number,
-        storage.page_image_key(project_id, document_id, page_number),
-        text,
-        pdf_width=page.rect.width,
-        pdf_height=page.rect.height,
-        rotation=page.rotation,
-    )
+        storage.put_bytes(
+            storage.page_text_key(project_id, document_id, page_number),
+            text.encode("utf-8"),
+            "text/plain; charset=utf-8",
+        )
+        db.set_page_text(document_id, page_number, text)
 
     # Hybrid chunking: schedules lifted out whole, then the remaining blocks
     # grouped spatially and packed into token windows — each with its own bbox.
@@ -195,8 +183,40 @@ def _process_page(
         # Examined: the scan need not read this page again. A page that needed
         # OCR on a worker without an engine is left unmarked for one that has it.
         db.set_page_ocr(document_id, page_number, reading.as_json(), page_ocr.OCR_VERSION)
+    db.set_page_fully_processed(document_id, page_number)
     log.debug("page %d done: %d chars, %d chunks", page_number, len(text), len(page_chunks))
     return used_ocr
+
+
+def _quick_page(project_id: str, document_id: str, page, page_number: int, offset: int,
+                text: str) -> None:
+    """Picture, thumbnail and text layer: enough to view the page and read its
+    title block. No OCR and nothing a search can find."""
+    zoom = fitz.Matrix(config.PAGE_RENDER_ZOOM, config.PAGE_RENDER_ZOOM)
+    png = page.get_pixmap(matrix=zoom).tobytes("png")
+    storage.put_bytes(
+        storage.page_image_key(project_id, document_id, page_number), png, "image/png"
+    )
+    storage.put_bytes(
+        storage.page_thumb_key(project_id, document_id, page_number),
+        _thumbnail_jpg(page),
+        "image/jpeg",
+    )
+    storage.put_bytes(
+        storage.page_text_key(project_id, document_id, page_number),
+        text.encode("utf-8"),
+        "text/plain; charset=utf-8",
+    )
+    db.upsert_page(
+        document_id,
+        page_number,
+        offset + page_number,
+        storage.page_image_key(project_id, document_id, page_number),
+        text,
+        pdf_width=page.rect.width,
+        pdf_height=page.rect.height,
+        rotation=page.rotation,
+    )
 
 
 class DocumentSpend:
@@ -362,6 +382,7 @@ def _extract_pages(
     doc_tag: str,
     spend: "DocumentSpend",
     progress: "Progress | None" = None,
+    modes: "dict[int, tuple[bool, bool]] | None" = None,
 ) -> tuple[int, int]:
     """Stage 2 across several pages at once. Returns (processed, ocr_count).
 
@@ -405,7 +426,8 @@ def _extract_pages(
             pdf = local.pdf = fitz.open(pdf_path)
             with lock:
                 opened.append(pdf)
-        used_ocr = _process_page(project_id, document_id, pdf, index, offset, spend)
+        quick, full = (modes or {}).get(index, (True, True))
+        used_ocr = _process_page(project_id, document_id, pdf, index, offset, spend, quick, full)
         with lock:
             counters["processed"] += 1
             if used_ocr:
@@ -476,6 +498,27 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         return _process_document(project_id, document_id, spaces_key)
 
 
+def _page_modes(project_id: str, document_id: str, page_count: int) -> dict[int, tuple[bool, bool]]:
+    """page index -> (quick, full) for every page that still needs work.
+
+    Quick: the page has no picture yet. Full: its discipline was chosen for
+    processing (or the project processes everything) and it has not had it.
+    A page seen for the first time has no discipline yet — the title block is
+    read after this job — so it gets the full pass only when the project
+    processes everything or "unsorted" pages were chosen.
+    """
+    states = db.page_states(document_id)
+    choice = db.processing_choice(project_id)
+    modes = {}
+    for index in range(page_count):
+        state = states.get(index + 1)
+        discipline, fully = state or (None, False)
+        quick, full = state is None, db.is_due(discipline, fully, choice)
+        if quick or full:
+            modes[index] = (quick, full)
+    return modes
+
+
 def _process_document(project_id: str, document_id: str, spaces_key: str) -> dict:
     started = time.monotonic()
     doc_tag = document_id[:8]
@@ -503,44 +546,58 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     # budget rather than inheriting a give-up from the attempt that failed.
     tables.reset_budget(document_id)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        pdf_path = os.path.join(tmp, "original.pdf")
-        log.info("[doc %s] stage 1/6 download: %s", doc_tag, spaces_key)
-        try:
-            storage.download_to_file(spaces_key, pdf_path)
-        except Exception:
-            log.exception("[doc %s] stage 1/6 download FAILED for %s", doc_tag, spaces_key)
-            raise
-        log.info(
-            "[doc %s] stage 1/6 download done (%.1f MB)",
-            doc_tag,
-            os.path.getsize(pdf_path) / 1e6,
-        )
-
-        pdf = fitz.open(pdf_path)
-        try:
-            page_count = pdf.page_count
-            db.set_document_pages(document_id, page_count)
-
-            offset = db.combined_offset(project_id, document_id)
-            already_done = db.processed_page_numbers(document_id)
-            processed = skipped = ocr_count = 0
+    processed = ocr_count = 0
+    page_count = db.document_page_count(document_id)
+    if page_count and not _page_modes(project_id, document_id, page_count):
+        # Every page is viewable and every chosen page is processed: nothing to
+        # read, so do not download the PDF. Numbering and embedding still run
+        # (a reindex queues this to fill in missing vectors).
+        log.info("[doc %s] stage 1-2/6: no page needs work — skipping the download", doc_tag)
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = os.path.join(tmp, "original.pdf")
+            log.info("[doc %s] stage 1/6 download: %s", doc_tag, spaces_key)
+            try:
+                storage.download_to_file(spaces_key, pdf_path)
+            except Exception:
+                log.exception("[doc %s] stage 1/6 download FAILED for %s", doc_tag, spaces_key)
+                raise
             log.info(
-                "[doc %s] stage 2/6 extract: %d pages (%d already done — resuming)",
+                "[doc %s] stage 1/6 download done (%.1f MB)",
                 doc_tag,
-                page_count,
-                len(already_done),
+                os.path.getsize(pdf_path) / 1e6,
             )
 
-            todo = [i for i in range(page_count) if (i + 1) not in already_done]
-            skipped = page_count - len(todo)
-            progress.stage("extract", skipped, page_count)
-            processed, ocr_count = _extract_pages(
-                project_id, document_id, pdf_path, todo, offset, page_count, doc_tag, spend,
-                progress,
-            )
-        finally:
-            pdf.close()
+            pdf = fitz.open(pdf_path)
+            try:
+                page_count = pdf.page_count
+                db.set_document_pages(document_id, page_count)
+            finally:
+                pdf.close()
+            offset = db.combined_offset(project_id, document_id)
+            # A second round picks up a discipline someone chose while this ran.
+            for _ in range(3):
+                modes = _page_modes(project_id, document_id, page_count)
+                if not modes:
+                    break
+                quick = sum(1 for q, _f in modes.values() if q)
+                full = sum(1 for _q, f in modes.values() if f)
+                log.info(
+                    "[doc %s] stage 2/6 extract: %d pages — %d quick pass (view only), "
+                    "%d full pass (OCR + search)",
+                    doc_tag,
+                    page_count,
+                    quick,
+                    full,
+                )
+                progress.stage("extract", page_count - len(modes), page_count)
+                done, ocr = _extract_pages(
+                    project_id, document_id, pdf_path, sorted(modes), offset, page_count,
+                    doc_tag, spend, progress, modes,
+                )
+                processed += done
+                ocr_count += ocr
+    skipped = (page_count or 0) - processed
     log.info(
         "[doc %s] stage 2/6 extract done: %d processed, %d resumed-skip, %d OCR",
         doc_tag,

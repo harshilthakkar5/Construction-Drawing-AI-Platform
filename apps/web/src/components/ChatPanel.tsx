@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogoMark } from "@/components/Logo";
+import { NotProcessedNotice } from "@/components/Processing";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChatHistoryWindow, ChatMessageDto, ChatSourceDto } from "@cdip/shared";
 import { gridLabelKind } from "@cdip/shared";
@@ -301,6 +302,7 @@ export function ChatPanel({
           </IconAction>
         )}
       </div>
+      <NotProcessedNotice projectId={projectId} />
 
       {historyOpen && (
         <HistoryList

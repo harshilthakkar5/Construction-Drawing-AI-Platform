@@ -48,6 +48,8 @@ def processing(monkeypatch):
     monkeypatch.setattr(module.db, "upsert_page", lambda *a, **k: None)
     monkeypatch.setattr(module.db, "replace_page_chunks", lambda *a, **k: None)
     monkeypatch.setattr(module.db, "set_page_ocr", lambda *a, **k: None)
+    monkeypatch.setattr(module.db, "set_page_fully_processed", lambda *a, **k: None)
+    monkeypatch.setattr(module.db, "set_page_text", lambda *a, **k: None)
     return module
 
 
@@ -57,7 +59,7 @@ class TestParallelExtraction:
         lock = threading.Lock()
         original = processing._process_page
 
-        def record(project_id, document_id, pdf, index, offset, spend=None):
+        def record(project_id, document_id, pdf, index, offset, spend=None, *_modes):
             with lock:
                 seen.append(index)
             return original(project_id, document_id, pdf, index, offset)
@@ -78,7 +80,7 @@ class TestParallelExtraction:
         lock = threading.Lock()
         start = threading.Event()
 
-        def slow(project_id, document_id, pdf, index, offset, spend=None):
+        def slow(project_id, document_id, pdf, index, offset, spend=None, *_modes):
             nonlocal inside, peak
             with lock:
                 inside += 1
@@ -120,7 +122,7 @@ class TestFailureContract:
     def test_a_failing_page_raises_so_bullmq_retries(
         self, processing, pdf_path, monkeypatch
     ):
-        def explode(project_id, document_id, pdf, index, offset, spend=None):
+        def explode(project_id, document_id, pdf, index, offset, spend=None, *_modes):
             if index == 3:
                 raise RuntimeError("page 4 is corrupt")
             return False
@@ -139,7 +141,7 @@ class TestFailureContract:
         committed: list[int] = []
         lock = threading.Lock()
 
-        def half_broken(project_id, document_id, pdf, index, offset, spend=None):
+        def half_broken(project_id, document_id, pdf, index, offset, spend=None, *_modes):
             if index == 9:
                 raise RuntimeError("boom")
             with lock:
@@ -346,7 +348,7 @@ class TestPageHandlesAreClosed:
 
         monkeypatch.setattr(processing.fitz, "open", tracking_open)
 
-        def fake_page(project_id, document_id, pdf, index, offset, spend=None):
+        def fake_page(project_id, document_id, pdf, index, offset, spend=None, *_modes):
             if fail_on is not None and index == fail_on:
                 raise RuntimeError("page exploded")
             return False
@@ -706,7 +708,9 @@ def test_a_document_deleted_mid_run_is_never_embedded(monkeypatch, tmp_path):
         "set_document_progress": lambda *a: None,
         "set_document_pages": lambda *a: None,
         "combined_offset": lambda *a: 0,
-        "processed_page_numbers": lambda *a: set(),
+        "document_page_count": lambda *a: None,
+        "page_states": lambda *a: {},
+        "processing_choice": lambda *a: (True, set()),
         "document_revision_info": lambda _id: {"previous_version_id": None, "revision": 1},
         "project_lock": lambda _id: contextlib.nullcontext(),
         "recompute_combined_numbering": lambda _id: None,
@@ -719,3 +723,46 @@ def test_a_document_deleted_mid_run_is_never_embedded(monkeypatch, tmp_path):
     monkeypatch.setattr(proc.embeddings, "embed_document_chunks",
                         lambda *a, **k: pytest.fail("a deleted document was embedded"))
     assert proc._process_document("proj", "doc-0123456789", "key") == {"skipped": "document deleted"}
+
+
+class TestDisciplineFirst:
+    """Quick pass for every page; the full pass only for chosen disciplines."""
+
+    def _calls(self, processing, monkeypatch):
+        calls: list[str] = []
+        monkeypatch.setattr(processing.db, "upsert_page", lambda *a, **k: calls.append("picture"))
+        monkeypatch.setattr(processing.db, "replace_page_chunks", lambda *a, **k: calls.append("chunks"))
+        monkeypatch.setattr(processing.db, "set_page_fully_processed", lambda *a: calls.append("full"))
+        return calls
+
+    def test_quick_pass_makes_the_page_viewable_and_nothing_searchable(self, processing, pdf_path, monkeypatch):
+        calls = self._calls(processing, monkeypatch)
+        doc = fitz.open(pdf_path)
+        assert processing._process_page("proj", "doc", doc, 0, 0, None, True, False) is False
+        assert calls == ["picture"]
+
+    def test_full_pass_alone_does_not_redraw_the_picture(self, processing, pdf_path, monkeypatch):
+        calls = self._calls(processing, monkeypatch)
+        doc = fitz.open(pdf_path)
+        processing._process_page("proj", "doc", doc, 0, 0, None, False, True)
+        assert calls == ["chunks", "full"]
+
+    @pytest.mark.parametrize("discipline, fully, choice, due", [
+        ("structural", False, (False, {"structural"}), True),
+        ("mechanical", False, (False, {"structural"}), False),
+        ("structural", True, (False, {"structural"}), False),  # never twice
+        (None, False, (False, {"unsorted"}), True),
+        (None, False, (False, {"general", "architectural", "structural"}), False),
+        ("mechanical", False, (True, set()), True),  # older projects: everything
+    ])
+    def test_which_pages_are_due(self, discipline, fully, choice, due):
+        import db
+
+        assert db.is_due(discipline, fully, choice) is due
+
+    def test_page_modes_split_new_and_chosen_pages(self, processing, monkeypatch):
+        monkeypatch.setattr(processing.db, "page_states", lambda _d: {
+            1: ("structural", False), 2: ("mechanical", False), 3: ("structural", True)})
+        monkeypatch.setattr(processing.db, "processing_choice", lambda _p: (False, {"structural"}))
+        # page 4 is new: viewable now, processed once its title block says structural
+        assert processing._page_modes("proj", "doc", 4) == {0: (False, True), 3: (True, False)}

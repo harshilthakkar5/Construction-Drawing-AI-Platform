@@ -3409,7 +3409,25 @@ so they survive a page changing discipline; only section/portion rollups hang of
 ## UI layout
 
 A new project opens in a three-step setup stepper (`components/ProjectSetup.tsx`): upload PDFs
-→ mark the title-block region → let the sheets categorise, then "Open the workspace". Progress
+→ mark the title-block region → check the disciplines, then "Open the workspace".
+
+**Discipline-first processing** (client request, Nov 2026). An upload gets only the QUICK pass
+(`processing._quick_page`: picture, thumbnail, text layer) so it can be viewed and its title block
+read; the FULL pass (OCR, chunks, grid marks, vision, `pages.fullyProcessed`) runs only for the
+disciplines in `projects.processDisciplines` ("unsorted" = pages with no discipline), or for every
+page when `projects.processAll` — which the migration set for every project that existed before,
+so they behave exactly as they did. The setup's step 3 ticks General, Architectural and Structural
+(`DEFAULT_PROCESS_DISCIPLINES`) and "Start processing" adds them; skipping setup processes NOTHING.
+Every other discipline gets "Process now" beside "Generate summary" (`components/Processing.tsx`),
+plus "Process all remaining"; a summary is refused (409) until its discipline is processed, chat
+names the unprocessed disciplines, and the RFI sheet picker badges their sheets. A choice is only
+ever ADDED (`disciplineProcessingRules.chosenAfter`). The worker decides per page (`db.is_due`,
+`processing._page_modes`) and re-checks before it finishes, so a discipline chosen mid-run is
+picked up; the API queues documents with due pages (`disciplineProcessing.queueDueProcessing`,
+BullMQ deduplication per document) on the button, on a hand move (`PATCH /pages/:n/discipline`,
+disciplineSource "manual", which re-runs the title-block read to regroup), and when a title-block
+read completes (`listenForSortedPages`) — so new uploads and moved pages of a chosen discipline
+are processed with no click. The RFI scan's OCR skips unprocessed pages (`pages_needing_ocr`). Progress
 is read from server state (documents / region / scrapeStatus), so it resumes after a reload;
 the decision to show it is LATCHED per mount so finishing step 3 does not yank the stepper
 away mid-click. "Skip setup" (and the finished hand-off) writes `cdip-setup-skipped:{id}`; the
