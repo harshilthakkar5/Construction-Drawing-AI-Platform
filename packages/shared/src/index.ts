@@ -68,6 +68,10 @@ export interface ProcessingDisciplineDto {
   pages: number;
   processed: number;
   chosen: boolean;
+  /** What processing this discipline has cost so far (search indexing, the vision
+   * pass), priced at the API's rates. OCR runs locally and costs nothing. */
+  costUsd: number;
+  tokens: number;
 }
 
 export interface ProcessingStateDto {

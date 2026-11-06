@@ -765,4 +765,18 @@ class TestDisciplineFirst:
             1: ("structural", False), 2: ("mechanical", False), 3: ("structural", True)})
         monkeypatch.setattr(processing.db, "processing_choice", lambda _p: (False, {"structural"}))
         # page 4 is new: viewable now, processed once its title block says structural
-        assert processing._page_modes("proj", "doc", 4) == {0: (False, True), 3: (True, False)}
+        assert processing._page_modes("proj", "doc", 4) == {0: (False, True, "structural"), 3: (True, False, None)}
+
+
+def test_processing_spend_is_tagged_with_its_discipline(processing, pdf_path, monkeypatch):
+    """Each page's model calls (the vision pass) are billed to the discipline
+    the page was processed for, so 'Process now' on one discipline shows its cost."""
+    import usage
+
+    seen: list[dict | None] = []
+    monkeypatch.setattr(processing, "_process_page", lambda *a, **k: seen.append(usage.current_tag()) or False)
+    processing._extract_pages("proj", "doc", pdf_path, [0, 1], 0, 2, "doc", processing.DocumentSpend(),
+                              None, {0: (False, True, "mechanical"), 1: (False, True, None)})
+    assert sorted(t["stage"] for t in seen) == ["process:mechanical", "process:unsorted"]
+    assert all(t["reviewRunId"] is None for t in seen)
+    assert usage.current_tag() is None  # nothing leaks out of the pass

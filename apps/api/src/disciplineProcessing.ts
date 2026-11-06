@@ -3,7 +3,8 @@ import { QUEUES, UNSORTED, type ProcessingStateDto } from "@cdip/shared";
 import { prisma } from "./db.js";
 import { processDocumentQueue, scrapeRegionQueue } from "./queues.js";
 import { redis } from "./redis.js";
-import { chosenAfter } from "./disciplineProcessingRules.js";
+import { chosenAfter, processingSpend, type ProcessingUsageRow } from "./disciplineProcessingRules.js";
+import { estimateCostUsd } from "./usage.js";
 
 /**
  * Discipline-first processing, chosen per project. An upload gets the quick pass only; the full pass
@@ -28,10 +29,23 @@ export async function processingState(projectId: string): Promise<ProcessingStat
   const running = await prisma.document.count({
     where: { projectId, supersededAt: null, status: { in: ["uploaded", "processing"] } },
   });
+  const usage = await prisma.$queryRaw<ProcessingUsageRow[]>`
+    SELECT stage, model,
+           sum("inputTokens")::int AS "inputTokens", sum("outputTokens")::int AS "outputTokens",
+           sum("cacheReadTokens")::int AS "cacheReadTokens", sum("cacheWriteTokens")::int AS "cacheWriteTokens"
+      FROM usage_events
+     WHERE "projectId" = ${projectId} AND stage LIKE 'process:%'
+     GROUP BY stage, model`;
+  const spend = processingSpend(usage, estimateCostUsd);
   const chosen = new Set(project.processDisciplines);
   return {
     processAll: project.processAll,
-    disciplines: rows.map((r) => ({ ...r, chosen: project.processAll || chosen.has(r.discipline) })),
+    disciplines: rows.map((r) => ({
+      ...r,
+      chosen: project.processAll || chosen.has(r.discipline),
+      costUsd: spend.get(r.discipline)?.costUsd ?? 0,
+      tokens: spend.get(r.discipline)?.tokens ?? 0,
+    })),
     running: running > 0,
   };
 }

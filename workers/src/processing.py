@@ -39,6 +39,7 @@ import ocr
 import page_ocr
 import storage
 import tables
+import usage
 import vlm
 
 log = logutil.get("pipeline")
@@ -382,7 +383,7 @@ def _extract_pages(
     doc_tag: str,
     spend: "DocumentSpend",
     progress: "Progress | None" = None,
-    modes: "dict[int, tuple[bool, bool]] | None" = None,
+    modes: "dict[int, tuple[bool, bool, str | None]] | None" = None,
 ) -> tuple[int, int]:
     """Stage 2 across several pages at once. Returns (processed, ocr_count).
 
@@ -426,8 +427,10 @@ def _extract_pages(
             pdf = local.pdf = fitz.open(pdf_path)
             with lock:
                 opened.append(pdf)
-        quick, full = (modes or {}).get(index, (True, True))
-        used_ocr = _process_page(project_id, document_id, pdf, index, offset, spend, quick, full)
+        quick, full, discipline = (modes or {}).get(index, (True, True, None))
+        # The vision pass is billed to the discipline it was run for.
+        with usage.tagged(None, process_stage(discipline)):
+            used_ocr = _process_page(project_id, document_id, pdf, index, offset, spend, quick, full)
         with lock:
             counters["processed"] += 1
             if used_ocr:
@@ -499,8 +502,13 @@ def process_document(project_id: str, document_id: str, spaces_key: str) -> dict
         return _process_document(project_id, document_id, spaces_key)
 
 
-def _page_modes(project_id: str, document_id: str, page_count: int) -> dict[int, tuple[bool, bool]]:
-    """page index -> (quick, full) for every page that still needs work.
+def process_stage(discipline: str | None) -> str:
+    """The usage-ledger stage of a processing call: whose cost it is."""
+    return f"process:{discipline or db.UNSORTED}"
+
+
+def _page_modes(project_id: str, document_id: str, page_count: int) -> dict[int, tuple[bool, bool, str | None]]:
+    """page index -> (quick, full, discipline) for every page that still needs work.
 
     Quick: the page has no picture yet. Full: its discipline was chosen for
     processing (or the project processes everything) and it has not had it.
@@ -516,7 +524,7 @@ def _page_modes(project_id: str, document_id: str, page_count: int) -> dict[int,
         discipline, fully = state or (None, False)
         quick, full = state is None, db.is_due(discipline, fully, choice)
         if quick or full:
-            modes[index] = (quick, full)
+            modes[index] = (quick, full, discipline)
     return modes
 
 
@@ -581,8 +589,8 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
                 modes = _page_modes(project_id, document_id, page_count)
                 if not modes:
                     break
-                quick = sum(1 for q, _f in modes.values() if q)
-                full = sum(1 for _q, f in modes.values() if f)
+                quick = sum(1 for q, _f, _d in modes.values() if q)
+                full = sum(1 for _q, f, _d in modes.values() if f)
                 log.info(
                     "[doc %s] stage 2/6 extract: %d pages — %d quick pass (view only), "
                     "%d full pass (OCR + search)",
@@ -673,9 +681,15 @@ def _process_document(project_id: str, document_id: str, spaces_key: str) -> dic
     else:
         log.info("[doc %s] stage 5/6 embed: %d chunks to index", doc_tag, len(to_embed))
         try:
-            embedded_ids = embeddings.embed_document_chunks(
-                to_embed, previous_document_id=previous_id
-            )
+            # One call per discipline, so each one's embedding cost is its own.
+            by_discipline: dict[str, list[dict]] = {}
+            for chunk in to_embed:
+                by_discipline.setdefault(process_stage(chunk.get("page_discipline")), []).append(chunk)
+            for stage, chunks in by_discipline.items():
+                with usage.tagged(None, stage):
+                    embedded_ids += embeddings.embed_document_chunks(
+                        chunks, previous_document_id=previous_id
+                    )
             if previous_id is not None:
                 embeddings.delete_document_points(previous_id)
             if embedded_ids:

@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/api";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { RegionBanner } from "@/components/RegionBanner";
-import { useProcessing, useStartProcessing } from "@/components/Processing";
+import { processingCost, useProcessing, useStartProcessing } from "@/components/Processing";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -373,9 +373,9 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
                   <label htmlFor={`process-${row.discipline}`} className="min-w-0 flex-1 truncate font-medium">
                     {processingLabel(row.discipline)}
                   </label>
-                  <span className="text-muted-foreground text-xs tabular-nums">
+                  <span className="text-muted-foreground text-xs tabular-nums" title={processingCost(row)?.title}>
                     {done
-                      ? "Processed"
+                      ? `Processed · ${processingCost(row)?.usd ?? "$0.00"}`
                       : row.chosen
                         ? `Processing ${row.processed}/${row.pages}`
                         : "Not processed"}

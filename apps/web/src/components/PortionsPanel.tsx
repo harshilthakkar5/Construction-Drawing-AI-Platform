@@ -5,6 +5,7 @@ import { api } from "@/api";
 import { JobProgress, ProblemNotice } from "@/components/shared";
 import {
   ProcessAllRemaining,
+  processingCost,
   ProcessingProgress,
   ProcessNowButton,
   processingStage,
@@ -163,6 +164,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
             portion.summaryStatus === "queued" || portion.summaryStatus === "running";
           const key = processingKey(portion.discipline);
           const { stage } = processingStage(processingState.data, key);
+          const cost = processingCost(processingState.data?.disciplines.find((d) => d.discipline === key));
           const processed = stage === "done";
           // Fall back to the span only while the manifest is still loading.
           const pages = pagesOf(portion);
@@ -211,6 +213,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     {pages.length || portion.pageCount} sheet
                     {(pages.length || portion.pageCount) === 1 ? "" : "s"}
                     {portion.sheetNumberSample && ` · ${portion.sheetNumberSample}`}
+                    {cost && <span title={cost.title}>{` · processing ${cost.usd}`}</span>}
                   </span>
                   {processed ? (
                     <Badge variant={chip.variant} className="text-[11px]">
