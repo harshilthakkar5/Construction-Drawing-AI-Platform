@@ -265,11 +265,13 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
     before = db.portion_page_ids(project_id)
 
     pending = db.pages_to_scrape(project_id, region_version, document_id)
+    # A re-read with nothing new (after each processing run) keeps the last real
+    # counts, or the header says "0 of 0 sheets read".
     db.set_region_status(
         project_id,
         "running",
-        scraped_pages=0,
-        total_pages=len(pending),
+        scraped_pages=0 if pending else None,
+        total_pages=len(pending) if pending else None,
         last_error=None,
     )
     log.info(
@@ -320,8 +322,8 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
     db.set_region_status(
         project_id,
         "completed",
-        scraped_pages=scrape_result["scraped"],
-        not_found_pages=not_found,
+        scraped_pages=scrape_result["scraped"] if pending else None,
+        not_found_pages=not_found if pending else None,
         last_error=None,
         touch_scraped_at=True,
     )
