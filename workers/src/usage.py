@@ -36,7 +36,9 @@ _context: contextvars.ContextVar[dict | None] = contextvars.ContextVar("usage_co
 
 
 @contextmanager
-def tagged(review_run_id: str, stage: str, attempt: int | None = None):
+def tagged(review_run_id: str | None, stage: str, attempt: int | None = None):
+    """No run id: a stage of something else, e.g. "process:structural" — which
+    discipline a processing call was made for, so its cost is per discipline."""
     token = _context.set({"reviewRunId": review_run_id, "stage": stage, "attempt": attempt})
     try:
         yield

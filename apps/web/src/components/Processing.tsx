@@ -150,3 +150,14 @@ export function NotProcessedNotice({ projectId }: { projectId: string }) {
     </p>
   );
 }
+
+/** What processing a discipline has cost, e.g. "$0.0031" — small sums keep their
+ * digits, since one discipline's search indexing is often under a cent. */
+export function processingCost(row: { costUsd: number; tokens: number; processed: number } | undefined) {
+  if (!row || row.processed === 0) return null;
+  const usd = row.costUsd >= 0.01 ? `$${row.costUsd.toFixed(2)}` : row.costUsd > 0 ? `$${row.costUsd.toFixed(4)}` : "$0.00";
+  return {
+    usd,
+    title: `${row.tokens.toLocaleString()} AI tokens for search indexing and the vision pass. OCR runs on this machine and costs nothing.`,
+  };
+}

@@ -142,16 +142,10 @@ def _classify_pages(project_id: str) -> list[dict]:
         if row["page_id"] in manual_pages:
             resolved.append(row["discipline"])
             continue
-        sheet_number, discipline, source = by_page[row["page_id"]]
+        _sheet, discipline, source = by_page[row["page_id"]]
         resolved.append(discipline)
         if source in counts:
             counts[source] += 1
-        if (
-            sheet_number != row["sheet_number"]
-            or discipline != row["discipline"]
-            or source != row["discipline_source"]
-        ):
-            db.set_page_sheet(row["page_id"], sheet_number, discipline, source)
 
     log.info(
         "stage 2/5 classify: %d pages (%d by rules, %d read by AI, %d by filename, "
@@ -164,12 +158,19 @@ def _classify_pages(project_id: str) -> list[dict]:
         sum(1 for d in resolved if d is None),
     )
 
-    # Pages with no readable sheet number inherit from their neighbours, then
-    # the inherited value is persisted so retrieval and rollups can join on it.
+    # Pages with no readable sheet number inherit from their neighbours. Each
+    # page's FINAL value is written once: writing the raw reading first wiped an
+    # inherited discipline to NULL, and the inherit step then compared against the
+    # stale row and skipped it — so such pages flipped on every re-read.
     filled = classify.fill_unresolved(resolved)
     for row, before, after in zip(rows, resolved, filled):
-        if before is None and row["discipline"] != after:
-            db.set_page_sheet(row["page_id"], row["sheet_number"], after, "inherited")
+        if row["page_id"] in manual_pages:
+            continue
+        sheet_number, _discipline, source = by_page[row["page_id"]]
+        if before is None:
+            source = "inherited"
+        if (sheet_number, after, source) != (row["sheet_number"], row["discipline"], row["discipline_source"]):
+            db.set_page_sheet(row["page_id"], sheet_number, after, source)
 
     pages = [(row["combined_page"], row["region_text"]) for row in rows]
     portions = classify.group_portions(pages, filled)

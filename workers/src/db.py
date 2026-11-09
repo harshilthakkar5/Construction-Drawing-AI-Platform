@@ -866,7 +866,7 @@ def chunks_to_embed(document_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT c.id, c.text, p."pageNumber", p."combinedPageNumber",
-                   c."portionId", po.discipline, d."projectId", d.id, c."textHash"
+                   c."portionId", po.discipline, d."projectId", d.id, c."textHash", p.discipline
             FROM chunks c
             JOIN pages p ON c."pageId" = p.id
             JOIN documents d ON p."documentId" = d.id
@@ -887,6 +887,7 @@ def chunks_to_embed(document_id: str) -> list[dict]:
                 "project_id": r[6],
                 "document_id": r[7],
                 "text_hash": r[8],
+                "page_discipline": r[9],
             }
             for r in rows
         ]
