@@ -2572,7 +2572,9 @@ false one is a question someone has to answer:
     speaks only for its own DISCIPLINE's sheets; a sheet showing ≥2 unlisted marks of a family and
     more unlisted than listed uses the letters for something else (the roof plan's R7..R18 beside
     a railing schedule of R1..R6); and a mark followed by MIN/BATT/INSULATION is an R-value. Marks
-    are reported AS PRINTED ("F6.0", "SR-25"), not as indexed. On JETRIGHT's 103 pages: exactly one
+    are reported AS PRINTED ("F6.0", "SR-25"), not as indexed. A catalogue part or a material grade is never a mark
+    (`catalogue_ids`, applied to the schedule side too): Leland's "SIMPSON A34" angle was reported
+    missing from an EPOXY ANCHOR SCHEDULE whose only A tokens were "A307 OR A36 STEEL" and ASTM A615. On JETRIGHT's 103 pages: exactly one
     finding, F6.0 on S2.01 — a reviewer's JR-001.
   * `tag_value_conflict` — one equipment tag (letters-hyphen-number: RTU-3, CF-2) printed with
     two different ratings of one equipment unit (MBH, HP, CFM, GPM, KW, KVA, TONS, BTUH) on two

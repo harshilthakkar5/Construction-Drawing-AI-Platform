@@ -1438,6 +1438,34 @@
           ]
         }
       ]
+    },
+    {
+      "id": "fp-leland-catalogue-marks",
+      "source": "Code-check scan of Leland South Congress (Str + Arch, 297 sheets), dismissed during the remembered-dismissals test as 'Not what the check thinks it is'.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "unscheduled_mark"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "A34 and A35 missing from the epoxy anchor schedule",
+          "why": "'SIMPSON A34' on S7.00 is a Simpson Strong-Tie framing angle, and the 'schedule' marks A36, A307, A615 on S0.11 are steel grades ('FROM EITHER A307 OR A36 STEEL', 'ASTM A615'). Fixed: rfi_checks.catalogue_ids — a mark printed after a manufacturer, after ASTM, or before STEEL/GRADE is never a mark, on the plan side or the schedule side.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S7.00",
+            "S0.11"
+          ],
+          "mentions": [
+            "A34|A35"
+          ]
+        }
+      ]
     }
   ]
 }

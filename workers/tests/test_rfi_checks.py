@@ -838,6 +838,27 @@ def test_listing_numbers_and_sizes_are_not_marks():
     assert not rfi_checks._FASTENER_AFTER.match(" AT GRID 7/D")
 
 
+def test_a_catalogue_part_or_a_steel_grade_is_not_a_mark():
+    """Leland: S7.00's "SIMPSON A34" angle against S0.11's EPOXY ANCHOR SCHEDULE,
+    whose only A tokens are the steel grades in "FROM EITHER A307 OR A36 STEEL"
+    and "ASTM A615" — dismissed by the client's team as not marks at all."""
+    pages = [page("s", "S0.11"), page("p", "S7.00")]
+    chunks = [
+        chunk("sch", "s", "EPOXY ANCHOR SCHEDULE\nRODS FROM EITHER A307 OR A36 STEEL.\nREINFORCING ASTM A615.",
+              ["A307", "A36", "A615"]),
+        chunk("pl", "p", "SIMPSON A34\n6'-0\" OC W/ A34\nSIMPSON A35", ["A34", "A35"]),
+    ]
+    assert unscheduled_marks(pages, chunks)[0] == []
+    assert rfi_checks.catalogue_ids([c.text for c in chunks]) == {"A34", "A35", "A307", "A36", "A615"}
+    # A real anchor schedule beside a real unscheduled anchor is still a finding.
+    chunks = [
+        chunk("sch", "s", "ANCHOR SCHEDULE\nA1 1/2\" DIA\nA2 5/8\" DIA", ["A1", "A2"]),
+        chunk("pl", "p", "A3 AT GRID 4/B, SIMPSON A34", ["A3", "A34"]),
+        chunk("pl2", "p", "A3 AT GRID 5/B", ["A3"]),
+    ]
+    assert [f.facts["mark"] for f in unscheduled_marks(pages, chunks)[0]] == ["A3"]
+
+
 def test_the_sheet_index_is_never_a_schedule():
     """UT Law's index lists "A1.26 STOREFRONT SCHEDULE" beside "UNIT PLAN &
     ELEV. - S1-S2A"; read as a schedule it made the unit type S1A on the

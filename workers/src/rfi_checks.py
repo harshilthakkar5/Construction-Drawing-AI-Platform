@@ -704,6 +704,34 @@ def detail_ids(texts) -> set[str]:
     return out
 
 
+# A catalogue part or a material grade is not a drawn mark. Leland S7.00 calls
+# for "SIMPSON A34" (a Simpson Strong-Tie framing angle) and S0.11's EPOXY
+# ANCHOR SCHEDULE says "FROM EITHER A307 OR A36 STEEL" (ASTM grades), so A34
+# and A35 read as anchors missing from an anchor schedule of A36, A307, A615.
+_MAKER_BEFORE = re.compile(
+    r"\b(?:SIMPSON|STRONG-?\s?TIE|HILTI|USP|MITEK|DEWALT|POWERS|RED\s?HEAD|HALFEN|JORDAHL|"
+    r"DAYTON(?:\s+SUPERIOR)?|MEADOW\s?BURKE|WILLIAMS|ITW|RAMSET)\s*(?:MODEL\s+|NO\.?\s*|#)?$"
+    # ...or a material standard, alone or as the head of a list: "ASTM A307 OR A36".
+    r"|\bASTM\s*(?:[A-Z]\d{2,4}\s*(?:,|OR|AND|&|/)\s*)*$"
+)
+_GRADE_AFTER = re.compile(
+    r"^\s*(?:(?:,|OR|AND|&|/)\s*[A-Z]\d{2,4}\s*)*(?:STEEL|GRADE|GR\.?\s*\d|MATERIAL|PLATES?\b|RODS?\b|REBAR|REINFORC)"
+)
+_MARK_TOKEN = re.compile(r"(?<![\w./-])([A-Z]{1,3}-?\d{1,4}[A-Z]?)(?![\w/])")
+
+
+def catalogue_ids(texts) -> set[str]:
+    """Every mark-shaped token (normalized) the project prints as a
+    manufacturer's model or a material grade somewhere. Pure."""
+    out: set[str] = set()
+    for text in texts:
+        upper = text.upper()
+        for m in _MARK_TOKEN.finditer(upper):
+            if _MAKER_BEFORE.search(upper[max(0, m.start() - 30) : m.start()]) or _GRADE_AFTER.match(upper[m.end() : m.end() + 40]):
+                out.add(normalize(m.group(1)))
+    return out
+
+
 def in_listing(upper: str, start: int, end: int) -> bool:
     """Whether the token at upper[start:end] is a fire-rating listing number."""
     return bool(_LISTING_BEFORE.search(upper[max(0, start - 60) : start])
@@ -769,11 +797,14 @@ def unscheduled_marks(pages: list[Page], chunks: list[Chunk]) -> tuple[list[Find
     sheet_keys = {normalize(p.sheet_number) for p in pages if p.sheet_number}
     sheet_numbers = {p.sheet_number.upper() for p in pages if p.sheet_number}
     callout_ids = detail_ids(c.text for c in chunks)
+    # On the plan side and the schedule side alike: a grade listed in a
+    # schedule's notes is not one of its rows either.
+    catalogue = catalogue_ids(c.text for c in chunks)
 
     def marks_of(chunk: Chunk) -> dict[str, set[str]]:
         families: dict[str, set[str]] = {}
         for ident in chunk.identifiers:
-            if ident in sheet_keys:
+            if ident in sheet_keys or ident in catalogue:
                 continue
             parts = _mark_parts(ident)
             if parts is None:
