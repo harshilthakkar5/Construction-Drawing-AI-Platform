@@ -60,13 +60,16 @@ CHECK_TYPES = ("dangling_reference", "unscheduled_mark", "open_item_note", "grid
                "unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap",
                # detail_map.py: a symbol pointing at a detail its sheet does not have
                "missing_detail",
+               # schedule_loops.py: a schedule row and a plan pointing at each other
+               "schedule_plan_loop",
                # geometry_checks.py, on the sheet pairs the scan lines up:
                "grid_spacing", "column_mismatch")
 # The two above that compare a PAIR of sheets the scan lined up
 # (geometry_checks.py) rather than the text run_all reads.
 PAIR_CHECK_TYPES = ("grid_spacing", "column_mismatch")
 # Read off one sheet's PDF by rfi_scan (element_marks.py), not by run_all.
-PDF_CHECK_TYPES = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail")
+PDF_CHECK_TYPES = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail",
+                   "schedule_plan_loop")
 # Written only by the targeted review. Empty since the scan lines up sheet
 # pairs itself (column_mismatch used to need a review's two named sheets).
 REVIEW_CHECK_TYPES: tuple[str, ...] = ()

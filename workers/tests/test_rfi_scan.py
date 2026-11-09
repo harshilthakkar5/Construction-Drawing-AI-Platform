@@ -907,3 +907,36 @@ def test_a_scoped_scan_runs_only_what_was_asked_and_keeps_everything_else(databa
     assert result["byCheck"] == {} and result["resolved"] == 0 and after == before
     assert notes[0].startswith("This scan compared Structural vs Architectural, 1 question")
     assert "whole-project checks" in notes[0]
+
+
+@needs_db
+def test_a_remembered_dismissal_keeps_its_findings_out_of_every_scan(database):
+    project, _ = _seed(database)
+    rfi_scan.run(project, _scan(database, project))
+    with database.connect() as conn:
+        assert conn.execute(
+            'SELECT "itemKey" FROM rfi_candidates WHERE "projectId" = %s AND "checkType" = %s',
+            (project, "unscheduled_mark"),
+        ).fetchone() == ("PC4",)
+        # "Never raise a PC mark again": the person dismissed it with family scope.
+        conn.execute(
+            'UPDATE rfi_candidates SET status = \'dismissed\' WHERE "projectId" = %s AND "checkType" = %s',
+            (project, "unscheduled_mark"),
+        )
+        conn.execute(
+            'INSERT INTO rfi_dismissal_rules (id, "projectId", "checkType", scope, key, reason) '
+            "VALUES (%s, %s, 'unscheduled_mark', 'family', 'PC', 'wrong_item')",
+            (str(uuid.uuid4()), project),
+        )
+    # A rescan from scratch reopens dismissed findings, except those a rule covers.
+    result = rfi_scan.run(project, _scan(database, project, fresh=True))
+    assert "unscheduled_mark" not in result["byCheck"]
+    with database.connect() as conn:
+        notes = conn.execute('SELECT notes FROM rfi_scans WHERE "projectId" = %s ORDER BY "createdAt" DESC LIMIT 1',
+                             (project,)).fetchone()[0]
+        left = conn.execute(
+            'SELECT status FROM rfi_candidates WHERE "projectId" = %s AND "checkType" = %s',
+            (project, "unscheduled_mark"),
+        ).fetchall()
+    assert any("PC marks" in n for n in notes)
+    assert left == [("dismissed",)]

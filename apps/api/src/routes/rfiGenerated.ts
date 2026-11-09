@@ -2,6 +2,9 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import {
+  DISMISS_REASONS,
+  dismissalFamily,
+  type DismissalRuleDto,
   RFI_CANDIDATE_STATUSES,
   RFI_CONFIDENCES,
   type RfiCandidateStatus,
@@ -550,18 +553,69 @@ rfiGeneratedRouter.post("/from-rfi/:rfiId/return", async (req, res) => {
   res.json({ returned: true, candidateId: candidate.id });
 });
 
-/** Not an RFI. Remembered, so the next scan does not propose it again. */
+/** Not an RFI. Remembered, so the next scan does not propose it again. With
+ * `remember`, the dismissal also covers the item (this mark, tag or sheet) or
+ * its whole mark family: future scans and reviews leave those out, and any
+ * other finding about them now waiting for review is dismissed with it. */
+const dismissBody = z.object({
+  reason: z.enum(DISMISS_REASONS.map((r) => r.value) as [string, ...string[]]).default("not_a_problem"),
+  note: z.string().trim().max(500).optional(),
+  remember: z.enum(["item", "family"]).optional(),
+});
+
 rfiGeneratedRouter.post("/:candidateId/dismiss", async (req, res) => {
   const { projectId, candidateId } = candidateParams.parse(req.params);
+  const { reason, note, remember } = dismissBody.parse(req.body ?? {});
   const actor = currentUser(req);
-  const done = await prisma.rfiCandidate.updateMany({
-    where: { id: candidateId, projectId, status: "pending" },
-    data: { status: "dismissed", decidedById: actor.id, decidedAt: new Date() },
+  const candidate = await prisma.rfiCandidate.findFirst({ where: { id: candidateId, projectId } });
+  if (!candidate) return void res.status(404).json({ error: "finding not found" });
+  const key = remember === "family" ? dismissalFamily(candidate.checkType, candidate.itemKey) : remember ? candidate.itemKey : null;
+  if (remember && !key) {
+    return void res.status(400).json({ error: "this finding cannot be remembered beyond itself" });
+  }
+  const decided = { status: "dismissed" as const, decidedById: actor.id, decidedAt: new Date(), dismissReason: reason, dismissNote: note || null };
+  const result = await prisma.$transaction(async (tx) => {
+    const done = await tx.rfiCandidate.updateMany({ where: { id: candidateId, projectId, status: "pending" }, data: decided });
+    if (done.count === 0 || !remember || !key) return { dismissed: done.count, alsoDismissed: 0 };
+    await tx.rfiDismissalRule.upsert({
+      where: { projectId_checkType_scope_key: { projectId, checkType: candidate.checkType, scope: remember, key } },
+      create: { projectId, checkType: candidate.checkType, scope: remember, key, reason, note: note || null, candidateId, createdById: actor.id },
+      update: { reason, note: note || null },
+    });
+    const others = await tx.rfiCandidate.findMany({
+      where: { projectId, status: "pending", checkType: candidate.checkType, NOT: { itemKey: null } },
+      select: { id: true, itemKey: true },
+    });
+    const covered = others
+      .filter((o) => (remember === "item" ? o.itemKey === key : dismissalFamily(candidate.checkType, o.itemKey) === key))
+      .map((o) => o.id);
+    const also = covered.length
+      ? await tx.rfiCandidate.updateMany({ where: { id: { in: covered }, status: "pending" }, data: decided })
+      : { count: 0 };
+    return { dismissed: done.count, alsoDismissed: also.count };
   });
-  if (done.count === 0) {
+  if (result.dismissed === 0) {
     return void res.status(409).json({ error: "this finding has already been accepted or dismissed" });
   }
-  res.json({ dismissed: true });
+  res.json({ dismissed: true, alsoDismissed: result.alsoDismissed });
+});
+
+/** The dismissals this project remembers beyond one finding. */
+rfiGeneratedRouter.get("/dismissal-rules", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const rules = await prisma.rfiDismissalRule.findMany({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  res.json(rules.map((r): DismissalRuleDto => ({
+    id: r.id, checkType: r.checkType, scope: r.scope === "family" ? "family" : "item", key: r.key,
+    reason: r.reason, note: r.note, createdAt: r.createdAt.toISOString(),
+  })));
+});
+
+/** Forget a remembered dismissal: later scans may raise those findings again. */
+rfiGeneratedRouter.delete("/dismissal-rules/:ruleId", async (req, res) => {
+  const { projectId, ruleId } = projectParam.extend({ ruleId: z.string().uuid() }).parse(req.params);
+  const done = await prisma.rfiDismissalRule.deleteMany({ where: { id: ruleId, projectId } });
+  if (done.count === 0) return void res.status(404).json({ error: "rule not found" });
+  res.json({ deleted: true });
 });
 
 /** Undo a dismissal. An accepted finding cannot come back: it has a number. */
@@ -569,11 +623,13 @@ rfiGeneratedRouter.post("/:candidateId/restore", async (req, res) => {
   const { projectId, candidateId } = candidateParams.parse(req.params);
   const done = await prisma.rfiCandidate.updateMany({
     where: { id: candidateId, projectId, status: "dismissed" },
-    data: { status: "pending", decidedById: null, decidedAt: null },
+    data: { status: "pending", decidedById: null, decidedAt: null, dismissReason: null, dismissNote: null },
   });
   if (done.count === 0) {
     return void res.status(409).json({ error: "only a dismissed finding can be restored" });
   }
+  // Restoring a finding takes back what its dismissal asked to be remembered.
+  await prisma.rfiDismissalRule.deleteMany({ where: { projectId, candidateId } });
   res.json({ restored: true });
 });
 

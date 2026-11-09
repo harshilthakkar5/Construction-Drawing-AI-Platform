@@ -11,6 +11,7 @@ import { userMessage,
   type RfiReviewStatus,
   type RfiSetDetailDto,
   type RfiSetDto,
+  type DismissChoice,
 } from "@cdip/shared";
 import { api } from "@/api";
 import { AllBox, flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
@@ -912,7 +913,10 @@ function SetFindings({
     onFinished();
   };
   const accept = useMutation({ mutationFn: (id: string) => api.acceptRfiCandidate(projectId, id), onSuccess: decided });
-  const dismiss = useMutation({ mutationFn: (id: string) => api.dismissRfiCandidate(projectId, id), onSuccess: decided });
+  const dismiss = useMutation({
+    mutationFn: ({ id, choice }: { id: string; choice: DismissChoice }) => api.dismissRfiCandidate(projectId, id, choice),
+    onSuccess: decided,
+  });
 
   const d = detail.data;
   if (!d) return detail.error ? <Notice tone="error">{(detail.error as Error).message}</Notice> : <Spinner />;
@@ -965,7 +969,7 @@ function SetFindings({
               candidate={c}
               busy={accept.isPending || dismiss.isPending}
               onAccept={() => accept.mutate(c.id)}
-              onDismiss={() => dismiss.mutate(c.id)}
+              onDismiss={(choice) => dismiss.mutate({ id: c.id, choice })}
             />
           ))}
         </ul>

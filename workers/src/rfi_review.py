@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 import fitz
 
 import db
+import dismissals
 import doc_errors
 import diagnostics
 import grid
@@ -735,7 +736,8 @@ TEXT_CODE_CHECKS = ("dangling_reference", "unscheduled_mark", "open_item_note", 
 # side of the gap, and "is there a plan for every level" cannot be answered by
 # the one to four sheets a review picked.
 SET_CODE_CHECKS = ("missing_plan_level",)
-PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail")
+PDF_CODE_CHECKS = ("unmarked_element", "unsized_column", "twin_column_cap", "untagged_pile_cap", "missing_detail",
+                   "schedule_plan_loop")
 # Plain words for the prompt; the UI's own copy is RFI_CHECK_LABELS in @cdip/shared.
 CODE_CHECK_WORDS = {
     "dangling_reference": "a sheet referred to but not in the set",
@@ -748,6 +750,7 @@ CODE_CHECK_WORDS = {
     "twin_column_cap": "a pier cap carrying two columns with no detail called out",
     "untagged_pile_cap": "a pile cap drawn with no tag or size",
     "missing_detail": "a detail referred to that its sheet does not have",
+    "schedule_plan_loop": "a schedule and a plan pointing at each other for one value",
 }
 
 
@@ -891,13 +894,14 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     import detail_map
     import element_marks
     import pier_caps
+    import schedule_loops
     for check_type, module in (("unmarked_element", element_marks), ("unsized_column", column_schedule),
                                ("twin_column_cap", pier_caps), ("untagged_pile_cap", cap_tags),
-                               ("missing_detail", detail_map)):
+                               ("missing_detail", detail_map), ("schedule_plan_loop", schedule_loops)):
         if check_type in wanted:
             try:
                 # These read the sheets a symbol points to, which need not be reviewed.
-                extra = {"every": pages} if module in (cap_tags, detail_map) else {}
+                extra = {"every": pages} if module in (cap_tags, detail_map, schedule_loops) else {}
                 found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more
@@ -3232,9 +3236,9 @@ def _save_exact_findings(conn, run_id: str, project_id: str, findings: list[rfi_
             """
             INSERT INTO rfi_candidates
                 (id, "projectId", "reviewRunId", origin, fingerprint, "checkType", confidence,
-                 subject, question, "questionSource", evidence, status, "createdAt", "updatedAt")
+                 subject, question, "questionSource", evidence, "itemKey", status, "createdAt", "updatedAt")
             VALUES (gen_random_uuid()::text, %s, %s, 'targeted_review', %s, %s, %s::"RfiConfidence",
-                    %s, %s, 'template', %s::jsonb, 'pending', now(), now())
+                    %s, %s, 'template', %s::jsonb, %s, 'pending', now(), now())
             ON CONFLICT ("projectId", fingerprint) DO UPDATE
                SET "reviewRunId" = EXCLUDED."reviewRunId", confidence = EXCLUDED.confidence,
                    evidence = EXCLUDED.evidence, "updatedAt" = now()
@@ -3242,7 +3246,8 @@ def _save_exact_findings(conn, run_id: str, project_id: str, findings: list[rfi_
              -- pending finding shows it; a decision or a scan's finding stands.
              WHERE rfi_candidates.status = 'pending' AND rfi_candidates.origin = 'targeted_review'
             """,
-            (project_id, run_id, f.fingerprint, f.check_type, f.confidence, f.subject, f.question, json.dumps(f.evidence)),
+            (project_id, run_id, f.fingerprint, f.check_type, f.confidence, f.subject, f.question, json.dumps(f.evidence),
+             dismissals.item_key(f)),
         )
         saved.append(cur.rowcount > 0)
     return saved
@@ -4256,6 +4261,9 @@ def _run(run: dict) -> dict:
             known_fps.setdefault(cid, []).append(fp)
 
     with db.connect() as conn:
+        # A finding a person dismissed and asked to be remembered is not raised again.
+        exact, remembered = dismissals.apply(exact, dismissals.load_rules(conn, project_id))
+        notes += remembered
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
             saved += wrote
             # Credit every asked question the check answers; the overlay is C01's.

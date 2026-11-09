@@ -106,7 +106,7 @@ def test_a_code_finding_belongs_to_the_comparison_its_sheets_are_in():
 def test_only_the_checks_behind_the_chosen_questions_run():
     assert sc.check_types(scope(checkIds=["G01"])) == {"grid_mismatch", "grid_spacing"}
     assert sc.check_types(scope(checkIds=["C03"])) == {"column_mismatch"}
-    assert sc.check_types(scope(checkIds=["F01"])) == set()  # the AI comparison alone answers footings
+    assert sc.check_types(scope(checkIds=["F01"])) == {"schedule_plan_loop"}  # the SEE PLAN loop; the rest of footings is the AI comparison
     assert sc.check_types(scope(checkIds=[], projectChecks=True)) == set(sc.RFI_PROJECT_CHECK_TYPES)
 
 

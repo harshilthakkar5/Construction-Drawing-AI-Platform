@@ -1,4 +1,6 @@
 import type {
+  DismissChoice,
+  DismissalRuleDto,
   AuthResponseDto,
   ChatHistoryWindow,
   ChatMessageDto,
@@ -527,11 +529,18 @@ export const api = {
       { method: "POST", body: JSON.stringify({ minConfidence }) },
     ),
 
-  dismissRfiCandidate: (projectId: string, candidateId: string) =>
-    request<{ dismissed: true }>(`/projects/${projectId}/rfis/generated/${candidateId}/dismiss`, {
+  dismissRfiCandidate: (projectId: string, candidateId: string, choice: DismissChoice = {}) =>
+    request<{ dismissed: true; alsoDismissed: number }>(`/projects/${projectId}/rfis/generated/${candidateId}/dismiss`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(choice),
     }),
+
+  /** Dismissals remembered beyond one finding (a mark, a tag, a whole mark family). */
+  listDismissalRules: (projectId: string) =>
+    request<DismissalRuleDto[]>(`/projects/${projectId}/rfis/generated/dismissal-rules`),
+
+  forgetDismissalRule: (projectId: string, ruleId: string) =>
+    request<{ deleted: true }>(`/projects/${projectId}/rfis/generated/dismissal-rules/${ruleId}`, { method: "DELETE" }),
 
   /** Undo an accept: the RFI is voided (its number kept) and its finding is pending again. */
   returnRfiToReview: (projectId: string, rfiId: string) =>

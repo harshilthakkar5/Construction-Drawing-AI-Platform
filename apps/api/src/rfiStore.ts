@@ -102,6 +102,9 @@ export function toCandidateDto(row: CandidateRow): RfiCandidateDto {
     // Written by the worker as text; only a known value reaches the UI.
     priority: RFI_PRIORITIES.includes(row.priority as RfiPriority) ? (row.priority as RfiPriority) : null,
     corroboration: corroborationOf(row.corroboration),
+    itemKey: row.itemKey ?? null,
+    dismissReason: row.dismissReason ?? null,
+    dismissNote: row.dismissNote ?? null,
   };
 }
 

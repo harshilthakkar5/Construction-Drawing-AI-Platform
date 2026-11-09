@@ -2615,6 +2615,18 @@ false one is a question someone has to answer:
     "Level 3"); an entry for the one sheet of the series the set lacks is the finding, naming it
     ("S2.106 … is in the sheet index but not in the set"); several missing is a partial upload and
     a note. With no index entry, another series of the discipline must show the level.
+  * `schedule_plan_loop` (`workers/src/schedule_loops.py`) — a schedule row whose cell says SEE
+    PLAN for a mark the plan labels "SEE SCHEDULE" (or PER/REF SCHEDULE within `BACK_PT`): each
+    drawing defers the value to the other, so neither gives it. Read from WORD POSITIONS, never the
+    chunk text: a heading is found per SCHEDULE word from the words printed right beside it (two
+    schedules titled on one line keep their own titles), a row runs from a mark to the next mark on
+    its line, rows must be contiguous below their heading (a note lower on the sheet starting with a
+    mark is not a row), the heading must name the mark's family (`title_names_family`) and list ≥
+    `MIN_SCHEDULE_MARKS` of it. Level-prefixed marks (1PB1) count as their family. A review passes
+    every project page (`every=`) since the plan side need not be reviewed. Linked to F01, F02, F04,
+    C01, B01. On Leland, UT Law, Victaulic and Concourse B (812 pages) it reads 51 deferring rows
+    (Leland S9.01's PT beam forces, which the PT plans DO print) and raises nothing; the positive
+    case is held by a drawing made in the test, so its real-set precision is unmeasured on a loop.
   * `grid_mismatch` (`workers/src/rfi_grid.py`) — one grid line named differently by two
     drawings: the structural sheet's row 6 is the architectural sheet's row 9. Built from a real
     client RFI ("CONFIRM THE GRID LAYOUT", S2.105 against A3.01) that the three text checks
@@ -2686,6 +2698,20 @@ is written, one piece per sheet first, alternating namings, most renamed lines f
 (`_pick_evidence`). A lone fingerprint seen on 3+ sheets is written as the merged dispute, and a
 merged dispute is fingerprinted by its two DISCIPLINES only — with the renamed lines in it, every
 review (which compares its own sheets) and the scan (all sheets) filed the same dispute as new. A template question is refreshed to the current template on re-scan.
+
+**Dismissals can be remembered** (`rfi_dismissal_rules`, `workers/src/dismissals.py`). Dismiss asks
+WHY (`DISMISS_REASONS`, stored as `rfi_candidates.dismissReason`/`dismissNote`) and offers "never
+raise <item> again" (scope `item`: the mark, tag or missing sheet, saved per finding as
+`rfi_candidates.itemKey` from `dismissals.ITEM_FACT`) or "never raise any <F> mark again" (scope
+`family`, mark checks only — R7..R18 that are insulation values). The scan and the review drop a
+covered finding BEFORE wording and saving, so a rescan from scratch, a new fingerprint for the same
+item, or a review does not bring it back, and the notes count what was left out. Creating a rule
+also dismisses the other PENDING findings it covers, in the same transaction — otherwise the
+scan's "no longer produced, so resolved" deletion would silently remove them. Restoring the
+finding deletes the rules made from it; Settings lists every rule with Forget. The family rule
+lives twice (`dismissalFamily` in `@cdip/shared`, `dismissals.family`) and both read
+`packages/shared/fixtures/dismissal-keys.json`. Rules are per project and per check: a family
+dismissed for `unscheduled_mark` still reaches `schedule_plan_loop`.
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
