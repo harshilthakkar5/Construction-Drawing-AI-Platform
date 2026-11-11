@@ -40,6 +40,7 @@ const rfiSettingsSchema = z
         thinking: z.enum(RFI_REVIEW_THINKING),
         maxInputTokens: z.number().int().min(RFI_REVIEW_INPUT_LIMITS.min).max(RFI_REVIEW_INPUT_LIMITS.max).nullable(),
         maxThinkingTokens: z.number().int().min(RFI_REVIEW_THINKING_LIMITS.min).max(RFI_REVIEW_THINKING_LIMITS.max).nullable(),
+        useBatch: z.boolean().default(false),
       })
       .strict(),
     fullScan: z

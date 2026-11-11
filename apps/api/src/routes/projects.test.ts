@@ -5,13 +5,16 @@ import { updateProjectSchema } from "./projects.js";
 /** Project Settings tab: RFI settings saved on the project, refused when a run would refuse them. */
 describe("project RFI settings", () => {
   const valid = {
-    review: { provider: "gemini", model: "gemini-3.8-flash", depth: "deep", thinking: "low", maxInputTokens: 60_000, maxThinkingTokens: null },
+    review: { provider: "gemini", model: "gemini-3.8-flash", depth: "deep", thinking: "low", maxInputTokens: 60_000, maxThinkingTokens: null, useBatch: true },
     fullScan: { provider: null, model: null, useBatch: false, budgetUsd: 4 },
   };
 
   it("accepts settings a run would accept, and null to reset them", () => {
     expect(updateProjectSchema.parse({ rfiSettings: valid }).rfiSettings).toEqual(valid);
     expect(updateProjectSchema.parse({ rfiSettings: null }).rfiSettings).toBeNull();
+    // Settings saved before batch mode existed carry no choice: direct, as they ran.
+    const { useBatch: _, ...before } = valid.review;
+    expect(updateProjectSchema.parse({ rfiSettings: { ...valid, review: before } }).rfiSettings!.review.useBatch).toBe(false);
   });
 
   it("refuses limits outside a run's bounds, unknown fields and an empty update", () => {

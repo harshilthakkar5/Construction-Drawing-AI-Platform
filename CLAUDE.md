@@ -2713,7 +2713,9 @@ scan's "no longer produced, so resolved" deletion would silently remove them. Re
 finding deletes the rules made from it; Settings lists every rule with Forget. The family rule
 lives twice (`dismissalFamily` in `@cdip/shared`, `dismissals.family`) and both read
 `packages/shared/fixtures/dismissal-keys.json`. Rules are per project and per check: a family
-dismissed for `unscheduled_mark` still reaches `schedule_plan_loop`.
+dismissed for `unscheduled_mark` still reaches `schedule_plan_loop`. An item is one item however it is printed
+(`same_item` / `sameDismissalItem`: PC4 on one sheet is PC-4 on the next, and which form a finding carries
+depends on the sheet it met first; a dot is part of the mark).
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
@@ -2921,6 +2923,23 @@ Still missed on that set: RFI 001 (slope low points — FL04 read the S4.136 sec
 answered "insufficient evidence": the forming notes defer opening sizes to an architectural slab plan
 it was not shown). O01's first real run hit RFI 005 on S5.210 ("LB-B1/B2/B3 on SW-1.1: width, height
 and sill height?"); RFI 005's form names S5.200, but the marked sheet is S5.210.
+
+**What a review costs, measured** (74 real runs + their diagnostic exports, Nov 2026). The reading call
+is ~75% of a review, and inside it the TEXT pieces are ~60% of the tokens (82k of 138k on a real Columns
+review), whole-sheet pictures ~18% (≈2,500 tokens each, not the estimate's 1,600), close-ups ~14%. A
+smaller sheet or chunk limit is NOT the lever: the evidence behind saved findings is spread evenly through
+the ranking (top 12 of 48 chunks hold 42% of it, ranks 36–47 still 15%), and whole-sheet pictures are cited
+as often as close-ups (30%). What is: drawing text is ALL CAPS and capitals tokenize at 1.42 characters a
+token. `rfi_review.plain_case` shows `text` evidence with its free-standing words of 3+ letters in lower
+case (`RFI_REVIEW_LOWERCASE_WORDS`, default on; marks, sheet numbers, grid names, sizes and anything
+touching a digit, dot, slash or quote stay as printed; `Evidence.text`, quotes and the wording guard keep the
+drawing's own letters). Counted with the free count_tokens endpoint on recorded requests: reading text −25%,
+verification −20%. Three paid Leland reviews with it used 18–25% fewer reading tokens than the same elements'
+earlier runs, found RFI 007 (earlier runs 1 of 3) and had no wording refused — n=1 an element, so "no worse",
+not "better". Batch mode (`limits.useBatch`, from `rfiSettings.review.useBatch`, Settings → "How to send") sends
+each call of a review as a ONE-entry batch (`rfi_review._send` → `llm.complete_batch(replies=…)`) at half
+price; spend is recorded as "<model>-batch", which `usage.rateFor` prices at half its model. One batch per
+call, so a review waits for each (a tiny batch took 89 s) and a cancel is noticed when its batch lands.
 
 A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
 before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet

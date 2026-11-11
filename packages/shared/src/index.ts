@@ -1287,6 +1287,13 @@ export function dismissalFamily(checkType: string, key: string | null | undefine
   return /^\d*([A-Z]+)/.exec(key.toUpperCase())?.[1] ?? null;
 }
 
+/** One item however it is printed: PC4 on one sheet is PC-4 on the next.
+ * Mirrored in workers/src/dismissals.py `same_item`; both read the fixture. */
+export function sameDismissalItem(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (s: string | null | undefined) => (s ?? "").toUpperCase().replace(/[\s-]/g, "");
+  return !!a && norm(a) === norm(b);
+}
+
 /** What a person chose when dismissing: why, and whether to remember it for
  * this item or its whole family. */
 export interface DismissChoice {
@@ -1775,11 +1782,13 @@ export interface RfiProjectSettings {
     thinking: RfiReviewThinking;
     maxInputTokens: number | null;
     maxThinkingTokens: number | null;
+    /** Send each call through the provider's batch API: half price, slower. */
+    useBatch: boolean;
   };
   fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
 }
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
-  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null },
+  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
   fullScan: { provider: null, model: null, useBatch: true, budgetUsd: null },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. */
@@ -1976,6 +1985,8 @@ export interface RfiReviewLimitsDto {
   thinkingEffort: RfiReviewThinking;
   maxTotalTokens: number;
   maxBatches: number;
+  /** True when the run's calls go through the batch API (half price, slower). */
+  useBatch?: boolean;
 }
 
 export interface RfiReviewCoverageDto {

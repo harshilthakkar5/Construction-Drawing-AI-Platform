@@ -32,6 +32,14 @@ def item_key(finding) -> str | None:
     return str(value).strip().upper() or None if value else None
 
 
+def same_item(a: str | None, b: str | None) -> bool:
+    """One mark however it is printed: PC4 on one sheet is PC-4 on the next,
+    and which form a finding carries depends on the sheet it met first."""
+    def norm(s):
+        return re.sub(r"[\s-]", "", (s or "").upper())
+    return bool(a) and norm(a) == norm(b)
+
+
 def family(check_type: str, key: str | None) -> str | None:
     if not key or check_type not in FAMILY_CHECKS:
         return None
@@ -61,7 +69,7 @@ def covered(finding, rules) -> tuple[str, str, str] | None:
     for check_type, scope, rule_key, reason in rules:
         if check_type != finding.check_type:
             continue
-        if (scope == "item" and rule_key.upper() == key) or (scope == "family" and fam and rule_key.upper() == fam):
+        if (scope == "item" and same_item(rule_key, key)) or (scope == "family" and fam and rule_key.upper() == fam):
             return scope, rule_key, reason
     return None
 

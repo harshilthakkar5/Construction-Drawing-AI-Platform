@@ -102,6 +102,7 @@ export interface RfiReviewPlanRequest {
   model?: string;
   maxInputTokens?: number;
   maxThinkingTokens?: number | null;
+  useBatch?: boolean;
   excludePageIds: string[];
   /** "By element": the library element and the questions chosen from it. */
   library?: { elementId: string; questionIds: string[] };
@@ -581,7 +582,7 @@ export const api = {
   reestimateRfiReview: (
     projectId: string,
     runId: string,
-    body: Pick<RfiReviewPlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking">,
+    body: Pick<RfiReviewPlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking" | "useBatch">,
   ) =>
     request<RfiReviewEstimateDto>(`/projects/${projectId}/rfis/reviews/${runId}/estimate`, {
       method: "POST",

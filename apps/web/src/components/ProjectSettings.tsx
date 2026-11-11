@@ -249,6 +249,27 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             ))}
           </ToggleGroup>
         </Field>
+        <Field
+          label="How to send"
+          hint={d.review.useBatch ? "Half price; each review takes about 10 minutes or more instead of a few." : "Full price; results in a few minutes."}
+        >
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            value={d.review.useBatch ? "batch" : "direct"}
+            onValueChange={(v) => v && set({ review: { ...d.review, useBatch: v === "batch" } })}
+            aria-label="How to send reviews"
+          >
+            <ToggleGroupItem value="direct" className="flex-1 text-xs">
+              Direct
+            </ToggleGroupItem>
+            <ToggleGroupItem value="batch" className="flex-1 text-xs">
+              Batch (half price)
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </Field>
         <NumberField
           label="Most input tokens per reading call"
           value={d.maxInput}

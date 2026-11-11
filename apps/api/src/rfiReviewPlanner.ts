@@ -97,6 +97,8 @@ export interface PlanRequest {
   model?: string;
   maxInputTokens?: number;
   maxThinkingTokens?: number | null;
+  /** Half price, slower: every call goes through the provider's batch API. */
+  useBatch?: boolean;
   /** Pages the person removed from an earlier plan — related sheets that are
    * obviously unrelated, or the wrong one of two pages claiming a sheet. */
   excludePageIds: string[];
@@ -151,7 +153,7 @@ export interface ResolvedSettings {
 /** Provider, model and limits for one run, validated against what the model
  * accepts: a thinking ceiling on a model that takes only an effort is
  * refused, not silently ignored. */
-export function resolveSettings(request: Pick<PlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking" | "depth">): ResolvedSettings {
+export function resolveSettings(request: Pick<PlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking" | "depth" | "useBatch">): ResolvedSettings {
   const provider = request.provider ?? rfiReviewProvider();
   const model = request.model ?? (request.provider ? configuredModel(provider) : rfiReviewModel());
   const offered = reviewModelOptions().options.find((o) => o.provider === provider && o.model === model);
@@ -174,6 +176,8 @@ export function resolveSettings(request: Pick<PlanRequest, "provider" | "model" 
       thinkingEffort: request.thinking,
       maxTotalTokens: caps.maxTotalTokens,
       maxBatches: caps.maxBatches,
+      // Only when chosen, so a direct plan's stored limits are what they always were.
+      ...(request.useBatch ? { useBatch: true } : {}),
     },
   };
 }
@@ -753,6 +757,7 @@ function estimateFor(
       maxInputTokens: settings.limits.maxInputTokens,
       thinkingEffort: settings.limits.thinkingEffort,
       maxThinkingTokens: settings.limits.maxThinkingTokens,
+      useBatch: settings.limits.useBatch ?? false,
       checkCount,
       pricingVersion: PRICING_VERSION,
       priced: pricingConfidence(settings.model) !== "unknown",
@@ -770,7 +775,7 @@ function estimateFor(
  */
 export function reestimate(
   run: RunRow,
-  request: Pick<PlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking">,
+  request: Pick<PlanRequest, "provider" | "model" | "maxInputTokens" | "maxThinkingTokens" | "thinking" | "useBatch">,
 ): RfiReviewEstimateDto {
   const depth = run.depth as RfiReviewDepth;
   const settings = resolveSettings({ ...request, depth });
@@ -861,6 +866,7 @@ export function toReviewDto(row: RunRow, candidates: number, now = new Date(), j
     thinkingEffort: (storedLimits?.thinkingEffort ?? row.thinkingRequested) as RfiReviewThinking,
     maxTotalTokens: storedLimits?.maxTotalTokens ?? caps.maxTotalTokens,
     maxBatches: storedLimits?.maxBatches ?? caps.maxBatches,
+    ...(storedLimits?.useBatch ? { useBatch: true } : {}),
   };
   const storedCoverage = record<unknown>(row.coverage) as Partial<RfiReviewCoverageDto> | null;
   const coverage: RfiReviewCoverageDto = {

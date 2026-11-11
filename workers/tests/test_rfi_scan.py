@@ -917,7 +917,7 @@ def test_a_remembered_dismissal_keeps_its_findings_out_of_every_scan(database):
         assert conn.execute(
             'SELECT "itemKey" FROM rfi_candidates WHERE "projectId" = %s AND "checkType" = %s',
             (project, "unscheduled_mark"),
-        ).fetchone() == ("PC4",)
+        ).fetchone()[0] in ("PC4", "PC-4")  # as printed on whichever sheet came first
         # "Never raise a PC mark again": the person dismissed it with family scope.
         conn.execute(
             'UPDATE rfi_candidates SET status = \'dismissed\' WHERE "projectId" = %s AND "checkType" = %s',

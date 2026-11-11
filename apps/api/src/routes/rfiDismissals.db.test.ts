@@ -84,8 +84,8 @@ describe.skipIf(!url)("remembered dismissals", () => {
     const c = await finding("RTU-3", "tag_value_conflict");
     expect((await dismiss(c.id, { remember: "item" })).status).toBe(200);
     const [rule] = (await (await fetch(`${base}/dismissal-rules`)).json()) as { id: string; key: string }[];
-    expect(rule.key).toBe("RTU-3");
-    expect((await fetch(`${base}/dismissal-rules/${rule.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(rule!.key).toBe("RTU-3");
+    expect((await fetch(`${base}/dismissal-rules/${rule!.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await prisma.rfiDismissalRule.count({ where: { projectId } })).toBe(0);
 
     const tbd = await finding(null, "open_item_note");

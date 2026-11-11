@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   DISMISS_REASONS,
   dismissalFamily,
+  sameDismissalItem,
   type DismissalRuleDto,
   RFI_CANDIDATE_STATUSES,
   RFI_CONFIDENCES,
@@ -587,7 +588,7 @@ rfiGeneratedRouter.post("/:candidateId/dismiss", async (req, res) => {
       select: { id: true, itemKey: true },
     });
     const covered = others
-      .filter((o) => (remember === "item" ? o.itemKey === key : dismissalFamily(candidate.checkType, o.itemKey) === key))
+      .filter((o) => (remember === "item" ? sameDismissalItem(o.itemKey, key) : dismissalFamily(candidate.checkType, o.itemKey) === key))
       .map((o) => o.id);
     const also = covered.length
       ? await tx.rfiCandidate.updateMany({ where: { id: { in: covered }, status: "pending" }, data: decided })

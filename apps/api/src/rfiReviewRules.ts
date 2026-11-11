@@ -747,6 +747,8 @@ export interface EstimateSettings {
   maxInputTokens: number;
   thinkingEffort: RfiReviewThinking;
   maxThinkingTokens: number | null;
+  /** Batch mode: every call at half the model's rate. */
+  useBatch?: boolean;
   checkCount: number;
   pricingVersion: string;
   /** False when the model's price is a guess: the range is then null-priced. */
@@ -783,12 +785,13 @@ export function estimateReview(scope: ReviewScope, settings: EstimateSettings, c
   const outputTokens = discoveryOut * batches + OUTPUT.reasoning + OUTPUT.verification;
   const thinkingPerCall = settings.maxThinkingTokens ?? EFFORT_HEADROOM[settings.thinkingEffort];
   const cost = (input: number, output: number) =>
-    costOf({ model: settings.model, inputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0 });
+    costOf({ model: settings.model, inputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0 }) * (settings.useBatch ? 0.5 : 1);
   const assumptions = [
     `~${IMAGE_TOKENS} input tokens per image (${imageParts} images, including up to ${pairImages} side-by-side)`,
     `${batches} discovery call(s) at up to ${settings.maxInputTokens.toLocaleString()} input tokens each`,
     `thinking up to ${thinkingPerCall.toLocaleString()} tokens per call on the high end, none on the low end`,
     "the model decides how much it reasons and writes; the actual cost is shown after the run",
+    ...(settings.useBatch ? ["batch mode: half price, and each call can take minutes rather than seconds"] : []),
   ];
   if (evidence > caps.maxBatches * settings.maxInputTokens) {
     assumptions.push(`the evidence exceeds ${caps.maxBatches} call(s) at this input limit; the rest is omitted and the run is marked partial`);

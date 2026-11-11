@@ -55,3 +55,16 @@ def test_a_family_rule_leaves_out_every_mark_of_the_family():
 def test_no_rules_changes_nothing():
     findings = [_f("unscheduled_mark", "mark", "F6.0")]
     assert dismissals.apply(findings, []) == (findings, [])
+
+
+def test_one_item_however_it_is_printed():
+    """PC4 on one sheet is PC-4 on the next, and which form a finding carries
+    depends on the sheet it met first; the fixture is shared with TypeScript."""
+    for a, b, same in json.loads(FIXTURE.read_text())["sameItem"]:
+        assert dismissals.same_item(a, b) is same, (a, b)
+        assert dismissals.same_item(b, a) is same, (b, a)
+    assert not dismissals.same_item(None, None)
+    finding = Finding(check_type="unscheduled_mark", fingerprint="f", confidence="high", subject="s",
+                                 question="q", facts={"mark": "PC-4"}, evidence=[])
+    kept, notes = dismissals.apply([finding], [("unscheduled_mark", "item", "PC4", "wrong_item")])
+    assert kept == [] and notes
