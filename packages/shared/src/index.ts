@@ -1787,11 +1787,14 @@ export interface RfiProjectSettings {
   };
   fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
 }
+/** Both RFI runs default to Claude Sonnet 5.5 (owner's choice, Nov 2026), whatever the server's env picks. */
+export const RFI_DEFAULT_MODEL = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
-  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
-  fullScan: { provider: null, model: null, useBatch: true, budgetUsd: null },
+  review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
+  fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
 };
-/** Stored settings over the defaults — a row saved before a field existed still reads whole. */
+/** Stored settings over the defaults — a row saved before a field existed still reads whole. A model
+ * saved as "Server default" is stored as null and stays so; only an unsaved one gets the default. */
 export function rfiSettingsOf(stored: { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]> } | null | undefined): RfiProjectSettings {
   return {
     review: { ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review },
