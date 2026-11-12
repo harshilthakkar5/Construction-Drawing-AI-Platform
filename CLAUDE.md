@@ -3522,7 +3522,7 @@ modes are still built, with their switches removed (`mode` is fixed in `RfiRevie
 RFIs tab used to carry beside the work — the targeted review's model, depth, care and token limits,
 the AI comparison's model, batch/direct, budget and auto-start limit — saved on the project
 (`projects.rfiSettings`, `RfiProjectSettings` + `rfiSettingsOf` in `@cdip/shared`, validated in
-`routes/projects.ts` to a run's own bounds, owner only). The RFIs tab reads them (`useRfiSettings`)
+`routes/projects.ts` to a run's own bounds, owner only). Both runs default to Claude Sonnet 5.5 (`RFI_DEFAULT_MODEL`), and a model saved as the old "Server default" (null) reads as it — the dropdowns no longer offer "Server default", which showed whatever the server's env picked (gemini on one install). The RFIs tab reads them (`useRfiSettings`)
 and shows one `SettingsLine` per run type whose link switches tabs through the store's `workTab`.
 What to compare and which questions stay in the RFIs tab: that is the work, not a setting. The
 tab opens on "Scan all drawings" — one button, code checks then the optional priced AI comparison

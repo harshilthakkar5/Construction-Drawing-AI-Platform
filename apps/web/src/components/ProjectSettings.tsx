@@ -159,9 +159,6 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
   const models = (needPrice: boolean) => (
     <>
-      <SelectItem value={DEFAULT} className="text-xs">
-        Server default{options.data ? ` (${options.data.default.model})` : ""}
-      </SelectItem>
       {(options.data?.options ?? []).map((o) => (
         <SelectItem
           key={modelKey(o.provider, o.model)}
