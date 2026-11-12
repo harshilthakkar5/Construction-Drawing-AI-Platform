@@ -1851,14 +1851,18 @@ def unclaimed_absences(observations: list[dict], proposed: list[dict]) -> list[d
     plate dimensions are not given") in runs whose same question raised only the
     piers' HOLD status, and was dropped there. One per question, placement first,
     then by how many observations say so. Pure."""
-    raised = [_content_words(f"{c.get('issue') or ''} {c.get('element') or ''}") for c in proposed]
+    # Stems, so a plural is not a second word: "pier" + "piers" once made "top of pier" cover
+    # "the pier centre under the wall is not dimensioned" (Leland RFI 002).
+    stems = lambda text: {w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                          for w in _content_words(text)}
+    raised = [stems(f"{c.get('issue') or ''} {c.get('element') or ''}") for c in proposed]
     by_check: dict[str, list[dict]] = {}
     for o in observations:
         text = o.get("statement") or ""
         if not o.get("evidenceIds"):
             continue
         if _ABSENT.search(text) and (_GEOMETRY.search(text) or _PLACEMENT.search(text)):
-            gap = _content_words(" ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", text) if _ABSENT.search(s)) or text)
+            gap = stems(" ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", text) if _ABSENT.search(s)) or text)
             if any(len(gap & words) >= 2 for words in raised):
                 continue
             by_check.setdefault(o["checkId"], []).append(o)
@@ -1937,7 +1941,7 @@ _CONCEDED = re.compile(
 )
 _PLAIN = {"the", "and", "for", "are", "any", "not", "that", "this", "with", "from", "each", "all", "its",
           "specific", "value", "values", "detail", "details", "plan", "plans", "sheet", "sheets", "drawing",
-          "drawings", "evidence", "shown", "stated", "given", "printed", "provided", "specified", "indicated"}
+          "drawings", "evidence", "show", "shows", "shown", "drawn", "stated", "given", "printed", "provided", "specified", "indicated"}
 
 
 def _content_words(text: str | None) -> set[str]:

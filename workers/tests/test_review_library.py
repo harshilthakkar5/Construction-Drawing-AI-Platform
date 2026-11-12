@@ -735,6 +735,13 @@ def test_an_absence_is_dropped_only_by_a_proposal_about_the_same_gap():
     # "Not separately dimensioned" is an absence too (Leland RFI 002's observation).
     apart = [dict(seen[0], statement="Under the wall at the P30-12 pier, the pier centre is not separately dimensioned.")]
     assert [c["checkId"] for c in rr.unclaimed_absences(apart, [])] == ["CE-04-10-Q02"]
+    # A plural is not a second shared word, and "show" is no word at all: "top of pier" and
+    # "pier bells not shown" do not cover the pier centre under the wall (Leland RFI 002, run 2).
+    wall = [dict(seen[0], checkId="CE-03-01-Q05", statement="Where a pier sits under a wall, the plan crops show "
+                 "it drawn on the wall, and the pier centre is not dimensioned.")]
+    others = [{"checkId": "CE-03-01-Q03", "element": "Drilled piers", "issue": "Top of pier is given, but no tip elevation."},
+              {"checkId": "CE-03-01-Q02", "element": "Drilled pier bells", "issue": "No bell diameter is shown."}]
+    assert [c["checkId"] for c in rr.unclaimed_absences(wall, others)] == ["CE-03-01-Q05"]
     # Not legible is not absent: the reading failed, which says nothing about the drawing.
     assert rr.unclaimed_absences([dict(seen[0], statement="Base plate dimensions are not legible.")], hold) == []
 
