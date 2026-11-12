@@ -53,6 +53,8 @@ import {
   titleMentions,
   titlePattern,
   titleReferences,
+  pointedSheets,
+  pointerWords,
   disciplineNotUploaded,
   MAX_TITLE_REFERENCES,
   type Box,
@@ -630,6 +632,24 @@ export async function planReview(
       }
     }
   }
+  // Sheets a reviewed page sends the reader to by number for what the element is about
+  // ("COLUMN BASE PLATE, SEE S3.2"): forced in, and their pieces carrying those words cropped first.
+  const pointedWords = new Map<string, Set<string>>();
+  if (libraryScope) {
+    const { name, variants, attributes, triggers } = libraryScope.element;
+    const wanted = pointerWords([name, variants, attributes, triggers].join(" "));
+    const reviewed = [...new Set([...namedIds, ...[...chunks.values()].map((c) => c.pageId)])];
+    const texts = (await chunksOf(reviewed)).filter((c) => c.kind === "text")
+      .map((c) => ({ text: c.text, from: byId.get(c.pageId)?.sheetNumber ?? null }));
+    for (const ref of pointedSheets(texts, wanted, sheets, ownSheets)) {
+      const page = byId.get(ref.pageIds[0]!);
+      if (!page || excluded.has(page.id)) continue;
+      pointedWords.set(page.id, new Set(ref.words));
+      if (inPlan.has(page.id)) continue;
+      forced.push({ page: asPage(page), role: "reference", reason: `${ref.from ?? "a reviewed sheet"} sends ${ref.words.join(" ")} to ${page.sheetNumber}` });
+      inPlan.add(page.id);
+    }
+  }
   if (!all.some((p) => p.sheetKind)) {
     notes.push(
       "Sheet kinds have not been read for this project yet (a Find RFIs scan reads them), so the plan could not check that each question has the schedules, sections or elevations it needs.",
@@ -672,8 +692,14 @@ export async function planReview(
     targetChunks,
     elementChunkIds: target.elementChunkIds,
     forced,
-    hitLists: [...hitLists, forced.map((f) => f.page.pageId).flatMap((id) => [...chunks.values()].filter((c) => c.pageId === id).map((c) => c.chunkId))],
-    hitChecks: [...searches.map((s) => s.label), "reference"],
+    hitLists: [
+      ...hitLists,
+      forced.map((f) => f.page.pageId).flatMap((id) => [...chunks.values()].filter((c) => c.pageId === id).map((c) => c.chunkId)),
+      [...chunks.values()]
+        .filter((c) => c.kind === "text" && [...pointerWords(c.text)].filter((w) => pointedWords.get(c.pageId)?.has(w)).length >= 2)
+        .map((c) => c.chunkId),
+    ],
+    hitChecks: [...searches.map((s) => s.label), "reference", "reference"],
     chunks,
     pages,
     elementName: libraryScope?.element.name,

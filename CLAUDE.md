@@ -2910,6 +2910,15 @@ skipped like "SEE KEY PLAN"), and a titled drawing of a discipline with NO sheet
 note, never a gap (`disciplineNotUploaded`): gaps reach verification as `<not_in_project>`, which says
 never to reject a problem deferred to one, so "not uploaded" was turning into RFIs. The full scan compares plans only and its plan says which chosen questions need
 other kinds (`scan_scope.views_note`).
+A sheet NUMBER a reviewed page points to for what the element is about is followed too (`pointedSheets`, By element
+only): a line "SEE <sheet>" sharing two of the element's own words (name, variants, attributes, triggers) forces that
+sheet in as a reference with pictures, and its text pieces carrying those words are cropped first. Victaulic S1.1D's
+"COLUMN BASE PLATE, SEE S3.2" — `referencedSheets` follows only the TARGET's words, so the piers review read S3.2 as
+text only, none of its BASE PLATE pieces, and RFI 005 (base plate sizes) was raised in 3 of 10 runs. Re-planned, it
+changes two of eight Victaulic elements (piers → S3.2, footing steps → S3.1) and none on Leland or UT Law.
+`unclaimed_absences` now drops an observed absence only when a proposal shares two words with THAT gap, not when its
+question has any proposal (the base plate gap sat under a question that raised only the piers' HOLD status); "not
+legible" is never an absence.
 
 The planner reads a page's level with `pageLevel` (`rfiReviewRules.ts`): the title-block box first,
 then the scan's own `pages.level`. A box drawn tight round the sheet number (UT Law's structural box

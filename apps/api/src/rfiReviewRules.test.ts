@@ -15,6 +15,8 @@ import {
   pageLevel,
   titleMentions,
   titleReferences,
+  pointedSheets,
+  pointerWords,
   disciplineNotUploaded,
   rankCorrespondence,
   drawsGrid,
@@ -747,5 +749,24 @@ describe("detail titles of the library element", () => {
     expect(s4.reason).toContain("detail titled with Elevator pits");
     expect(withName.pages.find((p) => p.pageId === "x")?.visual ?? false).toBe(false); // a pointer earns nothing
     expect(TITLED_EXTRA_PAGES).toBe(2);
+  });
+});
+
+describe("pointedSheets", () => {
+  // Victaulic: S1.1D sends base plates to S3.2; the piers element names "base plate larger than pedestal".
+  const sheets = new Map([["S32", ["p32"]], ["S01", ["p01"]], ["S31", ["p31"]], ["S35", ["p35"]]]);
+  const wanted = pointerWords("Piers / pedestals Column pedestals, pier caps above footings Size, height, anchor bolt pattern fit Base plate larger than pedestal; T.O. pedestal vs grout bed thickness");
+  const s11d = { from: "S1.1D", text: "1. FOR GENERAL NOTES SEE S0.1\nINDICATES FOOTING STEP, SEE 8/S3.1.\nIDICATES COLUMN BASE PLATE, SEE S3.2." };
+
+  it("follows a note that sends the element's own words to a sheet", () => {
+    const got = pointedSheets([s11d], wanted, sheets, new Set(["S35"]));
+    expect(got.map((r) => r.sheet)).toEqual(["S32"]);
+    expect(got[0]!.words.sort()).toEqual(["base", "column", "plate"]);
+  });
+
+  it("ignores pointers for something else, and the sheet under review", () => {
+    expect(pointedSheets([{ from: "S1.1D", text: "GENERAL NOTES SEE S0.1\nFOOTING STEP, SEE 8/S3.1" }], wanted, sheets, new Set())).toEqual([]);
+    expect(pointedSheets([s11d], wanted, sheets, new Set(["S32"]))).toEqual([]);
+    expect(pointedSheets([{ from: "x", text: "COLUMN BASE PLATE, SEE S9.9" }], wanted, sheets, new Set())).toEqual([]);
   });
 });

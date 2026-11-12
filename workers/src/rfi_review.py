@@ -1843,17 +1843,23 @@ _PLACEMENT = re.compile(r"\b(?:dimension\w*|offsets?|locat\w*|centre\w*|center\w
 MAX_UNCLAIMED = 3
 
 
-def unclaimed_absences(observations: list[dict], proposed: set[str]) -> list[dict]:
-    """Candidates for the questions reasoning proposed nothing for, made from
-    discovery's own observations that a value needed to place or size an
-    element is not given. One per question, placement first, then by how many
-    observations say so. Pure."""
+def unclaimed_absences(observations: list[dict], proposed: list[dict]) -> list[dict]:
+    """Candidates made from discovery's own observations that a value needed to
+    place or size an element is not given, where no proposal covers THAT gap — one
+    sharing two of its words. Not per question: Victaulic RFI 005 was observed ("base
+    plate dimensions are not given") in runs whose same question raised only the
+    piers' HOLD status, and was dropped there. One per question, placement first,
+    then by how many observations say so. Pure."""
+    raised = [_content_words(f"{c.get('issue') or ''} {c.get('element') or ''}") for c in proposed]
     by_check: dict[str, list[dict]] = {}
     for o in observations:
         text = o.get("statement") or ""
-        if o["checkId"] in proposed or not o.get("evidenceIds"):
+        if not o.get("evidenceIds"):
             continue
         if _ABSENT.search(text) and (_GEOMETRY.search(text) or _PLACEMENT.search(text)):
+            gap = _content_words(" ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", text) if _ABSENT.search(s)) or text)
+            if any(len(gap & words) >= 2 for words in raised):
+                continue
             by_check.setdefault(o["checkId"], []).append(o)
     ranked = sorted(by_check.items(), key=lambda kv: (
         not any(_PLACEMENT.search(o["statement"]) for o in kv[1]), -len(kv[1]), kv[0]))
@@ -4059,7 +4065,7 @@ def _run(run: dict) -> dict:
             c for c in value_conflicts(inventory)
             if not any(set(c["evidenceIds"]) <= s or s <= set(c["evidenceIds"]) for s in reasoned)
         ][: max(0, MAX_CANDIDATES - len(candidates))]
-        absent = unclaimed_absences(observations, {c["checkId"] for c in candidates})[: max(0, MAX_CANDIDATES - len(candidates) - len(by_values))]
+        absent = unclaimed_absences(observations, candidates)[: max(0, MAX_CANDIDATES - len(candidates) - len(by_values))]
         if absent:
             candidates += absent
             notes.append(f"Absences recorded by discovery and proposed by no one: {len(absent)} question(s) "
