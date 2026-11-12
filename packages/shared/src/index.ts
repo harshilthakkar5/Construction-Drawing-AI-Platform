@@ -1793,14 +1793,12 @@ export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
   review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
   fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
 };
-/** Stored settings over the defaults — a row saved before a field existed still reads whole, and a model
- * saved as "Server default" (null) reads as the default model. */
+/** Stored settings over the defaults — a row saved before a field existed still reads whole. A model
+ * saved as "Server default" is stored as null and stays so; only an unsaved one gets the default. */
 export function rfiSettingsOf(stored: { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]> } | null | undefined): RfiProjectSettings {
-  const model = <T extends { provider: RfiReviewProvider | null; model: string | null }>(s: T): T =>
-    s.provider && s.model ? s : { ...s, ...RFI_DEFAULT_MODEL };
   return {
-    review: model({ ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review }),
-    fullScan: model({ ...RFI_SETTINGS_DEFAULTS.fullScan, ...stored?.fullScan }),
+    review: { ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review },
+    fullScan: { ...RFI_SETTINGS_DEFAULTS.fullScan, ...stored?.fullScan },
   };
 }
 

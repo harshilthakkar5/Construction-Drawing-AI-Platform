@@ -33,12 +33,13 @@ describe("project RFI settings", () => {
     expect(s.fullScan).toEqual(RFI_SETTINGS_DEFAULTS.fullScan);
   });
 
-  it("defaults both RFI runs to Claude Sonnet 5.5, including a model saved as Server default", () => {
+  it("defaults both RFI runs to Claude Sonnet 5.5, and keeps a model saved as Server default", () => {
     const sonnet = { provider: "claude", model: "claude-sonnet-5-5" };
     expect(rfiSettingsOf(null).review).toMatchObject(sonnet);
-    const old = rfiSettingsOf({ review: { provider: null, model: null }, fullScan: { provider: null, model: null } });
-    expect(old.review).toMatchObject(sonnet);
-    expect(old.fullScan).toMatchObject(sonnet);
+    expect(rfiSettingsOf({ review: { depth: "quick" } }).fullScan).toMatchObject(sonnet);
+    const server = rfiSettingsOf({ review: { provider: null, model: null }, fullScan: { provider: null, model: null } });
+    expect(server.review).toMatchObject({ provider: null, model: null });
+    expect(server.fullScan).toMatchObject({ provider: null, model: null });
     const gemini = { provider: "gemini" as const, model: "gemini-3.8-flash" };
     expect(rfiSettingsOf({ review: gemini }).review).toMatchObject(gemini);
   });
