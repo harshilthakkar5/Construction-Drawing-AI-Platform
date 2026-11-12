@@ -732,6 +732,9 @@ def test_an_absence_is_dropped_only_by_a_proposal_about_the_same_gap():
     assert [c["checkId"] for c in got] == ["CE-04-10-Q02"] and "Plate size" in got[0]["issue"]
     plate = [{"checkId": "CE-04-10-Q05", "issue": "The base plate size and edge clearance are not shown."}]
     assert rr.unclaimed_absences(seen, plate) == []
+    # "Not separately dimensioned" is an absence too (Leland RFI 002's observation).
+    apart = [dict(seen[0], statement="Under the wall at the P30-12 pier, the pier centre is not separately dimensioned.")]
+    assert [c["checkId"] for c in rr.unclaimed_absences(apart, [])] == ["CE-04-10-Q02"]
     # Not legible is not absent: the reading failed, which says nothing about the drawing.
     assert rr.unclaimed_absences([dict(seen[0], statement="Base plate dimensions are not legible.")], hold) == []
 

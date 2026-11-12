@@ -1834,7 +1834,8 @@ def callouts_in_project(project_id: str, sheets: set[str]) -> tuple[dict, dict]:
 _ABSENT = re.compile(
     r"\bno\s+(?:\w+[\s-]+){0,3}?(?:dimensions?|offsets?|elevations?|sizes?|locations?|centres?|centers?|"
     r"centrelines?|centerlines?|thickness(?:es)?|widths?|depths?)\b"
-    r"|\b(?:is|are|was|were|not)\s+(?:not\s+)?(?:dimensioned|located|given|stated|specified|provided|printed|shown)\b"
+    # "is not separately dimensioned" (Leland RFI 002): one -ly word may stand between.
+    r"|\b(?:is|are|was|were|not)\s+(?:not\s+)?(?:\w+ly\s+)?(?:dimensioned|located|given|stated|specified|provided|printed|shown)\b"
     r"|\bdoes\s+not\s+(?:show|give|state|dimension|locate)\b",
     re.I,
 )
@@ -2179,13 +2180,22 @@ _DETAIL_REF = re.compile(r"\b\d{1,3}\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b|\bt
 _QUOTES_LENGTH = re.compile(r"\d+\s*'\s*-?\s*\d+")
 # What a reason must say to have answered WHERE: a place, a grid, an offset or a dimension to something.
 _SPEAKS_OF_PLACE = re.compile(r"\bgrids?\b|\boffsets?\b|\bdimensioned\b|\bdimensions?\s+(?:to|from)\b", re.I)
+# "Located by the grid" / "sits at grid intersections": a claim of place, true only if measured.
+_BY_GRID = re.compile(
+    r"\b(?:located|placed|set|positioned|fixed)\s+(?:\w+\s+){0,2}?by\s+(?:the\s+)?grids?\b"
+    r"|\b(?:sit|sits|lie|lies|are|is|fall|falls)\s+(?:on|at)\s+(?:the\s+)?grid\s*(?:line\s+)?(?:intersections?|crossings?|lines?)\b",
+    re.I,
+)
+# A problem saying the element sits somewhere a grid does not place it: at a wall, a corner, an offset.
+_OFF_GRID = re.compile(r"\b(?:at|under|along|beside)\s+(?:the\s+|a\s+)?wall\b|\bwall\s+(?:corner|end)s?\b"
+                       r"|\boffsets?\s+from\b|\boff\s+(?:the\s+)?grids?\b|\bbetween\s+(?:the\s+)?grids?\b", re.I)
 # A place said in words, which gives no distance: "locate on each side of the overhead door".
 _PLACE_IN_WORDS = re.compile(r"\b(?:each|both)\s+sides?\s+of\b|\blocating\s+rule\b|\bleaders?\s+points?\b", re.I)
 
 
 def place_unanswered(decision: dict | None, candidate: dict) -> bool:
     """A rejection of a "where is it" problem that never says where. Pure.
-    Three shapes, each a client RFI set aside on Victaulic:
+    Four shapes, each a client RFI set aside:
       * it rests on a detail reference — a detail shows how an element is built,
         not where each one is (RFI 003: "note 13 sends the step itself to detail
         8/S3.1");
@@ -2193,6 +2203,8 @@ def place_unanswered(decision: dict | None, candidate: dict) -> bool:
         is given on the S3.1 sections: 2'-6\" wide", against "no dimensions to grids").
       * it answers with a place said in words and no distance (RFI 013: "the notes say to
         locate the bollards on each side of the overhead door, so the location is not missing").
+      * it says the grid places an element the problem says sits at a wall or an offset, measuring
+        nothing (Leland RFI 002, set aside twice: "piers under walls are located by the grid").
     A reason calling it a duplicate, or naming the specs or the field, stands; so
     does a detail or words reason quoting a length, and a size reason speaking of a grid or offset."""
     if not decision or decision.get("decision") != "reject" or candidate.get("kind") not in ("missing", "ambiguity"):
@@ -2206,7 +2218,8 @@ def place_unanswered(decision: dict | None, candidate: dict) -> bool:
     by_detail = bool(_DETAIL_REF.search(reason)) and not _QUOTES_LENGTH.search(reason)
     by_size = bool(_QUOTES_LENGTH.search(reason)) and not (_LOCATES.search(reason) or _SPEAKS_OF_PLACE.search(reason))
     by_words = bool(_PLACE_IN_WORDS.search(reason)) and not _QUOTES_LENGTH.search(reason)
-    return by_detail or by_size or by_words
+    by_grid = bool(_BY_GRID.search(reason)) and bool(_OFF_GRID.search(issue)) and not _QUOTES_LENGTH.search(reason)
+    return by_detail or by_size or by_words or by_grid
 
 
 def kept_for_placement(candidate: dict, decision: dict) -> dict:
