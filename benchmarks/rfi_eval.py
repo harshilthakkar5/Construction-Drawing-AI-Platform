@@ -240,6 +240,81 @@ def load_project_reviews(project_id: str) -> tuple[dict[str, dict], list[dict]]:
     return runs, [dict(zip(keys, r[:5]), element=element_of.get(r[5])) for r in found]
 
 
+def repeat_outcome(expected: dict, saved: list[dict], set_aside: list[dict], elements: tuple[str, ...]) -> str:
+    """How ONE run did on one expected finding: "hit" (saved it, or found it
+    again on file), "set aside" (the AI proposed it and verification or a rule
+    dropped it) or "miss" (never proposed). Pure. The middle outcome is the one
+    that says where a miss comes from: reading, or the checking step."""
+    if any(not matches(expected, c, elements) for c in saved):
+        return "hit"
+    if any(not matches(expected, c, elements) for c in set_aside):
+        return "set aside"
+    return "miss"
+
+
+def repeat_table(cases: list[dict], runs: dict[str, list[dict]]) -> list[dict]:
+    """One row per expected finding of every case whose element was run: its
+    outcome in each run of that element, oldest first. Pure.
+    runs: {elementId: [{"id", "saved": [...], "setAside": [...]}]}."""
+    rows = []
+    for case in cases:
+        elements = tuple(case.get("elements", []))
+        mine = [r for e in elements for r in runs.get(e, [])]
+        if not mine:
+            continue
+        for exp in case["expected"]:
+            outcomes = [repeat_outcome(exp, r["saved"], r["setAside"], elements) for r in mine]
+            rows.append({"case": case["id"], "what": exp["what"], "outcomes": outcomes, "runs": [r["id"] for r in mine]})
+    return rows
+
+
+def load_repeats(project_id: str, since: str) -> dict[str, list[dict]]:
+    """Every finished By element run of the project since `since`, per element,
+    with what it saved or found again and what was set aside."""
+    import psycopg
+
+    keys = ("id", "checkType", "subject", "question", "evidence")
+    out: dict[str, list[dict]] = {}
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        rows = conn.execute(
+            """SELECT id, scope->'library'->'element'->>'id', "checkResults" FROM rfi_review_runs
+               WHERE "projectId" = %s AND scope ? 'library' AND status IN ('ready', 'partial') AND "createdAt" >= %s
+               ORDER BY "createdAt" ASC""",
+            (project_id, since),
+        ).fetchall()
+        for run_id, element, results in rows:
+            results = results or {}
+            again = sorted({fp for r in results.values() for fp in (r or {}).get("foundAgain") or []})
+            found = conn.execute(
+                """SELECT id, "checkType", subject, question, evidence FROM rfi_candidates
+                   WHERE "projectId" = %s AND ("reviewRunId" = %s OR fingerprint = ANY(%s::text[]))""",
+                (project_id, str(run_id), again),
+            ).fetchall()
+            aside = [
+                {"checkType": q, "subject": e.get("subject") or "", "question": f"{e.get('issue') or ''} {e.get('question') or ''}",
+                 "evidence": e.get("evidence") or [], "element": element}
+                for q, r in results.items() for e in (r or {}).get("setAside") or []
+            ]
+            out.setdefault(element, []).append(
+                {"id": str(run_id), "saved": [dict(zip(keys, f), element=element) for f in found], "setAside": aside})
+    return out
+
+
+def report_repeats(rows: list[dict], runs: dict[str, list[dict]]) -> None:
+    mark = {"hit": "HIT", "set aside": "set aside", "miss": "-"}
+    print(f"{sum(len(v) for v in runs.values())} run(s) of {len(runs)} element(s)")
+    for row in rows:
+        hits = row["outcomes"].count("hit")
+        print(f"{row['case']}: found in {hits} of {len(row['outcomes'])} run(s)  [{', '.join(mark[o] for o in row['outcomes'])}]  {row['what']}")
+    total = sum(len(r["outcomes"]) for r in rows)
+    hit = sum(r["outcomes"].count("hit") for r in rows)
+    aside = sum(r["outcomes"].count("set aside") for r in rows)
+    always = sum(1 for r in rows if set(r["outcomes"]) == {"hit"})
+    never = sum(1 for r in rows if "hit" not in r["outcomes"])
+    print(f"Overall: {hit} of {total} run-findings found; {aside} proposed and set aside; "
+          f"{always} of {len(rows)} found in every run, {never} in none, {len(rows) - always - never} in some")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     source = parser.add_mutually_exclusive_group(required=True)
@@ -247,6 +322,9 @@ def main() -> int:
     source.add_argument("--scan", help="rfi_scans.id to score (the project-wide checks)")
     source.add_argument("--fullscan", help="rfi_full_scans.id to score (the full AI scan)")
     source.add_argument("--project-reviews", help="projects.id: score every By element review of the project")
+    source.add_argument("--repeats", help="projects.id: score EVERY finished By element run since --since, run by run "
+                                          "(how often each expected finding is found when a review is repeated)")
+    parser.add_argument("--since", default="1970-01-01", help="with --repeats: only runs created at or after this time")
     parser.add_argument("--case", default="rfi-002", help="a case id, or several separated by commas")
     parser.add_argument("--code-only", action="store_true",
                         help="score only findings a code check made, not the model's (an offline or stub run)")
@@ -257,6 +335,10 @@ def main() -> int:
     if unknown:
         print(f"no case {', '.join(map(repr, unknown))}; have {', '.join(cases)}", file=sys.stderr)
         return 2
+    if args.repeats:
+        runs = load_repeats(args.repeats, args.since)
+        report_repeats(repeat_table([cases[c] for c in wanted], runs), runs)
+        return 0
     if args.project_reviews:
         runs, candidates = load_project_reviews(args.project_reviews)
         if args.code_only:

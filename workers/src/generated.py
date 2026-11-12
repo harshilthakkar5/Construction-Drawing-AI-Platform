@@ -245,6 +245,7 @@ RFI_CHECK_LABELS = {
     "twin_column_cap": "Pier cap carrying two columns with no detail called out",
     "untagged_pile_cap": "Pile cap drawn with no tag or size",
     "missing_detail": "Detail referenced but not on its sheet",
+    "schedule_plan_loop": "Schedule and plan point at each other for a value",
     "column_mismatch": "Column drawn differently on two drawings",
     "grid_spacing": "Grid lines drawn a different distance apart on two drawings",
 }
@@ -830,14 +831,25 @@ RFI_QUESTION_CODE_CHECKS = {
         "grid_mismatch",
         "grid_spacing",
     ],
+    "F01": [
+        "schedule_plan_loop",
+    ],
+    "F02": [
+        "schedule_plan_loop",
+    ],
     "F04": [
         "unmarked_element",
         "twin_column_cap",
         "untagged_pile_cap",
+        "schedule_plan_loop",
     ],
     "C01": [
         "column_mismatch",
         "unsized_column",
+        "schedule_plan_loop",
+    ],
+    "B01": [
+        "schedule_plan_loop",
     ],
     "C03": [
         "column_mismatch",
@@ -913,6 +925,7 @@ RFI_PROJECT_CHECK_TYPES = [
     "twin_column_cap",
     "untagged_pile_cap",
     "missing_detail",
+    "schedule_plan_loop",
 ]
 RFI_CUSTOM_QUESTION_IDS = [
     "Q1",

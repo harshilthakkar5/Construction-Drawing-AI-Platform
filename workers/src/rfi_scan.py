@@ -37,6 +37,7 @@ import redis as redis_lib
 
 import config
 import db
+import dismissals
 import doc_errors
 import grid
 import llm
@@ -1242,6 +1243,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
         import detail_map
         import element_marks
         import pier_caps
+        import schedule_loops
 
         for check_type, module, what in (
             ("unmarked_element", element_marks, "elements drawn with no type mark"),
@@ -1249,6 +1251,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
             ("twin_column_cap", pier_caps, "pier caps carrying two columns"),
             ("untagged_pile_cap", cap_tags, "pile caps drawn with no tag"),
             ("missing_detail", detail_map, "details referred to that their sheet does not have"),
+            ("schedule_plan_loop", schedule_loops, "schedules and plans pointing at each other"),
         ):
             if check_type not in ran:
                 continue
@@ -1269,6 +1272,13 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
         pinpoint_evidence(project_id, findings, open_page)
         if plan is not None and full_scan_id:
             save_ai_plan(full_scan_id, project_id, plan, open_page, findings, progress, notes)
+
+    # Findings a person dismissed and asked to be remembered (an item, or a mark
+    # family) are not raised again, not even by a rescan from scratch.
+    with db.connect() as conn:
+        rules = dismissals.load_rules(conn, project_id)
+    findings, remembered = dismissals.apply(findings, rules)
+    notes += remembered
 
     with db.connect() as conn:
         fresh = bool(
@@ -1325,12 +1335,13 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
                 """
                 INSERT INTO rfi_candidates
                     (id, "projectId", "scanId", fingerprint, "checkType", confidence,
-                     subject, question, "questionSource", evidence, status,
+                     subject, question, "questionSource", evidence, "itemKey", status,
                      "createdAt", "updatedAt")
-                VALUES (%s, %s, %s, %s, %s, %s::"RfiConfidence", %s, %s, %s, %s::jsonb,
+                VALUES (%s, %s, %s, %s, %s, %s::"RfiConfidence", %s, %s, %s, %s::jsonb, %s,
                         'pending', now(), now())
                 ON CONFLICT ("projectId", fingerprint) DO UPDATE
                    SET "scanId" = EXCLUDED."scanId",
+                       "itemKey" = EXCLUDED."itemKey",
                        -- Confirmed by the AI comparison (agreement.py): the
                        -- next code scan must not quietly lower it again.
                        confidence = CASE WHEN rfi_candidates.corroboration IS NOT NULL
@@ -1364,6 +1375,7 @@ def _run(project_id: str, scan_id: str, full_scan_id: str | None = None) -> dict
                     question,
                     source,
                     json.dumps(finding.evidence),
+                    dismissals.item_key(finding),
                     replace,
                     replace,
                     replace,

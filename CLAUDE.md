@@ -2572,7 +2572,9 @@ false one is a question someone has to answer:
     speaks only for its own DISCIPLINE's sheets; a sheet showing ≥2 unlisted marks of a family and
     more unlisted than listed uses the letters for something else (the roof plan's R7..R18 beside
     a railing schedule of R1..R6); and a mark followed by MIN/BATT/INSULATION is an R-value. Marks
-    are reported AS PRINTED ("F6.0", "SR-25"), not as indexed. On JETRIGHT's 103 pages: exactly one
+    are reported AS PRINTED ("F6.0", "SR-25"), not as indexed. A catalogue part or a material grade is never a mark
+    (`catalogue_ids`, applied to the schedule side too): Leland's "SIMPSON A34" angle was reported
+    missing from an EPOXY ANCHOR SCHEDULE whose only A tokens were "A307 OR A36 STEEL" and ASTM A615. On JETRIGHT's 103 pages: exactly one
     finding, F6.0 on S2.01 — a reviewer's JR-001.
   * `tag_value_conflict` — one equipment tag (letters-hyphen-number: RTU-3, CF-2) printed with
     two different ratings of one equipment unit (MBH, HP, CFM, GPM, KW, KVA, TONS, BTUH) on two
@@ -2615,6 +2617,18 @@ false one is a question someone has to answer:
     "Level 3"); an entry for the one sheet of the series the set lacks is the finding, naming it
     ("S2.106 … is in the sheet index but not in the set"); several missing is a partial upload and
     a note. With no index entry, another series of the discipline must show the level.
+  * `schedule_plan_loop` (`workers/src/schedule_loops.py`) — a schedule row whose cell says SEE
+    PLAN for a mark the plan labels "SEE SCHEDULE" (or PER/REF SCHEDULE within `BACK_PT`): each
+    drawing defers the value to the other, so neither gives it. Read from WORD POSITIONS, never the
+    chunk text: a heading is found per SCHEDULE word from the words printed right beside it (two
+    schedules titled on one line keep their own titles), a row runs from a mark to the next mark on
+    its line, rows must be contiguous below their heading (a note lower on the sheet starting with a
+    mark is not a row), the heading must name the mark's family (`title_names_family`) and list ≥
+    `MIN_SCHEDULE_MARKS` of it. Level-prefixed marks (1PB1) count as their family. A review passes
+    every project page (`every=`) since the plan side need not be reviewed. Linked to F01, F02, F04,
+    C01, B01. On Leland, UT Law, Victaulic and Concourse B (812 pages) it reads 51 deferring rows
+    (Leland S9.01's PT beam forces, which the PT plans DO print) and raises nothing; the positive
+    case is held by a drawing made in the test, so its real-set precision is unmeasured on a loop.
   * `grid_mismatch` (`workers/src/rfi_grid.py`) — one grid line named differently by two
     drawings: the structural sheet's row 6 is the architectural sheet's row 9. Built from a real
     client RFI ("CONFIRM THE GRID LAYOUT", S2.105 against A3.01) that the three text checks
@@ -2686,6 +2700,22 @@ is written, one piece per sheet first, alternating namings, most renamed lines f
 (`_pick_evidence`). A lone fingerprint seen on 3+ sheets is written as the merged dispute, and a
 merged dispute is fingerprinted by its two DISCIPLINES only — with the renamed lines in it, every
 review (which compares its own sheets) and the scan (all sheets) filed the same dispute as new. A template question is refreshed to the current template on re-scan.
+
+**Dismissals can be remembered** (`rfi_dismissal_rules`, `workers/src/dismissals.py`). Dismiss asks
+WHY (`DISMISS_REASONS`, stored as `rfi_candidates.dismissReason`/`dismissNote`) and offers "never
+raise <item> again" (scope `item`: the mark, tag or missing sheet, saved per finding as
+`rfi_candidates.itemKey` from `dismissals.ITEM_FACT`) or "never raise any <F> mark again" (scope
+`family`, mark checks only — R7..R18 that are insulation values). The scan and the review drop a
+covered finding BEFORE wording and saving, so a rescan from scratch, a new fingerprint for the same
+item, or a review does not bring it back, and the notes count what was left out. Creating a rule
+also dismisses the other PENDING findings it covers, in the same transaction — otherwise the
+scan's "no longer produced, so resolved" deletion would silently remove them. Restoring the
+finding deletes the rules made from it; Settings lists every rule with Forget. The family rule
+lives twice (`dismissalFamily` in `@cdip/shared`, `dismissals.family`) and both read
+`packages/shared/fixtures/dismissal-keys.json`. Rules are per project and per check: a family
+dismissed for `unscheduled_mark` still reaches `schedule_plan_loop`. An item is one item however it is printed
+(`same_item` / `sameDismissalItem`: PC4 on one sheet is PC-4 on the next, and which form a finding carries
+depends on the sheet it met first; a dot is part of the mark).
 
 Only `kind="text"` chunks are read — a description is a vision model's account, and a finding
 built on one would be a model's claim wearing a check's confidence. Each check caps at 100
@@ -2894,6 +2924,23 @@ answered "insufficient evidence": the forming notes defer opening sizes to an ar
 it was not shown). O01's first real run hit RFI 005 on S5.210 ("LB-B1/B2/B3 on SW-1.1: width, height
 and sill height?"); RFI 005's form names S5.200, but the marked sheet is S5.210.
 
+**What a review costs, measured** (74 real runs + their diagnostic exports, Nov 2026). The reading call
+is ~75% of a review, and inside it the TEXT pieces are ~60% of the tokens (82k of 138k on a real Columns
+review), whole-sheet pictures ~18% (≈2,500 tokens each, not the estimate's 1,600), close-ups ~14%. A
+smaller sheet or chunk limit is NOT the lever: the evidence behind saved findings is spread evenly through
+the ranking (top 12 of 48 chunks hold 42% of it, ranks 36–47 still 15%), and whole-sheet pictures are cited
+as often as close-ups (30%). What is: drawing text is ALL CAPS and capitals tokenize at 1.42 characters a
+token. `rfi_review.plain_case` shows `text` evidence with its free-standing words of 3+ letters in lower
+case (`RFI_REVIEW_LOWERCASE_WORDS`, default on; marks, sheet numbers, grid names, sizes and anything
+touching a digit, dot, slash or quote stay as printed; `Evidence.text`, quotes and the wording guard keep the
+drawing's own letters). Counted with the free count_tokens endpoint on recorded requests: reading text −25%,
+verification −20%. Three paid Leland reviews with it used 18–25% fewer reading tokens than the same elements'
+earlier runs, found RFI 007 (earlier runs 1 of 3) and had no wording refused — n=1 an element, so "no worse",
+not "better". Batch mode (`limits.useBatch`, from `rfiSettings.review.useBatch`, Settings → "How to send") sends
+each call of a review as a ONE-entry batch (`rfi_review._send` → `llm.complete_batch(replies=…)`) at half
+price; spend is recorded as "<model>-batch", which `usage.rateFor` prices at half its model. One batch per
+call, so a review waits for each (a tiny batch took 89 s) and a cancel is noticed when its batch lands.
+
 A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
 before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet
 results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
@@ -2934,7 +2981,7 @@ detail title UNDER it, as an aid — so whether the plan gives that length no lo
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
-Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers. A DETAIL or a SIZE does not say where an element is: `place_unanswered` keeps LOW a rejection of a location problem (`_LOCATES`) resting on a detail reference ("note 13 sends the step itself to detail 8/S3.1", unless it quotes a length) or quoting a size with no word of place ("wall footing width is given on S3.1: 2'-6\" wide" against "no dimensions to grids" — Victaulic RFI 001), unless it calls it a duplicate or names the specs or the field — Victaulic RFI 003 (footing steps on S1.1A, no dimension to the grids) was set aside twice that way on Claude while Argon raised it; replayed from the run's four recorded replies, it is now kept.
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers. A DETAIL or a SIZE does not say where an element is: `place_unanswered` keeps LOW a rejection of a location problem (`_LOCATES`) resting on a detail reference ("note 13 sends the step itself to detail 8/S3.1", unless it quotes a length) or quoting a size with no word of place ("wall footing width is given on S3.1: 2'-6\" wide" against "no dimensions to grids" — Victaulic RFI 001), unless it calls it a duplicate or names the specs or the field — Victaulic RFI 003 (footing steps on S1.1A, no dimension to the grids) was set aside twice that way on Claude while Argon raised it; replayed from the run's four recorded replies, it is now kept. A place said in WORDS is no distance either (`_PLACE_IN_WORDS`: "locate on each side of the overhead door … a locating rule is given", Victaulic RFI 013, set aside 3 of 3), and where a run starts and ends (`extents`) is a place (RFI 001). A rejection resting on what it was not shown ("cannot be settled from the evidence shown", "on S3.2, which is not among the evidence shown" — RFI 005 after its re-check) is `contested` like an unproven absence, and "covered by" a drawing is answered-elsewhere ("covered by problem 1" is a duplicate and stands). Replayed on all 1,264 stored set-asides: 8 change, all Victaulic.
 Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5

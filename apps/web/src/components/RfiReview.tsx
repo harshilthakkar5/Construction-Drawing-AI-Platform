@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { userMessage,
+  DISMISS_REASONS,
+  dismissalFamily,
+  dismissReasonLabel,
+  type DismissChoice,
+  type DismissReason,
   fullScope,
   isNarrowScope,
   RFI_CHECK_LABELS,
@@ -221,7 +226,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
     onSuccess: refreshAll,
   });
   const dismiss = useMutation({
-    mutationFn: (id: string) => api.dismissRfiCandidate(projectId, id),
+    mutationFn: ({ id, choice }: { id: string; choice: DismissChoice }) => api.dismissRfiCandidate(projectId, id, choice),
     onSuccess: refreshAll,
   });
   const restore = useMutation({
@@ -447,7 +452,7 @@ export function RfiReview({ projectId }: { projectId: string }) {
                 candidate={c}
                 busy={busy}
                 onAccept={() => accept.mutate(c.id)}
-                onDismiss={() => dismiss.mutate(c.id)}
+                onDismiss={(choice) => dismiss.mutate({ id: c.id, choice })}
               />
             ))}
           </ul>
@@ -524,6 +529,11 @@ export function RfiReview({ projectId }: { projectId: string }) {
               {dismissed.data?.candidates.map((c) => (
                 <li key={c.id} className="flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground truncate line-through">{c.subject}</span>
+                  {dismissReasonLabel(c.dismissReason) && (
+                    <span className="text-muted-foreground shrink-0" title={c.dismissNote ?? undefined}>
+                      · {dismissReasonLabel(c.dismissReason)}
+                    </span>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -822,13 +832,14 @@ export function CandidateCard({
   candidate: RfiCandidateDto;
   busy: boolean;
   onAccept: () => void;
-  onDismiss: () => void;
+  onDismiss: (choice: DismissChoice) => void;
 }) {
   const requestJump = useAppStore((s) => s.requestJump);
   const confidence = CONFIDENCE[candidate.confidence];
   const found = candidate.evidence.filter((e) => e.role !== "context");
   const context = candidate.evidence.filter((e) => e.role === "context");
   const [open, setOpen] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   return (
     <li className="bg-card rounded-md border p-3">
@@ -914,7 +925,7 @@ export function CandidateCard({
           <CheckIcon />
           Accept as RFI
         </Button>
-        <Button size="sm" variant="ghost" onClick={onDismiss} disabled={busy}>
+        <Button size="sm" variant="ghost" onClick={() => setDismissing((v) => !v)} disabled={busy} aria-expanded={dismissing}>
           <XIcon />
           Dismiss
         </Button>
@@ -926,7 +937,96 @@ export function CandidateCard({
           title="What this would look like as an RFI: a DRAFT cover form and the sheets with clouds"
         />
       </div>
+    {dismissing && (
+        <DismissPanel candidate={candidate} busy={busy} onCancel={() => setDismissing(false)} onDismiss={onDismiss} />
+      )}
     </li>
+  );
+}
+
+/** Why it is being dismissed, and whether the scans should leave this item
+ * (or its whole mark family) out from now on. */
+function DismissPanel({
+  candidate,
+  busy,
+  onCancel,
+  onDismiss,
+}: {
+  candidate: RfiCandidateDto;
+  busy: boolean;
+  onCancel: () => void;
+  onDismiss: (choice: DismissChoice) => void;
+}) {
+  const [reason, setReason] = useState<DismissReason>("not_a_problem");
+  const [note, setNote] = useState("");
+  const [remember, setRemember] = useState<"" | "item" | "family">("");
+  const item = candidate.itemKey;
+  const family = dismissalFamily(candidate.checkType, item);
+  const name = `dismiss-${candidate.id}`;
+  return (
+    <div className="bg-muted/40 mt-2 flex flex-col gap-2 rounded-md border p-2.5 text-xs">
+      <label className="flex flex-col gap-1">
+        <span className="font-medium">Why?</span>
+        <select
+          className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+          value={reason}
+          onChange={(e) => setReason(e.target.value as DismissReason)}
+        >
+          {DISMISS_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-medium">Note (optional)</span>
+        <input
+          className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+          maxLength={500}
+          value={note}
+          placeholder="e.g. R7 is an insulation value, not a mark"
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </label>
+      {item && (
+        <fieldset className="flex flex-col gap-1">
+          <legend className="mb-1 font-medium">Remember this?</legend>
+          <label className="flex items-center gap-2">
+            <input type="radio" name={name} checked={remember === ""} onChange={() => setRemember("")} />
+            Just this finding
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name={name} checked={remember === "item"} onChange={() => setRemember("item")} />
+            Never raise {item} again for this check
+          </label>
+          {family && family !== item && (
+            <label className="flex items-center gap-2">
+              <input type="radio" name={name} checked={remember === "family"} onChange={() => setRemember("family")} />
+              Never raise any {family} mark again for this check
+            </label>
+          )}
+          {remember && (
+            <span className="text-muted-foreground">
+              Other findings about it waiting for review are dismissed too. You can undo this in Settings.
+            </span>
+          )}
+        </fieldset>
+      )}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={busy}
+          onClick={() => onDismiss({ reason, note: note.trim() || undefined, remember: remember || undefined })}
+        >
+          Dismiss
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

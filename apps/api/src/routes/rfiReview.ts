@@ -49,6 +49,7 @@ const modelSettings = {
   maxInputTokens: z.number().int().min(RFI_REVIEW_INPUT_LIMITS.min).max(RFI_REVIEW_INPUT_LIMITS.max).optional(),
   maxThinkingTokens: z.number().int().min(RFI_REVIEW_THINKING_LIMITS.min).max(RFI_REVIEW_THINKING_LIMITS.max).nullable().optional(),
   thinking: z.enum(RFI_REVIEW_THINKING as unknown as [RfiReviewThinking, ...RfiReviewThinking[]]).default("medium"),
+  useBatch: z.boolean().optional(),
 };
 export const planBody = z.object({
   target: z.discriminatedUnion("type", [

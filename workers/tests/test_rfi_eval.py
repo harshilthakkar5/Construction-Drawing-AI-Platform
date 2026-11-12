@@ -203,3 +203,26 @@ def test_a_sheet_written_with_alternatives_is_matched_by_either():
     assert rfi_eval.matches(expected, on("S2.30-B")) == []
     assert rfi_eval.matches(expected, on("S2.31-A")) == []
     assert rfi_eval.matches(expected, on("S2.20")) == ["no evidence on S2.30-B|S2.31-A"]
+
+
+def test_a_repeated_review_is_scored_run_by_run():
+    """The same review finds or misses the same RFI from run to run, so one
+    run says little. Each run is hit / set aside (proposed, then dropped by
+    verification or a rule) / miss — and the middle one says the reading was
+    right and the checking step lost it."""
+    case = {"id": "x", "elements": ["CE-05-02"], "expected": [
+        {"what": "sump pit not detailed", "checkTypes": ["FL02"], "sheets": ["S2.1"], "mentions": ["sump"]}]}
+    ev = [{"sheetNumber": "S2.1"}]
+    saved = {"checkType": "CE-05-02-Q03", "subject": "Elevator sump pit not detailed", "question": "?", "evidence": ev}
+    other = {"checkType": "CE-05-02-Q01", "subject": "Trench drain slope", "question": "?", "evidence": ev}
+    aside = {"checkType": "CE-05-02-Q03", "subject": "", "question": "The sump pit walls are not detailed", "evidence": ev}
+    runs = {"CE-05-02": [
+        {"id": "r1", "saved": [saved], "setAside": []},
+        {"id": "r2", "saved": [other], "setAside": [aside]},
+        {"id": "r3", "saved": [other], "setAside": []},
+    ], "CE-01-01": [{"id": "r4", "saved": [saved], "setAside": []}]}
+    rows = rfi_eval.repeat_table([case], runs)
+    assert rows == [{"case": "x", "what": "sump pit not detailed", "outcomes": ["hit", "set aside", "miss"],
+                     "runs": ["r1", "r2", "r3"]}]
+    # A case whose element was not run is left out rather than scored as a miss.
+    assert rfi_eval.repeat_table([{"id": "y", "elements": ["CE-09-07"], "expected": case["expected"]}], runs) == []

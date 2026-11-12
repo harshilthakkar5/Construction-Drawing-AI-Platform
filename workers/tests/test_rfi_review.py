@@ -969,3 +969,57 @@ def test_grid_strips_are_read_again_for_every_span_and_the_closer_reading_wins()
 
     kept, why = rfi_review.complete_grid_spans(first, [strip], fails)
     assert kept == first and "not read again" in why
+
+
+def test_evidence_text_is_shown_with_plain_words_and_printed_marks():
+    """Capitals cost tokens (1.42 characters a token on a real request), so a
+    text piece is SHOWN with its ordinary words in lower case — and every mark,
+    sheet number, grid name, size and dimension exactly as the drawing prints
+    it. The stored text, which quotes and the wording guard read, is untouched."""
+    printed = ("PIER CAP AT EXTERIOR COLUMN\nT.O.C. SEE PLAN\nP30-30 (-26'-2\")\nHSS8X8X3/8 TYP.\n"
+               "SEE 24/S4.02 AT GRID BA/B7\nRTU-3 80 MBH\nPC4 W/ (8) #8 VERT\nSLAB-ON-GRADE\nCMU WALL AT A-301")
+    shown = rfi_review.plain_case(printed)
+    assert shown == ("pier cap AT exterior column\nT.O.C. see plan\nP30-30 (-26'-2\")\nHSS8X8X3/8 TYP.\n"
+                     "see 24/S4.02 AT grid BA/B7\nRTU-3 80 mbh\nPC4 W/ (8) #8 vert\nslab-ON-grade\ncmu wall AT A-301")
+    # Every identifier the checks know, and every digit, survives unchanged.
+    assert rfi_review.rfi_scan._IDENT.findall(shown) == rfi_review.rfi_scan._IDENT.findall(printed)
+    assert re.findall(r"\d+", shown) == re.findall(r"\d+", printed)
+    piece = ev("ev1", text=printed)
+    block = rfi_review._evidence_block(piece)
+    assert "pier cap AT exterior column" in block and piece.text == printed
+    # A question quoting the drawing in capitals is grounded in the stored text.
+    assert rfi_review.grounded("What is the T.O.C. at pier cap P30-30 (SEE PLAN)?", piece.text)[0]
+    # Server-written evidence (aids, grid readings) is sent as written.
+    assert "MEASURED: C-6" in rfi_review._evidence_block(ev("ev2", kind="aid", text="MEASURED: C-6 is 2 ft off grid BA"))
+
+
+def test_batch_mode_sends_the_same_call_as_one_batch_entry(monkeypatch):
+    """`limits.useBatch` (the plan's "half price, slower" choice) changes HOW a
+    call is sent, never what is asked: same system, prompt, pictures, labels and
+    thinking — and the reply comes back whole, priced under the batch name."""
+    usage = rfi_review.ReviewUsage(provider="claude", model="claude-sonnet-5-5", thinking="low")
+    run = {"id": "r", "projectId": "p", "limits": {"useBatch": True, "thinkingEffort": "low"}}
+    picture = ev("ev9", kind="crop")
+    picture.image = b"png"
+    seen = {}
+
+    def batch(prompts, *, replies, **kw):
+        seen.update(kw, prompts=prompts)
+        replies["call"] = rfi_review.llm.Reply(text="{}", stop_reason="end_turn", model="claude-sonnet-5-5-batch", input_tokens=7)
+        return {"call": "{}"}
+
+    monkeypatch.setattr(rfi_review.llm, "complete_batch", batch)
+    monkeypatch.setattr(rfi_review.llm, "complete", lambda *a, **k: pytest.fail("batch mode made a direct call"))
+    reply = rfi_review._send("SYSTEM", "PROMPT", run=run, usage=usage, budget=900, images=[picture])
+    assert reply.model == "claude-sonnet-5-5-batch" and reply.input_tokens == 7
+    assert seen["prompts"] == {"call": "PROMPT"} and seen["system"] == "SYSTEM" and seen["max_tokens"] == 900
+    assert seen["images"] == {"call": [b"png"]} and seen["image_labels"] == {"call": [picture.label()]}
+    assert seen["claude_model"] == "claude-sonnet-5-5" and seen["json_only"] is True
+
+    # Without the choice, the call is direct, as it always was.
+    direct = {}
+    monkeypatch.setattr(rfi_review.llm, "complete", lambda system, prompt, **k: direct.update(k, system=system) or "REPLY")
+    monkeypatch.setattr(rfi_review.llm, "complete_batch", lambda *a, **k: pytest.fail("a direct run used a batch"))
+    run["limits"] = {"thinkingEffort": "low"}
+    assert rfi_review._send("SYSTEM", "PROMPT", run=run, usage=usage, budget=900, images=[picture]) == "REPLY"
+    assert direct["images"] == [b"png"] and direct["system"] == "SYSTEM"

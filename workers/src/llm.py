@@ -1124,6 +1124,7 @@ def _batch_claude(
     thinking_setting: str | None = None,
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
+    replies: dict[str, Reply] | None = None,
 ) -> dict[str, str]:
     """Run the batch with the SAME thinking fields a single call would send.
 
@@ -1142,7 +1143,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens + extra, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=thinking, output_config=output_config,
-        images=images, image_labels=image_labels,
+        images=images, image_labels=image_labels, replies=replies,
     )
     if results or not errored or thinking is None:
         return results
@@ -1162,7 +1163,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=None, output_config=fallback,
-        images=images, image_labels=image_labels,
+        images=images, image_labels=image_labels, replies=replies,
     )
     if results and thinking_setting is None:
         _no_thinking_param.add(model)
@@ -1182,6 +1183,7 @@ def _run_claude_batch(
     output_config: dict | None,
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
+    replies: dict[str, Reply] | None = None,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_errored)."""
     client = anthropic_client()
@@ -1240,10 +1242,23 @@ def _run_claude_batch(
                 )
             continue
         message = entry.result.message
-        usage.record_message(project_id, kind, model, message.usage)
+        billed = model if replies is None else f"{model}-batch"
+        usage.record_message(project_id, kind, billed, message.usage)
         results[entry.custom_id] = "".join(
             b.text for b in message.content if b.type == "text"
         )
+        if replies is not None:
+            meta = message.usage
+            replies[entry.custom_id] = Reply(
+                text=results[entry.custom_id],
+                stop_reason=getattr(message, "stop_reason", None),
+                model=billed,
+                input_tokens=getattr(meta, "input_tokens", 0) or 0,
+                output_tokens=getattr(meta, "output_tokens", 0) or 0,
+                cache_read_tokens=getattr(meta, "cache_read_input_tokens", 0) or 0,
+                cache_write_tokens=getattr(meta, "cache_creation_input_tokens", 0) or 0,
+                thinking=describe_thinking(thinking, output_config),
+            )
     return results, entries > 0 and errored == entries
 
 
@@ -1284,6 +1299,7 @@ def _batch_gemini(
     thinking_setting: str | None = None,
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
+    replies: dict[str, Reply] | None = None,
 ) -> dict[str, str]:
     """Run the batch, and re-run it once without the thinking budget if that is
     what the whole batch was rejected for.
@@ -1310,7 +1326,7 @@ def _batch_gemini(
     results, rejected = _run_gemini_batch(
         prompts, system=system, model=model, max_tokens=max_tokens,
         kind=kind, project_id=project_id, json_only=json_only, thinking=first,
-        images=images, image_labels=image_labels,
+        images=images, image_labels=image_labels, replies=replies,
     )
     if results or not rejected or (thinking_setting is None and model in _no_thinking_config):
         return results
@@ -1329,7 +1345,7 @@ def _batch_gemini(
         prompts, system=system, model=model, max_tokens=max_tokens,
         kind=kind, project_id=project_id, json_only=json_only,
         thinking=retry if retry is not None else False,
-        images=images, image_labels=image_labels,
+        images=images, image_labels=image_labels, replies=replies,
     )
     if results:
         _latch_thinking(model, retry, thinking_setting)
@@ -1356,6 +1372,7 @@ def _run_gemini_batch(
     thinking: bool | dict,
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
+    replies: dict[str, Reply] | None = None,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_was_rejected)."""
     client = gemini_client()
@@ -1435,13 +1452,23 @@ def _run_gemini_batch(
             custom_id = order[index]
             log.debug("batch entry %d carried no custom_id — matched by position", index)
 
-        _record_gemini_usage(
-            getattr(response, "usage_metadata", None),
-            kind=kind,
-            model=model,
-            project_id=project_id,
-        )
+        meta = getattr(response, "usage_metadata", None)
+        billed = model if replies is None else f"{model}-batch"
+        _record_gemini_usage(meta, kind=kind, model=billed, project_id=project_id)
         results[custom_id] = response.text or ""
+        if replies is not None:
+            cached = getattr(meta, "cached_content_token_count", 0) or 0
+            thoughts = getattr(meta, "thoughts_token_count", 0) or 0
+            replies[custom_id] = Reply(
+                text=results[custom_id],
+                stop_reason=_gemini_stop_reason(response),
+                model=billed,
+                input_tokens=max(0, (getattr(meta, "prompt_token_count", 0) or 0) - cached),
+                output_tokens=(getattr(meta, "candidates_token_count", 0) or 0) + thoughts,
+                thinking_tokens=thoughts,
+                cache_read_tokens=cached,
+                thinking=describe_thinking(thinking if isinstance(thinking, dict) else None),
+            )
 
     if rejected:
         log.warning(
@@ -1470,8 +1497,14 @@ def complete_batch(
     thinking: str | None = None,
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
+    replies: dict[str, Reply] | None = None,
 ) -> dict[str, str]:
     """Run many prompts as one batch. {custom_id: prompt} -> {custom_id: text}.
+
+    `replies`, when given, is filled with each entry's whole Reply (stop reason
+    and tokens) for a caller that accounts for its own run, as a targeted
+    review does. Such a call is recorded and reported under "<model>-batch",
+    the name the API prices at half (apps/api/src/usage.ts).
 
     `images` / `image_labels` are per entry ({custom_id: [png, ...]}), built
     exactly as a single call builds them; an entry with none sends the plain
@@ -1506,6 +1539,7 @@ def complete_batch(
             thinking_setting=thinking,
             images=images,
             image_labels=image_labels,
+            replies=replies,
         )
     return _batch_claude(
         prompts,
@@ -1518,6 +1552,7 @@ def complete_batch(
         thinking_setting=thinking,
         images=images,
         image_labels=image_labels,
+        replies=replies,
     )
 
 

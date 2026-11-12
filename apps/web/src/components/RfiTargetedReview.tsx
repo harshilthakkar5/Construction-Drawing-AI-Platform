@@ -235,6 +235,7 @@ export function RfiTargetedReview({
     ...(model ? { provider: model.provider, model: model.model } : {}),
     ...(inputNumber !== undefined ? { maxInputTokens: inputNumber } : {}),
     ...(thinkingNumber !== undefined ? { maxThinkingTokens: thinkingNumber } : {}),
+    ...(settings.useBatch ? { useBatch: true } : {}),
     excludePageIds,
     ...(mode === "library" && choice.elementId ? { library: { elementId: choice.elementId, questionIds: fromLibrary.chosen.map((q) => q.id) } } : {}),
   });
@@ -349,6 +350,7 @@ export function RfiTargetedReview({
         {options.isLoading ? "…" : model ? `${model.provider === "gemini" ? "Gemini" : "Claude"} · ${model.model}` : "No model"} ·{" "}
         {RFI_REVIEW_DEPTHS[depth].label} · {thinking} care
         {settings.maxInputTokens ? ` · ${settings.maxInputTokens.toLocaleString()} input tokens a call` : ""}
+        {settings.useBatch ? " · batch (half price, slower)" : ""}
       </SettingsLine>
       {model?.available === false && <Notice tone="error">The model in Settings has no API key on this server. Pick another in Settings.</Notice>}
       {!(inputOk && thinkingOk) && <Notice tone="error">A token limit in Settings is outside what this server allows. Fix it in Settings.</Notice>}
@@ -419,6 +421,7 @@ function requestFromRun(run: RfiReviewRunDto): RfiReviewPlanRequest {
     model: run.model || undefined,
     maxInputTokens: run.limits.maxInputTokens,
     maxThinkingTokens: run.limits.maxThinkingTokens,
+    ...(run.limits.useBatch ? { useBatch: true } : {}),
     excludePageIds: [],
     ...(run.library ? { library: { elementId: run.library.element.id, questionIds: run.library.questions.map((q) => q.id) } } : {}),
   };
@@ -672,6 +675,7 @@ function OtherModelPrice({ projectId, run }: { projectId: string; run: RfiReview
         thinking: run.thinkingRequested,
         maxInputTokens: run.limits.maxInputTokens,
         maxThinkingTokens: pick!.capability.budget ? run.limits.maxThinkingTokens : null,
+        ...(run.limits.useBatch ? { useBatch: true } : {}),
       }),
     enabled: !!pick,
   });

@@ -165,6 +165,11 @@ describe("embedding rates", () => {
   });
 
   it("prices a batched embedding run at half the synchronous rate", () => {
+    // Any "<model>-batch" is half its model's rate: a targeted review in batch mode.
+    expect(rateFor("claude-sonnet-5-5-batch")).toEqual({
+      input: rateFor("claude-sonnet-5-5").input / 2,
+      output: rateFor("claude-sonnet-5-5").output / 2,
+    });
     expect(rateFor("gemini-embedding-001-batch").input).toBeCloseTo(
       rateFor("gemini-embedding-001").input / 2,
     );

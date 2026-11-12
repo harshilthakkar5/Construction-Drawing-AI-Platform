@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SaveIcon, SettingsIcon } from "lucide-react";
+import { SaveIcon, SettingsIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import {
+  dismissReasonLabel,
+  RFI_CHECK_LABELS,
   RFI_REVIEW_DEPTH_KEYS,
   RFI_REVIEW_DEPTHS,
   RFI_REVIEW_INPUT_LIMITS,
@@ -247,6 +249,27 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             ))}
           </ToggleGroup>
         </Field>
+        <Field
+          label="How to send"
+          hint={d.review.useBatch ? "Half price; each review takes about 10 minutes or more instead of a few." : "Full price; results in a few minutes."}
+        >
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            value={d.review.useBatch ? "batch" : "direct"}
+            onValueChange={(v) => v && set({ review: { ...d.review, useBatch: v === "batch" } })}
+            aria-label="How to send reviews"
+          >
+            <ToggleGroupItem value="direct" className="flex-1 text-xs">
+              Direct
+            </ToggleGroupItem>
+            <ToggleGroupItem value="batch" className="flex-1 text-xs">
+              Batch (half price)
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </Field>
         <NumberField
           label="Most input tokens per reading call"
           value={d.maxInput}
@@ -345,7 +368,58 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             : (save.error as Error).message}
         </Notice>
       )}
+      <RememberedDismissals projectId={projectId} />
     </div>
+  );
+}
+
+/** Findings the scans leave out because someone dismissed them and asked for
+ * that to be remembered. Forget lets them be raised again. */
+function RememberedDismissals({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const rules = useQuery({ queryKey: ["dismissal-rules", projectId], queryFn: () => api.listDismissalRules(projectId) });
+  const forget = useMutation({
+    mutationFn: (id: string) => api.forgetDismissalRule(projectId, id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["dismissal-rules", projectId] }),
+  });
+  if (!rules.data?.length) return null;
+  return (
+    <>
+      <Separator />
+      <section className="flex flex-col gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">Remembered dismissals</h3>
+          <p className="text-muted-foreground text-xs">
+            Scans and reviews do not raise these again. Forget one to let it be found again.
+          </p>
+        </div>
+        <ul className="flex flex-col gap-1">
+          {rules.data.map((r) => (
+            <li key={r.id} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 truncate" title={r.note ?? undefined}>
+                <span className="font-medium">{r.scope === "family" ? `Any ${r.key} mark` : r.key}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {RFI_CHECK_LABELS[r.checkType as keyof typeof RFI_CHECK_LABELS] ?? r.checkType}
+                  {dismissReasonLabel(r.reason) ? ` · ${dismissReasonLabel(r.reason)}` : ""}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-6 px-2"
+                disabled={forget.isPending}
+                onClick={() => forget.mutate(r.id)}
+              >
+                <Trash2Icon className="size-3" />
+                Forget
+              </Button>
+            </li>
+          ))}
+        </ul>
+        {forget.error && <Notice tone="error">{(forget.error as Error).message}</Notice>}
+      </section>
+    </>
   );
 }
 

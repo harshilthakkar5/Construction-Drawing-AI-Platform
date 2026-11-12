@@ -276,6 +276,7 @@ model Project {
   rfis          Rfi[]
   rfiScans      RfiScan[]
   rfiCandidates RfiCandidate[]
+  dismissalRules RfiDismissalRule[]
   rfiReviewRuns RfiReviewRun[]
 
   rfiPackages        RfiPackage[]
@@ -809,6 +810,13 @@ model RfiCandidate {
   /// comparison found a code finding again, or the code had measured where
   /// the AI found something (workers/src/agreement.py). Either makes it high.
   corroboration  Json?
+  /// What the finding is ABOUT, for code checks that have one: the mark
+  /// (F6.0), tag (RTU-3) or sheet (S-501). Lets a dismissal be remembered for
+  /// the item rather than this one finding (rfi_dismissal_rules).
+  itemKey        String?
+  /// Why a person dismissed it (DISMISS_REASONS in @cdip/shared) and their note.
+  dismissReason  String?
+  dismissNote    String?
   fingerprint    String
   checkType      String
   confidence     RfiConfidence
@@ -1098,4 +1106,26 @@ model RfiCustomElement {
 
   @@index([projectId])
   @@map("rfi_custom_elements")
+}
+
+/// A dismissal remembered beyond one finding: "never raise F6.0 again"
+/// (scope item) or "never raise any R mark again" (scope family, the letters of
+/// a mark). Code checks read these before saving, so a rescan from scratch does
+/// not bring them back (workers/src/dismissals.py).
+model RfiDismissalRule {
+  id          String   @id @default(uuid())
+  projectId   String
+  checkType   String
+  scope       String
+  key         String
+  reason      String
+  note        String?
+  candidateId String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, checkType, scope, key])
+  @@map("rfi_dismissal_rules")
 }

@@ -185,9 +185,12 @@ export const PRICING_VERSION = "published rates as checked 2026-09";
  */
 export function pricingConfidence(model: string): "exact" | "family" | "unknown" {
   if (RATES[model]) return "exact";
+  if (BATCH_SUFFIX.test(model)) return pricingConfidence(model.replace(BATCH_SUFFIX, ""));
   const name = model.toLowerCase();
   return FAMILY_RATES.some(([key]) => name.includes(key)) ? "family" : "unknown";
 }
+
+const BATCH_SUFFIX = /-batch$/;
 
 /** Warn once per unknown model, not once per row — a dashboard query is thousands. */
 const warned = new Set<string>();
@@ -195,6 +198,12 @@ const warned = new Set<string>();
 export function rateFor(model: string): { input: number; output: number } {
   const exact = RATES[model];
   if (exact) return exact;
+  // A run through a provider's batch API is recorded as "<model>-batch" and
+  // billed at half that model's rate (Anthropic Message Batches, Gemini batch).
+  if (BATCH_SUFFIX.test(model)) {
+    const full = rateFor(model.replace(BATCH_SUFFIX, ""));
+    return { input: full.input / 2, output: full.output / 2 };
+  }
 
   const name = model.toLowerCase();
   const family = FAMILY_RATES.find(([key]) => name.includes(key));

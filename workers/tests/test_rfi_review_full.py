@@ -992,3 +992,51 @@ def test_a_location_question_rejected_by_quoting_a_size_is_kept_low():
     # A size question answered with a size stands.
     widths = dict(footings, issue="Wall footing widths are not printed.")
     assert not rfi_review.place_unanswered(reject, widths)
+
+
+# --- Victaulic repeat runs (Nov 2026): three more ways the check step dropped a client RFI ---
+
+def test_a_location_said_in_words_is_not_a_dimension():
+    """RFI 013 was set aside in 3 of 3 runs: "the notes say to locate the bollards on
+    each side of the overhead door … a locating rule is given, so the location is not missing"."""
+    bollards = {"checkId": "CE-09-07-Q01", "kind": "missing", "element": "Pipe bollards", "location": "A1.1/A1.2",
+                "issue": "Bollard locations are given only by note and leader at doors, with no grid dimension.",
+                "why": ""}
+    reject = {"decision": "reject", "basis": "other", "question": "", "subject": "",
+              "reason": "The notes say to locate the 6\" pipe bollards on each side of the overhead door, and the "
+                        "leaders point to the doors. A locating rule is given, so the location is not missing."}
+    assert rfi_review.place_unanswered(reject, bollards)
+    assert rfi_review.kept_for_placement(bollards, reject)["confidence"] == "low"
+    # A distance, a duplicate or a label merely printed near something is not that shape.
+    assert not rfi_review.place_unanswered(dict(reject, reason="Each side of the door, at a 2'-0\" offset from the jamb."), bollards)
+    assert not rfi_review.place_unanswered(dict(reject, reason="Duplicates problem 0, each side of the door."), bollards)
+    assert not rfi_review.place_unanswered(
+        dict(reject, reason="The E1.3 label is a loose label near the equipment room."), bollards)
+
+
+def test_where_a_run_starts_and_ends_is_a_place():
+    """RFI 001: "the plans do not show which section applies to which wall run or its
+    grid extents", rejected with section markers and footing widths."""
+    footings = {"checkId": "F02", "kind": "missing", "element": "", "location": "S1.1A", "why": "",
+                "issue": "The S3.1 sections give size, but the plans do not show which section applies to which "
+                         "wall run or its grid extents."}
+    reject = {"decision": "reject", "basis": "not_visible", "question": "", "subject": "",
+              "reason": "Section cut markers 4, 5 and 6/S3.1 sit on the wall runs, and 2'-6\" and 2'-0\" footing "
+                        "widths are given in the sections."}
+    assert rfi_review.place_unanswered(reject, footings)
+
+
+def test_a_rejection_resting_on_evidence_it_was_not_shown_is_contested():
+    """RFI 005 was set aside after its re-check: "cannot be settled from the evidence shown",
+    and "the base plate size is on S3.2, which is not among the evidence shown"."""
+    plate = {"checkId": "CE-04-10-Q02", "kind": "missing", "element": "Base plates", "issue": "Plate size is not given.",
+             "why": "", "evidenceIds": []}
+    for reason in ("The S3.2 text shown names BP1, BP2 and BP3 without any plate dimensions. Whether the sizes are "
+                   "missing from the project cannot be settled from the evidence shown.",
+                   "The base plate size is on S3.2, which is not among the evidence shown.",
+                   "The base plate size is covered by the BP detail references on S3.2."):
+        assert rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": ["ev3"], "reason": reason},
+                                    {"ev3"} if "covered" not in reason else set(), plate), reason
+    # "Covered by problem 1" is a duplicate, not a value on another drawing.
+    assert not rfi_review.contested(
+        {"decision": "reject", "basis": "other", "answeredBy": [], "reason": "This is covered by problem 1."}, set(), plate)

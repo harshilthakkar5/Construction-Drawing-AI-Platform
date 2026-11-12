@@ -1375,6 +1375,366 @@
       ]
     },
     {
+      "id": "victaulic-rfi-001",
+      "source": "Victaulic TMF client RFI 001 (Foundation dimensions missing). Answer key for the element review of CE-04-04 on S1.1A, S1.1B.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S1.1A",
+          "S1.1B"
+        ]
+      },
+      "checks": [
+        "F01",
+        "F02",
+        "F03",
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Wall footings are not dimensioned to the grid lines",
+          "checkTypes": [
+            "F01",
+            "F02",
+            "F03",
+            "F04"
+          ],
+          "sheets": [
+            "S1.1A|S1.1B"
+          ],
+          "mentions": [
+            "footing",
+            "dimension|locat|grid|offset"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-04-04"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-003",
+      "source": "Victaulic TMF client RFI 003 (Step footing dimensions missing). Answer key for the element review of CE-04-05 on S1.1A.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S1.1A"
+      },
+      "checks": [
+        "F01",
+        "F02",
+        "F03",
+        "F04"
+      ],
+      "expected": [
+        {
+          "what": "Footing steps are not dimensioned (location, height or length)",
+          "checkTypes": [
+            "F01",
+            "F02",
+            "F03",
+            "F04"
+          ],
+          "sheets": [
+            "S1.1A"
+          ],
+          "mentions": [
+            "step",
+            "dimension|locat|height|length|grid"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-04-05"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-004",
+      "source": "Victaulic TMF client RFI 004 (Dock pit leveler dimensions missing). Answer key for the element review of CE-05-04 on S3.3, S1.1A, S1.1C.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S3.3",
+          "S1.1A",
+          "S1.1C"
+        ]
+      },
+      "checks": [
+        "FL02",
+        "FL03",
+        "O01"
+      ],
+      "expected": [
+        {
+          "what": "Dock leveler pit width, length and depth are not given",
+          "checkTypes": [
+            "FL02",
+            "FL03",
+            "O01"
+          ],
+          "sheets": [
+            "S3.3|S1.1A"
+          ],
+          "mentions": [
+            "leveler|pit",
+            "dimension|width|length|depth|size|locat"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-05-04"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-005",
+      "source": "Victaulic TMF client RFI 005 (Base plate information). Answer key for the element review of CE-04-10 on S3.5.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S3.5"
+      },
+      "checks": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "C01"
+      ],
+      "expected": [
+        {
+          "what": "Base plate sizes (BP1, BP2…) are not given",
+          "checkTypes": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "C01"
+          ],
+          "sheets": [
+            "S3.5"
+          ],
+          "mentions": [
+            "base plate|BP1|BP2|baseplate"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-04-10"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-006",
+      "source": "Victaulic TMF client RFI 006 (Plate information (P1/P2 HOLD)). Answer key for the element review of CE-04-10 on S3.5.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S3.5"
+      },
+      "checks": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "C01"
+      ],
+      "expected": [
+        {
+          "what": "Piers P1 and P2 are marked HOLD",
+          "checkTypes": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "C01"
+          ],
+          "sheets": [
+            "S3.5"
+          ],
+          "mentions": [
+            "hold"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-04-10"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-007",
+      "source": "Victaulic TMF client RFI 007 (Grid dimensions). Answer key for the element review of CE-01-01 on S1.1G, S1.1D, A1.3.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S1.1G",
+          "S1.1D",
+          "A1.3"
+        ]
+      },
+      "checks": [
+        "G01",
+        "grid_spacing"
+      ],
+      "expected": [
+        {
+          "what": "The spacing between the same grid lines differs between sheets",
+          "checkTypes": [
+            "G01",
+            "grid_spacing"
+          ],
+          "sheets": [
+            "S1.1G|S1.1D|A1.3"
+          ],
+          "mentions": [
+            "grid",
+            "13'-11|14'-0|9'-4|11'-0"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-01-01"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-008",
+      "source": "Victaulic TMF client RFI 008 (Bollard details). Answer key for the element review of CE-09-07 on A1.2, A1.1, A1.3.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "A1.2",
+          "A1.1",
+          "A1.3"
+        ]
+      },
+      "checks": [
+        "custom"
+      ],
+      "expected": [
+        {
+          "what": "The bollard is specified two ways, or its embedment/detail is not given",
+          "checkTypes": [
+            "custom"
+          ],
+          "sheets": [],
+          "mentions": [
+            "bollard",
+            "pipe|sch|embed|depth|detail|spec|concrete"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-09-07"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-013",
+      "source": "Victaulic TMF client RFI 013 (Bollard dimensions to grid). Answer key for the element review of CE-09-07 on A1.2, A1.1, A1.3.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "A1.2",
+          "A1.1",
+          "A1.3"
+        ]
+      },
+      "checks": [
+        "custom"
+      ],
+      "expected": [
+        {
+          "what": "Bollard locations are not dimensioned",
+          "checkTypes": [
+            "custom"
+          ],
+          "sheets": [],
+          "mentions": [
+            "bollard",
+            "dimension|offset|locat|spacing"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-09-07"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-009",
+      "source": "Victaulic TMF client RFI 009 (Anchor bolt details). Answer key for the element review of CE-12-01 on S1.1A, S1.1C, S3.5.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "compare",
+        "values": [
+          "S1.1A",
+          "S1.1C",
+          "S3.5"
+        ]
+      },
+      "checks": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "C01"
+      ],
+      "expected": [
+        {
+          "what": "Anchor bolt length, diameter or embedment is not given",
+          "checkTypes": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "C01"
+          ],
+          "sheets": [
+            "S3.5|S1.1A|S1.1C"
+          ],
+          "mentions": [
+            "anchor bolt|anchor rod",
+            "length|diameter|size|embed|projection"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-12-01"
+      ]
+    },
+    {
+      "id": "victaulic-rfi-012",
+      "source": "Victaulic TMF client RFI 012 (Sump pit details). Answer key for the element review of CE-05-02 on S2.1.",
+      "pdf": "Victaulic TMF combined set (114 sheets, not in this repository)",
+      "target": {
+        "type": "sheet",
+        "value": "S2.1"
+      },
+      "checks": [
+        "FL02",
+        "FL03"
+      ],
+      "expected": [
+        {
+          "what": "The sump pit is not detailed (walls, base, reinforcement)",
+          "checkTypes": [
+            "FL02",
+            "FL03"
+          ],
+          "sheets": [
+            "S2.1"
+          ],
+          "mentions": [
+            "sump"
+          ]
+        }
+      ],
+      "elements": [
+        "CE-05-02"
+      ]
+    },
+    {
       "id": "victaulic-false-findings",
       "source": "Code-check scan of the Victaulic TMF Fabrication Facility set (114 sheets, 03-03-26: architectural, civil, structural S0.1-S3.6, plumbing, fire protection, mechanical, electrical), each finding opened on the sheet. None of these is an RFI.",
       "pdf": "Victaulic TMF combined set (not in this repository)",
@@ -1435,6 +1795,34 @@
           ],
           "mentions": [
             "allowance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fp-leland-catalogue-marks",
+      "source": "Code-check scan of Leland South Congress (Str + Arch, 297 sheets), dismissed during the remembered-dismissals test as 'Not what the check thinks it is'.",
+      "pdf": "Leland South Congress Str (99 sheets) + Arch (198 sheets), not in this repository",
+      "target": {
+        "type": "scan"
+      },
+      "checks": [
+        "unscheduled_mark"
+      ],
+      "expected": [],
+      "rejected": [
+        {
+          "what": "A34 and A35 missing from the epoxy anchor schedule",
+          "why": "'SIMPSON A34' on S7.00 is a Simpson Strong-Tie framing angle, and the 'schedule' marks A36, A307, A615 on S0.11 are steel grades ('FROM EITHER A307 OR A36 STEEL', 'ASTM A615'). Fixed: rfi_checks.catalogue_ids — a mark printed after a manufacturer, after ASTM, or before STEEL/GRADE is never a mark, on the plan side or the schedule side.",
+          "checkTypes": [
+            "unscheduled_mark"
+          ],
+          "sheets": [
+            "S7.00",
+            "S0.11"
+          ],
+          "mentions": [
+            "A34|A35"
           ]
         }
       ]

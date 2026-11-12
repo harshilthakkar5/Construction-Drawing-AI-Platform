@@ -1158,6 +1158,8 @@ export const RFI_CHECK_LABELS = {
   untagged_pile_cap: "Pile cap drawn with no tag or size",
   // workers/src/detail_map.py: "SEE 24/S4.02" where S4.02 has no detail 24.
   missing_detail: "Detail referenced but not on its sheet",
+  // workers/src/schedule_loops.py: a schedule row says SEE PLAN, the plan says SEE SCHEDULE.
+  schedule_plan_loop: "Schedule and plan point at each other for a value",
   // Both measured on the sheet pairs the scan lines up (workers/src/geometry_checks.py).
   column_mismatch: "Column drawn differently on two drawings",
   grid_spacing: "Grid lines drawn a different distance apart on two drawings",
@@ -1255,6 +1257,63 @@ export interface RfiCandidateDto {
    * two places. Either makes the finding high. Null on a full-scan finding
    * means the AI alone saw it, which is never above medium. */
   corroboration: RfiCorroborationDto | null;
+  /** What it is about (a mark, tag or sheet), when its check has one. */
+  itemKey?: string | null;
+  dismissReason?: string | null;
+  dismissNote?: string | null;
+}
+
+/**
+ * Why a finding was dismissed. Shown on the dismissed card and kept with any
+ * rule remembered from it.
+ */
+export const DISMISS_REASONS = [
+  { value: "not_a_problem", label: "Not a problem" },
+  { value: "wrong_item", label: "Not what the check thinks it is" },
+  { value: "answered", label: "Answered elsewhere in the drawings" },
+  { value: "by_others", label: "Covered by others or the specifications" },
+  { value: "duplicate", label: "Duplicate of another RFI" },
+] as const;
+export type DismissReason = (typeof DISMISS_REASONS)[number]["value"];
+
+/** Checks whose item is a MARK, so a dismissal can cover its whole family
+ * ("never raise an R mark again": R7 was an insulation R-value). Mirrored in
+ * workers/src/dismissals.py; both read fixtures/dismissal-keys.json. */
+export const DISMISS_FAMILY_CHECKS: readonly string[] = ["unscheduled_mark", "schedule_plan_loop"];
+
+/** The mark family of an item key (F6.0 -> F, 1PB1 -> PB), or null. */
+export function dismissalFamily(checkType: string, key: string | null | undefined): string | null {
+  if (!key || !DISMISS_FAMILY_CHECKS.includes(checkType)) return null;
+  return /^\d*([A-Z]+)/.exec(key.toUpperCase())?.[1] ?? null;
+}
+
+/** One item however it is printed: PC4 on one sheet is PC-4 on the next.
+ * Mirrored in workers/src/dismissals.py `same_item`; both read the fixture. */
+export function sameDismissalItem(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (s: string | null | undefined) => (s ?? "").toUpperCase().replace(/[\s-]/g, "");
+  return !!a && norm(a) === norm(b);
+}
+
+/** What a person chose when dismissing: why, and whether to remember it for
+ * this item or its whole family. */
+export interface DismissChoice {
+  reason?: DismissReason;
+  note?: string;
+  remember?: "item" | "family";
+}
+
+export function dismissReasonLabel(reason: string | null | undefined): string | null {
+  return DISMISS_REASONS.find((r) => r.value === reason)?.label ?? null;
+}
+
+export interface DismissalRuleDto {
+  id: string;
+  checkType: string;
+  scope: "item" | "family";
+  key: string;
+  reason: string;
+  note: string | null;
+  createdAt: string;
 }
 
 export interface RfiCorroborationDto {
@@ -1723,11 +1782,13 @@ export interface RfiProjectSettings {
     thinking: RfiReviewThinking;
     maxInputTokens: number | null;
     maxThinkingTokens: number | null;
+    /** Send each call through the provider's batch API: half price, slower. */
+    useBatch: boolean;
   };
   fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
 }
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
-  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null },
+  review: { provider: null, model: null, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
   fullScan: { provider: null, model: null, useBatch: true, budgetUsd: null },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. */
@@ -1924,6 +1985,8 @@ export interface RfiReviewLimitsDto {
   thinkingEffort: RfiReviewThinking;
   maxTotalTokens: number;
   maxBatches: number;
+  /** True when the run's calls go through the batch API (half price, slower). */
+  useBatch?: boolean;
 }
 
 export interface RfiReviewCoverageDto {
@@ -2570,8 +2633,11 @@ export function libraryCatalogueIds(
  */
 export const RFI_QUESTION_CODE_CHECKS: Partial<Record<RfiReviewCheckId, readonly RfiCheckType[]>> = {
   G01: ["grid_mismatch", "grid_spacing"],
-  F04: ["unmarked_element", "twin_column_cap", "untagged_pile_cap"],
-  C01: ["column_mismatch", "unsized_column"],
+  F01: ["schedule_plan_loop"],
+  F02: ["schedule_plan_loop"],
+  F04: ["unmarked_element", "twin_column_cap", "untagged_pile_cap", "schedule_plan_loop"],
+  C01: ["column_mismatch", "unsized_column", "schedule_plan_loop"],
+  B01: ["schedule_plan_loop"],
   C03: ["column_mismatch"],
 };
 
@@ -2588,6 +2654,7 @@ export const RFI_PROJECT_CHECK_TYPES: readonly RfiCheckType[] = [
   "twin_column_cap",
   "untagged_pile_cap",
   "missing_detail",
+  "schedule_plan_loop",
 ];
 
 /**

@@ -480,6 +480,17 @@ describe("estimateReview", () => {
     expect(est.imageParts).toBe(visual.reduce((n, p) => n + 1 + p.crops.length, 0) + pairs);
   });
 
+  it("prices batch mode at half, and says it is slower", () => {
+    const cost = (row: { inputTokens: number; outputTokens: number }) => row.inputTokens / 1e6 + row.outputTokens / 1e5;
+    const direct = estimateReview(rankScope(input()), settings(), cost);
+    const batch = estimateReview(rankScope(input()), settings({ useBatch: true }), cost);
+    expect(batch.costUsd).toBeCloseTo(direct.costUsd! / 2);
+    expect(batch.costHighUsd).toBeCloseTo(direct.costHighUsd! / 2);
+    expect(batch.inputTokens).toBe(direct.inputTokens);
+    expect(batch.assumptions.join(" ")).toMatch(/batch mode: half price/);
+    expect(direct.assumptions.join(" ")).not.toMatch(/batch/);
+  });
+
   it("leaves an unknown price unknown rather than quoting a guess", () => {
     const est = estimateReview(rankScope(input()), settings({ priced: false, planning: { tokens: 0, costUsd: null } }), () => 1);
     expect(est.costUsd).toBeNull();

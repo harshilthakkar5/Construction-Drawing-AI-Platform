@@ -1345,3 +1345,82 @@ def test_a_gemini_3_thinking_level_gets_the_room_it_actually_spends():
     # A 2.5 budget IS a cap, so its headroom stays the budget.
     assert llm._gemini_headroom("medium", "gemini-2.5-flash") == 4096
     assert llm._gemini_headroom("budget:3000", "gemini-3.8-flash") == 3000
+
+
+class TestBatchReplies:
+    """A targeted review in batch mode needs each entry's stop reason and
+    tokens, not just its text, and its spend recorded under "<model>-batch" —
+    the name the API prices at half."""
+
+    def test_a_claude_batch_fills_whole_replies_under_the_batch_name(self, monkeypatch):
+        usage_of = types.SimpleNamespace(input_tokens=1200, output_tokens=80,
+                                         cache_read_input_tokens=30, cache_creation_input_tokens=0)
+        message = types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text='{"a": 1}')], stop_reason="max_tokens", usage=usage_of)
+        entry = types.SimpleNamespace(custom_id="call", result=types.SimpleNamespace(type="succeeded", message=message))
+
+        class _Batches:
+            def create(self, *, requests):
+                self.requests = requests
+                return types.SimpleNamespace(id="b1")
+
+            def retrieve(self, _id):
+                return types.SimpleNamespace(processing_status="ended")
+
+            def results(self, _id):
+                return [entry]
+
+        batches = _Batches()
+        monkeypatch.setattr(llm, "anthropic_client", lambda: types.SimpleNamespace(
+            messages=types.SimpleNamespace(batches=batches)))
+        recorded = []
+        monkeypatch.setattr(usage, "record", lambda *a, **k: recorded.append((a, k)))
+        replies = {}
+        out = llm.complete_batch(
+            {"call": "prompt"}, system="sys", provider="claude", claude_model="claude-sonnet-5-5",
+            gemini_model="g", max_tokens=100, kind="rfi", thinking="low", replies=replies,
+            images={"call": [b"png"]}, image_labels={"call": ["Image ev1"]},
+        )
+        assert out == {"call": '{"a": 1}'}
+        reply = replies["call"]
+        assert (reply.text, reply.stop_reason, reply.model) == ('{"a": 1}', "max_tokens", "claude-sonnet-5-5-batch")
+        assert (reply.input_tokens, reply.output_tokens, reply.cache_read_tokens) == (1200, 80, 30)
+        assert recorded[0][0][2] == "claude-sonnet-5-5-batch"
+        # The picture and its label travel in the batch entry as in a single call.
+        content = batches.requests[0]["params"]["messages"][0]["content"]
+        assert [b["type"] for b in content] == ["text", "image", "text"]
+
+    def test_without_replies_the_spend_keeps_the_plain_model_name(self, monkeypatch):
+        """Summaries and the full scan price their own batches; their rows must not change."""
+        message = types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text="x")], stop_reason="end_turn",
+                                        usage=types.SimpleNamespace(input_tokens=1, output_tokens=1))
+        entry = types.SimpleNamespace(custom_id="p", result=types.SimpleNamespace(type="succeeded", message=message))
+        batches = types.SimpleNamespace(
+            create=lambda requests: types.SimpleNamespace(id="b"),
+            retrieve=lambda _id: types.SimpleNamespace(processing_status="ended"),
+            results=lambda _id: [entry])
+        monkeypatch.setattr(llm, "anthropic_client", lambda: types.SimpleNamespace(
+            messages=types.SimpleNamespace(batches=batches)))
+        recorded = []
+        monkeypatch.setattr(usage, "record", lambda *a, **k: recorded.append(a))
+        llm.complete_batch({"p": "prompt"}, system="s", provider="claude", claude_model="claude-sonnet-5",
+                           gemini_model="g", max_tokens=10, kind="summary")
+        assert recorded[0][2] == "claude-sonnet-5"
+
+    def test_a_gemini_batch_fills_whole_replies_too(self, monkeypatch):
+        meta = types.SimpleNamespace(prompt_token_count=900, cached_content_token_count=100,
+                                     candidates_token_count=40, thoughts_token_count=10)
+        entries = [types.SimpleNamespace(error=None, metadata={"custom_id": "call"},
+                                         response=types.SimpleNamespace(text="{}", usage_metadata=meta, candidates=[]))]
+        job = types.SimpleNamespace(name="batches/x", state="JOB_STATE_SUCCEEDED",
+                                    dest=types.SimpleNamespace(inlined_responses=entries))
+        batches = types.SimpleNamespace(create=lambda **kw: job, get=lambda **kw: job)
+        monkeypatch.setattr(llm, "gemini_client", lambda: types.SimpleNamespace(batches=batches))
+        recorded = []
+        monkeypatch.setattr(usage, "record", lambda *a, **k: recorded.append(a))
+        replies = {}
+        llm.complete_batch({"call": "prompt"}, system="s", provider="gemini", claude_model="c",
+                           gemini_model="gemini-3.6-flash", max_tokens=100, kind="rfi", replies=replies)
+        reply = replies["call"]
+        assert reply.model == "gemini-3.6-flash-batch" and recorded[0][2] == "gemini-3.6-flash-batch"
+        assert (reply.input_tokens, reply.output_tokens, reply.thinking_tokens, reply.cache_read_tokens) == (800, 50, 10, 100)

@@ -1,0 +1,78 @@
+{
+  "_comment": "What a dismissal can be remembered for: [checkType, item key, mark family or null]. The worker (workers/src/dismissals.py) matches rules with it and the API (@cdip/shared dismissalFamily) offers the same family; both suites read this file so the two cannot drift.",
+  "cases": [
+    [
+      "unscheduled_mark",
+      "F6.0",
+      "F"
+    ],
+    [
+      "unscheduled_mark",
+      "PC4",
+      "PC"
+    ],
+    [
+      "schedule_plan_loop",
+      "1PB1",
+      "PB"
+    ],
+    [
+      "unscheduled_mark",
+      "SR-25",
+      "SR"
+    ],
+    [
+      "unscheduled_mark",
+      "R7",
+      "R"
+    ],
+    [
+      "tag_value_conflict",
+      "RTU-3",
+      null
+    ],
+    [
+      "dangling_reference",
+      "S-501",
+      null
+    ],
+    [
+      "unscheduled_mark",
+      "",
+      null
+    ],
+    [
+      "grid_mismatch",
+      "",
+      null
+    ]
+  ],
+  "sameItem": [
+    [
+      "PC-4",
+      "PC4",
+      true
+    ],
+    [
+      "pc 4",
+      "PC4",
+      true
+    ],
+    [
+      "RTU-3",
+      "RTU3",
+      true
+    ],
+    [
+      "F6.0",
+      "F60",
+      false
+    ],
+    [
+      "PC4",
+      "PC5",
+      false
+    ]
+  ],
+  "_sameItem": "[a, b, same]: a mark is printed with or without its hyphen (PC4 on one sheet, PC-4 on the next); a dot is part of the mark (F6.0 is not F60)."
+}

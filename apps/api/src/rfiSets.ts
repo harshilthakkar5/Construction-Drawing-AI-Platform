@@ -33,6 +33,7 @@ export function setPlanRequest(
     thinking: review.thinking as RfiReviewThinking,
     ...(review.provider && review.model ? { provider: review.provider, model: review.model } : {}),
     ...(review.maxInputTokens != null ? { maxInputTokens: review.maxInputTokens } : {}),
+    ...(review.useBatch ? { useBatch: true } : {}),
     // A numeric thinking ceiling only where the model honours one, as the plan form does.
     ...(budgetHonoured && review.maxThinkingTokens != null ? { maxThinkingTokens: review.maxThinkingTokens } : {}),
     excludePageIds: [] as string[],
