@@ -284,6 +284,52 @@ export function disciplineNotUploaded(ref: TitleReference, pages: readonly { dis
 }
 export const MAX_TITLE_REFERENCES = 5;
 
+/** A note on a reviewed sheet that sends the reader to another sheet BY NUMBER
+ * for something the element is about: Victaulic S1.1D's "INDICATES COLUMN BASE
+ * PLATE, SEE S3.2." on a piers review whose element names "base plate larger than
+ * pedestal". `referencedSheets` follows only the TARGET's own words, so S3.2 —
+ * where the base plates are — reached the review as text only and RFI 005 (base
+ * plate sizes) was raised in 3 of 10 runs. Only a line sharing two of the
+ * element's own words counts, so a sheet's "SEE S0.1 FOR GENERAL NOTES" does not. */
+const SHEET_POINTER = /\b(?:SEE|REFER\s+TO|PER)\s+(?:SHEETS?\s+|DWG\.?\s+)?(?:\d{1,3}\s*\/\s*)?([A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?)\b/g;
+const POINTER_STOP = new Set([
+  "see", "refer", "per", "sheet", "indicate", "indicates", "indicated", "typ", "typical", "note", "general", "detail",
+  "the", "and", "for", "with", "all", "plan", "schedule", "section", "dimension", "size", "above", "below", "than",
+  "larger", "smaller", "other", "each", "this", "that", "from", "not", "are",
+]);
+export const MAX_POINTED_SHEETS = 3;
+
+/** The content words of a line, lower case, a plural's "s" dropped. Pure. */
+export function pointerWords(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().match(/[a-z]{3,}/g) ?? []) {
+    const stem = w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w;
+    if (!POINTER_STOP.has(w) && !POINTER_STOP.has(stem)) out.add(stem);
+  }
+  return out;
+}
+
+export function pointedSheets(
+  texts: readonly { text: string; from: string | null }[],
+  wanted: ReadonlySet<string>,
+  sheets: ReadonlyMap<string, string[]>,
+  exclude: ReadonlySet<string>,
+): { sheet: string; pageIds: string[]; from: string | null; words: string[] }[] {
+  const best = new Map<string, { sheet: string; pageIds: string[]; from: string | null; words: string[] }>();
+  for (const { text, from } of texts) {
+    for (const line of text.toUpperCase().split(/\n|\|/)) {
+      for (const m of line.matchAll(SHEET_POINTER)) {
+        const sheet = normalizeSheet(m[1]!);
+        const pageIds = sheets.get(sheet);
+        if (!pageIds || exclude.has(sheet)) continue;
+        const words = [...pointerWords(line)].filter((w) => wanted.has(w));
+        if (words.length >= 2 && words.length > (best.get(sheet)?.words.length ?? 0)) best.set(sheet, { sheet, pageIds, from, words });
+      }
+    }
+  }
+  return [...best.values()].sort((a, b) => b.words.length - a.words.length || a.sheet.localeCompare(b.sheet)).slice(0, MAX_POINTED_SHEETS);
+}
+
 export function titleReferences(text: string): TitleReference[] {
   const upper = text.toUpperCase().replace(/\s+/g, " ");
   const out = new Map<string, TitleReference>();

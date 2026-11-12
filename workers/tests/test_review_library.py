@@ -706,16 +706,34 @@ RFI_002_OBSERVATIONS = [
 
 
 def test_recorded_absences_of_placement_become_candidates_for_questions_nobody_proposed():
-    got = rr.unclaimed_absences(RFI_002_OBSERVATIONS, {"CE-03-01-Q07", "CE-03-01-Q08", "CE-03-01-Q06"})
+    got = rr.unclaimed_absences(RFI_002_OBSERVATIONS, [{"checkId": "CE-03-01-Q07", "issue": "Rock socket length is not stated."}])
     # Placement first, all three location questions; the bell diameter waits for a free slot.
     assert [c["checkId"] for c in got] == ["CE-03-01-Q05", "F04", "Q-wall"]
     first = got[0]
     assert first["kind"] == "missing" and first["confidence"] == "low" and first["fromObservations"]
     assert first["evidenceIds"] == ["ev55", "ev58"] and "no dimension" in first["issue"]
-    # A question reasoning already proposed for keeps its own proposal; no geometry, no candidate.
-    assert rr.unclaimed_absences(RFI_002_OBSERVATIONS, {"F04", "Q-wall", "CE-03-01-Q05", "CE-03-01-Q02"}) == []
+    # A gap a proposal already covers stays with that proposal; no geometry, no candidate.
+    covered = [{"checkId": "F04", "issue": "Piers at the wall have no grid-referenced offsets and no centre dimension."},
+               {"checkId": "Q-wall", "issue": "Many piers have no dimension to the skewed grids."},
+               {"checkId": "CE-03-01-Q02", "issue": "Bell diameter and angle are not given in the schedule."}]
+    assert rr.unclaimed_absences(RFI_002_OBSERVATIONS, covered) == []
     # An observation citing nothing cannot become a finding.
-    assert rr.unclaimed_absences([dict(RFI_002_OBSERVATIONS[0], evidenceIds=[])], set()) == []
+    assert rr.unclaimed_absences([dict(RFI_002_OBSERVATIONS[0], evidenceIds=[])], []) == []
+
+
+def test_an_absence_is_dropped_only_by_a_proposal_about_the_same_gap():
+    """Victaulic RFI 005: the base plate size was observed missing under the same
+    question that raised only the piers' HOLD status, and was dropped with it."""
+    seen = [{"checkId": "CE-04-10-Q02", "element": "Pier P1", "location": "S3.5",
+             "statement": "P1 is dimensioned 2'-2\" by 2'-5\" with a base plate drawn inside. Plate size and edge "
+                          "clearance are not given.", "evidenceIds": ["ev49"]}]
+    hold = [{"checkId": "CE-04-10-Q02", "issue": "Piers P1 and P2 are marked HOLD; no pier schedule backs them up."}]
+    got = rr.unclaimed_absences(seen, hold)
+    assert [c["checkId"] for c in got] == ["CE-04-10-Q02"] and "Plate size" in got[0]["issue"]
+    plate = [{"checkId": "CE-04-10-Q05", "issue": "The base plate size and edge clearance are not shown."}]
+    assert rr.unclaimed_absences(seen, plate) == []
+    # Not legible is not absent: the reading failed, which says nothing about the drawing.
+    assert rr.unclaimed_absences([dict(seen[0], statement="Base plate dimensions are not legible.")], hold) == []
 
 
 # --- a placement claim is judged on the run's close-ups of its sheet (Leland RFI 002) ------
