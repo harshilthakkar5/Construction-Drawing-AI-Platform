@@ -1881,7 +1881,9 @@ MAX_ELSEWHERE_CHECKS = 3
 # in `basis` ("belong to forming plans", "documented in building elevations").
 _ELSEWHERE = re.compile(
     r"\b(?:belongs?\s+(?:to|on|in)|(?<!not\s)(?:shown|provided|documented|given|detailed|governed|defined|located)"
-    r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet)\b",
+    r"\s+(?:on|in|by)|refer(?:s|red|enced)?\s+to|references\s+sheet"
+    r"|covered\s+(?:by|on|in)\s+(?:the\s+)?(?:[\w-]+\s+){0,3}?(?:details?|sheets?|drawings?|sections?|schedules?)"
+    r"|covered\s+(?:on|in)\s+[A-Z]{1,2}-?\d)\b",
     re.I,
 )
 # A rejection resting on a REFERENCE rather than a value: "SEE PLAN", "SEE
@@ -1909,7 +1911,12 @@ _UNPROVEN_ABSENCE = re.compile(
     r"(?:shows?|establish(?:es)?|demonstrates?|proves?|indicates?)\b[^.]{0,80}?"
     r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed))\b"
     r"|\bno\s+gap\s+(?:is|was|has\s+been)\s+(?:demonstrated|shown|established|proven)\b"
-    r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b",
+    r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b"
+    # Victaulic RFI 005, re-checked twice: "cannot be settled from the evidence shown", and
+    # "the base plate size is on S3.2, which is not among the evidence shown".
+    r"|\bcannot\s+be\s+(?:settled|established|determined|confirmed|demonstrated|verified|shown)\s+(?:from|by|with)\s+"
+    r"(?:the\s+)?(?:\w+\s+)?evidence\b"
+    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b",
     re.I,
 )
 # A rejection that says the value is given ELSEWHERE while its own reason says the value
@@ -2161,23 +2168,27 @@ def overruled(candidate: dict, decision: dict) -> dict:
 # A problem about WHERE an element is: its location, or a dimension to a grid.
 # "at location B/4" names a place for some other claim and does not count.
 _LOCATES = re.compile(r"(?<!\bat )\blocat\w*|\bwhere\b|\bposition\w*|\bw\.?\s?r\.?\s?t\.?(?!\w)"
-                      r"|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b", re.I)
+                      r"|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b|\bextents?\b", re.I)
 _DETAIL_REF = re.compile(r"\b\d{1,3}\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b|\btypical\s+detail\b", re.I)
 _QUOTES_LENGTH = re.compile(r"\d+\s*'\s*-?\s*\d+")
 # What a reason must say to have answered WHERE: a place, a grid, an offset or a dimension to something.
 _SPEAKS_OF_PLACE = re.compile(r"\bgrids?\b|\boffsets?\b|\bdimensioned\b|\bdimensions?\s+(?:to|from)\b", re.I)
+# A place said in words, which gives no distance: "locate on each side of the overhead door".
+_PLACE_IN_WORDS = re.compile(r"\b(?:each|both)\s+sides?\s+of\b|\blocating\s+rule\b|\bleaders?\s+points?\b", re.I)
 
 
 def place_unanswered(decision: dict | None, candidate: dict) -> bool:
     """A rejection of a "where is it" problem that never says where. Pure.
-    Two shapes, each a client RFI set aside on Victaulic:
+    Three shapes, each a client RFI set aside on Victaulic:
       * it rests on a detail reference — a detail shows how an element is built,
         not where each one is (RFI 003: "note 13 sends the step itself to detail
         8/S3.1");
       * it answers a SIZE and says nothing of place (RFI 001: "wall footing width
         is given on the S3.1 sections: 2'-6\" wide", against "no dimensions to grids").
+      * it answers with a place said in words and no distance (RFI 013: "the notes say to
+        locate the bollards on each side of the overhead door, so the location is not missing").
     A reason calling it a duplicate, or naming the specs or the field, stands; so
-    does a detail reason quoting a length, and a size reason speaking of a grid or offset."""
+    does a detail or words reason quoting a length, and a size reason speaking of a grid or offset."""
     if not decision or decision.get("decision") != "reject" or candidate.get("kind") not in ("missing", "ambiguity"):
         return False
     reason = decision.get("reason") or ""
@@ -2188,7 +2199,8 @@ def place_unanswered(decision: dict | None, candidate: dict) -> bool:
         return False
     by_detail = bool(_DETAIL_REF.search(reason)) and not _QUOTES_LENGTH.search(reason)
     by_size = bool(_QUOTES_LENGTH.search(reason)) and not (_LOCATES.search(reason) or _SPEAKS_OF_PLACE.search(reason))
-    return by_detail or by_size
+    by_words = bool(_PLACE_IN_WORDS.search(reason)) and not _QUOTES_LENGTH.search(reason)
+    return by_detail or by_size or by_words
 
 
 def kept_for_placement(candidate: dict, decision: dict) -> dict:
