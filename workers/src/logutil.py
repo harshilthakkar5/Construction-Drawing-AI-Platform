@@ -27,6 +27,9 @@ def setup() -> None:
         format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # urllib3 logs "Failed to parse headers … HTTP/1.1 200 OK" with a traceback on every MinIO upload
+    # (the 100-continue reply), though the upload succeeded: noise that buried every real line.
+    logging.getLogger("urllib3.connection").setLevel(logging.ERROR)
     _configured = True
 
 
