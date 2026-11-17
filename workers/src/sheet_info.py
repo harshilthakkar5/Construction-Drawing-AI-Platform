@@ -38,6 +38,8 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from concurrent.futures import ThreadPoolExecutor
+
 import classify
 import logutil
 import sheet_facts
@@ -58,6 +60,8 @@ MAX_INDEX_ENTRIES = 400
 # A range wider than this is a typo or a note ("LEVELS 1-100 ROOF DRAINS"),
 # not one sheet drawing seventy floors.
 MAX_RANGE = 30
+# Batches sent at once; SHEET_READ_CONCURRENCY=1 sends them one after another.
+READ_CONCURRENCY = int(os.environ.get("SHEET_READ_CONCURRENCY", "4"))
 
 _CACHE_TTL_SECONDS = 30 * 24 * 3600
 _MISS = object()
@@ -324,7 +328,13 @@ def parse_batch(raw: str, texts: list[str]) -> dict[int, SheetInfo]:
     try:
         data = json.loads(classify._strip_fences(raw))
     except (json.JSONDecodeError, TypeError):
-        return {}
+        # An unescaped inch mark in a title (`1/4" = 1'-0"`) broke a whole batch of 25
+        # on a real set; the review's repairs fix exactly that without a second call.
+        import rfi_review
+
+        data = rfi_review.parse_json_object(raw)
+        if data is None:
+            return {}
     if isinstance(data, dict):
         data = data.get("sheets")
     if not isinstance(data, list):
@@ -395,7 +405,9 @@ def _ask(texts: list[str], depth: int = 0) -> list:
     answered = parse_batch(raw, texts)
     missing = [i for i in range(len(texts)) if i not in answered]
     if missing and len(texts) > 1 and depth < classify._BATCH_MAX_DEPTH:
-        log.warning("sheet read: %d/%d sheets unanswered — asking again in smaller batches", len(missing), len(texts))
+        why = "the reply could not be read as JSON" if not answered else "the model skipped them"
+        log.warning("sheet read: %d/%d sheets unanswered (%s) — asking again in smaller batches",
+                    len(missing), len(texts), why)
         half = max(1, len(texts) // 2)
         for start in range(0, len(missing), half):
             window = missing[start:start + half]
@@ -433,9 +445,18 @@ def read(items: list[tuple[str | None, str | None, str | None]], redis_conn=None
     size = classify.SHEET_BATCH_SIZE
     log.info("sheet read: %d sheets → %d distinct → %d call(s) to %s",
              sum(len(v) for v in unresolved.values()), len(distinct), -(-len(distinct) // size), sheetllm.model_name())
-    for start in range(0, len(distinct), size):
-        window = distinct[start:start + size]
-        for text, value in zip(window, _ask(window)):
+    windows = [distinct[start:start + size] for start in range(0, len(distinct), size)]
+    project = classify.usage_project()  # thread-local: the pool's threads must bill the same project
+
+    def ask(window):
+        classify.set_usage_project(project)
+        return _ask(window)
+
+    # Round trips, not tokens, are the wall clock: 15 calls one after another took 88 s.
+    with ThreadPoolExecutor(max_workers=max(1, min(READ_CONCURRENCY, len(windows)))) as pool:
+        answers = list(pool.map(ask, windows))
+    for window, values in zip(windows, answers):  # cached here, on this thread
+        for text, value in zip(window, values):
             if value is _MISS:
                 continue  # never cache an answer we did not get
             _store(redis_conn, text, value)

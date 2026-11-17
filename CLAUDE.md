@@ -423,6 +423,9 @@ rescrape) and as the Level picker in Create RFI, which ticks that level's sheets
 Thinking is OFF for the sheet read whatever `CLAUDE_THINKING` says (`SHEET_THINKING` overrides): a PC with the
 chat's `CLAUDE_THINKING=on` sent no thinking field, Haiku 5.5 thought by default, and every batch came back
 empty or cut short ("stop_reason=max_tokens … 1x thinking") — 1 of 114 sheets read, after ~40 retries.
+Batches go out `SHEET_READ_CONCURRENCY` (4) at a time — 15 calls one after another were 88 s of a 297-sheet read —
+and a reply broken by an unescaped inch mark (`1/4" = 1'-0"` in a title) is repaired with
+`rfi_review.parse_json_object` instead of re-asked; a batch still lost says whether it was unreadable or skipped.
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but

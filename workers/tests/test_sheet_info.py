@@ -260,3 +260,36 @@ def test_the_sheet_read_sends_thinking_off_even_when_the_chat_has_it_on(monkeypa
     monkeypatch.setattr(usage, "record_message", lambda *a, **k: None)
     assert sheetllm.complete_json("sys", "user") == "{}"
     assert sent["thinking"] == {"type": "disabled"}
+
+
+def test_an_unescaped_inch_mark_does_not_lose_the_batch():
+    # A real batch of 25 came back "unanswered" and was asked again: a title's 1/4" broke the JSON.
+    texts = ['<titles>\nENLARGED PLAN - LEVEL 2\n1/4" = 1\'-0"\n</titles>']
+    raw = '{"sheets": [{"index": 1, "sheet_number": "A5.01", "prefix": "A", "confidence": 0.9, ' \
+          '"title": "ENLARGED PLAN 1/4" = 1\'-0"", "levels": ["LEVEL 2"], "kind": "enlarged_plan"}]}'
+    answered = sheet_info.parse_batch(raw, texts)
+    assert answered[0].levels == ["LEVEL 2"] and answered[0].kind == "enlarged_plan"
+
+
+def test_batches_are_sent_together_and_billed_to_the_project(monkeypatch):
+    import threading
+
+    together = threading.Barrier(2, timeout=5)  # breaks if the second call waits for the first
+    billed = []
+    answer = _answer_all([])
+
+    def complete_json(system, user, project_id=None, max_tokens=None):
+        together.wait()
+        billed.append(classify.usage_project())
+        return answer(system, user)
+
+    monkeypatch.setattr(sheet_info.sheetllm, "complete_json", complete_json)
+    monkeypatch.setattr(classify, "SHEET_BATCH_SIZE", 25)
+    monkeypatch.setattr(sheet_info, "READ_CONCURRENCY", 4)
+    classify.set_usage_project("p-1")
+    try:
+        infos = sheet_info.read([(f"A{n}", f"FLOOR PLAN - LEVEL 1\nSHEET {n}", None) for n in range(30)], FakeRedis())
+    finally:
+        classify.set_usage_project(None)
+    assert billed == ["p-1", "p-1"]
+    assert all(isinstance(info, SheetInfo) for info in infos)
