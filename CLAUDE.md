@@ -3504,8 +3504,8 @@ Inside a project, two panes: the work column (Docs | Categories | RFIs | Setting
 PDF viewer with jump + highlight. Clicking a portion (e.g. "Structural") jumps the viewer to the
 portion's start page and optionally filters chat retrieval to that portion.
 
-Chat is a FLOATING window (`components/ChatDock.tsx`, client request Nov 2026): a round button in the
-bottom-right corner (`data-tour="chat-toggle"`, draggable anywhere, position saved per browser as `cdip-chat-pos`; the window opens beside it on whichever side has room) opens it like a website chatbot, with a bigger size
+Chat is a FLOATING window (`components/ChatDock.tsx`, client request Nov 2026): a round button at the
+bottom-left of the work column by default (`data-tour="chat-toggle"`, draggable anywhere; only a DRAGGED position is saved, per browser as `cdip-chat-pos-v2`; the window opens beside it on whichever side has room) opens it like a website chatbot, with a bigger size
 and a close button, on desktop and phone alike; expanded on a phone is full screen, and on a phone it steps aside when a citation jumps the viewer.
 It is hidden with CSS when closed, so a thread survives. It is LOCKED (greyed, "ready when processing
 finishes, N of M pages") while the disciplines chosen for full processing are still being read, and
