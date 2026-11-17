@@ -3505,7 +3505,7 @@ PDF viewer with jump + highlight. Clicking a portion (e.g. "Structural") jumps t
 portion's start page and optionally filters chat retrieval to that portion.
 
 Chat is a FLOATING window (`components/ChatDock.tsx`, client request Nov 2026): a round button in the
-bottom-right corner (`data-tour="chat-toggle"`) opens it like a website chatbot, with a bigger size
+bottom-right corner (`data-tour="chat-toggle"`, draggable anywhere, position saved per browser as `cdip-chat-pos`; the window opens beside it on whichever side has room) opens it like a website chatbot, with a bigger size
 and a close button, on desktop and phone alike; expanded on a phone is full screen, and on a phone it steps aside when a citation jumps the viewer.
 It is hidden with CSS when closed, so a thread survives. It is LOCKED (greyed, "ready when processing
 finishes, N of M pages") while the disciplines chosen for full processing are still being read, and

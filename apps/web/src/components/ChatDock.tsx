@@ -1,6 +1,6 @@
 import type { ProcessingStateDto } from "@cdip/shared";
 import { MessageSquareIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { useProcessing } from "@/components/Processing";
 import { Spinner } from "@/components/shared";
@@ -9,6 +9,43 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
 const OPEN_KEY = "cdip-chat-open";
+const POS_KEY = "cdip-chat-pos";
+const BUTTON = 56;
+const MARGIN = 8;
+
+/** The button's offset from the bottom-right corner, kept on screen. */
+type Pos = { right: number; bottom: number };
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi));
+
+export function clampPos(p: Pos, vw: number, vh: number): Pos {
+  return { right: clamp(p.right, MARGIN, vw - BUTTON - MARGIN), bottom: clamp(p.bottom, MARGIN, vh - BUTTON - MARGIN) };
+}
+
+function readPos(): Pos {
+  try {
+    const p = JSON.parse(localStorage.getItem(POS_KEY) ?? "null");
+    if (Number.isFinite(p?.right) && Number.isFinite(p?.bottom)) return p;
+  } catch {
+    // fall through to the default corner
+  }
+  return { right: 24, bottom: 24 };
+}
+
+/** Where a popup opens beside the button: on the side and above or below it, whichever has room. */
+export function anchorStyle(p: Pos, vw: number, vh: number, gap = 16): CSSProperties {
+  const style: CSSProperties = {};
+  if (p.right > vw / 2) style.left = vw - p.right - BUTTON;
+  else style.right = p.right;
+  if (p.bottom > vh / 2) {
+    style.top = vh - p.bottom + gap;
+    style.maxHeight = vh - (style.top as number) - MARGIN;
+  } else {
+    style.bottom = p.bottom + BUTTON + gap;
+    style.maxHeight = vh - (style.bottom as number) - MARGIN;
+  }
+  return style;
+}
 const READY_KEY = (projectId: string) => `cdip-chat-ready:${projectId}`;
 
 function readFlag(key: string) {
@@ -64,6 +101,29 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
   const [justReady, setJustReady] = useState(false);
   useEffect(() => writeFlag(OPEN_KEY, open), [open]);
 
+  // The button can be dragged anywhere; a drag is not a click.
+  const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  const [pos, setPos] = useState(() => clampPos(readPos(), window.innerWidth, window.innerHeight));
+  useEffect(() => {
+    const onResize = () => {
+      setView({ w: window.innerWidth, h: window.innerHeight });
+      setPos((p) => clampPos(p, window.innerWidth, window.innerHeight));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    } catch {
+      // blocked storage: the button just returns to the corner next time
+    }
+  }, [pos]);
+  const drag = useRef<{ x: number; y: number; from: Pos; moved: boolean } | null>(null);
+  const dragged = useRef(false);
+  const anchor = anchorStyle(pos, view.w, view.h);
+  const vertical = { top: anchor.top, bottom: anchor.bottom, maxHeight: anchor.maxHeight };
+
   // Say so once when chat unlocks while the person is here.
   const wasLocked = useRef(ready.locked);
   useEffect(() => {
@@ -96,12 +156,13 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
             fullScreen
               ? large
                 ? "inset-0"
-                : "inset-x-3 bottom-24 h-[min(70vh,640px)] rounded-xl"
+                : "inset-x-3 h-[min(70vh,640px)] rounded-xl"
               : large
-                ? "right-6 bottom-24 h-[min(85vh,900px)] w-[min(760px,calc(100vw-3rem))] rounded-xl"
-                : "right-6 bottom-24 h-[min(640px,calc(100vh-8rem))] w-[min(400px,calc(100vw-3rem))] rounded-xl",
+                ? "h-[min(85vh,900px)] w-[min(760px,calc(100vw-3rem))] rounded-xl"
+                : "h-[min(640px,calc(100vh-8rem))] w-[min(400px,calc(100vw-3rem))] rounded-xl",
             !open && "hidden",
           )}
+          style={fullScreen ? (large ? undefined : vertical) : anchor}
         >
           <ChatPanel
             projectId={projectId}
@@ -115,7 +176,8 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
       {ready.locked && open && (
         <div
           role="status"
-          className="bg-card fixed right-6 bottom-24 z-40 w-72 rounded-xl border p-4 shadow-xl"
+          className="bg-card fixed z-40 w-72 overflow-y-auto rounded-xl border p-4 shadow-xl"
+          style={anchor}
         >
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-sm font-medium">
@@ -140,7 +202,8 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
       {justReady && !open && (
         <button
           type="button"
-          className="bg-success text-success-foreground fixed right-24 bottom-9 z-40 rounded-full px-3 py-1.5 text-xs font-medium shadow-lg"
+          className="bg-success text-success-foreground fixed z-40 rounded-full px-3 py-1.5 text-xs font-medium shadow-lg"
+          style={anchorStyle(pos, view.w, view.h, 8)}
           onClick={() => {
             setJustReady(false);
             setOpen(true);
@@ -156,13 +219,38 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
           data-tour="chat-toggle"
           aria-label={ready.locked ? `Chat, ready when processing finishes (${pagesLeft})` : open ? "Close chat" : "Open chat"}
           aria-expanded={open}
-          title={ready.locked ? `Chat unlocks when processing finishes (${pagesLeft})` : "Ask about the drawings"}
+          title={ready.locked ? `Chat unlocks when processing finishes (${pagesLeft}). Drag to move.` : "Ask about the drawings. Drag to move."}
+          style={{ right: pos.right, bottom: pos.bottom }}
+          onPointerDown={(e) => {
+            drag.current = { x: e.clientX, y: e.clientY, from: pos, moved: false };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            const dx = e.clientX - d.x;
+            const dy = e.clientY - d.y;
+            if (!d.moved && Math.hypot(dx, dy) < 5) return;
+            d.moved = true;
+            setPos(clampPos({ right: d.from.right - dx, bottom: d.from.bottom - dy }, view.w, view.h));
+          }}
+          onPointerUp={() => {
+            dragged.current = drag.current?.moved ?? false;
+            drag.current = null;
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+          }}
           onClick={() => {
+            if (dragged.current) {
+              dragged.current = false;
+              return;
+            }
             setJustReady(false);
             setOpen((o) => !o);
           }}
           className={cn(
-            "fixed right-6 bottom-6 z-40 grid size-14 place-items-center rounded-full shadow-lg transition",
+            "fixed z-40 grid size-14 cursor-grab touch-none place-items-center rounded-full shadow-lg transition-transform select-none active:cursor-grabbing",
             ready.locked
               ? "bg-muted text-muted-foreground"
               : "bg-primary text-primary-foreground hover:scale-105",
