@@ -55,7 +55,7 @@ export function useChatReady(projectId: string) {
 /**
  * The project chat as a floating button and window, like a website chatbot.
  * The window is hidden with CSS rather than unmounted, so a thread survives
- * closing it. On a phone it opens full screen.
+ * closing it. Both sizes have an expand button; on a phone, expanded is full screen.
  */
 export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScreen: boolean }) {
   const ready = useChatReady(projectId);
@@ -76,7 +76,7 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
     return () => clearTimeout(timer);
   }, [justReady]);
 
-  // Full screen covers the viewer, so a citation clicked there steps aside.
+  // On a phone the chat covers the viewer, so a citation clicked there steps aside.
   const jumpToPage = useAppStore((s) => s.jumpToPage);
   useEffect(() => {
     if (jumpToPage !== null && fullScreen) setOpen(false);
@@ -94,7 +94,9 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
           className={cn(
             "bg-card fixed z-40 flex flex-col overflow-hidden border shadow-2xl",
             fullScreen
-              ? "inset-0"
+              ? large
+                ? "inset-0"
+                : "inset-x-3 bottom-24 h-[min(70vh,640px)] rounded-xl"
               : large
                 ? "right-6 bottom-24 h-[min(85vh,900px)] w-[min(760px,calc(100vw-3rem))] rounded-xl"
                 : "right-6 bottom-24 h-[min(640px,calc(100vh-8rem))] w-[min(400px,calc(100vw-3rem))] rounded-xl",
@@ -103,8 +105,8 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
         >
           <ChatPanel
             projectId={projectId}
-            expanded={large && !fullScreen}
-            onToggleExpand={fullScreen ? undefined : () => setLarge((l) => !l)}
+            expanded={large}
+            onToggleExpand={() => setLarge((l) => !l)}
             onHide={() => setOpen(false)}
           />
         </div>
@@ -148,7 +150,7 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
         </button>
       )}
 
-      {!(fullScreen && open && !ready.locked) && (
+      {!(fullScreen && large && open && !ready.locked) && (
         <button
           type="button"
           data-tour="chat-toggle"
