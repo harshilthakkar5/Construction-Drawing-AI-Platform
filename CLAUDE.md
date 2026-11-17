@@ -407,6 +407,20 @@ rules ladder, and its non-answer is NOT cached — only a real "the model looked
 is. Results are Redis-cached by `sha256(region_text)` — hundreds of sheets share a box layout, and
 the single-page and batched readers share the key — and the instructions are prompt-cached.
 
+**The sheet read also reads the SHEET MAP** (`workers/src/sheet_info.py`, Nov 2026). The same title-block step
+asks ONE call per 25 sheets (`SHEET_BATCH_SIZE`; default model `claude-haiku-5-5`, thinking off) for each sheet's
+number, title, levels and kind, from the title-block box plus the page's biggest lines (`pages.titleLines`) and,
+when the project has a sheet index, that sheet's index entry (`pages.indexEntries`). The discipline still comes
+from the prefix table. Every answer is GROUNDED: a level is kept only when the text sent prints it (an invented
+"LEVEL 7" on a details sheet is dropped), a title only when its words are printed, a kind only from `KINDS`; a
+miss falls back to the code readers (`sheet_facts.title_block_level` / `level_in` / `classify_kind`). Stored as
+`pages.levels` (one entry per floor: "LEVEL 7-9" → 7, 8, 9), `level`, `sheetTitle`, `sheetKind`, and
+`pages.sheetRefs` (sheets it points to, by code). `buildSheetMap` (`@cdip/shared`) turns the manifest into four
+links: level → sheets, same level other disciplines, enlarged ↔ overall plan, points to / pointed to by
+(missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
+rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. Cached in Redis per
+(provider, model, text). Existing projects are re-read once (`titleLines IS NULL` counts as pending).
+
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but
 `page.get_text(clip=…)` is NOT, so the clip must be mapped with `clip * page.derotation_matrix`
@@ -3414,6 +3428,7 @@ rfi_full_scans(id, projectId, createdById, status, stage, provider, model, useBa
 pages(id, documentId, pageNumber, combinedPageNumber, imageUrl, text, pdfWidth, pdfHeight, rotation,
       discipline, sheetRegionText, sheetNumber, regionMethod, regionVersion, disciplineSource,
       detailMap, detailMapVersion)   // detailMap: the project map's entry (detail_map.py)
+      // + titleLines, sheetRefs[], indexEntries, sheetTitle, levels[] (sheet_info.py)
 portions(id, projectId, name, discipline, startPage, endPage, pageCount, summary,
          summaryStatus, summaryHeartbeatAt, summaryDetail, ...)
          // UNIQUE(projectId, discipline) — UPSERT, never delete+reinsert

@@ -6,6 +6,9 @@ import { userMessage,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
   suggestSheets,
+  levelLabel,
+  levelRank,
+  type LibrarySheet,
   type RfiLibraryDto,
   type RfiLibraryElementDto,
   type RfiReviewStatus,
@@ -22,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -352,6 +356,13 @@ function CreateRfiDialog({
 
           <section className="flex flex-col gap-2">
             <p className="text-sm font-semibold">2 · Sheets</p>
+            <LevelChooser
+              sheets={sheets}
+              onPick={(level, picked) => {
+                setChosenSheets(picked);
+                if (!name.trim()) setName(levelLabel(level));
+              }}
+            />
             <SheetPicker
               projectId={projectId}
               sheets={sheets}
@@ -978,6 +989,56 @@ function SetFindings({
         <p className="text-muted-foreground text-xs">{decidedCount} already decided. Accepted ones are in the RFI log.</p>
       )}
       {(accept.error || dismiss.error) && <Notice tone="error">{((accept.error ?? dismiss.error) as Error).message}</Notice>}
+    </div>
+  );
+}
+
+
+/** Pick a level and its sheets are ticked: every sheet the sheet read found drawn for it. */
+function LevelChooser({
+  sheets,
+  onPick,
+}: {
+  sheets: LibrarySheet[];
+  onPick: (level: string, sheetNumbers: string[]) => void;
+}) {
+  const levels = useMemo(() => {
+    const by = new Map<string, string[]>();
+    for (const s of sheets) for (const level of s.levels ?? []) by.set(level, [...(by.get(level) ?? []), s.sheetNumber]);
+    return [...by.entries()].sort(([a], [b]) => {
+      const [x, y] = [levelRank(a), levelRank(b)];
+      return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+    });
+  }, [sheets]);
+  const [picked, setPicked] = useState("");
+  if (!levels.length) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No levels read yet. Use <span className="font-medium">Re-read sheets</span> in Categories to find them.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        value={picked}
+        onValueChange={(level) => {
+          setPicked(level);
+          onPick(level, levels.find(([l]) => l === level)?.[1] ?? []);
+        }}
+      >
+        <SelectTrigger className="h-10 w-64 text-sm" aria-label="Level">
+          <SelectValue placeholder="Pick a level to tick its sheets" />
+        </SelectTrigger>
+        <SelectContent>
+          {levels.map(([level, numbers]) => (
+            <SelectItem key={level} value={level}>
+              {levelLabel(level)} · {numbers.length} sheet{numbers.length === 1 ? "" : "s"}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-muted-foreground text-sm">You can still untick sheets or add others below.</span>
     </div>
   );
 }

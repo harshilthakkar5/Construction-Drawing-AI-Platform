@@ -721,7 +721,7 @@ def classify_region_text(
 
 
 def classify_region_batch(
-    items: list[tuple[str | None, str | None]], redis_conn=None
+    items: list[tuple[str | None, str | None]], redis_conn=None, preread: list | None = None
 ) -> list[tuple[str | None, str | None, str | None]]:
     """classify_region_text for a whole project, in as few provider calls as
     possible. `items` is (region_text, filename) per page; the result is
@@ -730,6 +730,11 @@ def classify_region_batch(
     Same ladder and same answers as the per-page function — the difference is
     that the pages which actually need a model are collected and read together
     instead of one round trip at a time.
+
+    `preread` is the model's answers already in hand, aligned with `items`
+    ((sheet_number, discipline) or None): the title-block step's sheet read
+    (sheet_info) asks for the sheet number in the same call as the level, so
+    the number is not paid for twice.
     """
     use_ai = os.environ.get("SHEET_EXTRACTION", "ai").lower() == "ai"
     rules_first = rules_first_enabled()
@@ -750,8 +755,10 @@ def classify_region_batch(
         results[i] = _region_fallback(text, filename)
 
     if pending:
-        read = extract_sheets_from_regions(
-            [(items[i][0] or "").strip() for i in pending], redis_conn
+        read = (
+            [preread[i] for i in pending]
+            if preread is not None
+            else extract_sheets_from_regions([(items[i][0] or "").strip() for i in pending], redis_conn)
         )
         for i, value in zip(pending, read):
             if value:

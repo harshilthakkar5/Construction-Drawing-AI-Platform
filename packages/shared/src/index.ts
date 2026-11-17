@@ -494,8 +494,151 @@ export interface ManifestEntryDto extends PageManifestEntry {
    * scan's page facts; null until a scan has read the page. */
   sheetKind?: SheetKind | null;
   level?: string | null;
+  /** The title-block step's sheet read (workers/src/sheet_info.py): the
+   * sheet's title, every level it is drawn for (one per floor, "LEVEL 3",
+   * "LEVEL B2", "ROOF"), and the sheets it points at as printed ("S3.2"). */
+  sheetTitle?: string | null;
+  levels?: string[];
+  sheetRefs?: string[];
   /** The full pass (OCR, search index) has run on this page. */
   processed?: boolean;
+}
+
+// --- The sheet map: how the sheets of a set connect --------------------------
+
+/** One sheet, as a link the viewer can open. */
+export interface SheetLink {
+  combinedPageNumber: number;
+  sheetNumber: string | null;
+  title: string | null;
+  discipline: Discipline | "unclassified" | null;
+}
+
+export interface SheetConnections extends SheetLink {
+  levels: string[];
+  kind: SheetKind | null;
+  /** Sheets in the set this one points at ("SEE S3.2", "5/A501"). */
+  references: SheetLink[];
+  /** Sheets it points at that are not in the set, as printed. */
+  missingReferences: string[];
+  /** Sheets pointing at this one. */
+  referencedBy: SheetLink[];
+  /** Plans of OTHER disciplines drawn for one of its levels. */
+  sameLevel: SheetLink[];
+  /** For an enlarged or partial plan: the overall plans of its discipline and level. */
+  overall: SheetLink[];
+  /** For an overall plan: the enlarged plans of its discipline and level. */
+  enlarged: SheetLink[];
+}
+
+export interface SheetMap {
+  /** Every level found, in building order (basements, ground, 1..n, roof), with its sheets. */
+  levels: { level: string; sheets: SheetLink[] }[];
+  /** Sheets drawn for no single level: details, sections, schedules, notes, or not read. */
+  noLevel: SheetLink[];
+  /** Per combined page number. */
+  sheets: Record<number, SheetConnections>;
+}
+
+/** "S-501" and "S501" are one sheet — rfi_checks.normalize, the same rule. */
+export function sheetKey(sheet: string | null | undefined): string {
+  return (sheet ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** Building order: basements deepest first, ground, numbered floors, then named levels. */
+export function levelRank(level: string): [number, number, string] {
+  const basement = /^LEVEL B(\d+)$/.exec(level);
+  if (basement) return [0, -Number(basement[1]), level];
+  if (/GROUND|GRADE|LOWER/.test(level)) return [1, 0, level];
+  const numbered = /^(?:UPPER )?LEVEL (\d+)/.exec(level);
+  if (numbered) return [2, Number(numbered[1]), level];
+  const order = ["MEZZANINE", "PENTHOUSE", "ROOF"];
+  const named = order.indexOf(level);
+  return [3, named === -1 ? order.length : named, level];
+}
+
+function compareLevels(a: string, b: string): number {
+  const [x, y] = [levelRank(a), levelRank(b)];
+  return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+}
+
+const PLAN_KINDS: (SheetKind | null)[] = ["plan", "enlarged_plan"];
+const ENLARGED_TITLE = /\b(?:ENLARGED|PARTIAL)\b/i;
+
+/**
+ * How the sheets connect, from what the title-block step read (pure):
+ * level → sheets, the same level across disciplines, an enlarged plan and its
+ * overall plan, and which sheet points at which. Nothing here is a model's
+ * judgement — levels and references are what the sheets print.
+ */
+export function buildSheetMap(entries: ManifestEntryDto[]): SheetMap {
+  const link = (e: ManifestEntryDto): SheetLink => ({
+    combinedPageNumber: e.combinedPageNumber,
+    sheetNumber: e.sheetNumber,
+    title: e.sheetTitle ?? null,
+    discipline: e.discipline,
+  });
+  const enlarged = (e: ManifestEntryDto) =>
+    e.sheetKind === "enlarged_plan" || (e.sheetKind === "plan" && ENLARGED_TITLE.test(e.sheetTitle ?? ""));
+  const overallPlan = (e: ManifestEntryDto) => e.sheetKind === "plan" && !enlarged(e);
+  const shares = (a: ManifestEntryDto, b: ManifestEntryDto) => (a.levels ?? []).some((l) => (b.levels ?? []).includes(l));
+  const byKey = new Map<string, ManifestEntryDto[]>();
+  for (const e of entries) {
+    const key = sheetKey(e.sheetNumber);
+    if (key) byKey.set(key, [...(byKey.get(key) ?? []), e]);
+  }
+
+  const sheets: Record<number, SheetConnections> = {};
+  for (const e of entries) {
+    const references: SheetLink[] = [];
+    const missingReferences: string[] = [];
+    const own = sheetKey(e.sheetNumber);
+    for (const ref of e.sheetRefs ?? []) {
+      const key = sheetKey(ref);
+      if (!key || key === own) continue;
+      const found = byKey.get(key);
+      if (!found) {
+        if (!missingReferences.includes(ref)) missingReferences.push(ref);
+        continue;
+      }
+      for (const target of found) {
+        if (!references.some((r) => r.combinedPageNumber === target.combinedPageNumber)) references.push(link(target));
+      }
+    }
+    const others = entries.filter((o) => o !== e && shares(e, o));
+    sheets[e.combinedPageNumber] = {
+      ...link(e),
+      levels: e.levels ?? [],
+      kind: e.sheetKind ?? null,
+      references,
+      missingReferences,
+      referencedBy: [],
+      sameLevel: others
+        .filter((o) => o.discipline !== e.discipline && PLAN_KINDS.includes(o.sheetKind ?? null))
+        .map(link),
+      overall: enlarged(e) ? others.filter((o) => o.discipline === e.discipline && overallPlan(o)).map(link) : [],
+      enlarged: overallPlan(e) ? others.filter((o) => o.discipline === e.discipline && enlarged(o)).map(link) : [],
+    };
+  }
+  for (const e of entries) {
+    for (const target of sheets[e.combinedPageNumber]?.references ?? []) {
+      sheets[target.combinedPageNumber]?.referencedBy.push(link(e));
+    }
+  }
+
+  const byLevel = new Map<string, SheetLink[]>();
+  const noLevel: SheetLink[] = [];
+  for (const e of entries) {
+    if (!e.levels?.length) noLevel.push(link(e));
+    for (const level of e.levels ?? []) byLevel.set(level, [...(byLevel.get(level) ?? []), link(e)]);
+  }
+  const levels = [...byLevel.keys()].sort(compareLevels).map((level) => ({ level, sheets: byLevel.get(level)! }));
+  return { levels, noLevel, sheets };
+}
+
+/** "LEVEL 3" → "Level 3", "LEVEL B2" → "Level B2", "ROOF" → "Roof". */
+export function levelLabel(level: string): string {
+  return level.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
 }
 
 /** FR-15: one portion per discipline, spanning all of its pages. */
@@ -2456,6 +2599,10 @@ export interface LibrarySheet {
   sheetKind: SheetKind | null;
   /** The level its title names ("LEVEL 2"); a floor plan names one, a cover or notes sheet does not. */
   level?: string | null;
+  /** Every level it is drawn for, one per floor (the title-block step's sheet read). */
+  levels?: string[];
+  /** Its title as the sheet read found it ("FORMING PLAN - LEVEL 3"). */
+  title?: string | null;
   /** Schedule headings printed on it ("CONCRETE COLUMN SCHEDULE - AREA B"), from `scheduleHeadings`. */
   headings?: string[];
   /** What the project's title-block box reads on it (pages.sheetRegionText), for searching sheets by title. */

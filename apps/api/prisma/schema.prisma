@@ -422,6 +422,17 @@ model Page {
   gridSummary  Json?
   factsVersion Int?
 
+  /// The title-block step's sheet read (workers/src/sheet_info.py): the
+  /// sheet's biggest lines, the sheets it points at ("SEE S3.2", "5/A501"),
+  /// a cover sheet's index entries, and the title and every level (one per
+  /// floor) the sheet read found — `level` above holds their one-line form.
+  /// titleLines NULL = not read yet; '' = read, nothing printed.
+  titleLines   String?
+  sheetRefs    String[] @default([])
+  indexEntries Json?
+  sheetTitle   String?
+  levels       String[] @default([])
+
   /// The project map (workers/src/detail_map.py): this sheet's titled details,
   /// the section/detail symbols it prints and how large each detail number is
   /// printed. Read once per detailMapVersion; NULL until a scan reads the page.
