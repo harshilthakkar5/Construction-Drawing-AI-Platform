@@ -7,7 +7,6 @@ import {
   LayoutGridIcon,
   ListChecksIcon,
   MessageCircleQuestionIcon,
-  MessageSquareIcon,
   PanelsTopLeftIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -16,7 +15,7 @@ import { createPortal } from "react-dom";
 import { roleLabel, type DocumentDto } from "@cdip/shared";
 import { api } from "@/api";
 import { useHeaderSlot } from "@/components/AppShell";
-import { ChatPanel } from "@/components/ChatPanel";
+import { ChatDock, useChatReady } from "@/components/ChatDock";
 import { CombinedViewer } from "@/components/CombinedViewer";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { DragDivider } from "@/components/DragDivider";
@@ -27,7 +26,7 @@ import {
   skipSetup,
   useSetupProgress,
 } from "@/components/ProjectSetup";
-import { FullViewButton, PageLoading } from "@/components/shared";
+import { FullViewButton, PageLoading, Spinner } from "@/components/shared";
 import { PortionsPanel } from "@/components/PortionsPanel";
 import { ProjectSettings } from "@/components/ProjectSettings";
 import { RfiPanel } from "@/components/RfiPanel";
@@ -38,7 +37,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
@@ -47,22 +45,21 @@ import { useAppStore, type WorkTab } from "@/store";
 
 const WORK_TABS: { value: WorkTab; label: string; Icon: typeof FilesIcon }[] = [
   { value: "documents", label: "Docs", Icon: FilesIcon },
-  { value: "summary", label: "Summary", Icon: LayoutGridIcon },
+  { value: "summary", label: "Categories", Icon: LayoutGridIcon },
   { value: "rfis", label: "RFIs", Icon: MessageCircleQuestionIcon },
   { value: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
 /**
  * FR-17 project workspace: a project header, then the left work column
- * (summary / categories / documents / RFIs, tabbed) beside the combined
- * viewer. Chat is the third pane, shown or hidden from the Chat button in the
- * viewer's toolbar, so a wide drawing can have the whole width when nobody is
- * asking questions.
+ * (docs / categories / RFIs / settings, tabbed) beside the combined viewer.
+ * Chat floats over the workspace from a button in the corner (ChatDock), so
+ * the drawing keeps the whole width.
  *
  * Any pane can go FULL VIEW (its maximize button) and take the whole
- * workspace. The other panes are hidden with CSS rather than unmounted, so a
- * chat thread, a viewer's scroll position and an open RFI all survive the
- * round trip. Below the `lg` breakpoint three panes do not fit side by side,
+ * workspace. The other pane is hidden with CSS rather than unmounted, so a
+ * viewer's scroll position and an open RFI survive the round trip. Below the
+ * `lg` breakpoint two panes do not fit side by side,
  * so the workspace shows one at a time behind a switcher — the same
  * one-pane-visible state, chosen by width instead of a button.
  *
@@ -71,8 +68,6 @@ const WORK_TABS: { value: WorkTab; label: string; Icon: typeof FilesIcon }[] = [
 // v2: the old keys were written on every load, so they hold the old fixed defaults
 // even where nobody dragged; widths are now saved only when a divider is dragged.
 const SIDEBAR_KEY = "cdip-sidebar-width-v2";
-const CHAT_KEY = "cdip-chat-width-v2";
-const CHAT_HIDDEN_KEY = "cdip-chat-hidden";
 
 /** A default column width that leaves the drawings room on a small laptop. */
 const fitWidth = (share: number, min: number, max: number) =>
@@ -83,11 +78,10 @@ function stored(key: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-type Pane = "work" | "chat" | "viewer";
+type Pane = "work" | "viewer";
 
 const PANES: { id: Pane; label: string; icon: typeof FilesIcon }[] = [
   { id: "work", label: "Work", icon: PanelsTopLeftIcon },
-  { id: "chat", label: "Chat", icon: MessageSquareIcon },
   { id: "viewer", label: "Drawings", icon: FileTextIcon },
 ];
 
@@ -97,7 +91,7 @@ function PaneSwitcher({ value, onChange }: { value: Pane; onChange: (pane: Pane)
     <div
       role="tablist"
       aria-label="Workspace pane"
-      className="bg-muted text-muted-foreground grid shrink-0 grid-cols-3 gap-1 rounded-lg p-1"
+      className="bg-muted text-muted-foreground grid shrink-0 grid-cols-2 gap-1 rounded-lg p-1"
     >
       {PANES.map(({ id, label, icon: Icon }) => (
         <button
@@ -196,6 +190,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const headerSlot = useHeaderSlot();
+  const chat = useChatReady(projectId);
 
   useEffect(() => {
     if (setupOpen !== null || setup.loading) return;
@@ -203,19 +198,15 @@ export function ProjectView({ projectId }: { projectId: string }) {
   }, [setupOpen, setup.loading, setup.complete, projectId]);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => stored(SIDEBAR_KEY, fitWidth(0.26, 300, 420)));
-  const [chatWidth, setChatWidth] = useState(() => stored(CHAT_KEY, fitWidth(0.24, 280, 400)));
-  const [chatHidden, setChatHidden] = useState(
-    () => localStorage.getItem(CHAT_HIDDEN_KEY) === "1",
-  );
   // Deliberately NOT persisted: full view is a reading mode you enter for one
   // long answer or one long review, not a layout preference. Coming back to a
   // project on the three panes is the right default.
   const [focus, setFocus] = useState<Pane | null>(null);
-  // Three panes need about 1024px; below that the workspace shows one.
+  // Two panes need about 1024px; below that the workspace shows one.
   const wide = useMediaQuery("(min-width: 1024px)");
   const [mobilePane, setMobilePane] = useState<Pane>("work");
   const only: Pane | null = wide ? focus : mobilePane;
-  const visible = (pane: Pane) => (only ? only === pane : pane !== "chat" || !chatHidden);
+  const visible = (pane: Pane) => !only || only === pane;
   const toggleFocus = (pane: Pane) => setFocus((current) => (current === pane ? null : pane));
 
   // A citation, a summary item or a piece of RFI evidence asks the viewer to
@@ -244,14 +235,6 @@ export function ProjectView({ projectId }: { projectId: string }) {
     setSidebarWidth(width);
     localStorage.setItem(SIDEBAR_KEY, String(width));
   };
-  const resizeChat = (width: number) => {
-    setChatWidth(width);
-    localStorage.setItem(CHAT_KEY, String(width));
-  };
-  useEffect(
-    () => localStorage.setItem(CHAT_HIDDEN_KEY, chatHidden ? "1" : "0"),
-    [chatHidden],
-  );
 
   // The walkthrough waits for the workspace — pointing at panels that are not
   // on screen yet would spotlight nothing.
@@ -305,6 +288,12 @@ export function ProjectView({ projectId }: { projectId: string }) {
               )}
             </span>
             <ProjectRoles roles={project.data?.roles ?? []} />
+            {chat.busy && (
+              <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs tabular-nums" role="status">
+                <Spinner />
+                Processing {chat.done} of {chat.total} pages
+              </span>
+            )}
             {/* Everything you can DO to the project: finish setup, the
                 title-block region, and the walkthrough. */}
             <div className="ml-auto flex min-w-0 items-center">
@@ -391,7 +380,6 @@ export function ProjectView({ projectId }: { projectId: string }) {
                   splitting them made you flip back and forth to read it. */}
               <TabsContent value="summary" className="mt-2">
                 <SummaryPanel projectId={projectId} />
-                <Separator className="my-4" />
                 <div data-tour="categories">
                   <h3 className="flex items-center gap-2 px-4 pb-2 text-sm font-semibold">
                     <LayersIcon className="text-muted-foreground size-4" />
@@ -423,44 +411,17 @@ export function ProjectView({ projectId }: { projectId: string }) {
         )}
 
         <section
-          className={cn(
-            "min-h-0",
-            only ? "w-full" : "shrink-0 pl-3",
-            !visible("chat") && "hidden",
-          )}
-          style={only ? undefined : { width: chatWidth }}
-        >
-          <Card className="h-full gap-0 overflow-hidden py-0">
-            <ChatPanel
-              projectId={projectId}
-              expanded={only === "chat"}
-              onToggleExpand={wide ? () => toggleFocus("chat") : undefined}
-              onHide={wide && !only ? () => setChatHidden(true) : undefined}
-            />
-          </Card>
-        </section>
-        {!only && visible("chat") && (
-          <DragDivider
-            width={chatWidth}
-            onResize={resizeChat}
-            min={280}
-            max={800}
-            title="Drag to resize the chat pane / viewer"
-          />
-        )}
-
-        <section
           className={cn("min-w-0 flex-1", !only && "pl-3", !visible("viewer") && "hidden")}
         >
           <CombinedViewer
             projectId={projectId}
             expanded={only === "viewer"}
             onToggleExpand={wide ? () => toggleFocus("viewer") : undefined}
-            chatShown={visible("chat")}
-            onToggleChat={wide && !only ? () => setChatHidden((hidden) => !hidden) : undefined}
           />
         </section>
       </div>
+
+      <ChatDock projectId={projectId} fullScreen={!wide} />
 
       {tourOpen && (
         <Tour steps={WORKSPACE_TOUR} storageKey="workspace" onClose={() => setTourOpen(false)} />

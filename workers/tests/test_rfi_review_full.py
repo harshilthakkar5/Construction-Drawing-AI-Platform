@@ -1040,3 +1040,19 @@ def test_a_rejection_resting_on_evidence_it_was_not_shown_is_contested():
     # "Covered by problem 1" is a duplicate, not a value on another drawing.
     assert not rfi_review.contested(
         {"decision": "reject", "basis": "other", "answeredBy": [], "reason": "This is covered by problem 1."}, set(), plate)
+
+
+def test_located_by_the_grid_does_not_answer_a_pier_at_a_wall():
+    """Leland RFI 002, set aside twice: piers under the core walls have no centre dimension,
+    and verification answered that the grid places them, measuring nothing."""
+    piers = {"checkId": "CE-03-01-Q05", "kind": "missing", "element": "Drilled piers", "location": "S2.30-B", "why": "",
+             "issue": "Where a pier sits under a wall, the pier centre is not separately dimensioned. No dimension "
+                      "locates it from the grid."}
+    reject = {"decision": "reject", "basis": "not_visible", "question": "", "subject": "",
+              "reason": "Pier locations are set by grid intersections. Piers under walls are located by the grid."}
+    assert rfi_review.place_unanswered(reject, piers)
+    # A distance quoted, or a problem whose element really sits on the grid, stands.
+    assert not rfi_review.place_unanswered(dict(reject, reason="Located by the grid: 2'-6\" from grid B6."), piers)
+    on_grid = dict(piers, issue="Column footings sit at gridline intersections. No bolt group dimensions to grids are given.")
+    assert not rfi_review.place_unanswered(
+        dict(reject, reason="The footing marks sit on gridlines, so the bolt groups are located by the grid."), on_grid)

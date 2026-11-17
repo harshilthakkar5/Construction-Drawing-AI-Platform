@@ -2990,7 +2990,7 @@ detail title UNDER it, as an aid — so whether the plan gives that length no lo
 BY OTHERS settles who designs an element, not its size or place: `delegated` turns a verifier rejection resting on
 "by others" / "by … subcontractor" / delegated design, of a problem about thickness, size, location or elevation, into a
 LOW finding asking for the geometry to coordinate with or the other party's submittal (`kept_for_coordination`).
-Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers. A DETAIL or a SIZE does not say where an element is: `place_unanswered` keeps LOW a rejection of a location problem (`_LOCATES`) resting on a detail reference ("note 13 sends the step itself to detail 8/S3.1", unless it quotes a length) or quoting a size with no word of place ("wall footing width is given on S3.1: 2'-6\" wide" against "no dimensions to grids" — Victaulic RFI 001), unless it calls it a duplicate or names the specs or the field — Victaulic RFI 003 (footing steps on S1.1A, no dimension to the grids) was set aside twice that way on Claude while Argon raised it; replayed from the run's four recorded replies, it is now kept. A place said in WORDS is no distance either (`_PLACE_IN_WORDS`: "locate on each side of the overhead door … a locating rule is given", Victaulic RFI 013, set aside 3 of 3), and where a run starts and ends (`extents`) is a place (RFI 001). A rejection resting on what it was not shown ("cannot be settled from the evidence shown", "on S3.2, which is not among the evidence shown" — RFI 005 after its re-check) is `contested` like an unproven absence, and "covered by" a drawing is answered-elsewhere ("covered by problem 1" is a duplicate and stands). Replayed on all 1,264 stored set-asides: 8 change, all Victaulic.
+Leland RFI 008 was set aside twice on that reason and the client issued it. A field-verification reason still stands. The KEEP side gets the same rule (`by_others_kept`): a kept problem about the size or place of an element its own wording assigns to another party is saved LOW with the coordination question and its sheets — kept by verification, Leland's "~20\" THICK … (BY OTHERS)" cistern wall came out MEDIUM asking "who provides it", which S4.10 answers. A DETAIL or a SIZE does not say where an element is: `place_unanswered` keeps LOW a rejection of a location problem (`_LOCATES`) resting on a detail reference ("note 13 sends the step itself to detail 8/S3.1", unless it quotes a length) or quoting a size with no word of place ("wall footing width is given on S3.1: 2'-6\" wide" against "no dimensions to grids" — Victaulic RFI 001), unless it calls it a duplicate or names the specs or the field — Victaulic RFI 003 (footing steps on S1.1A, no dimension to the grids) was set aside twice that way on Claude while Argon raised it; replayed from the run's four recorded replies, it is now kept. A place said in WORDS is no distance either (`_PLACE_IN_WORDS`: "locate on each side of the overhead door … a locating rule is given", Victaulic RFI 013, set aside 3 of 3), and where a run starts and ends (`extents`) is a place (RFI 001). A rejection resting on what it was not shown ("cannot be settled from the evidence shown", "on S3.2, which is not among the evidence shown" — RFI 005 after its re-check) is `contested` like an unproven absence, and "covered by" a drawing is answered-elsewhere ("covered by problem 1" is a duplicate and stands). Replayed on all 1,264 stored set-asides: 8 change, all Victaulic. "Located by the grid" / "sits at grid intersections" (`_BY_GRID`) does not answer a problem saying the element sits at a wall, a wall corner or an offset (`_OFF_GRID`) when no distance is quoted — Leland RFI 002 (piers under the SW3 core walls) was set aside twice on exactly that; replayed on 1,319 set-asides it changes those 3 only. `_ABSENT` allows one -ly word ("is not separately dimensioned"), which had kept RFI 002's own observation out of `unclaimed_absences` (4 more candidates over 129 real runs). A gap is covered only by a proposal sharing two word STEMS with it, generic verbs (show, drawn) not counted: "pier" + "piers" made "top of pier" cover "the pier centre under the wall is not dimensioned" in a third run (5 more candidates over 132 real runs).
 Verification is shown the aids of the pages it reads (`with_page_aids`; never as answering evidence), and a rejection of a
 problem ABOUT a deferred value is `contested` unless it cites evidence — `contested(decision, shown, candidate)`. A verdict
 with no `decision` field is read from its shape (`_implied_decision`: a written question and no basis is a keep): Sonnet 5.5
@@ -3500,22 +3500,28 @@ inline`, the tour) into it. That replaced a project card above the panes, which 
 workspace height repeating a name the breadcrumb already showed. Navigation is store state
 (`view` + `selectedProjectId`), not a router.
 
-Inside a project, three panes: Sidebar (project summary + portion list) | Middle (chat with
-clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g.
-"Structural") switches the summary panel, jumps the viewer to the portion's start page, and
-optionally filters chat retrieval to that portion.
+Inside a project, two panes: the work column (Docs | Categories | RFIs | Settings) | the combined
+PDF viewer with jump + highlight. Clicking a portion (e.g. "Structural") jumps the viewer to the
+portion's start page and optionally filters chat retrieval to that portion.
 
-Any pane can go FULL VIEW (the maximize button in its header; Esc leaves) and take the whole
-workspace. The other panes are hidden with CSS, not unmounted, so a chat thread, the viewer's
-scroll and an open RFI survive the round trip, and a jump requested from a hidden-viewer state
-(a citation, a piece of RFI evidence) brings the viewer back first. Below `lg` (1024px) three panes
-do not fit, so the same one-pane state is chosen by a Work | Chat | Drawings switcher instead of a
-button. The chat toggle lives at the left of the viewer's toolbar (`data-tour="chat-toggle"`)
-and as an X in the chat header — it used to float over the drawing, covering the sheet and the
-scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
-COLUMN's width, which the divider changes independently of the window's.
+Chat is a FLOATING window (`components/ChatDock.tsx`, client request Nov 2026): a round button in the
+bottom-right corner (`data-tour="chat-toggle"`) opens it like a website chatbot, with a bigger size
+and a close button, on desktop and phone alike; expanded on a phone is full screen, and on a phone it steps aside when a citation jumps the viewer.
+It is hidden with CSS when closed, so a thread survives. It is LOCKED (greyed, "ready when processing
+finishes, N of M pages") while the disciplines chosen for full processing are still being read, and
+unlocks by itself with a "Processing finished: chat is ready" note. The unlock is latched per browser
+(`cdip-chat-ready:{projectId}`), so a later "Process now" does not take chat away again. Setup no
+longer holds the workspace for processing: "Open the workspace" is enabled once the title block is
+read, processing carries on in the background, and the project header shows "Processing N of M pages".
 
-The work column's sections are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
+Either pane can go FULL VIEW (the maximize button in its header; Esc leaves) and take the whole
+workspace. The other pane is hidden with CSS, not unmounted, so the viewer's scroll and an open RFI
+survive the round trip, and a jump requested from a hidden-viewer state (a citation, a piece of RFI
+evidence) brings the viewer back first. Below `lg` (1024px) the same one-pane state is chosen by a
+Work | Drawings switcher. The work column is a container (`@container/work`), so the tab labels
+shorten with the COLUMN's width, which the divider changes independently of the window's.
+
+The work column's sections are Docs | Categories (the old Summary tab; `SUMMARY_BUTTONS` in `SummaryPanel.tsx` hides every Generate/Regenerate summary button at the client's request, a processed discipline shows "Processed", summaries already written still show) | RFIs (`components/RfiPanel.tsx`) | Settings
 (`components/ProjectSettings.tsx`), shown as an icon tab bar in the column's sticky header (`WORK_TABS`).
 The RFIs section shows only the targeted review's "By element" mode for now: the scan and the other review
 modes are still built, with their switches removed (`mode` is fixed in `RfiReview.tsx` / `RfiTargetedReview.tsx`). Settings holds the project's details and every RFI SETTING the
