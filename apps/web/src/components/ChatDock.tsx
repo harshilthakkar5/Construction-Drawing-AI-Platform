@@ -1,6 +1,6 @@
 import type { ProcessingStateDto } from "@cdip/shared";
 import { MessageSquareIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { useProcessing } from "@/components/Processing";
 import { Spinner } from "@/components/shared";
@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
 const OPEN_KEY = "cdip-chat-open";
-const POS_KEY = "cdip-chat-pos";
+// v2: v1 saved the corner on every load, so it would hide the new default from everyone.
+const POS_KEY = "cdip-chat-pos-v2";
 const BUTTON = 56;
 const MARGIN = 8;
 
@@ -22,14 +23,21 @@ export function clampPos(p: Pos, vw: number, vh: number): Pos {
   return { right: clamp(p.right, MARGIN, vw - BUTTON - MARGIN), bottom: clamp(p.bottom, MARGIN, vh - BUTTON - MARGIN) };
 }
 
-function readPos(): Pos {
+/** Where the person dragged it, or null when they never have. */
+function readPos(): Pos | null {
   try {
     const p = JSON.parse(localStorage.getItem(POS_KEY) ?? "null");
     if (Number.isFinite(p?.right) && Number.isFinite(p?.bottom)) return p;
   } catch {
-    // fall through to the default corner
+    // blocked storage: use the default place
   }
-  return { right: 24, bottom: 24 };
+  return null;
+}
+
+/** Default place: the bottom-left corner of the work column, clear of the drawing. */
+function defaultPos(vw: number, vh: number): Pos {
+  const left = document.querySelector('[data-tour="summary"]')?.getBoundingClientRect().left ?? 24;
+  return clampPos({ right: vw - left - BUTTON, bottom: 20 }, vw, vh);
 }
 
 /** Where a popup opens beside the button: on the side and above or below it, whichever has room. */
@@ -103,22 +111,22 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
 
   // The button can be dragged anywhere; a drag is not a click.
   const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
-  const [pos, setPos] = useState(() => clampPos(readPos(), window.innerWidth, window.innerHeight));
+  const [saved, setSaved] = useState(readPos);
+  const [pos, setPos] = useState<Pos>(() =>
+    saved ? clampPos(saved, window.innerWidth, window.innerHeight) : { right: 24, bottom: 20 },
+  );
+  // The work column is on screen by now; measured before paint, so the button never jumps.
+  useLayoutEffect(() => {
+    if (!saved) setPos(defaultPos(window.innerWidth, window.innerHeight));
+  }, [saved]);
   useEffect(() => {
     const onResize = () => {
       setView({ w: window.innerWidth, h: window.innerHeight });
-      setPos((p) => clampPos(p, window.innerWidth, window.innerHeight));
+      setPos((p) => (saved ? clampPos(p, window.innerWidth, window.innerHeight) : defaultPos(window.innerWidth, window.innerHeight)));
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(POS_KEY, JSON.stringify(pos));
-    } catch {
-      // blocked storage: the button just returns to the corner next time
-    }
-  }, [pos]);
+  }, [saved]);
   const drag = useRef<{ x: number; y: number; from: Pos; moved: boolean } | null>(null);
   const dragged = useRef(false);
   const anchor = anchorStyle(pos, view.w, view.h);
@@ -237,6 +245,13 @@ export function ChatDock({ projectId, fullScreen }: { projectId: string; fullScr
           onPointerUp={() => {
             dragged.current = drag.current?.moved ?? false;
             drag.current = null;
+            if (!dragged.current) return;
+            try {
+              localStorage.setItem(POS_KEY, JSON.stringify(pos));
+            } catch {
+              // blocked storage: the button just returns to its default place next time
+            }
+            setSaved(pos);
           }}
           onPointerCancel={() => {
             drag.current = null;
