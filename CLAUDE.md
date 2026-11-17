@@ -420,6 +420,9 @@ links: level → sheets, same level other disciplines, enlarged ↔ overall plan
 (missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
 rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. Cached in Redis per
 (provider, model, text). Existing projects are re-read once (`titleLines IS NULL` counts as pending).
+Thinking is OFF for the sheet read whatever `CLAUDE_THINKING` says (`SHEET_THINKING` overrides): a PC with the
+chat's `CLAUDE_THINKING=on` sent no thinking field, Haiku 5.5 thought by default, and every batch came back
+empty or cut short ("stop_reason=max_tokens … 1x thinking") — 1 of 114 sheets read, after ~40 retries.
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but

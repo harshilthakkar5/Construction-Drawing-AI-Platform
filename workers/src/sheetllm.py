@@ -79,5 +79,9 @@ def complete_json(
         # The instructions are identical for every page — cache them.
         cache_system=True,
         json_only=True,
+        # Off unless SHEET_THINKING says otherwise: the global CLAUDE_THINKING is
+        # set for the chat, and inherited here it let Haiku 5.5 think by default
+        # and spend the whole reply budget before writing any JSON.
+        thinking=llm.stage_thinking("SHEET_THINKING") or "off",
     )
     return reply.text if reply is not None else None
