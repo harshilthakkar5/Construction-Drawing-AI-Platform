@@ -236,3 +236,27 @@ def test_haiku_5_5_is_sent_thinking_off_as_it_accepts_it():
     # Haiku 5.5 thinks by default and accepts `disabled` at its default effort;
     # `between_tools` is Sonnet 5.5's word for it and would be refused.
     assert llm._claude_off("claude-haiku-5-5") == {"type": "disabled"}
+
+
+def test_the_sheet_read_sends_thinking_off_even_when_the_chat_has_it_on(monkeypatch):
+    # CLAUDE_THINKING=on is a chat setting; inherited, Haiku 5.5 thought by
+    # default and returned no text ("stop_reason=max_tokens, 1x thinking").
+    import sheetllm
+
+    monkeypatch.setattr(llm, "_CLAUDE_THINKING", "on")
+    monkeypatch.delenv("SHEET_THINKING", raising=False)
+    sent = {}
+
+    class Messages:
+        def create(self, **request):
+            sent.update(request)
+            from types import SimpleNamespace as NS
+            return NS(content=[NS(type="text", text="{}")], stop_reason="end_turn",
+                      usage=NS(input_tokens=1, output_tokens=1))
+
+    monkeypatch.setattr(llm, "anthropic_client", lambda: type("C", (), {"messages": Messages()})())
+    monkeypatch.setattr(sheetllm, "provider", lambda: "claude")
+    import usage
+    monkeypatch.setattr(usage, "record_message", lambda *a, **k: None)
+    assert sheetllm.complete_json("sys", "user") == "{}"
+    assert sent["thinking"] == {"type": "disabled"}
