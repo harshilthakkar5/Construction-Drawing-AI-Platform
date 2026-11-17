@@ -3500,22 +3500,28 @@ inline`, the tour) into it. That replaced a project card above the panes, which 
 workspace height repeating a name the breadcrumb already showed. Navigation is store state
 (`view` + `selectedProjectId`), not a router.
 
-Inside a project, three panes: Sidebar (project summary + portion list) | Middle (chat with
-clickable sources) | Right (combined PDF viewer with jump + highlight). Clicking a portion (e.g.
-"Structural") switches the summary panel, jumps the viewer to the portion's start page, and
-optionally filters chat retrieval to that portion.
+Inside a project, two panes: the work column (Docs | Categories | RFIs | Settings) | the combined
+PDF viewer with jump + highlight. Clicking a portion (e.g. "Structural") jumps the viewer to the
+portion's start page and optionally filters chat retrieval to that portion.
 
-Any pane can go FULL VIEW (the maximize button in its header; Esc leaves) and take the whole
-workspace. The other panes are hidden with CSS, not unmounted, so a chat thread, the viewer's
-scroll and an open RFI survive the round trip, and a jump requested from a hidden-viewer state
-(a citation, a piece of RFI evidence) brings the viewer back first. Below `lg` (1024px) three panes
-do not fit, so the same one-pane state is chosen by a Work | Chat | Drawings switcher instead of a
-button. The chat toggle lives at the left of the viewer's toolbar (`data-tour="chat-toggle"`)
-and as an X in the chat header — it used to float over the drawing, covering the sheet and the
-scrollbar. The work column is a container (`@container/work`), so the tab labels shorten with the
-COLUMN's width, which the divider changes independently of the window's.
+Chat is a FLOATING window (`components/ChatDock.tsx`, client request Nov 2026): a round button in the
+bottom-right corner (`data-tour="chat-toggle"`) opens it like a website chatbot, with a bigger size
+and a close button; on a phone it opens full screen and steps aside when a citation jumps the viewer.
+It is hidden with CSS when closed, so a thread survives. It is LOCKED (greyed, "ready when processing
+finishes, N of M pages") while the disciplines chosen for full processing are still being read, and
+unlocks by itself with a "Processing finished: chat is ready" note. The unlock is latched per browser
+(`cdip-chat-ready:{projectId}`), so a later "Process now" does not take chat away again. Setup no
+longer holds the workspace for processing: "Open the workspace" is enabled once the title block is
+read, processing carries on in the background, and the project header shows "Processing N of M pages".
 
-The work column's sections are Docs | Summary & categories | RFIs (`components/RfiPanel.tsx`) | Settings
+Either pane can go FULL VIEW (the maximize button in its header; Esc leaves) and take the whole
+workspace. The other pane is hidden with CSS, not unmounted, so the viewer's scroll and an open RFI
+survive the round trip, and a jump requested from a hidden-viewer state (a citation, a piece of RFI
+evidence) brings the viewer back first. Below `lg` (1024px) the same one-pane state is chosen by a
+Work | Drawings switcher. The work column is a container (`@container/work`), so the tab labels
+shorten with the COLUMN's width, which the divider changes independently of the window's.
+
+The work column's sections are Docs | Categories (the old Summary tab; `SUMMARY_BUTTONS` in `SummaryPanel.tsx` hides every Generate/Regenerate summary button at the client's request, a processed discipline shows "Processed", summaries already written still show) | RFIs (`components/RfiPanel.tsx`) | Settings
 (`components/ProjectSettings.tsx`), shown as an icon tab bar in the column's sticky header (`WORK_TABS`).
 The RFIs section shows only the targeted review's "By element" mode for now: the scan and the other review
 modes are still built, with their switches removed (`mode` is fixed in `RfiReview.tsx` / `RfiTargetedReview.tsx`). Settings holds the project's details and every RFI SETTING the

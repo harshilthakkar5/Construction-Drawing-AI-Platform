@@ -25,6 +25,10 @@ const COLLAPSED_ITEMS = 5;
  * (PortionsPanel) is pressed, so "no summary yet" is a normal resting state
  * here, not a fault to diagnose.
  */
+/** Summary generation is hidden for now (client request): no Generate or Regenerate
+ * buttons anywhere; summaries already written are still shown. True brings it back. */
+export const SUMMARY_BUTTONS = false;
+
 export function SummaryPanel({ projectId }: { projectId: string }) {
   const selectedPortionId = useAppStore((s) => s.selectedPortionId);
   const requestJump = useAppStore((s) => s.requestJump);
@@ -179,8 +183,11 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
   const items = summary?.summary.items ?? [];
   const shownItems = expanded ? items : items.slice(0, COLLAPSED_ITEMS);
 
+  // Nothing to show and nothing to start: leave the space to the categories.
+  if (!SUMMARY_BUTTONS && !summary && !waiting) return null;
+
   return (
-    <section className="px-4">
+    <section className="mb-4 border-b px-4 pb-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <SparklesIcon className="text-muted-foreground size-4" />
@@ -194,7 +201,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
             </span>
           )}
         </h3>
-        {summary && (
+        {summary && SUMMARY_BUTTONS && (
           <Button
             variant="outline"
             size="sm"
@@ -250,7 +257,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
                         : (status.data?.hint ??
                           "Generate a discipline summary from the categories above, then roll them up into a project summary.")}
             </p>
-            {!summaries.isLoading && canGenerate && (
+            {!summaries.isLoading && canGenerate && SUMMARY_BUTTONS && (
               <Button
                 variant="outline"
                 size="sm"
@@ -275,7 +282,7 @@ export function SummaryPanel({ projectId }: { projectId: string }) {
         )}
         {summary && (
           <>
-            {stale && (
+            {stale && SUMMARY_BUTTONS && (
               <div className="border-warning/30 bg-warning/10 mb-3 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <p className="min-w-0 flex-1 text-[11px] leading-snug text-warning">
                   These sheets changed after this summary was written.

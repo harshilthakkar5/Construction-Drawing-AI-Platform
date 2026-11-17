@@ -101,10 +101,8 @@ export function ProjectSetup({
   onSkip: () => void;
 }) {
   const progress = useSetupProgress(projectId);
-  const processing = useProcessing(projectId);
-  // The workspace opens once the disciplines started here are read in full.
-  const busy = processing.data?.disciplines.some((d) => d.chosen && d.processed < d.pages) ?? false;
-  const done = [progress.uploaded && progress.processed, progress.hasRegion, progress.scraped && !busy];
+  // Full processing carries on in the background; the workspace does not wait for it.
+  const done = [progress.uploaded && progress.processed, progress.hasRegion, progress.scraped];
   // Open on the first unfinished step; the user can still walk back.
   const [step, setStep] = useState(() => {
     const first = done.findIndex((d) => !d);
@@ -187,7 +185,7 @@ export function ProjectSetup({
             className="ml-auto"
             disabled={!canContinue}
             onClick={() => (last ? onFinish() : setStep((s) => s + 1))}
-            title={canContinue ? undefined : busy ? "Wait until processing finishes" : "Finish this step first"}
+            title={canContinue ? undefined : "Finish this step first"}
           >
             {last ? "Open the workspace" : "Next"}
             <ArrowRightIcon />
@@ -321,7 +319,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
   return (
     <StepCard
       title="Check the disciplines"
-      description="Each sheet number is read from your box and sorted into a discipline. The ticked disciplines are read in full (OCR and search) when you press Start; the others can be processed any time with Process now in Summary & categories."
+      description="Each sheet number is read from your box and sorted into a discipline. The ticked disciplines are read in full (OCR and search) when you press Start; the others can be processed any time with Process now in Categories."
       state={
         <Badge variant={progress.scraped ? (rows.length > 0 ? "success" : "warning") : "secondary"}>
           {progress.scraped
@@ -341,7 +339,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
           <Progress value={Math.round((eta.done / eta.total) * 100)} />
           <p className="text-muted-foreground text-xs tabular-nums">
             {eta.done} of {eta.total} pages processed · {eta.total - eta.done} waiting
-            {eta.minutesLeft != null && ` · about ${eta.minutesLeft} min left`}. The workspace opens when this finishes.
+            {eta.minutesLeft != null && ` · about ${eta.minutesLeft} min left`}. You can open the workspace now: processing carries on in the background, and chat switches on when it finishes.
           </p>
         </div>
       )}

@@ -520,7 +520,7 @@ export function SheetPicker({
                           {[s.discipline, s.sheetKind, s.level].filter(Boolean).join(" · ")}
                         </span>
                         {s.processed === false && (
-                          <Badge variant="warning" className="ml-2 text-[10px]" title="Process its discipline first, in Summary & categories">
+                          <Badge variant="warning" className="ml-2 text-[10px]" title="Process its discipline first, in Categories">
                             Not processed
                           </Badge>
                         )}

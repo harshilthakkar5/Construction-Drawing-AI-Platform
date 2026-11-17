@@ -201,18 +201,13 @@ export function Tour({
 export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="summary"]',
-    title: "Summary and categories",
-    body: "The project summary sits here, with every statement citing the sheet it came from. Click one to jump the viewer to that page and highlight the source.",
+    title: "Your work column",
+    body: "Docs, Categories, RFIs and Settings. Pick a tab to switch what this column shows.",
   },
   {
     target: '[data-tour="categories"]',
     title: "Filter by discipline",
-    body: "Each category lists the sheets it actually covers. Click one to show only those pages in the viewer and swap the summary to that discipline; 'Show all pages' puts everything back.",
-  },
-  {
-    target: '[data-tour="generate-summary"]',
-    title: "Summaries are yours to start",
-    body: "Nothing is summarized automatically. Each category has its own button and shows the estimated cost before it spends any tokens.",
+    body: "Each category lists the sheets it actually covers. Click one to show only those pages in the viewer; 'Show all pages' puts everything back. A discipline that is not processed yet has a Process now button.",
   },
   {
     target: '[data-tour="quick-actions"]',
@@ -227,6 +222,6 @@ export const WORKSPACE_TOUR: TourStep[] = [
   {
     target: '[data-tour="chat-toggle"]',
     title: "Ask about the drawings",
-    body: "Chat answers only from this project's content and cites the pages it used. Hide it to give the viewer the full width.",
+    body: "Chat answers only from this project's content and cites the pages it used. It switches on once the drawings you chose are processed.",
   },
 ];

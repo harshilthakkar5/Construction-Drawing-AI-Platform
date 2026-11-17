@@ -74,7 +74,7 @@ export function ProcessNowButton({ projectId, discipline }: { projectId: string;
       size="sm"
       className="h-6 shrink-0 gap-1 px-2 text-[11px]"
       onClick={() => start.mutate({ disciplines: [discipline] })}
-      title={`Read and index the ${processingLabel(discipline)} sheets so chat, summaries and RFIs can use them`}
+      title={`Read and index the ${processingLabel(discipline)} sheets so chat and RFIs can use them`}
     >
       <PlayIcon className="size-3" />
       Process now · {waiting} page{waiting === 1 ? "" : "s"}
@@ -122,8 +122,8 @@ export function ProcessAllRemaining({ projectId }: { projectId: string }) {
   return (
     <div className="flex items-center gap-2 px-4 py-2">
       <p className="text-muted-foreground min-w-0 flex-1 text-xs">
-        {waiting.length} discipline{waiting.length === 1 ? " is" : "s are"} not processed yet, so chat,
-        summaries and RFIs cannot use {waiting.length === 1 ? "it" : "them"}.
+        {waiting.length} discipline{waiting.length === 1 ? " is" : "s are"} not processed yet, so chat
+        and RFIs cannot use {waiting.length === 1 ? "it" : "them"}.
       </p>
       <Button
         variant="outline"
@@ -146,7 +146,7 @@ export function NotProcessedNotice({ projectId }: { projectId: string }) {
   return (
     <p className="text-muted-foreground border-b px-3 py-1.5 text-[11px]">
       Not processed yet, so chat cannot answer from them: {waiting.map((d) => processingLabel(d.discipline)).join(", ")}.
-      Use "Process now" in Summary &amp; categories.
+      Use "Process now" in Categories.
     </p>
   );
 }

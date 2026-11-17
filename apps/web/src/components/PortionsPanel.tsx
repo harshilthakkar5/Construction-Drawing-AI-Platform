@@ -12,6 +12,7 @@ import {
   useProcessing,
 } from "@/components/Processing";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
+import { SUMMARY_BUTTONS } from "@/components/SummaryPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRanges, formatRangesFull, pagePrefix } from "@/lib/pageRanges";
@@ -38,6 +39,9 @@ const CHIP: Record<
   stale: { label: "Out of date", variant: "warning" },
   failed: { label: "Failed", variant: "destructive" },
 };
+
+/** With summary generation hidden, a processed discipline just says so. */
+const PROCESSED_CHIP = { label: "Processed", variant: "success" as const };
 
 /** Statuses where pressing the button does something. */
 const CAN_START: PortionSummaryStatus[] = ["none", "stale", "failed"];
@@ -159,7 +163,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
       <ProcessAllRemaining projectId={projectId} />
       <ul className="px-2">
         {portions.data?.map((portion) => {
-          const chip = CHIP[portion.summaryStatus];
+          const chip = SUMMARY_BUTTONS ? CHIP[portion.summaryStatus] : PROCESSED_CHIP;
           const busy =
             portion.summaryStatus === "queued" || portion.summaryStatus === "running";
           const key = processingKey(portion.discipline);
@@ -226,6 +230,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                   )}
                   <div className="ml-auto flex shrink-0 items-center gap-1.5">
                     <ProcessNowButton projectId={projectId} discipline={key} />
+                    {SUMMARY_BUTTONS && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -243,11 +248,12 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     >
                       {busy ? "Working…" : buttonLabel(portion.summaryStatus)}
                     </Button>
+                    )}
                   </div>
                 </div>
 
                 <ProcessingProgress projectId={projectId} discipline={key} />
-                {busy && (
+                {busy && SUMMARY_BUTTONS && (
                   <div className="mt-2">
                     <JobProgress
                       text={
@@ -260,12 +266,12 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     />
                   </div>
                 )}
-                {portion.summaryStatus === "failed" && portion.summaryError && (
+                {SUMMARY_BUTTONS && portion.summaryStatus === "failed" && portion.summaryError && (
                   <div className="mt-2">
                     <ProblemNotice detail={portion.summaryError} />
                   </div>
                 )}
-                {portion.summaryStatus === "stale" && (
+                {SUMMARY_BUTTONS && portion.summaryStatus === "stale" && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     These sheets changed since the summary was written.
                   </p>
@@ -293,7 +299,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
         )}
       </ul>
 
-      {anyReady && (
+      {anyReady && SUMMARY_BUTTONS && (
         <div className="mt-2 border-t px-4 py-3">
           <Button
             variant="outline"
