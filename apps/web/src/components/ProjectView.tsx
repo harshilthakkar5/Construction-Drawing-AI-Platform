@@ -32,6 +32,7 @@ import { ProjectSettings } from "@/components/ProjectSettings";
 import { RfiPanel } from "@/components/RfiPanel";
 import { RegionBanner } from "@/components/RegionBanner";
 import { SummaryPanel } from "@/components/SummaryPanel";
+import { SheetMapPanel } from "@/components/SheetMapPanel";
 import { Tour, tourSeen, WORKSPACE_TOUR } from "@/components/Tour";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
@@ -386,6 +387,9 @@ export function ProjectView({ projectId }: { projectId: string }) {
                     Categories
                   </h3>
                   <PortionsPanel projectId={projectId} />
+                </div>
+                <div className="mt-4 border-t pt-4">
+                  <SheetMapPanel projectId={projectId} />
                 </div>
               </TabsContent>
               <TabsContent value="documents" className="mt-2">

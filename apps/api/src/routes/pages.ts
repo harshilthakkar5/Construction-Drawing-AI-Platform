@@ -51,6 +51,9 @@ pagesRouter.get("/manifest", async (req, res) => {
       sheetNumber: true,
       sheetKind: true,
       level: true,
+      sheetTitle: true,
+      levels: true,
+      sheetRefs: true,
       fullyProcessed: true,
     },
   });
@@ -69,6 +72,9 @@ pagesRouter.get("/manifest", async (req, res) => {
         sheetNumber: page?.sheetNumber ?? null,
         sheetKind: page?.sheetKind ?? null,
         level: page?.level ?? null,
+        sheetTitle: page?.sheetTitle ?? null,
+        levels: page?.levels ?? [],
+        sheetRefs: page?.sheetRefs ?? [],
         processed: page?.fullyProcessed ?? false,
       };
     }),

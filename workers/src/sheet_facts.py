@@ -426,7 +426,9 @@ def catalogue(project_id: str, progress=None, open_page=None) -> tuple[list[Page
                 log.warning("full scan: could not read page %s: %s", row["id"][:8], exc)
             with db.connect() as conn:
                 conn.execute(
-                    'UPDATE pages SET "sheetKind" = %s, level = %s, scales = %s::jsonb, '
+                    # COALESCE: a level the title-block step's sheet read found
+                    # (sheet_info) is not wiped by a reading that found none.
+                    'UPDATE pages SET "sheetKind" = %s, level = COALESCE(%s, level), scales = %s::jsonb, '
                     '"gridSummary" = %s::jsonb, "factsVersion" = %s WHERE id = %s',
                     (facts["kind"], facts["level"], json.dumps(facts["scales"]), json.dumps(facts["grid"]),
                      FACTS_VERSION, row["id"]),

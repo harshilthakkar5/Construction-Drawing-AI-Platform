@@ -25,7 +25,9 @@ import os
 
 import llm
 
-CLAUDE_MODEL = os.environ.get("CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
+# Claude Haiku 5.5: the sheet read (sheet number, title, levels, kind for 25
+# sheets a call) is short text in, short JSON out — the cheapest tier is plenty.
+CLAUDE_MODEL = os.environ.get("CLASSIFIER_MODEL", "claude-haiku-5-5")
 # Configurable because model names move faster than this repo does; a name the
 # API rejects simply falls back to the rules path, and only this var changes.
 #

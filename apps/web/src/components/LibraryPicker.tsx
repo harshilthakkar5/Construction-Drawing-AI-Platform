@@ -67,7 +67,8 @@ export function useLibrarySheets(projectId: string): LibrarySheet[] {
       p.sheetNumber && !seen.has(p.sheetNumber) && seen.add(p.sheetNumber)
         ? [{
             combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
-            sheetKind: p.sheetKind ?? null, level: p.level ?? null, headings: headings.data?.[p.combinedPageNumber] ?? [],
+            sheetKind: p.sheetKind ?? null, level: p.level ?? null, levels: p.levels ?? [], title: p.sheetTitle ?? null,
+            headings: headings.data?.[p.combinedPageNumber] ?? [],
             titleBlock: titles.data?.[p.combinedPageNumber], processed: p.processed,
           }]
         : [],
@@ -435,7 +436,7 @@ export function SheetPicker({
   const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
   const hits = words.length
     ? sheets.filter((s) => {
-        const hay = [s.sheetNumber, s.discipline, s.sheetKind, s.level, s.titleBlock, ...(s.headings ?? [])].filter(Boolean).join(" ").toLowerCase();
+        const hay = [s.sheetNumber, s.discipline, s.sheetKind, s.level, s.title, s.titleBlock, ...(s.levels ?? []), ...(s.headings ?? [])].filter(Boolean).join(" ").toLowerCase();
         return words.every((w) => hay.includes(w));
       })
     : [];

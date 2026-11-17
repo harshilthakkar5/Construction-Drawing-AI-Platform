@@ -33,6 +33,7 @@ import db
 import embeddings
 import logutil
 import region as region_mod
+import sheet_info
 import storage
 
 log = logutil.get("scrape")
@@ -93,6 +94,12 @@ def _scrape_pages(project_id: str, box: region_mod.Region, version: int, pending
                     loaded = pdf.load_page(index)
                     text, method = region_mod.extract_region_text(loaded, box)
                     db.set_page_region_text(page_row["page_id"], text, method, version, loaded.rotation)
+                    try:
+                        facts = sheet_info.page_text_facts(loaded)
+                    except Exception as exc:  # one unreadable page keeps its region text
+                        log.warning("stage 1/5 scrape: page %d titles not read: %s", page_row["page_number"], exc)
+                        facts = {"title_lines": "", "refs": [], "index": []}
+                    db.set_page_text_facts(page_row["page_id"], facts["title_lines"], facts["refs"], facts["index"])
                     scraped += 1
                     if text:
                         found += 1
@@ -131,8 +138,24 @@ def _classify_pages(project_id: str) -> list[dict]:
         if row["discipline_source"] == "manual" and row["discipline"]
     }
     to_read = [row for row in rows if row["page_id"] not in manual_pages]
+
+    # ONE sheet read per batch of sheets answers sheet number, title, levels and
+    # kind together (sheet_info), so the sheet-number ladder below takes the
+    # model's numbers from it instead of asking a second time.
+    index_titles = db.project_index_titles(project_id)
+    index_title = {row["page_id"]: _index_title(row, index_titles) for row in rows}
+    infos = sheet_info.read(
+        [(row["region_text"], row["title_lines"], index_title[row["page_id"]]) for row in rows], redis_conn
+    )
+    info_of = {row["page_id"]: info for row, info in zip(rows, infos)}
+    preread = None
+    if any(not sheet_info.is_miss(info) for info in infos):
+        preread = [
+            None if sheet_info.is_miss(info_of[row["page_id"]]) else info_of[row["page_id"]].sheet
+            for row in to_read
+        ]
     readings = classify.classify_region_batch(
-        [(row["region_text"], row["filename"]) for row in to_read], redis_conn
+        [(row["region_text"], row["filename"]) for row in to_read], redis_conn, preread
     )
     by_page = {row["page_id"]: reading for row, reading in zip(to_read, readings)}
 
@@ -172,6 +195,15 @@ def _classify_pages(project_id: str) -> list[dict]:
         if (sheet_number, after, source) != (row["sheet_number"], row["discipline"], row["discipline_source"]):
             db.set_page_sheet(row["page_id"], sheet_number, after, source)
 
+    leveled = 0
+    for row in rows:
+        levels, title, kind = sheet_info.final(
+            info_of[row["page_id"]], row["region_text"], row["title_lines"], index_title[row["page_id"]]
+        )
+        leveled += bool(levels)
+        db.set_page_info(row["page_id"], levels, sheet_info.summary_level(levels), title, kind)
+    log.info("stage 2/5 classify: %d of %d sheets have a level", leveled, len(rows))
+
     pages = [(row["combined_page"], row["region_text"]) for row in rows]
     portions = classify.group_portions(pages, filled)
     db.upsert_portions(project_id, portions)
@@ -184,6 +216,20 @@ def _classify_pages(project_id: str) -> list[dict]:
         or "no pages",
     )
     return portions
+
+
+def _index_title(row: dict, index_titles: dict[str, str]) -> str | None:
+    """The page's entry in the sheet index, by the sheet number it is already
+    known by (a certain title-block reading, or the last run's)."""
+    from rfi_checks import normalize
+
+    if not index_titles:
+        return None
+    confident = classify.confident_sheet_from_region(row["region_text"])
+    for number in (confident[0] if confident else None, row.get("sheet_number")):
+        if number and normalize(number) in index_titles:
+            return index_titles[normalize(number)]
+    return None
 
 
 def preview(project_id: str, box: dict, sample_size: int = 5) -> dict:

@@ -626,7 +626,7 @@ def pages_to_scrape(
         JOIN documents d ON p."documentId" = d.id
         WHERE d."projectId" = %s
           AND d."supersededAt" IS NULL
-          AND (p."regionVersion" IS NULL OR p."regionVersion" <> %s)
+          AND (p."regionVersion" IS NULL OR p."regionVersion" <> %s OR p."titleLines" IS NULL)
     """
     params: list = [project_id, region_version]
     if document_id is not None:
@@ -709,7 +709,7 @@ def pages_to_classify(project_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT p.id, p."combinedPageNumber", p."sheetRegionText", d.filename,
-                   p.discipline, p."disciplineSource", p."sheetNumber"
+                   p.discipline, p."disciplineSource", p."sheetNumber", p."titleLines"
             FROM pages p
             JOIN documents d ON p."documentId" = d.id
             WHERE d."projectId" = %s AND d."supersededAt" IS NULL
@@ -726,9 +726,61 @@ def pages_to_classify(project_id: str) -> list[dict]:
                 "discipline": r[4],
                 "discipline_source": r[5],
                 "sheet_number": r[6],
+                "title_lines": r[7],
             }
             for r in rows
         ]
+
+
+def set_page_text_facts(page_id: str, title_lines: str, refs: list[str], index: list[dict]) -> None:
+    """Stage 1's reading of a page (sheet_info.page_text_facts). `titleLines`
+    is '' rather than NULL for a page with none: NULL is what makes a page
+    pending (pages_to_scrape), so a blank sheet must not stay pending forever."""
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE pages SET "titleLines" = %s, "sheetRefs" = %s, "indexEntries" = %s::jsonb
+            WHERE id = %s
+            """,
+            ((title_lines or "").replace("\x00", ""), refs, json.dumps(index) if index else None, page_id),
+        )
+
+
+def project_index_titles(project_id: str) -> dict[str, str]:
+    """normalized sheet number -> its title in the project's sheet index (every
+    live page's stored index entries; the first listing wins)."""
+    from rfi_checks import normalize
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p."indexEntries" FROM pages p JOIN documents d ON p."documentId" = d.id
+            WHERE d."projectId" = %s AND d."supersededAt" IS NULL AND p."indexEntries" IS NOT NULL
+            ORDER BY p."combinedPageNumber"
+            """,
+            (project_id,),
+        ).fetchall()
+    titles: dict[str, str] = {}
+    for (entries,) in rows:
+        for entry in entries or []:
+            key = normalize(str(entry.get("sheet") or ""))
+            if key and entry.get("title") and key not in titles:
+                titles[key] = entry["title"]
+    return titles
+
+
+def set_page_info(page_id: str, levels: list[str], level: str | None, title: str | None, kind: str | None) -> None:
+    """The sheet read's answer (sheet_info.final). `sheetKind` only fills a
+    gap: the RFI scan's own reading of it also sees the grid, and wins."""
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE pages SET levels = %s, level = %s, "sheetTitle" = %s,
+                   "sheetKind" = COALESCE("sheetKind", %s)
+            WHERE id = %s
+            """,
+            (levels, level, title, kind, page_id),
+        )
 
 
 def set_page_sheet(

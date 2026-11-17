@@ -11,7 +11,7 @@ def test_an_inherited_discipline_survives_a_re_read(monkeypatch):
     # Page 2's title block reads nothing; it inherits page 1's discipline.
     pages = {
         f"p{n}": {"page_id": f"p{n}", "combined_page": n, "region_text": text, "filename": "set.pdf",
-                  "discipline": None, "discipline_source": None, "sheet_number": None}
+                  "discipline": None, "discipline_source": None, "sheet_number": None, "title_lines": ""}
         for n, text in ((1, "C-1"), (2, ""), (3, "M-1"))
     }
     readings = {"C-1": ("C-1", "civil", "region_rules"), "": (None, None, None), "M-1": ("M-1", "mechanical", "region_rules")}
@@ -27,7 +27,10 @@ def test_an_inherited_discipline_survives_a_re_read(monkeypatch):
     monkeypatch.setattr(scrape.db, "assign_chunk_portions", lambda *a: None)
     monkeypatch.setattr(scrape, "_get_redis", lambda: None)
     monkeypatch.setattr(scrape.classify, "classify_region_batch",
-                        lambda items, _r: [readings[text] for text, _f in items])
+                        lambda items, _r, _preread=None: [readings[text] for text, _f in items])
+    monkeypatch.setattr(scrape.db, "project_index_titles", lambda _p: {})
+    monkeypatch.setattr(scrape.db, "set_page_info", lambda *a: None)
+    monkeypatch.setattr(scrape.sheet_info, "read", lambda items, _r: [scrape.sheet_info._MISS] * len(items))
 
     scrape._classify_pages("proj")
     assert pages["p2"]["discipline"] == "civil" and pages["p2"]["discipline_source"] == "inherited"
