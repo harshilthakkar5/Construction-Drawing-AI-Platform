@@ -145,6 +145,13 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
   });
   // A deleted set, or one that has not loaded yet, falls back to the list.
   const current = sets.data?.find((s) => s.id === openId) ?? null;
+  // An open id this project has no set for — deleted, or another project's,
+  // brought back by the browser's history — is cleared, or the log and the
+  // chat findings would stay hidden behind a set nobody can see. Set directly:
+  // setOpenId(null) would step history back again and could leave the app.
+  useEffect(() => {
+    if (openId && sets.data && !current) useAppStore.setState({ openRfiSetId: null });
+  }, [openId, sets.data, current]);
 
   return (
     <section className="flex flex-col gap-3">

@@ -3288,7 +3288,7 @@ RFI would cancel 11 of its own plans. The dialog, each stage's window and the sh
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
-(`store.openRfiSetId`, a browser history entry so Back closes it; the log and the chat list hide until "RFIs" is clicked) showing `SetFindings`, the same
+(`store.openRfiSetId`, a browser history entry so Back closes it; the log and the chat list hide until "RFIs" is clicked; an open id the project has no set for — deleted, or another project's set brought back by Back — is cleared by `RfiSetsSection`, or the log stayed hidden behind the list) showing `SetFindings`, the same
 cached `rfi-set` query the full-view popup reads. A finding card shows its subject; the question, reasons and
 sources sit under "Show details". The work column's section header is sticky and the RFIs tab's "Needs your review" lists only
 findings sent from the chat (`origin = chat`). Its "Accept all high" therefore accepts the visible ones
