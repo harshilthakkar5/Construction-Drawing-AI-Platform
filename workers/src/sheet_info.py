@@ -54,6 +54,8 @@ KINDS = ("plan", "enlarged_plan", "section", "elevation", "detail", "schedule", 
 
 TITLE_LINES = 12          # biggest lines kept per sheet
 TITLE_LINES_CHARS = 700   # and their total length
+LEVEL_LINES = 10          # drawing titles naming a level, whatever their size
+LEVEL_LINES_CHARS = 500
 REGION_CHARS = 600        # classify.REGION_SNIPPET_CHARS
 MAX_REFS = 60
 MAX_INDEX_ENTRIES = 400
@@ -147,7 +149,8 @@ def page_text_facts(page) -> dict:
     import grid
 
     clean = grid.without_markup(page)
-    titles = sheet_facts.title_lines(sheet_facts.sized_lines(clean))
+    sized = sheet_facts.sized_lines(clean)
+    titles = sheet_facts.title_lines(sized)
     kept, total = [], 0
     for line in titles[:TITLE_LINES]:
         if total + len(line) > TITLE_LINES_CHARS:
@@ -155,7 +158,35 @@ def page_text_facts(page) -> dict:
         kept.append(line)
         total += len(line) + 1
     text = clean.get_text()
-    return {"title_lines": "\n".join(kept), "refs": references(text), "index": index_entries(text)}
+    index = index_entries(text)
+    if not index:  # the drawing list names every sheet's level; it is not this sheet's
+        kept += level_lines(sized, kept)
+    return {"title_lines": "\n".join(kept), "refs": references(text), "index": index}
+
+
+_DRAWING_WORD = re.compile(r"\b(?:PLANS?|RCP|LAYOUT)\b")
+_POINTER = re.compile(r"\b(?:SEE|REFER|REF\.?|PER)\b")
+
+
+def level_lines(sized, already=()) -> list[str]:
+    """Drawing titles that name a level, at any size: S2.201 prints "Enlarged Forming
+    Plan - Elev./Stair Core - Level 1" at 12.6 pt, as small as its grid letters, so the
+    biggest lines never carried it. A title must name a drawing (PLAN, RCP, LAYOUT) —
+    a section's "LEVEL 01..06" height marks would tag it with every floor — be short,
+    and not point elsewhere ("SEE PLAN - LEVEL 2"). Pure."""
+    seen = {line.upper() for line in already}
+    out, total = [], 0
+    for _, line in sized:
+        upper = " ".join(line.upper().split())
+        if (len(upper) > 80 or upper in seen or not _DRAWING_WORD.search(upper)
+                or _POINTER.search(upper) or not sheet_facts.level_in(upper)):
+            continue
+        if len(out) >= LEVEL_LINES or total + len(line) > LEVEL_LINES_CHARS:
+            break
+        seen.add(upper)
+        out.append(line.strip())
+        total += len(line) + 1
+    return out
 
 
 # --- Grounding -------------------------------------------------------------------------
@@ -240,11 +271,17 @@ def summary_level(levels: list[str]) -> str | None:
 def code_levels(region_text: str | None, title_lines: str | None, index_title: str | None) -> list[str]:
     """The level with no model: the title block, then the drawing titles, then
     the index entry — the readers the RFI scan already trusts."""
-    level = (
-        sheet_facts.title_block_level(region_text)
-        or sheet_facts.title_level((title_lines or "").splitlines())
-        or sheet_facts.level_in(index_title)
-    )
+    block = sheet_facts.title_block_level(region_text)
+    if block:
+        return [block]
+    # Every floor the drawing titles name — the scan's title_level wants ONE and gives
+    # up on S2.201's four ("… - Level 1", "… - Level 3-4"); the sheet map wants all.
+    titled = list(dict.fromkeys(
+        sheet_facts.level_in(line) for line in level_lines([(0, l) for l in (title_lines or "").splitlines()])
+    ))
+    if titled:
+        return titled
+    level = sheet_facts.title_level((title_lines or "").splitlines()) or sheet_facts.level_in(index_title)
     return [level] if level else []
 
 
@@ -290,7 +327,7 @@ def snippet(region_text: str | None, title_lines: str | None, index_title: str |
     """The text one sheet is read from — and the text its answer is grounded in."""
     parts = []
     region = (region_text or "").strip()[:REGION_CHARS]
-    titles = (title_lines or "").strip()[:TITLE_LINES_CHARS]
+    titles = (title_lines or "").strip()[:TITLE_LINES_CHARS + LEVEL_LINES_CHARS]
     if region:
         parts.append(f"<titleblock>{region}</titleblock>")
     if titles:
@@ -395,7 +432,7 @@ def _store(redis_conn, text: str, info: SheetInfo) -> None:
         pass
 
 
-def _ask(texts: list[str], depth: int = 0) -> list:
+def _ask(texts: list[str], depth: int = 0, retried: bool = False) -> list:
     """One call for many sheets; aligned list of SheetInfo or _MISS. Sheets the
     model skipped are asked again in a smaller batch, as the sheet reader does."""
     user = "\n".join(f'<sheet index="{i + 1}">\n{text}\n</sheet>' for i, text in enumerate(texts))
@@ -403,6 +440,13 @@ def _ask(texts: list[str], depth: int = 0) -> list:
     if raw is None:
         return [_MISS] * len(texts)
     answered = parse_batch(raw, texts)
+    if not answered and not retried and len(texts) > 1:
+        # Gemini in JSON mode still slips now and then, at a different batch each run
+        # (call 4 of one UT Law run, call 10 of another; the same batches came back clean
+        # when asked again). Asking the same batch once is 1 call; halving it is 2.
+        log.warning("sheet read: the reply for %d sheets could not be read as JSON (%s) — asking once more",
+                    len(texts), _json_error(raw))
+        return _ask(texts, depth, retried=True)
     missing = [i for i in range(len(texts)) if i not in answered]
     if missing and len(texts) > 1 and depth < classify._BATCH_MAX_DEPTH:
         why = "the reply could not be read as JSON" if not answered else "the model skipped them"
@@ -415,6 +459,18 @@ def _ask(texts: list[str], depth: int = 0) -> list:
                 if value is not _MISS:
                     answered[position] = value
     return [answered.get(i, _MISS) for i in range(len(texts))]
+
+
+def _json_error(raw: str) -> str:
+    """Where a reply's JSON breaks, for the log: the parser's message and the text around it."""
+    body = classify._strip_fences(raw) or ""
+    try:
+        json.loads(body)
+    except json.JSONDecodeError as exc:
+        return f"{exc.msg} at char {exc.pos} of {len(body)}: {body[max(0, exc.pos - 60):exc.pos + 40]!r}"
+    except TypeError:
+        return "no text"
+    return "valid JSON but not the expected shape"
 
 
 def ai_enabled() -> bool:
@@ -474,6 +530,10 @@ def final(info, region_text: str | None, title_lines: str | None, index_title: s
     answer where it gave one, the code readers where it did not."""
     answered = info if isinstance(info, SheetInfo) else None
     levels = answered.levels if answered and answered.levels else code_levels(region_text, title_lines, index_title)
+    # The index entry is printed too: S2.103's drawing says "Level 3", its index "Level 3-4".
+    listed = sheet_facts.level_in(index_title)
+    if listed and listed not in levels:
+        levels = list(levels) + [listed]
     title = answered.title if answered else None
     if not title and index_title:
         title = " ".join(index_title.split())[:120]

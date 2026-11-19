@@ -293,3 +293,42 @@ def test_batches_are_sent_together_and_billed_to_the_project(monkeypatch):
         classify.set_usage_project(None)
     assert billed == ["p-1", "p-1"]
     assert all(isinstance(info, SheetInfo) for info in infos)
+
+
+def test_small_drawing_titles_that_name_a_level_are_kept():
+    # UT Law S2.201: its levels are printed only in 12.6 pt drawing titles, never in the big lines.
+    sized = [(31.5, "UT LAW STUDENT HOUSING"), (24.9, "Enlarged Forming"), (12.6, "A"),
+             (12.6, "Enlarged Forming Plan - Elev./Stair Core - Level 1"),
+             (12.6, "Enlarged Forming Plan - Elev./Stair Core - Level 3-4"),
+             (12.6, "Enlarged Forming Plan - Elev./Stair Core - Level 3-4")]
+    lines = sheet_info.level_lines(sized)
+    assert lines == ["Enlarged Forming Plan - Elev./Stair Core - Level 1",
+                     "Enlarged Forming Plan - Elev./Stair Core - Level 3-4"]
+    assert sheet_info.final(None, None, "\n".join(lines), None)[0] == ["LEVEL 1", "LEVEL 3", "LEVEL 4"]
+
+
+def test_height_marks_details_and_pointers_are_not_drawing_titles():
+    sized = [(10, "LEVEL 01"), (10, "LEVEL 02"),                      # a section's height marks (A1.70)
+             (14, "PRIMARY ROOF DRAIN DETAIL"),                       # a detail, not a plan (A7.56)
+             (9, "SEE FORMING PLAN - LEVEL 2 FOR SLAB EDGE"),         # a pointer to another sheet
+             (9, "ALL WORK ON THIS PLAN SHALL BE COORDINATED WITH THE LEVEL 2 SLAB EDGE AND OPENINGS")]  # a note
+    assert sheet_info.level_lines(sized) == []
+
+
+def test_the_index_entry_adds_the_floors_it_lists():
+    info = SheetInfo(sheet="S2.103", title="Forming Plan", levels=["LEVEL 3"], kind="plan")
+    assert sheet_info.final(info, None, "Forming Plan - Level 3", "Forming Plan - Level 3-4")[0] == ["LEVEL 3", "LEVEL 4"]
+
+
+def test_a_broken_reply_is_asked_once_more_before_the_batch_is_split(monkeypatch):
+    calls = []
+    good = _answer_all([])
+
+    def complete_json(system, user, project_id=None, max_tokens=None):
+        calls.append(user.count("<sheet index="))
+        return '{"sheets": [{"index": 1, "title": "oops' if len(calls) == 1 else good(system, user)
+
+    monkeypatch.setattr(sheet_info.sheetllm, "complete_json", complete_json)
+    infos = sheet_info._ask([f"FLOOR PLAN - LEVEL 1\nSHEET {n}" for n in range(10)])
+    assert calls == [10, 10]  # the same batch again, not two halves
+    assert all(isinstance(info, SheetInfo) for info in infos)
