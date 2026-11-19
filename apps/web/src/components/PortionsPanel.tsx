@@ -10,6 +10,7 @@ import {
   ProcessNowButton,
   processingStage,
   useProcessing,
+  useProcessingQueue,
 } from "@/components/Processing";
 import { SummaryConfirm } from "@/components/SummaryConfirm";
 import { SUMMARY_BUTTONS } from "@/components/SummaryPanel";
@@ -61,6 +62,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
   const requestJump = useAppStore((s) => s.requestJump);
 
   const processingState = useProcessing(projectId);
+  const queue = useProcessingQueue(projectId);
   const unsorted = processingState.data?.disciplines.find((d) => d.discipline === UNSORTED);
 
   const documents = useQuery({
@@ -225,7 +227,7 @@ export function PortionsPanel({ projectId }: { projectId: string }) {
                     </Badge>
                   ) : (
                     <Badge variant={stage === "processing" ? "warning" : "outline"} className="text-[11px]">
-                      {stage === "processing" ? "Processing…" : "Not processed"}
+                      {stage === "processing" ? (queue.activeFor(key) ? "Processing…" : "Waiting to process") : "Not processed"}
                     </Badge>
                   )}
                   <div className="ml-auto flex shrink-0 items-center gap-1.5">

@@ -3519,7 +3519,7 @@ picked up; the API queues documents with due pages (`disciplineProcessing.queueD
 BullMQ deduplication per document) on the button, on a hand move (`PATCH /pages/:n/discipline`,
 disciplineSource "manual", which re-runs the title-block read to regroup), and when a title-block
 read completes (`listenForSortedPages`) — so new uploads and moved pages of a chosen discipline
-are processed with no click. The RFI scan's OCR skips unprocessed pages (`pages_needing_ocr`). Progress
+are processed with no click. The RFI scan's OCR skips unprocessed pages (`pages_needing_ocr`). The worker does the full pass on one PDF at a time, so Docs and Categories both read `useProcessingQueue` (`Processing.tsx`). A discipline counts as "Processing" only while a PDF holding its waiting pages is being read; otherwise it shows "Waiting to process". A finished quick pass with full-pass pages still waiting shows the same badge on the document, never "Completed". Progress
 is read from server state (documents / region / scrapeStatus), so it resumes after a reload;
 the decision to show it is LATCHED per mount so finishing step 3 does not yank the stepper
 away mid-click. "Skip setup" (and the finished hand-off) writes `cdip-setup-skipped:{id}`; the

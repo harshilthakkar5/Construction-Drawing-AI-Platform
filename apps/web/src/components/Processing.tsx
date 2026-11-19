@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { processingLabel, type ProcessingStateDto } from "@cdip/shared";
+import { processingKey, processingLabel, type ProcessingStateDto } from "@cdip/shared";
 import { PlayIcon } from "lucide-react";
 import { api } from "@/api";
 import { JobProgress } from "@/components/shared";
@@ -55,6 +55,39 @@ export function useStartProcessing(projectId: string) {
   });
 }
 
+/**
+ * Pages chosen for full processing, by what is happening to them NOW. The worker reads one PDF
+ * at a time, so a chosen discipline whose PDFs are all waiting their turn is "waiting", not
+ * "processing" — the Docs tab said "Completed" (quick pass done) beside a Categories row reading
+ * "Processing 0 of 158", for the same structural PDF. Both tabs read this one answer.
+ */
+export function useProcessingQueue(projectId: string) {
+  const state = useProcessing(projectId);
+  const busy = Boolean(state.data?.disciplines.some((d) => d.chosen && d.processed < d.pages));
+  const documents = useQuery({
+    queryKey: ["documents", projectId],
+    queryFn: () => api.listDocuments(projectId),
+    refetchInterval: busy ? 3000 : false,
+  });
+  const manifest = useQuery({
+    queryKey: ["manifest", projectId],
+    queryFn: () => api.manifest(projectId),
+    refetchInterval: busy ? 5000 : false,
+  });
+  const chosen = new Set((state.data?.disciplines ?? []).filter((d) => d.chosen).map((d) => d.discipline));
+  const reading = new Set((documents.data ?? []).filter((d) => d.status === "processing").map((d) => d.id));
+  const due = (manifest.data ?? []).filter(
+    (e) => !e.processed && (state.data?.processAll || chosen.has(processingKey(e.discipline))),
+  );
+  return {
+    /** Pages of this document chosen and not yet read in full. */
+    waitingIn: (documentId: string) => due.filter((e) => e.documentId === documentId).length,
+    /** Whether any PDF holding this discipline's unread pages is being read right now. */
+    activeFor: (discipline: string) =>
+      due.some((e) => processingKey(e.discipline) === discipline && reading.has(e.documentId)),
+  };
+}
+
 /** Where one discipline stands: done, waiting for a click, or chosen and not finished. */
 export function processingStage(state: ProcessingStateDto | undefined, discipline: string) {
   const row = state?.disciplines.find((d) => d.discipline === discipline);
@@ -86,13 +119,19 @@ export function ProcessNowButton({ projectId, discipline }: { projectId: string;
 export function ProcessingProgress({ projectId, discipline }: { projectId: string; discipline: string }) {
   const state = useProcessing(projectId);
   const start = useStartProcessing(projectId);
+  const queue = useProcessingQueue(projectId);
   const { stage, row } = processingStage(state.data, discipline);
   if (stage !== "processing" || !row) return null;
-  const queued = row.processed === 0 && !state.data?.running;
+  const active = queue.activeFor(discipline);
+  const text = active
+    ? `Processing ${row.processed} of ${row.pages} pages`
+    : state.data?.running
+      ? `Waiting its turn: ${row.processed} of ${row.pages} pages. The worker reads one PDF at a time and starts this one next.`
+      : "Queued, waiting for the worker…";
   return (
     <div className="mt-2">
       <JobProgress
-        text={queued ? "Queued, waiting for the worker…" : `Processing ${row.processed} of ${row.pages} pages`}
+        text={text}
         percent={Math.round((row.processed / row.pages) * 100)}
         label={`${processingLabel(discipline)} processing`}
       />
