@@ -260,8 +260,12 @@ class PageFacts:
 
 def sized_lines(page) -> list[tuple[float, str]]:
     """(largest font size, text) per text line."""
+    import fitz
+
     out: list[tuple[float, str]] = []
-    for block in page.get_text("dict")["blocks"]:
+    # Text only: the default "dict" also extracts every picture, 1.7 s a sheet on UT Law's
+    # raster-heavy structural set against 21 ms without, and no caller reads them.
+    for block in page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)["blocks"]:
         for line in block.get("lines", []):
             text = " ".join(s["text"] for s in line["spans"]).strip()
             if text:

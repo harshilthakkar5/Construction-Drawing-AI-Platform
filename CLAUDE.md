@@ -426,6 +426,15 @@ empty or cut short ("stop_reason=max_tokens … 1x thinking") — 1 of 114 sheet
 Batches go out `SHEET_READ_CONCURRENCY` (4) at a time — 15 calls one after another were 88 s of a 297-sheet read —
 and a reply broken by an unescaped inch mark (`1/4" = 1'-0"` in a title) is repaired with
 `rfi_review.parse_json_object` instead of re-asked; a batch still lost says whether it was unreadable or skipped.
+Drawing titles that NAME A LEVEL are sent too, whatever their size (`sheet_info.level_lines`): UT Law's S2.201-207
+print their floors only in 12.6 pt view titles ("Enlarged Forming Plan - … - Level 3-4"), as small as the grid
+letters, so the biggest lines never carried them. A line counts only if it names a drawing (PLAN/RCP/LAYOUT — a
+section's "LEVEL 01..06" height marks are not), is under 80 characters and is no pointer (SEE/REFER/PER); the sheet
+that IS the drawing list gets none (it names every sheet's floor), and an index entry's floors are always added
+(S2.103: drawing "Level 3", index "Level 3-4"). The code fallback takes every titled floor, not the scan's one.
+`sheet_facts.sized_lines` reads TEXT ONLY: the default "dict" also extracted every picture, 1.7 s a sheet on UT Law's
+raster-heavy structural set against 21 ms, identical lines. Measured on all 351 UT Law sheets with
+`gemini-3.6-flash`: page reading 7 min 37 s → 55 s, levels 125 → 132, 84 of 84 index-listed levels match, ~9 cents.
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but
