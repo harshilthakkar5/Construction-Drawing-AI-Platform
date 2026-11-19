@@ -561,7 +561,7 @@ def get_sheet_region(project_id: str) -> dict | None:
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT id, "relX", "relY", "relW", "relH", version, "scrapeStatus"
+            SELECT id, "relX", "relY", "relW", "relH", version, "scrapeStatus", "lastError"
             FROM sheet_regions WHERE "projectId" = %s
             """,
             (project_id,),
@@ -576,7 +576,28 @@ def get_sheet_region(project_id: str) -> dict | None:
             "relH": row[4],
             "version": row[5],
             "scrapeStatus": row[6],
+            "stopped": row[6] == "failed" and row[7] == REGION_STOPPED,
         }
+
+
+# Mirrors REGION_STOPPED in @cdip/shared (test_scrape holds them equal): the
+# lastError the API's Stop button writes.
+REGION_STOPPED = "STOPPED_BY_USER"
+
+
+def set_region_progress(project_id: str, stage: str, done: int | None = None, total: int | None = None) -> bool:
+    """Write the read's live step; True when a person has stopped it, which the
+    caller checks right here — one query does both."""
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE sheet_regions SET progress = %s::jsonb
+            WHERE "projectId" = %s
+            RETURNING "scrapeStatus", "lastError"
+            """,
+            (json.dumps({"stage": stage, "done": done, "total": total}), project_id),
+        ).fetchone()
+    return bool(row) and row[0] == "failed" and row[1] == REGION_STOPPED
 
 
 def set_region_status(
@@ -587,6 +608,7 @@ def set_region_status(
     not_found_pages: int | None = None,
     last_error: str | None = None,
     touch_scraped_at: bool = False,
+    unless_stopped: bool = False,
 ) -> None:
     """Progress/status writes for the scrape job. Only the fields passed are
     updated, so a progress heartbeat doesn't clobber the counters."""
@@ -606,9 +628,13 @@ def set_region_status(
     if touch_scraped_at:
         sets.append('"lastScrapedAt" = NOW()')
     params.append(project_id)
+    where = '"projectId" = %s'
+    if unless_stopped:  # a heartbeat must not undo a person's Stop
+        where += ' AND NOT ("scrapeStatus" = \'failed\' AND "lastError" IS NOT DISTINCT FROM %s)'
+        params.append(REGION_STOPPED)
     with connect() as conn:
         conn.execute(
-            f'UPDATE sheet_regions SET {", ".join(sets)} WHERE "projectId" = %s',
+            f'UPDATE sheet_regions SET {", ".join(sets)} WHERE {where}',
             tuple(params),
         )
 

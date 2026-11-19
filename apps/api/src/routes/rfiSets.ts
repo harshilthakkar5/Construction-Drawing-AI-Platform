@@ -193,12 +193,22 @@ rfiSetsRouter.post("/:setId/start", summaryLimiter, async (req, res) => {
   res.json(await detail(projectId, setId, errors));
 });
 
-/** Delete the RFI. Unstarted reviews are cancelled; started ones finish and
- * their findings stay in "Needs your review". */
+/** Delete the RFI. Its reviews are stopped (a running one at its next stage;
+ * a call already sent is paid for), and its findings still waiting for review
+ * go with it: a set's findings are listed only under the set, so kept they
+ * would sit where nobody can see them. Findings accepted into the log, and
+ * dismissed ones (dismissal rules point at them), stay. */
 rfiSetsRouter.delete("/:setId", async (req, res) => {
   const { projectId, setId } = setParams.parse(req.params);
   await prisma.rfiSet.findFirstOrThrow({ where: { id: setId, projectId } });
-  await prisma.rfiReviewRun.updateMany({ where: { setId, status: "planned" }, data: { status: "cancelled" } });
-  await prisma.rfiSet.delete({ where: { id: setId } });
+  const runs = (await prisma.rfiReviewRun.findMany({ where: { setId }, select: { id: true } })).map((r) => r.id);
+  await prisma.$transaction([
+    prisma.rfiReviewRun.updateMany({
+      where: { setId, status: { in: ["planned", "queued", "running"] } },
+      data: { status: "cancelled" },
+    }),
+    prisma.rfiCandidate.deleteMany({ where: { projectId, reviewRunId: { in: runs }, status: "pending" } }),
+    prisma.rfiSet.delete({ where: { id: setId } }),
+  ]);
   res.json({ deleted: setId });
 });

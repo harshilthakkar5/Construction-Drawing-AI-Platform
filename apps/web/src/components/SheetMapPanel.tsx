@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRightIcon, LayersIcon, RefreshCwIcon } from "lucide-react";
-import { useMemo, useState } from "react";
-import { buildSheetMap, levelLabel, userMessage, type SheetConnections, type SheetLink as Link } from "@cdip/shared";
+import { ChevronRightIcon, LayersIcon, RefreshCwIcon, SquareIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildSheetMap, levelLabel, regionPercent, regionStageText, userMessage, type SheetConnections, type SheetLink as Link } from "@cdip/shared";
 import { api } from "@/api";
-import { Notice, SheetLink, Spinner } from "@/components/shared";
+import { JobProgress, Notice, SheetLink, Spinner } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -21,14 +21,31 @@ export function SheetMapPanel({ projectId }: { projectId: string }) {
   const map = useMemo(() => buildSheetMap(manifest.data ?? []), [manifest.data]);
   const [open, setOpen] = useState<string | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const region = useQuery({
+    queryKey: ["region", projectId],
+    queryFn: () => api.getRegion(projectId),
+    refetchInterval: (q) => (["pending", "running"].includes(q.state.data?.scrapeStatus ?? "") ? 1500 : false),
+  });
+  const status = region.data?.scrapeStatus;
+  const reading = status === "pending" || status === "running";
   const reread = useMutation({
     mutationFn: () => api.rescrapeRegion(projectId),
-    onSuccess: () => {
-      for (const key of ["region", "manifest", "portions", "processing"]) {
+    onSuccess: (d) => queryClient.setQueryData(["region", projectId], d),
+  });
+  const stop = useMutation({
+    mutationFn: () => api.stopRescrape(projectId),
+    onSuccess: (d) => queryClient.setQueryData(["region", projectId], d),
+  });
+  // A finished read re-sorted the sheets: refresh what shows them.
+  const wasReading = useRef(reading);
+  useEffect(() => {
+    if (wasReading.current && !reading) {
+      for (const key of ["manifest", "portions", "processing"]) {
         void queryClient.invalidateQueries({ queryKey: [key, projectId] });
       }
-    },
-  });
+    }
+    wasReading.current = reading;
+  }, [reading, projectId, queryClient]);
 
   const pick = (link: Link) => {
     setPicked(link.combinedPageNumber);
@@ -45,19 +62,49 @@ export function SheetMapPanel({ projectId }: { projectId: string }) {
           <LayersIcon className="text-muted-foreground size-4" />
           Levels
         </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          disabled={reread.isPending}
-          onClick={() => reread.mutate()}
-          title="Read every sheet's title, level and references again (a few seconds; under a cent of AI)"
-        >
-          {reread.isPending ? <Spinner /> : <RefreshCwIcon />}
-          Re-read sheets
-        </Button>
+        {reading ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={stop.isPending}
+            onClick={() => stop.mutate()}
+            title="Stop reading. Levels and categories stay as they were."
+          >
+            {stop.isPending ? <Spinner /> : <SquareIcon />}
+            Stop
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={reread.isPending || !region.data}
+            onClick={() => reread.mutate()}
+            title="Read every sheet's title block, title, level and references again (a minute or two; unchanged sheets cost no AI)"
+          >
+            {reread.isPending ? <Spinner /> : <RefreshCwIcon />}
+            Re-read sheets
+          </Button>
+        )}
       </div>
-      {reread.error && <Notice tone="error">{userMessage((reread.error as Error).message)}</Notice>}
+      {reading && (
+        <div className="pb-3">
+          <JobProgress
+            text={regionStageText(region.data?.progress)}
+            percent={regionPercent(region.data?.progress)}
+            label="Reading sheets"
+          />
+        </div>
+      )}
+      {region.data?.stopped && !reading && (
+        <p className="text-muted-foreground pb-2 text-xs">
+          Stopped. Levels and categories stay as they were. Press Re-read sheets to read them again.
+        </p>
+      )}
+      {(reread.error || stop.error) && (
+        <Notice tone="error">{userMessage(((reread.error ?? stop.error) as Error).message)}</Notice>
+      )}
       {manifest.isLoading ? (
         <Spinner />
       ) : !map.levels.length ? (

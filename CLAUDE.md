@@ -418,7 +418,14 @@ miss falls back to the code readers (`sheet_facts.title_block_level` / `level_in
 `pages.sheetRefs` (sheets it points to, by code). `buildSheetMap` (`@cdip/shared`) turns the manifest into four
 links: level → sheets, same level other disciplines, enlarged ↔ overall plan, points to / pointed to by
 (missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
-rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. Cached in Redis per
+rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. "Re-read sheets" makes EVERY live page pending
+(`titleLines` set NULL) — the worker reads only pending pages, so it used to re-sort without reading; unchanged
+sheets still cost no AI (cache by text). It shows `sheet_regions.progress` ({stage reading|sheets|grouping, done,
+total}, `REGION_STAGES` + `regionPercent` in `@cdip/shared`) and a Stop button (`POST /region/rescrape/stop`:
+status failed + lastError `REGION_STOPPED`, queued jobs removed). The worker sees it at its progress writes (every
+5 sheets, each AI batch landing, before grouping — `scrape.ScrapeStopped`, `sheet_info.read(on_batch=)` cancels
+unsent calls) and stops before any page is re-sorted; a heartbeat never undoes it (`unless_stopped`), and a read
+queued by an upload still runs. Cached in Redis per
 (provider, model, text). Existing projects are re-read once (`titleLines IS NULL` counts as pending).
 Thinking is OFF for the sheet read whatever `CLAUDE_THINKING` says (`SHEET_THINKING` overrides): a PC with the
 chat's `CLAUDE_THINKING=on` sent no thinking field, Haiku 5.5 thought by default, and every batch came back
@@ -3280,7 +3287,7 @@ cancels a user's earlier unstarted plans when it is NOT planning for a set, or p
 RFI would cancel 11 of its own plans. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
-A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
+Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
 (`store.openRfiSetId`, a browser history entry so Back closes it; the log and the chat list hide until "RFIs" is clicked) showing `SetFindings`, the same
 cached `rfi-set` query the full-view popup reads. A finding card shows its subject; the question, reasons and
 sources sit under "Show details". The work column's section header is sticky and the RFIs tab's "Needs your review" lists only
@@ -3519,7 +3526,7 @@ picked up; the API queues documents with due pages (`disciplineProcessing.queueD
 BullMQ deduplication per document) on the button, on a hand move (`PATCH /pages/:n/discipline`,
 disciplineSource "manual", which re-runs the title-block read to regroup), and when a title-block
 read completes (`listenForSortedPages`) — so new uploads and moved pages of a chosen discipline
-are processed with no click. The RFI scan's OCR skips unprocessed pages (`pages_needing_ocr`). The worker does the full pass on one PDF at a time, so Docs and Categories both read `useProcessingQueue` (`Processing.tsx`). A discipline counts as "Processing" only while a PDF holding its waiting pages is being read; otherwise it shows "Waiting to process". A finished quick pass with full-pass pages still waiting shows the same badge on the document, never "Completed". Progress
+are processed with no click. The RFI scan's OCR skips unprocessed pages (`pages_needing_ocr`). The worker does the full pass on one PDF at a time, so Docs and Categories both read `useProcessingQueue` (`Processing.tsx`). A discipline counts as "Processing" only while a PDF holding its waiting pages is being read; otherwise it shows "Waiting to process". A finished quick pass with full-pass pages still waiting shows the same badge on the document, never "Completed". While one PDF holds all of a discipline's waiting pages, Categories shows that PDF's own Docs percent (`percentFor`), so the two bars agree. Progress
 is read from server state (documents / region / scrapeStatus), so it resumes after a reload;
 the decision to show it is LATCHED per mount so finishing step 3 does not yank the stepper
 away mid-click. "Skip setup" (and the finished hand-off) writes `cdip-setup-skipped:{id}`; the

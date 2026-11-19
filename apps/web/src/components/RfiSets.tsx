@@ -19,7 +19,7 @@ import { userMessage,
 import { api } from "@/api";
 import { AllBox, flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
 import { CandidateCard } from "@/components/RfiReview";
-import { JobProgress, Notice, ProblemNotice, Spinner } from "@/components/shared";
+import { ConfirmDialog, JobProgress, Notice, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -128,10 +128,21 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
     queryFn: () => api.listRfiSets(projectId),
     refetchInterval: (q) => ((q.state.data ?? []).some((s) => ACTIVE.some((a) => s.runs[a])) ? 4000 : false),
   });
+  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<{ id: string; errors: RfiSetDetailDto["planErrors"] } | null>(null);
+  const [deleting, setDeleting] = useState<RfiSetDto | null>(null);
   const openId = useAppStore((s) => s.openRfiSetId);
   const setOpenId = useAppStore((s) => s.setOpenRfiSetId);
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteRfiSet(projectId, id),
+    onSuccess: (_d, id) => {
+      setDeleting(null);
+      if (openId === id) setOpenId(null);
+      void queryClient.invalidateQueries({ queryKey: ["rfi-sets", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["rfi-candidates", projectId] });
+    },
+  });
   // A deleted set, or one that has not loaded yet, falls back to the list.
   const current = sets.data?.find((s) => s.id === openId) ?? null;
 
@@ -166,7 +177,11 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
             </>
           )}
         </nav>
-        {!current && (
+        {current ? (
+          <Button size="sm" variant="ghost" onClick={() => setDeleting(current)} title="Delete this RFI">
+            <Trash2Icon /> Delete
+          </Button>
+        ) : (
           <Button size="sm" onClick={() => setCreating(true)}>
             <PlusIcon /> Create RFI
           </Button>
@@ -189,7 +204,7 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
       ) : (
         <ul className="flex flex-col gap-2">
           {sets.data.map((s) => (
-            <li key={s.id}>
+            <li key={s.id} className="relative">
               <button
                 type="button"
                 onClick={() => setOpenId(s.id)}
@@ -199,6 +214,17 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
                 <SetSummary set={s} title />
                 <ChevronRightIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
               </button>
+              {/* A sibling, not inside the card: a button may not hold a button. */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive absolute right-2 bottom-2 size-7"
+                onClick={() => setDeleting(s)}
+                title={`Delete ${s.name}`}
+                aria-label={`Delete ${s.name}`}
+              >
+                <Trash2Icon className="size-4" />
+              </Button>
             </li>
           ))}
         </ul>
@@ -211,6 +237,24 @@ export function RfiSetsSection({ projectId, onFinished }: { projectId: string; o
             setCreating(false);
             setOpen({ id: detail.id, errors: detail.planErrors });
           }}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete "${deleting.name}"?`}
+          message={
+            <>
+              Its reviews stop{deleting.runs.running ? " (one already talking to the AI stops after its current step, which is still paid for)" : ""}, and
+              findings still waiting for review are removed. RFIs already accepted into the log stay. This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete RFI"
+          busyLabel="Deleting…"
+          tone="danger"
+          busy={remove.isPending}
+          error={remove.error}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onCancel={() => setDeleting(null)}
         />
       )}
       {open && (

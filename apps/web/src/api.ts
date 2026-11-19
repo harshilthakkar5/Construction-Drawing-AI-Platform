@@ -318,6 +318,10 @@ export const api = {
       method: "POST",
     }),
 
+  /** Stop a running or queued read ("Re-read sheets"). */
+  stopRescrape: (projectId: string) =>
+    request<SheetRegionDto>(`/projects/${projectId}/region/rescrape/stop`, { method: "POST" }),
+
   deleteRegion: (projectId: string) =>
     request<void>(`/projects/${projectId}/region`, { method: "DELETE" }),
 

@@ -80,7 +80,7 @@ export function RegionBanner({
           <span
             className={cn(
               "hidden truncate text-xs xl:inline",
-              status === "failed" ? "text-destructive" : "text-muted-foreground",
+              status === "failed" && !region.data.stopped ? "text-destructive" : "text-muted-foreground",
             )}
             title={status === "failed" ? region.data.lastError ?? undefined : undefined}
           >
@@ -88,7 +88,7 @@ export function RegionBanner({
               `Reading sheets… ${region.data.scrapedPages}/${region.data.totalPages || "?"}`}
             {status === "completed" &&
               `${region.data.scrapedPages - empty} of ${region.data.scrapedPages} sheets read`}
-            {status === "failed" && "Sheet scan failed"}
+            {status === "failed" && (region.data.stopped ? "Sheet reading stopped" : "Sheet scan failed")}
           </span>
         )}
         {empty > 0 && (

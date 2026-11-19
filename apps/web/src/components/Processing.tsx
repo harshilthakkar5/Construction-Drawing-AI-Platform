@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { processingKey, processingLabel, type ProcessingStateDto } from "@cdip/shared";
+import { documentPercent, processingKey, processingLabel, type ProcessingStateDto } from "@cdip/shared";
 import { PlayIcon } from "lucide-react";
 import { api } from "@/api";
 import { JobProgress } from "@/components/shared";
@@ -85,6 +85,14 @@ export function useProcessingQueue(projectId: string) {
     /** Whether any PDF holding this discipline's unread pages is being read right now. */
     activeFor: (discipline: string) =>
       due.some((e) => processingKey(e.discipline) === discipline && reading.has(e.documentId)),
+    /** The Docs tab's own percent for the PDF reading this discipline, when all
+     * of its waiting pages are in that one PDF — so the two tabs show one number. */
+    percentFor: (discipline: string): number | null => {
+      const docs = new Set(due.filter((e) => processingKey(e.discipline) === discipline).map((e) => e.documentId));
+      const [only] = docs;
+      if (docs.size !== 1 || !only || !reading.has(only)) return null;
+      return documentPercent(documents.data?.find((d) => d.id === only)?.progress);
+    },
   };
 }
 
@@ -132,7 +140,7 @@ export function ProcessingProgress({ projectId, discipline }: { projectId: strin
     <div className="mt-2">
       <JobProgress
         text={text}
-        percent={Math.round((row.processed / row.pages) * 100)}
+        percent={(active ? queue.percentFor(discipline) : null) ?? Math.round((row.processed / row.pages) * 100)}
         label={`${processingLabel(discipline)} processing`}
       />
       {!state.data?.running && !start.isPending && (
