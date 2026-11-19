@@ -79,18 +79,31 @@ export function useProcessingQueue(projectId: string) {
   const due = (manifest.data ?? []).filter(
     (e) => !e.processed && (state.data?.processAll || chosen.has(processingKey(e.discipline))),
   );
+  // The worker reads a PDF's pages in order, so the one being read now is the
+  // earliest page still waiting in each PDF being read. Two disciplines in one
+  // PDF are read one after the other, never both at once.
+  const now = new Map<string, (typeof due)[number]>();
+  for (const e of due) {
+    if (!reading.has(e.documentId)) continue;
+    const first = now.get(e.documentId);
+    if (!first || e.pageNumber < first.pageNumber) now.set(e.documentId, e);
+  }
+  const mine = (discipline: string) => due.filter((e) => processingKey(e.discipline) === discipline);
   return {
     /** Pages of this document chosen and not yet read in full. */
     waitingIn: (documentId: string) => due.filter((e) => e.documentId === documentId).length,
-    /** Whether any PDF holding this discipline's unread pages is being read right now. */
-    activeFor: (discipline: string) =>
-      due.some((e) => processingKey(e.discipline) === discipline && reading.has(e.documentId)),
-    /** The Docs tab's own percent for the PDF reading this discipline, when all
-     * of its waiting pages are in that one PDF — so the two tabs show one number. */
+    /** Whether the worker is reading this discipline's pages right now. */
+    activeFor: (discipline: string) => [...now.values()].some((e) => processingKey(e.discipline) === discipline),
+    /** Its pages are in a PDF being read, behind another discipline's. */
+    behindInPdf: (discipline: string) => mine(discipline).some((e) => reading.has(e.documentId)),
+    /** The Docs tab's own percent, when the one PDF holding this discipline's
+     * waiting pages has nothing else waiting — so the two tabs show one number.
+     * A PDF holding several disciplines is measured per discipline instead. */
     percentFor: (discipline: string): number | null => {
-      const docs = new Set(due.filter((e) => processingKey(e.discipline) === discipline).map((e) => e.documentId));
+      const docs = new Set(mine(discipline).map((e) => e.documentId));
       const [only] = docs;
       if (docs.size !== 1 || !only || !reading.has(only)) return null;
+      if (due.some((e) => e.documentId === only && processingKey(e.discipline) !== discipline)) return null;
       return documentPercent(documents.data?.find((d) => d.id === only)?.progress);
     },
   };
@@ -133,7 +146,9 @@ export function ProcessingProgress({ projectId, discipline }: { projectId: strin
   const active = queue.activeFor(discipline);
   const text = active
     ? `Processing ${row.processed} of ${row.pages} pages`
-    : state.data?.running
+    : queue.behindInPdf(discipline)
+      ? `Waiting its turn: ${row.processed} of ${row.pages} pages. Its PDF is being read; these pages come after the ones being read now.`
+      : state.data?.running
       ? `Waiting its turn: ${row.processed} of ${row.pages} pages. The worker reads one PDF at a time and starts this one next.`
       : "Queued, waiting for the worker…";
   return (
