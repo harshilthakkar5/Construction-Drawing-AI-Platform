@@ -432,7 +432,7 @@ def _store(redis_conn, text: str, info: SheetInfo) -> None:
         pass
 
 
-def _ask(texts: list[str], depth: int = 0) -> list:
+def _ask(texts: list[str], depth: int = 0, retried: bool = False) -> list:
     """One call for many sheets; aligned list of SheetInfo or _MISS. Sheets the
     model skipped are asked again in a smaller batch, as the sheet reader does."""
     user = "\n".join(f'<sheet index="{i + 1}">\n{text}\n</sheet>' for i, text in enumerate(texts))
@@ -440,6 +440,13 @@ def _ask(texts: list[str], depth: int = 0) -> list:
     if raw is None:
         return [_MISS] * len(texts)
     answered = parse_batch(raw, texts)
+    if not answered and not retried and len(texts) > 1:
+        # Gemini in JSON mode still slips now and then, at a different batch each run
+        # (call 4 of one UT Law run, call 10 of another; the same batches came back clean
+        # when asked again). Asking the same batch once is 1 call; halving it is 2.
+        log.warning("sheet read: the reply for %d sheets could not be read as JSON (%s) — asking once more",
+                    len(texts), _json_error(raw))
+        return _ask(texts, depth, retried=True)
     missing = [i for i in range(len(texts)) if i not in answered]
     if missing and len(texts) > 1 and depth < classify._BATCH_MAX_DEPTH:
         why = "the reply could not be read as JSON" if not answered else "the model skipped them"
@@ -452,6 +459,18 @@ def _ask(texts: list[str], depth: int = 0) -> list:
                 if value is not _MISS:
                     answered[position] = value
     return [answered.get(i, _MISS) for i in range(len(texts))]
+
+
+def _json_error(raw: str) -> str:
+    """Where a reply's JSON breaks, for the log: the parser's message and the text around it."""
+    body = classify._strip_fences(raw) or ""
+    try:
+        json.loads(body)
+    except json.JSONDecodeError as exc:
+        return f"{exc.msg} at char {exc.pos} of {len(body)}: {body[max(0, exc.pos - 60):exc.pos + 40]!r}"
+    except TypeError:
+        return "no text"
+    return "valid JSON but not the expected shape"
 
 
 def ai_enabled() -> bool:

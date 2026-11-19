@@ -435,6 +435,9 @@ that IS the drawing list gets none (it names every sheet's floor), and an index 
 `sheet_facts.sized_lines` reads TEXT ONLY: the default "dict" also extracted every picture, 1.7 s a sheet on UT Law's
 raster-heavy structural set against 21 ms, identical lines. Measured on all 351 UT Law sheets with
 `gemini-3.6-flash`: page reading 7 min 37 s → 55 s, levels 125 → 132, 84 of 84 index-listed levels match, ~9 cents.
+A batch whose reply is not readable JSON is asked ONCE MORE whole before it is halved (1 call, not 2), and the log
+names where the JSON broke (`_json_error`). Gemini is already in JSON mode; the slip is random — call 4 of one run,
+call 10 of another, and the same batches came back clean when re-asked — and it was not truncation (2,117 of 2,506).
 
 The scraping itself is the correctness-critical part and is unit-tested at 0/90/180/270 rotation
 (`workers/tests/test_region.py`): `page.rect` and `page.get_pixmap()` are rotation-aware, but

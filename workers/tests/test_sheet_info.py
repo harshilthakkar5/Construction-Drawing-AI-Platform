@@ -318,3 +318,17 @@ def test_height_marks_details_and_pointers_are_not_drawing_titles():
 def test_the_index_entry_adds_the_floors_it_lists():
     info = SheetInfo(sheet="S2.103", title="Forming Plan", levels=["LEVEL 3"], kind="plan")
     assert sheet_info.final(info, None, "Forming Plan - Level 3", "Forming Plan - Level 3-4")[0] == ["LEVEL 3", "LEVEL 4"]
+
+
+def test_a_broken_reply_is_asked_once_more_before_the_batch_is_split(monkeypatch):
+    calls = []
+    good = _answer_all([])
+
+    def complete_json(system, user, project_id=None, max_tokens=None):
+        calls.append(user.count("<sheet index="))
+        return '{"sheets": [{"index": 1, "title": "oops' if len(calls) == 1 else good(system, user)
+
+    monkeypatch.setattr(sheet_info.sheetllm, "complete_json", complete_json)
+    infos = sheet_info._ask([f"FLOOR PLAN - LEVEL 1\nSHEET {n}" for n in range(10)])
+    assert calls == [10, 10]  # the same batch again, not two halves
+    assert all(isinstance(info, SheetInfo) for info in infos)
