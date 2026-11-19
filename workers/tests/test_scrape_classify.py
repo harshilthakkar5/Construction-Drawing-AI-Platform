@@ -30,7 +30,8 @@ def test_an_inherited_discipline_survives_a_re_read(monkeypatch):
                         lambda items, _r, _preread=None: [readings[text] for text, _f in items])
     monkeypatch.setattr(scrape.db, "project_index_titles", lambda _p: {})
     monkeypatch.setattr(scrape.db, "set_page_info", lambda *a: None)
-    monkeypatch.setattr(scrape.sheet_info, "read", lambda items, _r: [scrape.sheet_info._MISS] * len(items))
+    monkeypatch.setattr(scrape.db, "set_region_progress", lambda *a, **k: False)
+    monkeypatch.setattr(scrape.sheet_info, "read", lambda items, _r, **_k: [scrape.sheet_info._MISS] * len(items))
 
     scrape._classify_pages("proj")
     assert pages["p2"]["discipline"] == "civil" and pages["p2"]["discipline_source"] == "inherited"

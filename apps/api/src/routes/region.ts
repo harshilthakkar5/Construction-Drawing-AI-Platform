@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
-import { type SheetRegionDto } from "@cdip/shared";
+import { REGION_STOPPED, type RegionProgress, type SheetRegionDto } from "@cdip/shared";
 import { z } from "zod";
 import { currentUser } from "../auth.js";
 import { prisma } from "../db.js";
@@ -44,6 +45,8 @@ function toDto(region: RegionRow): SheetRegionDto {
     lastError: region.lastError,
     lastScrapedAt: region.lastScrapedAt?.toISOString() ?? null,
     updatedAt: region.updatedAt.toISOString(),
+    progress: (region.progress as RegionProgress | null) ?? null,
+    stopped: region.scrapeStatus === "failed" && region.lastError === REGION_STOPPED,
   };
 }
 
@@ -106,15 +109,23 @@ regionRouter.put("/", async (req, res) => {
   res.status(202).json({ ...toDto(region), jobId: job.id });
 });
 
-/** Re-run the scrape without moving the box (new uploads, or after a failure). */
+/** Read every sheet again without moving the box ("Re-read sheets", new
+ * uploads, or after a failure). The worker reads only pending pages, so every
+ * live page is made pending: without that a re-read of a read project did
+ * nothing but re-sort, from readings made by older code. The AI answers are
+ * cached by the text sent, so an unchanged sheet costs nothing to ask again. */
 regionRouter.post("/rescrape", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const region = await prisma.sheetRegion.findUnique({ where: { projectId } });
   if (!region) return void res.status(404).json({ error: "no region defined" });
-  if (region.scrapeStatus === "running") {
-    return void res.status(409).json({ error: "a scrape is already running" });
+  if (region.scrapeStatus === "running" || region.scrapeStatus === "pending") {
+    return void res.status(409).json({ error: "the sheets are already being read" });
   }
 
+  await prisma.page.updateMany({
+    where: { document: { projectId, supersededAt: null } },
+    data: { titleLines: null },
+  });
   const updated = await prisma.sheetRegion.update({
     where: { projectId },
     data: {
@@ -123,6 +134,7 @@ regionRouter.post("/rescrape", async (req, res) => {
       notFoundPages: 0,
       totalPages: await livePageCount(projectId),
       lastError: null,
+      progress: Prisma.DbNull,
     },
   });
   const job = await scrapeRegionQueue.add("scrape", {
@@ -130,6 +142,26 @@ regionRouter.post("/rescrape", async (req, res) => {
     regionVersion: updated.version,
   });
   res.status(202).json({ ...toDto(updated), jobId: job.id });
+});
+
+/** Stop a read. A queued job is removed; a running one stops at its next
+ * progress write (every few sheets, and after each AI batch) without sorting,
+ * so levels and categories stay as they were. Sheets it had not reached stay
+ * pending and are read by the next read. */
+regionRouter.post("/rescrape/stop", async (req, res) => {
+  const { projectId } = projectParam.parse(req.params);
+  const done = await prisma.sheetRegion.updateMany({
+    where: { projectId, scrapeStatus: { in: ["pending", "running"] } },
+    data: { scrapeStatus: "failed", lastError: REGION_STOPPED },
+  });
+  if (done.count === 0) return void res.status(409).json({ error: "the sheets are not being read" });
+  for (const job of await scrapeRegionQueue.getJobs(["waiting", "delayed", "prioritized"])) {
+    if (job.name === "scrape" && (job.data as { projectId?: string }).projectId === projectId) {
+      await job.remove().catch(() => undefined); // taken by a worker meanwhile: it sees the stop itself
+    }
+  }
+  const region = await prisma.sheetRegion.findUniqueOrThrow({ where: { projectId } });
+  res.json(toDto(region));
 });
 
 /**

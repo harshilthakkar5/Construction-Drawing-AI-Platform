@@ -699,6 +699,40 @@ export interface SheetRegionDto extends RegionBox {
   lastError: string | null;
   lastScrapedAt: string | null;
   updatedAt: string;
+  /** The step a running read is on; null before the first progress write. */
+  progress: RegionProgress | null;
+  /** The last read was stopped by a person (scrapeStatus is "failed"). */
+  stopped: boolean;
+}
+
+/** lastError of a read a person stopped (POST /region/rescrape/stop). */
+export const REGION_STOPPED = "STOPPED_BY_USER";
+
+/** The three steps of a title-block read, with their share of the bar
+ * (weighted by a measured 423-sheet read: boxes 1m42s, AI 56s, grouping 1s). */
+export const REGION_STAGES = {
+  reading: { label: "Reading title blocks", unit: "sheets", from: 0, to: 64 },
+  sheets: { label: "Reading sheet titles and levels with AI", unit: "batches", from: 64, to: 98 },
+  grouping: { label: "Sorting sheets into disciplines", unit: "", from: 98, to: 100 },
+} as const;
+
+export interface RegionProgress {
+  stage: keyof typeof REGION_STAGES;
+  done?: number;
+  total?: number;
+}
+
+export function regionPercent(p: RegionProgress | null | undefined): number {
+  const s = p && REGION_STAGES[p.stage];
+  if (!s) return 0;
+  const frac = p.total ? Math.min(1, (p.done ?? 0) / p.total) : 0;
+  return Math.round(s.from + (s.to - s.from) * frac);
+}
+
+export function regionStageText(p: RegionProgress | null | undefined): string {
+  const s = p && REGION_STAGES[p.stage];
+  if (!s) return "Waiting for the worker…";
+  return p.total && s.unit ? `${s.label}: ${p.done ?? 0} of ${p.total} ${s.unit}` : `${s.label}…`;
 }
 
 /** One row of the "what does this box scrape?" dry run. */

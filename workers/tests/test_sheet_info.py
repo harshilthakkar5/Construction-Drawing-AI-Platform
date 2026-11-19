@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import fitz
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -215,11 +216,12 @@ def test_the_title_block_step_stores_levels_titles_and_kinds(monkeypatch):
     monkeypatch.setattr(scrape.db, "pages_to_classify", lambda _p: [dict(r) for r in rows])
     monkeypatch.setattr(scrape.db, "project_index_titles", lambda _p: {})
     monkeypatch.setattr(scrape.db, "set_page_info", lambda pid, *a: stored.__setitem__(pid, a))
+    monkeypatch.setattr(scrape.db, "set_region_progress", lambda *a, **k: False)
     monkeypatch.setattr(scrape.db, "set_page_sheet", lambda *a: None)
     monkeypatch.setattr(scrape.db, "upsert_portions", lambda *a: None)
     monkeypatch.setattr(scrape.db, "assign_chunk_portions", lambda *a: None)
     monkeypatch.setattr(scrape, "_get_redis", lambda: None)
-    monkeypatch.setattr(scrape.sheet_info, "read", lambda items, _r: [info["p1"], info["p2"]])
+    monkeypatch.setattr(scrape.sheet_info, "read", lambda items, _r, **_k: [info["p1"], info["p2"]])
 
     def classify_batch(items, _redis, preread=None):
         passed["preread"] = preread
@@ -230,6 +232,59 @@ def test_the_title_block_step_stores_levels_titles_and_kinds(monkeypatch):
     assert passed["preread"] == [("S2.03", "structural"), ("S5.01", "structural")]
     assert stored["p1"] == (["LEVEL 3"], "LEVEL 3", "FORMING PLAN - LEVEL 3", "plan")
     assert stored["p2"] == ([], None, "WALL SECTIONS", "section")
+
+
+def test_a_stop_during_the_ai_read_leaves_every_sheet_as_it_was(monkeypatch):
+    rows = [{"page_id": "p1", "combined_page": 1, "region_text": "S2.03", "filename": "s.pdf", "discipline": "structural",
+             "discipline_source": "region_rules", "sheet_number": "S2.03", "title_lines": "FORMING PLAN - LEVEL 3"}]
+    writes = []
+    monkeypatch.setattr(scrape.db, "pages_to_classify", lambda _p: [dict(r) for r in rows])
+    monkeypatch.setattr(scrape.db, "project_index_titles", lambda _p: {})
+    monkeypatch.setattr(scrape.db, "set_page_info", lambda *a: writes.append(a))
+    monkeypatch.setattr(scrape.db, "set_page_sheet", lambda *a: writes.append(a))
+    monkeypatch.setattr(scrape.db, "upsert_portions", lambda *a: writes.append(a))
+    # Not stopped when the AI step starts; stopped by the time the first batch lands.
+    answers = iter([False, True])
+    monkeypatch.setattr(scrape.db, "set_region_progress", lambda *a, **k: next(answers))
+    monkeypatch.setattr(scrape, "_get_redis", lambda: None)
+
+    def read(items, _r, on_batch=None):
+        on_batch(1, 3)
+        raise AssertionError("the read went on after a Stop")
+
+    monkeypatch.setattr(scrape.sheet_info, "read", read)
+    with pytest.raises(scrape.ScrapeStopped):
+        scrape._classify_pages("proj")
+    assert writes == []
+
+
+def test_the_read_reports_each_batch_and_a_stop_cancels_the_calls_not_yet_sent(monkeypatch):
+    monkeypatch.setattr(sheet_info, "READ_CONCURRENCY", 1)
+    monkeypatch.setattr(sheet_info.classify, "SHEET_BATCH_SIZE", 1)
+    monkeypatch.setattr(sheet_info, "ai_enabled", lambda: True)
+    asked = []
+    monkeypatch.setattr(sheet_info, "_ask", lambda window: asked.append(window) or [sheet_info._MISS] * len(window))
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def on_batch(done, total):
+        seen.append((done, total))
+        if done == 1:
+            raise Stop
+
+    with pytest.raises(Stop):
+        sheet_info.read([(f"S{i}.01", None, None) for i in range(5)], None, on_batch=on_batch)
+    assert seen == [(0, 5), (1, 5)]
+    assert len(asked) < 5  # the calls still queued were never sent
+
+
+def test_the_stop_marker_is_the_one_the_api_writes():
+    import re
+    from pathlib import Path
+    ts = (Path(__file__).resolve().parents[2] / "packages/shared/src/index.ts").read_text()
+    assert re.search(r'REGION_STOPPED = "([^"]+)"', ts).group(1) == scrape.db.REGION_STOPPED
 
 
 def test_haiku_5_5_is_sent_thinking_off_as_it_accepts_it():

@@ -38,7 +38,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import classify
 import logutil
@@ -477,11 +477,13 @@ def ai_enabled() -> bool:
     return os.environ.get("SHEET_EXTRACTION", "ai").lower() == "ai"
 
 
-def read(items: list[tuple[str | None, str | None, str | None]], redis_conn=None) -> list:
+def read(items: list[tuple[str | None, str | None, str | None]], redis_conn=None, on_batch=None) -> list:
     """(region_text, title_lines, index_title) per sheet → aligned list of
     SheetInfo, or _MISS where no answer was had (no provider, a failed call).
     Cached by the exact text sent, and only DISTINCT texts are asked: a set
-    repeats its blank and boilerplate boxes."""
+    repeats its blank and boilerplate boxes. `on_batch(done, total)` runs on
+    this thread as each call lands; an exception it raises (a Stop) cancels the
+    calls not yet sent and propagates."""
     texts = [snippet(*item) for item in items]
     results: list = [_MISS] * len(texts)
     if not ai_enabled():
@@ -509,8 +511,16 @@ def read(items: list[tuple[str | None, str | None, str | None]], redis_conn=None
         return _ask(window)
 
     # Round trips, not tokens, are the wall clock: 15 calls one after another took 88 s.
-    with ThreadPoolExecutor(max_workers=max(1, min(READ_CONCURRENCY, len(windows)))) as pool:
-        answers = list(pool.map(ask, windows))
+    pool = ThreadPoolExecutor(max_workers=max(1, min(READ_CONCURRENCY, len(windows))))
+    try:
+        futures = [pool.submit(ask, window) for window in windows]
+        if on_batch:
+            on_batch(0, len(windows))
+            for done, _ in enumerate(as_completed(futures), 1):
+                on_batch(done, len(windows))
+        answers = [f.result() for f in futures]
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     for window, values in zip(windows, answers):  # cached here, on this thread
         for text, value in zip(window, values):
             if value is _MISS:

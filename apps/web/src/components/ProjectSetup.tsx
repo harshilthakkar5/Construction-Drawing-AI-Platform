@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Spinner } from "@/components/shared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -102,7 +103,8 @@ export function ProjectSetup({
 }) {
   const progress = useSetupProgress(projectId);
   // Full processing carries on in the background; the workspace does not wait for it.
-  const done = [progress.uploaded && progress.processed, progress.hasRegion, progress.scraped];
+  // Step 3 lists disciplines, so step 2 is done only once every sheet has been sorted into one.
+  const done = [progress.uploaded && progress.processed, progress.scraped, progress.scraped];
   // Open on the first unfinished step; the user can still walk back.
   const [step, setStep] = useState(() => {
     const first = done.findIndex((d) => !d);
@@ -132,8 +134,10 @@ export function ProjectSetup({
             return (
               <li key={s.key} className="flex flex-1 items-center gap-2">
                 <button
-                  className="flex min-w-0 items-center gap-2 text-left"
+                  className="flex min-w-0 items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => setStep(index)}
+                  // A step opens only once every step before it is done: step 3 lists disciplines.
+                  disabled={!done.slice(0, index).every(Boolean)}
                 >
                   <span
                     className={cn(
@@ -185,7 +189,7 @@ export function ProjectSetup({
             className="ml-auto"
             disabled={!canContinue}
             onClick={() => (last ? onFinish() : setStep((s) => s + 1))}
-            title={canContinue ? undefined : "Finish this step first"}
+            title={canContinue ? undefined : step === 1 && progress.hasRegion ? "Wait until every sheet is sorted into a discipline" : "Finish this step first"}
           >
             {last ? "Open the workspace" : "Next"}
             <ArrowRightIcon />
@@ -256,21 +260,40 @@ function UploadStep({ projectId, progress }: { projectId: string; progress: Prog
 }
 
 function RegionStep({ projectId, progress }: { projectId: string; progress: Progress }) {
+  const region = progress.region;
+  const sorting = progress.hasRegion && !progress.scraped;
+  const scanned = region?.scrapedPages ?? 0;
+  const total = region?.totalPages ?? 0;
   return (
     <StepCard
       title="Mark the title block"
       description="Drag one box over a sheet number. It is applied to every page of every PDF and sorts the set into disciplines."
       state={
-        <Badge variant={progress.hasRegion ? "success" : "secondary"}>
-          {progress.hasRegion
-            ? `Region saved (v${progress.region?.version ?? 1})`
-            : progress.processed
-              ? "No region yet"
-              : "Waiting for a processed page"}
+        <Badge variant={progress.scraped ? "success" : "secondary"}>
+          {progress.scraped
+            ? "Disciplines sorted"
+            : sorting
+              ? "Sorting into disciplines…"
+              : progress.processed
+                ? "No region yet"
+                : "Waiting for a processed page"}
         </Badge>
       }
     >
       <RegionBanner projectId={projectId} align="start" />
+      {sorting && (
+        <div className="space-y-1.5" role="status">
+          <div className="flex items-center gap-2 text-sm">
+            <Spinner className="size-4" />
+            <span>
+              Reading each sheet number and sorting it into a discipline
+              {total > 0 && <span className="tabular-nums"> · {scanned} of {total} sheets</span>}
+            </span>
+          </div>
+          <Progress value={total > 0 ? Math.round((scanned / total) * 100) : 0} />
+          <p className="text-muted-foreground text-xs">Next unlocks when every sheet is sorted.</p>
+        </div>
+      )}
     </StepCard>
   );
 }
@@ -344,7 +367,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
         </div>
       )}
 
-      {rows.length > 0 && (
+      {progress.scraped && rows.length > 0 && (
         <ul className="divide-y rounded-lg border">
           {rows.map((row) => {
             const sheets = (manifest.data ?? []).filter(
@@ -421,7 +444,7 @@ function CategoriesStep({ projectId, progress }: { projectId: string; progress: 
         </ul>
       )}
 
-      {rows.length > 0 && (
+      {progress.scraped && rows.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
           <Button disabled={!toStart.length || start.isPending} onClick={() => start.mutate({ disciplines: toStart })}>
             {start.isPending ? "Starting…" : "Start processing"}

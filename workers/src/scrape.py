@@ -39,6 +39,16 @@ import storage
 log = logutil.get("scrape")
 
 PROGRESS_EVERY = 25
+STOP_CHECK_EVERY = 5  # sheets between progress writes, which are also where a Stop is seen
+
+
+class ScrapeStopped(Exception):
+    """A person pressed Stop (POST /region/rescrape/stop)."""
+
+
+def _step(project_id: str, stage: str, done: int | None = None, total: int | None = None) -> None:
+    if db.set_region_progress(project_id, stage, done, total):
+        raise ScrapeStopped
 
 _redis = None
 
@@ -103,9 +113,11 @@ def _scrape_pages(project_id: str, box: region_mod.Region, version: int, pending
                     scraped += 1
                     if text:
                         found += 1
+                    if scraped % STOP_CHECK_EVERY == 0:
+                        _step(project_id, "reading", scraped, len(pending))
                     if scraped % PROGRESS_EVERY == 0:
                         db.set_region_status(
-                            project_id, "running", scraped_pages=scraped
+                            project_id, "running", scraped_pages=scraped, unless_stopped=True
                         )
                         log.info(
                             "stage 1/5 scrape: %d/%d pages (%d with text)",
@@ -144,8 +156,11 @@ def _classify_pages(project_id: str) -> list[dict]:
     # model's numbers from it instead of asking a second time.
     index_titles = db.project_index_titles(project_id)
     index_title = {row["page_id"]: _index_title(row, index_titles) for row in rows}
+    _step(project_id, "sheets")
     infos = sheet_info.read(
-        [(row["region_text"], row["title_lines"], index_title[row["page_id"]]) for row in rows], redis_conn
+        [(row["region_text"], row["title_lines"], index_title[row["page_id"]]) for row in rows],
+        redis_conn,
+        on_batch=lambda done, total: _step(project_id, "sheets", done, total),
     )
     info_of = {row["page_id"]: info for row, info in zip(rows, infos)}
     preread = None
@@ -158,6 +173,7 @@ def _classify_pages(project_id: str) -> list[dict]:
         [(row["region_text"], row["filename"]) for row in to_read], redis_conn, preread
     )
     by_page = {row["page_id"]: reading for row, reading in zip(to_read, readings)}
+    _step(project_id, "grouping")  # the last place to stop: the writes below re-sort the project
 
     resolved: list[str | None] = []
     counts = {"region_ai": 0, "region_rules": 0, "filename": 0}
@@ -298,6 +314,11 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
     if region_row is None:
         log.warning("project %s has no title-block region — discarding scrape job", tag)
         return {"skipped": "no region"}
+    if region_row["stopped"] and document_id is None:
+        # Stopped while queued and handed out before the API could remove it.
+        # A read queued by an upload (document_id set) still runs: new sheets need sorting.
+        log.info("project %s: read was stopped — discarding scrape job", tag)
+        return {"skipped": "stopped"}
     if region_row["version"] != region_version:
         # The user redrew the box; a newer job is already queued for it.
         log.info(
@@ -321,6 +342,7 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
         total_pages=len(pending) if pending else None,
         last_error=None,
     )
+    db.set_region_progress(project_id, "reading", 0, len(pending))
     log.info(
         "[project %s] stage 1/5 scrape: %d pages pending at region v%d%s",
         tag,
@@ -350,6 +372,9 @@ def run(project_id: str, region_version: int, document_id: str | None = None) ->
                 log.info(
                     "[project %s] stage 4/5 stale: %d portion summaries flagged", tag, stale
                 )
+    except ScrapeStopped:
+        log.info("[project %s] read STOPPED by a person — levels and categories left as they were", tag)
+        return {"stopped": True}
     except Exception as exc:
         log.exception("[project %s] region scrape FAILED", tag)
         db.set_region_status(project_id, "failed", last_error=str(exc)[:500])

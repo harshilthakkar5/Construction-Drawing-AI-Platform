@@ -54,7 +54,8 @@ export function anchorStyle(p: Pos, vw: number, vh: number, gap = 16): CSSProper
   }
   return style;
 }
-const READY_KEY = (projectId: string) => `cdip-chat-ready:${projectId}`;
+// v2: v1 latched as soon as nothing was left to process — including "nothing chosen yet".
+const READY_KEY = (projectId: string) => `cdip-chat-ready-v2:${projectId}`;
 
 function readFlag(key: string) {
   try {
@@ -90,10 +91,12 @@ export function useChatReady(projectId: string) {
   const progress = chosenProgress(state.data);
   const [latched, setLatched] = useState(() => readFlag(READY_KEY(projectId)));
   useEffect(() => {
-    if (!state.data || progress.busy || latched) return;
+    // Only a finished run counts: with nothing chosen yet, or a chosen discipline that turned
+    // out empty ("Unsorted" once sorting ends), nothing has been processed for chat to read.
+    if (!state.data || progress.busy || progress.total === 0 || latched) return;
     writeFlag(READY_KEY(projectId), true);
     setLatched(true);
-  }, [state.data, progress.busy, latched, projectId]);
+  }, [state.data, progress.busy, progress.total, latched, projectId]);
   return { ...progress, locked: progress.busy && !latched };
 }
 

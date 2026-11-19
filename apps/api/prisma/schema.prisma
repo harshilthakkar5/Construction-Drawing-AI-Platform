@@ -318,6 +318,9 @@ model SheetRegion {
   notFoundPages Int                @default(0)
   lastError     String?
   lastScrapedAt DateTime?
+  /// Live step of a running title-block read: {stage: reading|sheets|grouping,
+  /// done, total} (workers/src/scrape.py). Drives the Re-read sheets bar.
+  progress      Json?
 
   createdById String?
   createdAt   DateTime @default(now())

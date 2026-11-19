@@ -9,6 +9,7 @@ import {
 } from "@cdip/shared";
 import { FileTextIcon, UploadIcon } from "lucide-react";
 import { api } from "@/api";
+import { useProcessingQueue } from "@/components/Processing";
 import { ConfirmDialog, JobProgress, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
     undefined,
   );
   const [deleting, setDeleting] = useState<DocumentDto | null>(null);
+  const queue = useProcessingQueue(projectId);
 
   function refreshProject() {
     for (const key of ["documents", "manifest", "portions"]) {
@@ -161,14 +163,26 @@ export function DocumentsPanel({ projectId }: { projectId: string }) {
               </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="gap-1.5 font-normal">
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ background: statusDot[doc.status] }}
-                  aria-hidden
-                />
-                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-              </Badge>
+              {doc.status === "completed" && !doc.supersededAt && queue.waitingIn(doc.id) > 0 ? (
+                // Quick pass done, full reading not started: the worker reads one PDF at a time.
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 font-normal"
+                  title={`${queue.waitingIn(doc.id)} pages wait their turn. The worker reads one PDF at a time.`}
+                >
+                  <span className="size-1.5 rounded-full" style={{ background: statusDot.uploaded }} aria-hidden />
+                  Waiting to process
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="gap-1.5 font-normal">
+                  <span
+                    className="size-1.5 rounded-full"
+                    style={{ background: statusDot[doc.status] }}
+                    aria-hidden
+                  />
+                  {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                </Badge>
+              )}
               {doc.revision > 1 && <Badge variant="secondary">rev {doc.revision}</Badge>}
               {doc.supersededAt ? (
                 <span className="text-xs text-muted-foreground">superseded</span>
