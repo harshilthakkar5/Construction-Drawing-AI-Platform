@@ -3498,7 +3498,10 @@ so they survive a page changing discipline; only section/portion rollups hang of
 ## UI layout
 
 A new project opens in a three-step setup stepper (`components/ProjectSetup.tsx`): upload PDFs
-→ mark the title-block region → check the disciplines, then "Open the workspace".
+→ mark the title-block region → check the disciplines, then "Open the workspace". Step 2 is done only
+once the title-block read has SORTED every sheet (a spinner and "n of N sheets" until then; Next and the step-3
+header stay locked): reached mid-sort, step 3 listed every sheet as "Unsorted", that was the only row to tick,
+and starting it processed a discipline that emptied as sorting finished.
 
 **Discipline-first processing** (client request, Nov 2026). An upload gets only the QUICK pass
 (`processing._quick_page`: picture, thumbnail, text layer) so it can be viewed and its title block
@@ -3543,7 +3546,8 @@ and a close button, on desktop and phone alike; expanded on a phone is full scre
 It is hidden with CSS when closed, so a thread survives. It is LOCKED (greyed, "ready when processing
 finishes, N of M pages") while the disciplines chosen for full processing are still being read, and
 unlocks by itself with a "Processing finished: chat is ready" note. The unlock is latched per browser
-(`cdip-chat-ready:{projectId}`), so a later "Process now" does not take chat away again. Setup no
+(`cdip-chat-ready-v2:{projectId}`, and only after a run that processed pages: v1 latched on "nothing left", which
+was also "nothing chosen yet" and an "Unsorted" choice that sorting emptied, so chat opened mid-processing), so a later "Process now" does not take chat away again. Setup no
 longer holds the workspace for processing: "Open the workspace" is enabled once the title block is
 read, processing carries on in the background, and the project header shows "Processing N of M pages".
 
