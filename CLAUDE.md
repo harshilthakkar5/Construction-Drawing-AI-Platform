@@ -438,7 +438,12 @@ print their floors only in 12.6 pt view titles ("Enlarged Forming Plan - … - L
 letters, so the biggest lines never carried them. A line counts only if it names a drawing (PLAN/RCP/LAYOUT — a
 section's "LEVEL 01..06" height marks are not), is under 80 characters and is no pointer (SEE/REFER/PER); the sheet
 that IS the drawing list gets none (it names every sheet's floor), and an index entry's floors are always added
-(S2.103: drawing "Level 3", index "Level 3-4"). The code fallback takes every titled floor, not the scan's one.
+(S2.103: drawing "Level 3", index "Level 3-4"). The code fallback takes every titled floor, not the scan's one. One line may name SEVERAL levels: "Framing Sections - Level 14 & Roof" (UT Law S4.150-171) was filed under
+Level 14 only, on Gemini and on Haiku, because grounding and the readers took the FIRST level of a line
+(`sheet_facts.level_in`). `sheet_info.levels_in` reads each part between &, +, "," and AND; grounding uses it, and
+`final` adds every level the sheet's own grounded title and index entry name, so a model that answers one floor still
+files the sheet under both. A drawing title may be a SECTION too (A5.14 "RAMP SECTION - LEVEL 5"). Measured on all
+351 UT Law sheets: exactly those 23 sheets gain a level, none loses one.
 `sheet_facts.sized_lines` reads TEXT ONLY: the default "dict" also extracted every picture, 1.7 s a sheet on UT Law's
 raster-heavy structural set against 21 ms, identical lines. Measured on all 351 UT Law sheets with
 `gemini-3.6-flash`: page reading 7 min 37 s → 55 s, levels 125 → 132, 84 of 84 index-listed levels match, ~9 cents.

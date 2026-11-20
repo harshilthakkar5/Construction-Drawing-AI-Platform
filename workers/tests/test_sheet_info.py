@@ -370,6 +370,23 @@ def test_height_marks_details_and_pointers_are_not_drawing_titles():
     assert sheet_info.level_lines(sized) == []
 
 
+def test_a_title_naming_two_levels_files_the_sheet_under_both():
+    # UT Law S4.150-171: "Framing Sections - Level 14 & Roof" was filed under Level 14 only.
+    text = "Framing Sections -\nLevel 14 & Roof"
+    assert sheet_info.levels_in("Level 14 & Roof") == ["LEVEL 14", "ROOF"]
+    assert sheet_info.levels_in("PT PLAN - LEVEL 5, LEVEL 9 AND ROOF") == ["LEVEL 5", "LEVEL 9", "ROOF"]
+    assert sheet_info.grounded_level("ROOF", text) == "ROOF"
+    # A model that answers Level 14 alone still gets Roof from the sheet's own title.
+    info = SheetInfo(sheet="S4.150", title="Framing Sections - Level 14 & Roof", levels=["LEVEL 14"], kind="section")
+    assert sheet_info.final(info, None, text, None)[0] == ["LEVEL 14", "ROOF"]
+
+
+def test_a_section_titled_by_level_gives_its_levels():
+    # UT Law A5.14 prints "RAMP SECTION - LEVEL 5" and "- LEVEL 14"; the code read only plan titles.
+    titles = "RAMP SECTION - LEVEL 5\nSTAIR SECTION - LEVEL 5\nRAMP SECTION - LEVEL 14"
+    assert sheet_info.final(None, None, titles, None)[0] == ["LEVEL 5", "LEVEL 14"]
+
+
 def test_the_index_entry_adds_the_floors_it_lists():
     info = SheetInfo(sheet="S2.103", title="Forming Plan", levels=["LEVEL 3"], kind="plan")
     assert sheet_info.final(info, None, "Forming Plan - Level 3", "Forming Plan - Level 3-4")[0] == ["LEVEL 3", "LEVEL 4"]
