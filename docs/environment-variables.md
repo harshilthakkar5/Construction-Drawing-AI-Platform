@@ -224,6 +224,8 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RATE_LIMIT_FLOOD_PER_MINUTE` | `1200` | API | Per IP, before login is checked. |
 | `RATE_LIMIT_GENERAL_PER_MINUTE` | `600` | API | Every API request. |
 | `RATE_LIMIT_AUTH_PER_15MIN` | `20` | API | Failed logins/registrations, per IP. |
+| `RATE_LIMIT_REGISTER_PER_HOUR` | `20` | API | New accounts per hour, per IP (successes count). |
+| `ADMIN_EMAILS` | empty | API | Accounts allowed to use `/queues` (every project's jobs). Empty = nobody. |
 | `RATE_LIMIT_CHAT_PER_MINUTE` | `20` | API | Chat questions. |
 | `RATE_LIMIT_SUMMARY_PER_HOUR` | `30` | API | Shared by discipline summaries, project rollups, full rebuilds, RFI scans and targeted RFI reviews (plan and start each count). Each tier counts on its own Redis key. |
 

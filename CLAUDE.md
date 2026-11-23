@@ -124,8 +124,16 @@ embeds the documents and `apps/api/src/embedding.ts` embeds the question they ar
 with, off the same env vars. A drift there does not degrade retrieval, it destroys it: a
 cosine distance between two embedding spaces is noise, and nothing raises.
 
-The API rate-limits five tiers (flood/general/auth/chat/summary, all Redis-backed and
-env-tunable — see README) and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
+The API rate-limits six tiers (flood/general/auth/register/chat/summary, all Redis-backed and
+env-tunable — see README). The auth tier sits on the anonymous POSTs only (login, register,
+password reset): on the whole `/auth` router an expired session's 401 from `GET /auth/me` counted as a
+failed sign-in, and the mount had been commented out — under a test that only checked the text was in
+the file. Register also counts successes (`RATE_LIMIT_REGISTER_PER_HOUR`), since sign-up is open.
+`/queues` (every project's jobs) answers only accounts in `ADMIN_EMAILS`; empty means nobody. A finished
+upload is measured (`objectSize`) against the 2 GiB cap, since part URLs carry no size. Buttons that start
+paid work CLAIM their row in one conditional update before queueing (summarize, re-read sheets), or a
+double-click starts two runs (`routes/doubleClick.db.test.ts`). Pure API tests need no env:
+`vitest.config.ts` loads `src/testEnv.ts` placeholders and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
 `benchmarks/` holds the two things that had never been measured: worker pages/minute + peak RSS,
 and API throughput/p95.
 

@@ -20,6 +20,7 @@ import {
   throttled,
   TOKEN_TTL_MINUTES,
 } from "../passwordReset.js";
+import { authLimiter, registerLimiter } from "../rateLimit.js";
 import { sanitizeText } from "../sanitize.js";
 
 export const authRouter = Router();
@@ -80,7 +81,7 @@ const publicUser = (u: UserRow) => ({
 const displayName = (first?: string | null, last?: string | null, fallback?: string) =>
   [first, last].filter(Boolean).join(" ").trim() || (fallback ?? "");
 
-authRouter.post("/register", async (req, res) => {
+authRouter.post("/register", registerLimiter, authLimiter, async (req, res) => {
   const body = registerSchema.parse(req.body);
   const { email, password } = body;
   const firstName = body.firstName ? sanitizeText(body.firstName) : null;
@@ -108,7 +109,7 @@ authRouter.post("/register", async (req, res) => {
   }
 });
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", authLimiter, async (req, res) => {
   const { email, password } = credentialsSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   // Same response for unknown email and wrong password.
@@ -201,7 +202,7 @@ const resetSchema = z.object({
  * Requests are throttled per address so it cannot be used to flood someone
  * else's inbox.
  */
-authRouter.post("/forgot-password", async (req, res) => {
+authRouter.post("/forgot-password", authLimiter, async (req, res) => {
   const { email } = forgotSchema.parse(req.body);
   const normalized = email.toLowerCase();
 
@@ -234,7 +235,7 @@ authRouter.post("/forgot-password", async (req, res) => {
  * types a new password. Peeks without consuming — only the actual reset burns
  * the token.
  */
-authRouter.post("/reset-password/check", async (req, res) => {
+authRouter.post("/reset-password/check", authLimiter, async (req, res) => {
   const token = (req.body as { token?: unknown })?.token;
   res.json({ valid: Boolean(await peekResetToken(String(token ?? ""))) });
 });
@@ -244,7 +245,7 @@ authRouter.post("/reset-password/check", async (req, res) => {
  * every existing session for the account is revoked — a reset exists precisely
  * because someone else may be holding one.
  */
-authRouter.post("/reset-password", async (req, res) => {
+authRouter.post("/reset-password", authLimiter, async (req, res) => {
   const { token, password } = resetSchema.parse(req.body);
   const userId = await consumeResetToken(token);
   if (!userId) {

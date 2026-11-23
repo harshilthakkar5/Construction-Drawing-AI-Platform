@@ -2,10 +2,10 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
-import { requireAuth, requireProjectMember } from "./auth.js";
+import { requireAdmin, requireAuth, requireProjectMember } from "./auth.js";
 import { missingPrismaModels, prisma, PRISMA_STALE_MESSAGE } from "./db.js";
 import { env } from "./env.js";
-import { authLimiter, floodLimiter, generalLimiter } from "./rateLimit.js";
+import { floodLimiter, generalLimiter } from "./rateLimit.js";
 import { redis } from "./redis.js";
 import { storage } from "./storage.js";
 import { httpMetricsMiddleware } from "./telemetry.js";
@@ -86,9 +86,9 @@ export function createApp() {
     });
   });
 
-  // Strictest tier, by IP and counted on failures only: these are the
-  // endpoints an attacker can reach without a session.
-  //  app.use("/auth", authLimiter, authRouter);
+  // The auth tier (by IP, failures only) is mounted per route inside authRouter,
+  // on the anonymous POSTs alone: on the whole router, an expired session's
+  // 401 from GET /auth/me counted as a failed sign-in and locked an office out.
   app.use("/auth", authRouter);
 
   // Everything below requires a session (project-level RBAC on top of it).
@@ -109,7 +109,8 @@ export function createApp() {
   app.use("/dashboard", requireGeneratedModels, dashboardRouter);
   app.use("/support", requireGeneratedModels, supportRouter);
   // Instance-wide queue operations (inspect / retry / purge stuck jobs).
-  app.use("/queues", queuesRouter);
+  // Every project's jobs: operators only (ADMIN_EMAILS), never any signed-in user.
+  app.use("/queues", requireAdmin, queuesRouter);
   app.use("/projects", projectsRouter);
   app.use("/projects/:projectId/documents", documentsRouter);
   app.use("/projects/:projectId/region", requireGeneratedModels, regionRouter);

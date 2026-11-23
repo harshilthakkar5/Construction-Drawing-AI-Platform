@@ -83,9 +83,13 @@ describe("the cost-bearing routes are the throttled ones", () => {
     expect(summaries).toMatch(/get\("\/", async/);
   });
 
-  it("auth is rate limited at the router, since it has no session to key on", async () => {
-    const app = await source("./app.ts");
-    expect(app).toContain('app.use("/auth", authLimiter, authRouter)');
+  it("every anonymous auth POST is rate limited, and sign-up counts successes too", async () => {
+    // Read as CODE: a commented-out mount once passed a toContain check while the limit was off.
+    const auth = (await source("./routes/auth.ts")).replace(/\/\/.*$/gm, "");
+    for (const route of ["/login", "/forgot-password", "/reset-password/check", "/reset-password"]) {
+      expect(auth).toContain(`authRouter.post("${route}", authLimiter, async`);
+    }
+    expect(auth).toContain('authRouter.post("/register", registerLimiter, authLimiter, async');
   });
 
   it("the general limiter sits AFTER requireAuth so it keys on the user", async () => {

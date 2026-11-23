@@ -562,8 +562,10 @@ with page rows and nothing above them.
 
 ## Queue operations (stuck / failed jobs)
 
-Authenticated instance-wide endpoints for inspecting and unsticking BullMQ
-without touching Redis by hand:
+Instance-wide endpoints for inspecting and unsticking BullMQ without touching
+Redis by hand. They see every project's jobs, so only the accounts listed in
+`ADMIN_EMAILS` (comma-separated, in the API's env) may call them; with it unset
+they answer 403 to everyone:
 
 | Endpoint | What it does |
 | --- | --- |

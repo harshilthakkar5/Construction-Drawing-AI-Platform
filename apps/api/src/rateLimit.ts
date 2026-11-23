@@ -127,6 +127,19 @@ export const authLimiter = limiter(
 );
 
 /**
+ * Account creation, by IP, counting EVERY request: the auth tier skips
+ * successes, and a successful sign-up is exactly what a script creating
+ * accounts (each with fresh chat and summary allowances) produces.
+ */
+export const registerLimiter = limiter(
+  "RATE_LIMIT_REGISTER_PER_HOUR",
+  60 * 60_000,
+  20,
+  "too many accounts created from this network, try again later",
+  { keyGenerator: ipKey },
+);
+
+/**
  * Chat. This is the one that protects MONEY: every request is a Voyage
  * embedding plus an LLM call against a shared provider quota. Without it one
  * user — or one loop in a client — can spend the account's entire budget and
