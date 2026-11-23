@@ -3835,12 +3835,22 @@ def run(run_id: str) -> dict:
     # once then agree on one reader instead of each reading alone.
     group = _claim_set(loaded) if SHARED_SET_READING and loaded.get("setId") else []
     if not any(r["id"] == run_id for r in group):
-        if not _claim(run_id):
+        if _claim(run_id):
+            group = [loaded] + group
+        elif not group:
             # Another worker holds it: usually the review of another element
             # of the same RFI, reading this one's sheets with its own.
             log.info("rfi review %s: already being reviewed (with its RFI's other elements), skipped", run_id[:8])
             return {"skipped": "being reviewed with its set"}
-        group = [loaded] + group
+        else:
+            # Two jobs of one RFI claimed at the same instant: the other took
+            # this review, and this job took siblings the other's claim missed.
+            # They are this job's now; walking away left them "running" with
+            # nobody reading them (the second paid A/B lost Elevator pits so).
+            log.info("rfi review %s: held by another worker; reviewing the %d sibling(s) this job claimed instead",
+                     run_id[:8], len(group))
+            loaded = group[0]
+            run_id = loaded["id"]
     else:
         group = [loaded] + [r for r in group if r["id"] != run_id]
     rec = None

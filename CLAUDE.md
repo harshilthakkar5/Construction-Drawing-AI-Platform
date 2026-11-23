@@ -3331,7 +3331,9 @@ So `elements_block` now asks for every element's questions to be covered as full
 OWN any element answered on under `RFI_SHARED_THIN_SHARE` (0.6) of the share its best-served sibling got (`answered_share`: a
 question counts once any observation, inventory entry, gap or not-applicable names it). Relative, since some elements honestly have
 little to answer; on the stored runs it flags exactly that Elevator pits and nothing in the read-alone set. A failed re-read keeps the
-thin share. Not yet re-measured on a model. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+thin share. Two jobs of one RFI starting at the same instant could each claim part of it; the one whose OWN review the other
+took used to step aside, leaving the siblings IT had claimed "running" with no reader (the re-test lost Elevator pits so). It now
+reviews what it claimed. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

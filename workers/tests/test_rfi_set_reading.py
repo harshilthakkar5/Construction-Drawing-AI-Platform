@@ -217,3 +217,29 @@ def test_a_failed_reread_keeps_the_thin_share_instead_of_failing_the_review(monk
     shares = rfi_review._discover_together([grid, pits])
     assert not isinstance(shares[1], BaseException)
     assert shares[1]["observations"] == [] and "failed" in shares[1]["notes"][-1]
+
+
+def _race(monkeypatch, claimed_siblings):
+    """This job's own review was taken by another worker's claim at the same
+    instant, and this job's claim got `claimed_siblings` instead."""
+    import contextlib
+    rows = {i: {"id": i, "status": "queued", "setId": "set-1", "projectId": "p"} for i in ["mine", *claimed_siblings]}
+    done = []
+    monkeypatch.setattr(rfi_review, "load_run", lambda i: rows.get(i))
+    monkeypatch.setattr(rfi_review, "_claim_set", lambda lead: [rows[i] for i in claimed_siblings])
+    monkeypatch.setattr(rfi_review, "_claim", lambda i: False)
+    monkeypatch.setattr(rfi_review, "_diag_start", lambda r: None)
+    monkeypatch.setattr(rfi_review, "_heartbeat", lambda *ids: contextlib.nullcontext())
+    monkeypatch.setattr(rfi_review, "_run", lambda r: done.append([r["id"]]) or {"ran": r["id"]})
+    monkeypatch.setattr(rfi_review, "_run_group", lambda g: done.append([r["id"] for r in g]) or {"set": {}})
+    monkeypatch.setattr(rfi_review, "SHARED_SET_READING", True)
+    return rfi_review.run("mine"), done
+
+
+def test_a_job_that_lost_its_own_review_still_reviews_the_siblings_it_claimed(monkeypatch):
+    assert _race(monkeypatch, ["pits"]) == ({"ran": "pits"}, [["pits"]])
+    assert _race(monkeypatch, ["pits", "caps"])[1] == [["pits", "caps"]]
+
+
+def test_a_job_that_claimed_nothing_steps_aside(monkeypatch):
+    assert _race(monkeypatch, []) == ({"skipped": "being reviewed with its set"}, [])
