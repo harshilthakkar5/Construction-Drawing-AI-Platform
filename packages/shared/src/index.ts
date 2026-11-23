@@ -1967,7 +1967,7 @@ export interface RfiProjectSettings {
 /** Both RFI runs default to Claude Sonnet 5.5 (owner's choice, Nov 2026), whatever the server's env picks. */
 export const RFI_DEFAULT_MODEL = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
-  review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
+  review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: true },
   fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. A model

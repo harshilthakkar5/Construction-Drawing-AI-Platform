@@ -2997,7 +2997,7 @@ touching a digit, dot, slash or quote stay as printed; `Evidence.text`, quotes a
 drawing's own letters). Counted with the free count_tokens endpoint on recorded requests: reading text −25%,
 verification −20%. Three paid Leland reviews with it used 18–25% fewer reading tokens than the same elements'
 earlier runs, found RFI 007 (earlier runs 1 of 3) and had no wording refused — n=1 an element, so "no worse",
-not "better". Batch mode (`limits.useBatch`, from `rfiSettings.review.useBatch`, Settings → "How to send") sends
+not "better". Batch mode (`limits.useBatch`, from `rfiSettings.review.useBatch`, Settings → "How to send", the default since Nov 2026) sends
 each call of a review as a ONE-entry batch (`rfi_review._send` → `llm.complete_batch(replies=…)`) at half
 price; spend is recorded as "<model>-batch", which `usage.rateFor` prices at half its model. One batch per
 call, so a review waits for each (a tiny batch took 89 s) and a cancel is noticed when its batch lands.
