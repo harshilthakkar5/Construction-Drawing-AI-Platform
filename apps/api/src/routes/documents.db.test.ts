@@ -4,10 +4,15 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const createMultipartUpload = vi.fn();
+const objectSize = vi.fn();
+const deleteObject = vi.fn(async () => {});
 vi.mock("../queues.js", () => ({ processDocumentQueue: { add: vi.fn() } }));
 vi.mock("../s3.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../s3.js")>()),
   createMultipartUpload: (...args: unknown[]) => createMultipartUpload(...args),
+  completeMultipartUpload: vi.fn(async () => {}),
+  objectSize: (...args: unknown[]) => objectSize(...args),
+  deleteObject: (...args: unknown[]) => deleteObject(...(args as [])),
 }));
 
 /** A revision whose storage upload could not start leaves nothing behind, against a real, migrated database. */
@@ -56,5 +61,20 @@ describe.skipIf(!url)("starting a document upload", () => {
     expect(res.status).toBe(201);
     expect(((await res.json()) as { uploadId: string }).uploadId).toBe("upload-1");
     expect(await prisma.document.count({ where: { previousVersionId: previousId } })).toBe(1);
+  });
+
+  it("refuses a finished upload larger than the limit, whatever size it declared", async () => {
+    // Part URLs carry no size: a file declared as 1 KB can arrive as 50 GB.
+    createMultipartUpload.mockResolvedValueOnce("upload-big");
+    const started = await fetch(base, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filename: "small.pdf", size: 1000 }),
+    });
+    const { documentId } = (await started.json()) as { documentId: string };
+    objectSize.mockResolvedValueOnce(3 * 1024 ** 3);
+    const done = await fetch(`${base}/${documentId}/upload/upload-big/complete`, { method: "POST" });
+    expect(done.status).toBe(413);
+    expect(deleteObject).toHaveBeenCalledWith(`projects/${projectId}/pdfs/${documentId}/original.pdf`);
+    expect(await prisma.document.count({ where: { id: documentId } })).toBe(0);
   });
 });

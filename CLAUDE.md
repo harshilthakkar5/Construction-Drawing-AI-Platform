@@ -124,8 +124,16 @@ embeds the documents and `apps/api/src/embedding.ts` embeds the question they ar
 with, off the same env vars. A drift there does not degrade retrieval, it destroys it: a
 cosine distance between two embedding spaces is noise, and nothing raises.
 
-The API rate-limits five tiers (flood/general/auth/chat/summary, all Redis-backed and
-env-tunable — see README) and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
+The API rate-limits six tiers (flood/general/auth/register/chat/summary, all Redis-backed and
+env-tunable — see README). The auth tier sits on the anonymous POSTs only (login, register,
+password reset): on the whole `/auth` router an expired session's 401 from `GET /auth/me` counted as a
+failed sign-in, and the mount had been commented out — under a test that only checked the text was in
+the file. Register also counts successes (`RATE_LIMIT_REGISTER_PER_HOUR`), since sign-up is open.
+`/queues` (every project's jobs) answers only accounts in `ADMIN_EMAILS`; empty means nobody. A finished
+upload is measured (`objectSize`) against the 2 GiB cap, since part URLs carry no size. Buttons that start
+paid work CLAIM their row in one conditional update before queueing (summarize, re-read sheets), or a
+double-click starts two runs (`routes/doubleClick.db.test.ts`). Pure API tests need no env:
+`vitest.config.ts` loads `src/testEnv.ts` placeholders and can fork HTTP workers with `API_CLUSTER_WORKERS`, default 1.
 `benchmarks/` holds the two things that had never been measured: worker pages/minute + peak RSS,
 and API throughput/p95.
 
@@ -438,7 +446,12 @@ print their floors only in 12.6 pt view titles ("Enlarged Forming Plan - … - L
 letters, so the biggest lines never carried them. A line counts only if it names a drawing (PLAN/RCP/LAYOUT — a
 section's "LEVEL 01..06" height marks are not), is under 80 characters and is no pointer (SEE/REFER/PER); the sheet
 that IS the drawing list gets none (it names every sheet's floor), and an index entry's floors are always added
-(S2.103: drawing "Level 3", index "Level 3-4"). The code fallback takes every titled floor, not the scan's one.
+(S2.103: drawing "Level 3", index "Level 3-4"). The code fallback takes every titled floor, not the scan's one. One line may name SEVERAL levels: "Framing Sections - Level 14 & Roof" (UT Law S4.150-171) was filed under
+Level 14 only, on Gemini and on Haiku, because grounding and the readers took the FIRST level of a line
+(`sheet_facts.level_in`). `sheet_info.levels_in` reads each part between &, +, "," and AND; grounding uses it, and
+`final` adds every level the sheet's own grounded title and index entry name, so a model that answers one floor still
+files the sheet under both. A drawing title may be a SECTION too (A5.14 "RAMP SECTION - LEVEL 5"). Measured on all
+351 UT Law sheets: exactly those 23 sheets gain a level, none loses one.
 `sheet_facts.sized_lines` reads TEXT ONLY: the default "dict" also extracted every picture, 1.7 s a sheet on UT Law's
 raster-heavy structural set against 21 ms, identical lines. Measured on all 351 UT Law sheets with
 `gemini-3.6-flash`: page reading 7 min 37 s → 55 s, levels 125 → 132, 84 of 84 index-listed levels match, ~9 cents.
@@ -3257,6 +3270,20 @@ a plan that names a level and keeping one level; the manifest now carries `sheet
 Compare Across entry, the element or its stage ("Deep Foundations" → FOUNDATION PLAN) comes first,
 and a code or finishes plan (life safety, egress, RCP, finishes, furniture, signage) last: page order
 alone handed every Leland foundation element the composite floor plan and the life safety plan.
+Create RFI suggests a SET per element and floor (`suggestForElement`, `@cdip/shared`): the plan of each Compare Across
+discipline on the floor, that plan's enlarged plans (≤2), and the details/sections/schedules it points to (`sheetRefs`)
+whose title names the element (≤3), each with a reason ("Structural plan · Level 5", "S1.101 points to it") in a tickable
+list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
+lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
+loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
+That early floor slot splits only on-floor from the rest (another floor and no floor tie), or a notes sheet tagged ROOF
+beat the pile cap schedule. An enlarged plan with no floor read is suggested only when its title names the work
+(stage words count: "Enlarged Foundation Plans" for pile caps). Before pricing, the dialog warns about each schedule,
+section or detail an element's Compare Across asks for that no sheet to read is (`missingSheetKinds`), with "Add <sheet>"
+when the project has one. TYPICAL FLOORS (`typicalFloors`): the levels one coordination plan is drawn for ("Forming Plan -
+Level 7-13"; never an exhibit, loading, ceiling or enlarged plan) are one choice in the level picker, reading the sheets
+drawn for every one of them plus the lowest level's own; the other levels' own sheets are named, not read (UT Law:
+Levels 3–4 and 7–13, A3.07–A3.12 left out).
 Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
 asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
 chosen question has none. Phase 4 (`rfi_review.library_checks`): the plan request carries

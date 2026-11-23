@@ -164,14 +164,14 @@ def page_text_facts(page) -> dict:
     return {"title_lines": "\n".join(kept), "refs": references(text), "index": index}
 
 
-_DRAWING_WORD = re.compile(r"\b(?:PLANS?|RCP|LAYOUT)\b")
+_DRAWING_WORD = re.compile(r"\b(?:PLANS?|RCP|LAYOUT|SECTIONS?)\b")
 _POINTER = re.compile(r"\b(?:SEE|REFER|REF\.?|PER)\b")
 
 
 def level_lines(sized, already=()) -> list[str]:
     """Drawing titles that name a level, at any size: S2.201 prints "Enlarged Forming
     Plan - Elev./Stair Core - Level 1" at 12.6 pt, as small as its grid letters, so the
-    biggest lines never carried it. A title must name a drawing (PLAN, RCP, LAYOUT) —
+    biggest lines never carried it. A title must name a drawing (PLAN, RCP, LAYOUT, SECTION) —
     a section's "LEVEL 01..06" height marks would tag it with every floor — be short,
     and not point elsewhere ("SEE PLAN - LEVEL 2"). Pure."""
     seen = {line.upper() for line in already}
@@ -186,6 +186,22 @@ def level_lines(sized, already=()) -> list[str]:
         seen.add(upper)
         out.append(line.strip())
         total += len(line) + 1
+    return out
+
+
+# One title naming several floors: "Framing Sections - Level 14 & Roof".
+_LEVEL_JOIN = re.compile(r"\s*(?:&|\+|,|\bAND\b)\s*", re.I)
+
+
+def levels_in(text: str | None) -> list[str]:
+    """Every level a line names, not just its first: `sheet_facts.level_in`
+    reads "Level 14 & Roof" as LEVEL 14 alone, so S4.150-171 were never filed
+    under Roof. Each part between "&", "+", "," or "AND" is read on its own."""
+    out: list[str] = []
+    for part in _LEVEL_JOIN.split(text or ""):
+        level = sheet_facts.level_in(part)
+        if level and level not in out:
+            out.append(level)
     return out
 
 
@@ -209,7 +225,7 @@ def grounded_level(raw, text: str) -> str | None:
     if not norm:
         return None
     lines = [" ".join(line.upper().split()) for line in (text or "").splitlines()]
-    if any(sheet_facts.level_in(line) == norm for line in lines):
+    if any(norm in levels_in(line) for line in lines):
         return norm
     m = _NUMBERED.match(norm)
     if not m:
@@ -277,7 +293,7 @@ def code_levels(region_text: str | None, title_lines: str | None, index_title: s
     # Every floor the drawing titles name — the scan's title_level wants ONE and gives
     # up on S2.201's four ("… - Level 1", "… - Level 3-4"); the sheet map wants all.
     titled = list(dict.fromkeys(
-        sheet_facts.level_in(line) for line in level_lines([(0, l) for l in (title_lines or "").splitlines()])
+        level for line in level_lines([(0, l) for l in (title_lines or "").splitlines()]) for level in levels_in(line)
     ))
     if titled:
         return titled
@@ -540,12 +556,13 @@ def final(info, region_text: str | None, title_lines: str | None, index_title: s
     answer where it gave one, the code readers where it did not."""
     answered = info if isinstance(info, SheetInfo) else None
     levels = answered.levels if answered and answered.levels else code_levels(region_text, title_lines, index_title)
-    # The index entry is printed too: S2.103's drawing says "Level 3", its index "Level 3-4".
-    listed = sheet_facts.level_in(index_title)
-    if listed and listed not in levels:
-        levels = list(levels) + [listed]
     title = answered.title if answered else None
     if not title and index_title:
         title = " ".join(index_title.split())[:120]
+    # The index entry and the sheet's own title are printed too: S2.103's drawing says
+    # "Level 3", its index "Level 3-4"; S4.150's title is "… - Level 14 & Roof".
+    for listed in levels_in(index_title) + levels_in(title):
+        if listed not in levels:
+            levels = list(levels) + [listed]
     kind = answered.kind if answered and answered.kind else code_kind(region_text, title_lines, index_title)
     return expand(levels), title, kind

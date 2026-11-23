@@ -118,7 +118,13 @@ regionRouter.post("/rescrape", async (req, res) => {
   const { projectId } = projectParam.parse(req.params);
   const region = await prisma.sheetRegion.findUnique({ where: { projectId } });
   if (!region) return void res.status(404).json({ error: "no region defined" });
-  if (region.scrapeStatus === "running" || region.scrapeStatus === "pending") {
+  // Claimed in ONE conditional update: a check here and a write below let a
+  // double-click pass the check twice and queue two paid reads.
+  const claimed = await prisma.sheetRegion.updateMany({
+    where: { projectId, scrapeStatus: { notIn: ["running", "pending"] } },
+    data: { scrapeStatus: "pending" },
+  });
+  if (claimed.count === 0) {
     return void res.status(409).json({ error: "the sheets are already being read" });
   }
 
@@ -137,10 +143,14 @@ regionRouter.post("/rescrape", async (req, res) => {
       progress: Prisma.DbNull,
     },
   });
-  const job = await scrapeRegionQueue.add("scrape", {
-    projectId,
-    regionVersion: updated.version,
-  });
+  let job: Awaited<ReturnType<typeof scrapeRegionQueue.add>>;
+  try {
+    job = await scrapeRegionQueue.add("scrape", { projectId, regionVersion: updated.version });
+  } catch (err) {
+    // Claimed but never queued: leave the button usable rather than "pending" forever.
+    await prisma.sheetRegion.update({ where: { projectId }, data: { scrapeStatus: "failed", lastError: "The read could not be queued. Try again." } });
+    throw err;
+  }
   res.status(202).json({ ...toDto(updated), jobId: job.id });
 });
 

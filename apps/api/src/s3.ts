@@ -165,6 +165,12 @@ export async function deleteObject(key: string) {
 
 /** True when the object exists (reprocess guard: no point queueing a job for
  * a file that was never fully uploaded or was deleted by validation). */
+/** The stored object's size in bytes (HEAD; throws if it is missing). */
+export async function objectSize(key: string): Promise<number> {
+  const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+  return head.ContentLength ?? 0;
+}
+
 export async function objectExists(key: string): Promise<boolean> {
   try {
     await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));

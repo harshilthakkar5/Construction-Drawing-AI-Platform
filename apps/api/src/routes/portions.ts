@@ -179,23 +179,41 @@ portionsRouter.post("/:portionId/summarize", summaryLimiter, async (req, res) =>
       .json({ error: `Process this discipline first: ${waiting} of its pages are not processed yet.` });
   }
 
-  const job = await summarizePortionQueue.add("summarize", {
-    projectId,
-    portionId,
-    requestedById: currentUser(req).id,
-    ...(detail ? { detail } : {}),
-  });
-  const updated = await prisma.portion.update({
-    where: { id: portionId },
+  // Claim the portion BEFORE queueing, conditional on the state read above: a
+  // double-click passed the in-flight check twice and started two paid runs.
+  const claimed = await prisma.portion.updateMany({
+    where: { id: portionId, summaryStatus: portion.summaryStatus, summaryRequestedAt: portion.summaryRequestedAt },
     data: {
       summaryStatus: "queued",
-      summaryJobId: job.id ?? null,
+      summaryJobId: null,
       summaryRequestedById: currentUser(req).id,
       summaryRequestedAt: new Date(),
       summaryHeartbeatAt: null,
       summaryDetail: detail ?? defaultDetail(),
       summaryError: null,
     },
+  });
+  if (claimed.count === 0) {
+    return void res.status(409).json({ error: "a summary was just started for this portion" });
+  }
+  let job: Awaited<ReturnType<typeof summarizePortionQueue.add>>;
+  try {
+    job = await summarizePortionQueue.add("summarize", {
+      projectId,
+      portionId,
+      requestedById: currentUser(req).id,
+      ...(detail ? { detail } : {}),
+    });
+  } catch (err) {
+    await prisma.portion.update({
+      where: { id: portionId },
+      data: { summaryStatus: "failed", summaryError: "The summary could not be queued. Try again." },
+    });
+    throw err;
+  }
+  const updated = await prisma.portion.update({
+    where: { id: portionId },
+    data: { summaryJobId: job.id ?? null },
   });
   await redis.del(summariesCacheKey(projectId)).catch(() => {});
   console.log(`[portions] summary queued for ${portion.name} (job ${job.id})`);

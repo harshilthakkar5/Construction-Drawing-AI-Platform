@@ -17,6 +17,7 @@ import {
   deletePrefix,
   listUploadedParts,
   objectExists,
+  objectSize,
   presignGetObject,
   presignUploadPart,
 } from "../s3.js";
@@ -168,10 +169,17 @@ documentsRouter.get("/:documentId/upload/:uploadId/parts", async (req, res) => {
 
 documentsRouter.post("/:documentId/upload/:uploadId/complete", async (req, res) => {
   const { projectId, documentId, uploadId } = uploadParams.parse(req.params);
-  const document = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+  const document = await prisma.document.findUniqueOrThrow({ where: { id: documentId, projectId } });
   const key = objectKeys.originalPdf(projectId, documentId);
 
   await completeMultipartUpload(key, uploadId);
+
+  // The declared size was checked at the start, but part URLs carry no size: measure what arrived.
+  if ((await objectSize(key)) > MAX_UPLOAD_BYTES) {
+    await deleteObject(key).catch(() => {});
+    await prisma.document.delete({ where: { id: documentId } }).catch(() => undefined);
+    return void res.status(413).json({ error: "This file is larger than the 2 GB upload limit." });
+  }
 
   // Content validation: reject anything that isn't actually a PDF.
   if (!(await objectLooksLikePdf(key))) {

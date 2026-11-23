@@ -5,7 +5,9 @@ import { userMessage,
   RFI_REVIEW_STAGE_LABELS,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
-  suggestSheets,
+  suggestForElement,
+  missingSheetKinds,
+  typicalFloors,
   levelLabel,
   levelRank,
   type LibrarySheet,
@@ -321,6 +323,7 @@ function CreateRfiDialog({
   const sheets = useLibrarySheets(projectId);
   const [name, setName] = useState("");
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
+  const [level, setLevel] = useState<string | null>(null);
   const [picks, setPicks] = useState<Picks>({});
   const [openPackage, setOpenPackage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -329,16 +332,41 @@ function CreateRfiDialog({
   const elements = useMemo(() => packages.flatMap((p) => p.elements), [packages]);
   const chosen = Object.entries(picks).filter(([, ids]) => ids.length > 0);
   const questionCount = chosen.reduce((n, [, ids]) => n + ids.length, 0);
-  // Sheets the chosen elements usually need, from their Compare Across words.
-  const suggested = useMemo(() => {
-    const all = new Set<string>();
+  // Every sheet the chosen elements need on the chosen floor (or each element's own:
+  // foundations on the lowest level, roof items on the roof), each with why.
+  const suggestion = useMemo(() => {
+    const reasons: Record<string, string[]> = {};
+    const assumed = new Map<string, string[]>();
     for (const [id] of chosen) {
       const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
       const e = pkg?.elements.find((x) => x.id === id);
-      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name, pkg?.name).sheets.forEach((s) => all.add(s));
+      if (!e) continue;
+      const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
+      for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
+      if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
     }
-    return [...all];
-  }, [picks, elements, sheets]);
+    const note = [...assumed]
+      .map(([l, names]) => `${names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(" and ")} on ${levelLabel(l)}`)
+      .join("; ");
+    return {
+      sheets: Object.keys(reasons),
+      reasons,
+      note: note ? `Assumed floor: ${note}. Pick a level above to change it.` : undefined,
+    };
+  }, [picks, elements, sheets, level]);
+
+  // Before anything is priced: the schedules, sections and details the chosen
+  // elements ask for that are not among the sheets to read.
+  const gaps = useMemo(() => {
+    const by = new Map(sheets.map((s) => [s.sheetNumber, s]));
+    const reading = chosenSheets.flatMap((n) => by.get(n) ?? []);
+    const out: { element: string; entry: string; inProject: string | null }[] = [];
+    for (const [id] of chosen) {
+      const e = elements.find((x) => x.id === id);
+      if (e) for (const g of missingSheetKinds(e, reading, sheets)) out.push({ element: e.name, ...g });
+    }
+    return out;
+  }, [picks, elements, sheets, chosenSheets]);
 
   const pickPackage = (packageId: string) => {
     const pkg = packages.find((p) => p.id === packageId);
@@ -409,16 +437,19 @@ function CreateRfiDialog({
             <p className="text-sm font-semibold">2 · Sheets</p>
             <LevelChooser
               sheets={sheets}
-              onPick={(level, picked) => {
-                setChosenSheets(picked);
-                if (!name.trim()) setName(levelLabel(level));
+              onPick={(picked, numbers, label) => {
+                setLevel(picked);
+                setChosenSheets(numbers);
+                if (!name.trim()) setName(label);
               }}
             />
             <SheetPicker
               projectId={projectId}
               sheets={sheets}
               value={chosenSheets}
-              suggested={suggested}
+              suggested={suggestion.sheets}
+              reasons={suggestion.reasons}
+              suggestNote={suggestion.note}
               onChange={setChosenSheets}
               roomy
             />
@@ -486,6 +517,27 @@ function CreateRfiDialog({
           </section>
         </div>
 
+        {chosenSheets.length > 0 && gaps.length > 0 && (
+          <div className="border-warning/30 bg-warning/8 border-t px-6 py-3 text-sm" role="status">
+            <p className="font-medium">Missing from the sheets to read</p>
+            <ul className="mt-1 flex flex-col gap-1">
+              {gaps.map((g) => (
+                <li key={`${g.element}:${g.entry}`} className="flex flex-wrap items-center gap-x-2">
+                  <span>
+                    {g.element}: no {g.entry}.{" "}
+                    {g.inProject ? `${g.inProject} is in the project.` : "None is uploaded, so those questions will come back unanswered."}
+                  </span>
+                  {g.inProject && (
+                    <button type="button" className="text-primary text-xs hover:underline"
+                      onClick={() => setChosenSheets((v) => [...new Set([...v, g.inProject!])])}>
+                      Add {g.inProject}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <DialogFooter className="flex-col items-stretch gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <span className={cn("text-sm", tooMany ? "text-destructive" : "text-muted-foreground")}>
             {chosen.length} element{chosen.length === 1 ? "" : "s"} · {questionCount} question{questionCount === 1 ? "" : "s"} ·{" "}
@@ -1045,13 +1097,14 @@ function SetFindings({
 }
 
 
-/** Pick a level and its sheets are ticked: every sheet the sheet read found drawn for it. */
+/** Pick a level and its sheets are ticked: every sheet the sheet read found drawn for it.
+ * Typical floors (`typicalFloors`) are offered as one choice, so one review covers them all. */
 function LevelChooser({
   sheets,
   onPick,
 }: {
   sheets: LibrarySheet[];
-  onPick: (level: string, sheetNumbers: string[]) => void;
+  onPick: (level: string, sheetNumbers: string[], name: string) => void;
 }) {
   const levels = useMemo(() => {
     const by = new Map<string, string[]>();
@@ -1061,7 +1114,9 @@ function LevelChooser({
       return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
     });
   }, [sheets]);
+  const groups = useMemo(() => typicalFloors(sheets), [sheets]);
   const [picked, setPicked] = useState("");
+  const group = groups.find((g) => `typical:${g.label}` === picked);
   if (!levels.length) {
     return (
       <p className="text-muted-foreground text-sm">
@@ -1070,26 +1125,41 @@ function LevelChooser({
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Select
-        value={picked}
-        onValueChange={(level) => {
-          setPicked(level);
-          onPick(level, levels.find(([l]) => l === level)?.[1] ?? []);
-        }}
-      >
-        <SelectTrigger className="h-10 w-64 text-sm" aria-label="Level">
-          <SelectValue placeholder="Pick a level to tick its sheets" />
-        </SelectTrigger>
-        <SelectContent>
-          {levels.map(([level, numbers]) => (
-            <SelectItem key={level} value={level}>
-              {levelLabel(level)} · {numbers.length} sheet{numbers.length === 1 ? "" : "s"}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <span className="text-muted-foreground text-sm">You can still untick sheets or add others below.</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={picked}
+          onValueChange={(value) => {
+            setPicked(value);
+            const g = groups.find((x) => `typical:${x.label}` === value);
+            if (g) onPick(g.levels[0]!, g.sheets, `${g.label} (typical)`);
+            else onPick(value, levels.find(([l]) => l === value)?.[1] ?? [], levelLabel(value));
+          }}
+        >
+          <SelectTrigger className="h-10 w-72 text-sm" aria-label="Level">
+            <SelectValue placeholder="Pick a level to tick its sheets" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map((g) => (
+              <SelectItem key={g.label} value={`typical:${g.label}`}>
+                {g.label} (typical) · {g.sheets.length} sheets
+              </SelectItem>
+            ))}
+            {levels.map(([level, numbers]) => (
+              <SelectItem key={level} value={level}>
+                {levelLabel(level)} · {numbers.length} sheet{numbers.length === 1 ? "" : "s"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground text-sm">You can still untick sheets or add others below.</span>
+      </div>
+      {group && (
+        <p className="text-muted-foreground text-sm">
+          {group.label} share their plans, so one review covers them all. {levelLabel(group.levels[0]!)}&apos;s own sheets stand for the rest
+          {group.leftOut.length > 0 && <>; left out: {group.leftOut.join(", ")}. Add any whose floor differs</>}.
+        </p>
+      )}
     </div>
   );
 }

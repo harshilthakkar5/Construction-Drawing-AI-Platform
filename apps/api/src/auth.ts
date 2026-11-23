@@ -131,3 +131,18 @@ export async function requireProjectMember(req: Request, res: Response, next: Ne
 export async function assertProjectOwner(req: Request, projectId: string): Promise<boolean> {
   return (await projectAccessFor(projectId, currentUser(req).id)) === "owner";
 }
+
+/** The addresses in ADMIN_EMAILS, lower-cased. Pure, so the rule is testable without a server. */
+export function isAdmin(email: string, adminEmails: string): boolean {
+  return adminEmails.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean).includes(email.toLowerCase());
+}
+
+/** Instance-wide operations (every project's jobs): only the operators named in ADMIN_EMAILS.
+ * Registration is open, so "signed in" alone would hand them to anyone. */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  // Read here rather than through env.ts: importing env from auth.ts would make every test that loads auth need a full env.
+  if (!isAdmin(currentUser(req).email, process.env.ADMIN_EMAILS ?? "")) {
+    return void res.status(403).json({ error: "only an administrator can manage the job queues" });
+  }
+  next();
+}
