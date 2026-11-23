@@ -2788,9 +2788,10 @@ export function suggestSheets(
     const levelSlot = (s: LibrarySheet) => (onLevel(s) ? 0 : s.level || s.levels?.length ? 1 : 2);
     // The floor (chosen, the element's own, or the first plan picked) outranks a
     // title match: "Enlarged Foundation Plans" with no level must not beat the
-    // Level 5 plan asked for, nor a curtain wall schedule the Level 2 plan.
+    // Level 5 plan asked for. Another floor and no floor tie there, so a schedule
+    // titled for the element still beats a notes sheet that happens to name the roof.
     const rank = (s: LibrarySheet) => [
-      -named(s), named(s) ? 0 : kindRank(s), level ? levelSlot(s) : 0, -titleScore(s, words),
+      -named(s), named(s) ? 0 : kindRank(s), level && !onLevel(s) ? 1 : 0, -titleScore(s, words),
       notCoordination(s) ? 1 : 0, levelSlot(s), s.combinedPageNumber,
     ];
     const pick = of
@@ -2852,7 +2853,7 @@ export function suggestForElement(
   element: { name: string; compareAcross: readonly string[] },
   sheets: readonly LibrarySheet[],
   opts: { stageName?: string; level?: string | null } = {},
-): { suggestions: SheetSuggestion[]; level: string | null; levelChosenBy: "you" | "element" | "plan" | null; missing: string[]; outside: string[] } {
+): { suggestions: SheetSuggestion[]; level: string | null; levelChosenBy: "you" | "element" | "plan" | null } {
   const stage = opts.stageName ?? "";
   const own = opts.level ? null : elementLevel(element.name, stage, sheets);
   const prefer = opts.level ?? own;
@@ -2862,10 +2863,14 @@ export function suggestForElement(
   const level = prefer ?? (base.sheets.map((n) => by.get(n)?.level).find(Boolean) ?? null);
   const levelChosenBy = opts.level ? "you" : own ? "element" : level ? "plan" : null;
   const onLevel = (s: LibrarySheet) => !level || s.level === level || (s.levels ?? []).includes(level);
-  const words = subjectWords(element.name, ...element.compareAcross);
+  const words = subjectWords(element.name, stage, ...element.compareAcross);
   const subject = scheduleSubject("", element.name);
+  const unlevelled = (s: LibrarySheet) => !s.level && !s.levels?.length;
   const named = (title: string | null | undefined) =>
     !!title && words.some((w) => (title.toUpperCase().match(/[A-Z]+/g) ?? []).map(stem).includes(w));
+  // The sheet read's title and the title-block box both count: UT Law's box holds only the sheet number.
+  const sheetWords = (s: LibrarySheet, w: readonly string[]) =>
+    titleScore(s, w) + w.filter((x) => (s.title?.toUpperCase().match(/[A-Z]+/g) ?? []).map(stem).includes(x)).length;
   const out = new Map<string, string[]>();
   const add = (n: string, reason: string) => out.set(n, [...new Set([...(out.get(n) ?? []), reason])]);
 
@@ -2881,10 +2886,12 @@ export function suggestForElement(
     if (!pick || (pick.sheetKind !== "plan" && pick.sheetKind !== "enlarged_plan")) continue;
     // The enlarged plans of this plan's discipline on its floor.
     sheets
-      .filter((s) => s.sheetNumber !== n && s.discipline === pick.discipline && isEnlarged(s) && onLevel(s) && !base.sheets.includes(s.sheetNumber))
-      .sort((a, b) => titleScore(b, words) - titleScore(a, words) || a.combinedPageNumber - b.combinedPageNumber)
+      // One with no floor read comes only when its title names the work ("Enlarged Foundation Plans").
+      .filter((s) => s.sheetNumber !== n && s.discipline === pick.discipline && isEnlarged(s) && !base.sheets.includes(s.sheetNumber) &&
+        (unlevelled(s) ? sheetWords(s, words) > 0 : onLevel(s)))
+      .sort((a, b) => sheetWords(b, words) - sheetWords(a, words) || a.combinedPageNumber - b.combinedPageNumber)
       .slice(0, MAX_ENLARGED)
-      .forEach((s) => add(s.sheetNumber, `Enlarged plan of ${n}`));
+      .forEach((s) => add(s.sheetNumber, unlevelled(s) ? "Enlarged plan, titled for this work (no floor read)" : `Enlarged plan of ${n}`));
     // What the plan points to that is about the element: a detail titled for it, a schedule of it.
     (pick.sheetRefs ?? [])
       .map((ref) => byKey.get(sheetKey(ref)))
@@ -2895,8 +2902,64 @@ export function suggestForElement(
   }
   return {
     suggestions: [...out].map(([sheetNumber, reasons]) => ({ sheetNumber, reasons })),
-    level, levelChosenBy, missing: base.missing, outside: base.outside,
+    level, levelChosenBy,
   };
+}
+
+/**
+ * The schedules, sections and details an element's Compare Across asks for that
+ * none of the sheets to read is (pure). `inProject` is a sheet of that kind the
+ * project does have, to add with one click; null when the project has none
+ * (upload it, or the review answers that question "insufficient evidence").
+ */
+export function missingSheetKinds(
+  element: { name: string; compareAcross: readonly string[] },
+  chosen: readonly LibrarySheet[],
+  sheets: readonly LibrarySheet[],
+): { entry: string; inProject: string | null }[] {
+  const { needs } = compareAcrossNeeds(element.compareAcross);
+  return needs
+    .filter((need) => need.kinds.length && !need.kinds.some((k) => k === "plan" || k === "enlarged_plan"))
+    .flatMap((need) => {
+      const subject = scheduleSubject(need.entry, element.name);
+      const is = (s: LibrarySheet) =>
+        !!s.discipline && need.disciplines.includes(s.discipline as Discipline) &&
+        ((!!s.sheetKind && need.kinds.includes(s.sheetKind)) || (need.kinds.includes("schedule") && headingScore(s, subject) > 0));
+      if (chosen.some(is)) return [];
+      const have = sheets.filter(is).sort((a, b) => headingScore(b, subject) - headingScore(a, subject) || a.combinedPageNumber - b.combinedPageNumber)[0];
+      return [{ entry: need.entry, inProject: have?.sheetNumber ?? null }];
+    });
+}
+
+/**
+ * Typical floors (pure): the levels one coordination plan is drawn for ("Forming
+ * Plan - Level 7-13") are one floor repeated, so one review of them covers all.
+ * `sheets` are those drawn for every level of the group plus the lowest level's
+ * own (its floor plan stands for the rest); `leftOut` are the other levels' own
+ * sheets, named so a person can add one that differs. Exhibits, ceiling and
+ * loading plans and enlarged plans never define a group.
+ */
+export function typicalFloors(sheets: readonly LibrarySheet[]): { levels: string[]; label: string; sheets: string[]; leftOut: string[] }[] {
+  const order = (a: string, b: string) => {
+    const [x, y] = [levelRank(a), levelRank(b)];
+    return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+  };
+  const seen = new Set<string>();
+  const groups: { levels: string[]; label: string; sheets: string[]; leftOut: string[] }[] = [];
+  for (const plan of sheets) {
+    if (plan.sheetKind !== "plan" || isEnlarged(plan) || notCoordination(plan) || (plan.levels?.length ?? 0) < 2) continue;
+    const levels = [...plan.levels!].sort(order);
+    const key = levels.join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const on = (l: string) => sheets.filter((s) => s.levels?.includes(l)).map((s) => s.sheetNumber);
+    const every = on(levels[0]!).filter((n) => levels.every((l) => on(l).includes(n)));
+    const own = on(levels[0]!).filter((n) => !every.includes(n));
+    const leftOut = [...new Set(levels.slice(1).flatMap(on))].filter((n) => !every.includes(n) && !own.includes(n));
+    const last = levelLabel(levels[levels.length - 1]!).replace(/^Level /, "");
+    groups.push({ levels, label: `${levelLabel(levels[0]!).replace(/^Level /, "Levels ")}–${last}`, sheets: [...every, ...own], leftOut });
+  }
+  return groups.sort((a, b) => order(a.levels[0]!, b.levels[0]!));
 }
 
 /** The original catalogue questions a library choice is asked through today:

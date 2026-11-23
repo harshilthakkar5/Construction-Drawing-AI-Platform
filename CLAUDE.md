@@ -3268,6 +3268,14 @@ whose title names the element (≤3), each with a reason ("Structural plan · Le
 list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
 lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
 loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
+That early floor slot splits only on-floor from the rest (another floor and no floor tie), or a notes sheet tagged ROOF
+beat the pile cap schedule. An enlarged plan with no floor read is suggested only when its title names the work
+(stage words count: "Enlarged Foundation Plans" for pile caps). Before pricing, the dialog warns about each schedule,
+section or detail an element's Compare Across asks for that no sheet to read is (`missingSheetKinds`), with "Add <sheet>"
+when the project has one. TYPICAL FLOORS (`typicalFloors`): the levels one coordination plan is drawn for ("Forming Plan -
+Level 7-13"; never an exhibit, loading, ceiling or enlarged plan) are one choice in the level picker, reading the sheets
+drawn for every one of them plus the lowest level's own; the other levels' own sheets are named, not read (UT Law:
+Levels 3–4 and 7–13, A3.07–A3.12 left out).
 Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
 asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
 chosen question has none. Phase 4 (`rfi_review.library_checks`): the plan request carries

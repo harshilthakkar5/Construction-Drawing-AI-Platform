@@ -10,7 +10,9 @@ import {
   headingScore,
   libraryCatalogueIds,
   elementLevel,
+  missingSheetKinds,
   suggestForElement,
+  typicalFloors,
   suggestSheets,
   scheduleHeadings,
   scheduleSubject,
@@ -292,12 +294,56 @@ describe("sheet suggestions for an element", () => {
       expect(r).toMatchObject({ level: "LEVEL 1", levelChosenBy: "element" });
       expect(r.suggestions).toEqual([
         { sheetNumber: "S1.101", reasons: ["Structural plan · Level 1"] },
+        // The stage's words count, and an enlarged plan with no floor read may come: "Enlarged Foundation Plans" first.
+        { sheetNumber: "S1.111", reasons: ["Enlarged plan, titled for this work (no floor read)"] },
         { sheetNumber: "S2.201", reasons: ["Enlarged plan of S1.101"] },
         { sheetNumber: "S0.121", reasons: ["S1.101 points to it"] },
       ]);
       const mine = suggestForElement({ name: "Pile caps", compareAcross: ["Struct plan"] }, ut, { stageName: "Deep Foundations", level: "LEVEL 5" });
       expect(mine).toMatchObject({ level: "LEVEL 5", levelChosenBy: "you" });
-      expect(mine.suggestions.map((s) => s.sheetNumber)).toEqual(["S2.105", "S2.201"]);
+      expect(mine.suggestions.map((s) => s.sheetNumber)).toEqual(["S2.105", "S1.111", "S2.201"]);
+    });
+
+    it("never lets a sheet on another floor beat the schedule titled for the element", () => {
+      const set2 = [
+        { ...sheet("S1.01", "structural", "plan", 1), level: "LEVEL 1", levels: ["LEVEL 1"] },
+        { ...sheet("S0.01", "structural", "schedule", 2), level: "ROOF", levels: ["ROOF"], titleBlock: "SHEET TITLE S0.01 GENERAL NOTES" },
+        { ...sheet("S5.01", "structural", "schedule", 3), titleBlock: "SHEET TITLE S5.01 PILE CAP SCHEDULE" },
+      ];
+      expect(suggestSheets(["Struct plan", "pile cap schedule"], set2, Infinity, "Pile caps").sheets).toEqual(["S1.01", "S5.01"]);
+    });
+
+    it("warns about a schedule or detail the sheets to read lack, naming one the project has", () => {
+      const pc = { name: "Pile caps", compareAcross: ["Struct plan", "pile cap schedule", "details"] };
+      const by = (...n: string[]) => ut.filter((s) => n.includes(s.sheetNumber));
+      expect(missingSheetKinds(pc, by("S1.101"), ut)).toEqual([
+        { entry: "pile cap schedule", inProject: "S5.100" },
+        { entry: "details", inProject: "S0.121" },
+      ]);
+      expect(missingSheetKinds(pc, by("S1.101", "S5.100", "S0.121"), ut)).toEqual([]);
+      expect(missingSheetKinds(pc, by("S1.101"), by("S1.101"))).toEqual([
+        { entry: "pile cap schedule", inProject: null },
+        { entry: "details", inProject: null },
+      ]);
+    });
+
+    it("groups typical floors by the coordination plan drawn for several levels", () => {
+      const floors = [
+        at("S2.107", "structural", "plan", 1, "Forming Plan - Level 7-9", ["LEVEL 7", "LEVEL 8", "LEVEL 9"]),
+        at("S0.307", "structural", "plan", 2, "Loading Plan - Level 7-9", ["LEVEL 7", "LEVEL 8", "LEVEL 9"]),
+        at("A1.43", "architectural", "plan", 3, "LIFE SAFETY EXHIBIT - LEVEL 6-9", ["LEVEL 6", "LEVEL 7", "LEVEL 8", "LEVEL 9"]),
+        at("S2.207", "structural", "plan", 4, "Enlarged Forming Plans", ["LEVEL 6", "LEVEL 7", "LEVEL 8", "LEVEL 9"]),
+        at("A3.07", "architectural", "plan", 5, "BUILDING PLAN - LEVEL 7", ["LEVEL 7"]),
+        at("A3.08", "architectural", "plan", 6, "BUILDING PLAN - LEVEL 8", ["LEVEL 8"]),
+        at("A3.09", "architectural", "plan", 7, "BUILDING PLAN - LEVEL 9", ["LEVEL 9"]),
+      ];
+      // Exhibits, loading and enlarged plans never define a group; only the forming plan does.
+      expect(typicalFloors(floors)).toEqual([{
+        levels: ["LEVEL 7", "LEVEL 8", "LEVEL 9"],
+        label: "Levels 7–9",
+        sheets: ["S2.107", "S0.307", "A1.43", "S2.207", "A3.07"],
+        leftOut: ["A3.08", "A3.09"],
+      }]);
     });
   });
 
