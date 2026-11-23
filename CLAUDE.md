@@ -3324,8 +3324,14 @@ copied in). The reading is billed on the lead review (each other's notes say so)
 served, the lead's cancel ends only the lead. The set's price is `estimateSharedReading` (each element's own estimate, less
 its own reading, plus one reading of the union), shown with the read-alone price; verification still re-reads per element,
 so the estimate is ~40-60% of reading alone, not 1/N. `npx tsx apps/api/src/rfiSetCompare.ts <setId> <setId>` prints two
-sets' real calls, tokens, cost (usage_events) and findings side by side — the paid comparison (one set read alone with the
-flag off, one together) has not been run. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+sets' real calls, tokens, cost (usage_events) and findings side by side. The paid comparison (UT Law, Grid lines + Pile caps +
+Elevator pits over S1.101/S1.111/S0.121, Sonnet 5.5 batch, one run each): alone $0.445 / 12 calls / 9 findings, together $0.324 / 9
+calls / 7 findings, both hitting RFI 008 and 002 — but Elevator pits got a third of its usual notes and two findings went with them.
+So `elements_block` now asks for every element's questions to be covered as fully as the first's, and `thin_shares` re-reads ON ITS
+OWN any element answered on under `RFI_SHARED_THIN_SHARE` (0.6) of the share its best-served sibling got (`answered_share`: a
+question counts once any observation, inventory entry, gap or not-applicable names it). Relative, since some elements honestly have
+little to answer; on the stored runs it flags exactly that Elevator pits and nothing in the read-alone set. A failed re-read keeps the
+thin share. Not yet re-measured on a model. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

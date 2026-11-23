@@ -3904,6 +3904,13 @@ def _guarded(loaded: dict, work, reraise: bool = True):
 SHARED_SET_READING = os.environ.get("RFI_SHARED_SET_READING", "true").lower() != "false"
 CLAIM_STALE_SECONDS = 120  # a "running" row this long without a heartbeat is a dead worker's
 MAX_SHARED_OUTPUT_SCALE = 4  # a shared reply's room: TOKENS["discovery"] x min(elements, this)
+# One reading can serve its elements unevenly: the first paid A/B (UT Law, three
+# elements, one run each) gave Grid lines its usual share and Elevator pits a
+# third of the notes it got read alone, and two of its findings went with them.
+# An element answered on fewer than this share of the questions its best-served
+# sibling answered (as a fraction of each one's own questions) is read again ON
+# ITS OWN: a missed RFI costs more than one element's reading. 0 turns it off.
+THIN_SHARE = float(os.environ.get("RFI_SHARED_THIN_SHARE", "0.6"))
 
 
 def _claim(run_id: str) -> bool:
@@ -4002,8 +4009,35 @@ def elements_block(preps) -> str:
         "<elements>This one reading serves the reviews of several elements over the same sheets. Each question "
         "belongs to the element it is listed under (a question listed under several elements is asked for each of "
         "them): answer it about that element only, and name the element in every observation and inventory "
-        "entry.\n" + "\n".join(lines) + "\n</elements>\n\n"
+        "entry. Give EVERY element the care it would get if it were the only one asked: go through each "
+        "element's questions in turn and, for each, record what the evidence shows (an observation, an inventory "
+        "entry, a gap or why it does not apply). An element listed last or with less in common with the others "
+        "is reviewed exactly as fully as the first; one answered thinly is a review that misses its RFIs.\n"
+        + "\n".join(lines) + "\n</elements>\n\n"
     )
+
+
+def answered_share(asked: list[str], found: dict) -> float:
+    """The fraction of ASKED questions a reading answered at all: an
+    observation, an inventory entry, a gap or a not-applicable claim. Pure."""
+    if not asked:
+        return 1.0
+    mine = set(asked)
+    answered = {x["checkId"] for key in ("observations", "inventory", "gaps", "notApplicable")
+                for x in found.get(key, []) if x.get("checkId") in mine}
+    return len(answered) / len(mine)
+
+
+def thin_shares(asked_lists: list[list[str]], found: dict, ratio: float = THIN_SHARE) -> list[int]:
+    """Indexes of the elements a shared reading served thinly: answered on
+    under `ratio` of the share its best-served sibling got. Relative, not an
+    absolute floor, because some elements' questions (universal ones, a pit on
+    a set with no pit) honestly have little to answer. Pure."""
+    shares = [answered_share(a, found) for a in asked_lists]
+    best = max(shares, default=0.0)
+    if ratio <= 0 or best <= 0 or len(shares) < 2:
+        return []
+    return [i for i, s in enumerate(shares) if s < ratio * best]
 
 
 def split_reading(p, found: dict, own: dict[str, str], pool: dict[str, Evidence],
@@ -4092,7 +4126,31 @@ def _discover_together(preps) -> list:
         return [exc] + [stop] * (n - 1)
     except (BudgetStop, StageFailed, AccessRevoked) as exc:
         return [exc] * n
-    return [split_reading(p, found, own, pool, batches, unread, n, lead_name) for p, own in zip(preps, maps)]
+    shares_of = [answered_share(p.asked, found) for p in preps]
+    thin = set(thin_shares([p.asked for p in preps], found))
+    out: list = []
+    for i, (p, own) in enumerate(zip(preps, maps)):
+        if i not in thin:
+            out.append(split_reading(p, found, own, pool, batches, unread, n, lead_name))
+            continue
+        name = ((p.scope.get("library") or {}).get("element") or {}).get("name") or "this element"
+        why = (f"The shared reading answered {shares_of[i]:.0%} of {name}'s questions against "
+               f"{max(shares_of):.0%} for the best-served element of this RFI, so {name} was read again on its own.")
+        log.info("rfi review %s: %s", p.run_id[:8], why)
+        try:
+            alone = _discover_alone(p)  # p is untouched: split_reading never ran for it
+        except (Cancelled, AccessRevoked) as exc:
+            out.append(exc)
+            continue
+        except (BudgetStop, StageFailed) as exc:
+            # The thin share is still a reading: keep it rather than fail the review.
+            share = split_reading(p, found, own, pool, batches, unread, n, lead_name)
+            share["notes"].append(f"{name}'s share of the shared reading was thin and reading it again alone failed ({exc}).")
+            out.append(share)
+            continue
+        alone["notes"] = [why] + alone["notes"]
+        out.append(alone)
+    return out
 
 
 def _take(share):

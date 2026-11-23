@@ -141,3 +141,79 @@ def test_switched_off_each_element_reads_alone(database, monkeypatch):
     rfi_review.run(seeded["run"])
     rfi_review.run(other)
     assert [c["stage"] for c in model.calls].count("discovery") == 2
+
+
+# --- An element served thinly by the shared reading is read again alone ---------------------
+
+
+def _found(*answered):
+    return {"observations": [{"checkId": c, "statement": "x", "evidenceIds": []} for c in answered],
+            "inventory": [], "gaps": [], "notApplicable": []}
+
+
+def test_answered_share_counts_any_kind_of_answer_once_per_question():
+    found = _found("Q1", "Q1", "OTHER")
+    found["gaps"] = [{"checkId": "Q2", "field": "f", "reason": "r"}]
+    found["inventory"] = [{"checkId": "Q1", "entity": "pit", "fields": []}]
+    assert rfi_review.answered_share(["Q1", "Q2", "Q3", "Q4"], found) == 0.5
+    assert rfi_review.answered_share([], found) == 1.0
+
+
+def test_thin_shares_is_relative_to_the_best_served_sibling():
+    found = _found("G1", "G2", "G3", "G4", "P1")
+    grid, pits = ["G1", "G2", "G3", "G4", "G5"], ["P1", "P2", "P3", "P4", "P5"]
+    # Pits answered on 20% against the grid's 80%: under 0.6 x 80%.
+    assert rfi_review.thin_shares([grid, pits], found, ratio=0.6) == [1]
+    # Every element answered sparsely alike is no element short-changed.
+    assert rfi_review.thin_shares([["G1", "X"] * 5, ["P1", "Y"] * 5], _found("G1", "P1"), ratio=0.6) == []
+    # Switched off, a single element, or nothing answered: nothing re-read.
+    assert rfi_review.thin_shares([grid, pits], found, ratio=0) == []
+    assert rfi_review.thin_shares([pits], found, ratio=0.6) == []
+    assert rfi_review.thin_shares([grid, pits], _found(), ratio=0.6) == []
+
+
+def _prep(run_id, name, asked, evidence):
+    return rfi_review.SimpleNamespace(
+        run_id=run_id, run={"id": run_id, "limits": {}}, scope={"library": {"element": {"name": name}}},
+        asked=asked, catalogue={c: {"label": c, "originalQuestion": c, "requiredObservations": []} for c in asked},
+        reading=(evidence, []), max_input=200_000, max_batches=4, already="",
+        checked="", usage=None, evidence={e.id: e for e in evidence}, batches=[evidence], sent=[], unread=[],
+        batch_of={},
+    )
+
+
+def _shared_reading(monkeypatch, answered):
+    grid = _prep("run-grid", "Grid lines", ["G1", "G2", "G3", "G4", "G5"], [ev("ev1", "text", page=1)])
+    pits = _prep("run-pits", "Elevator pits", ["P1", "P2", "P3", "P4", "P5"], [ev("ev1", "text", page=2)])
+    alone_calls = []
+    monkeypatch.setattr(rfi_review, "_ask", lambda *a, **k: _found(*answered))
+    monkeypatch.setattr(rfi_review, "_discover_alone", lambda p: alone_calls.append(p.run_id) or {
+        **_found("P1", "P2", "P3"), "notes": [], "calls": 1})
+    return rfi_review._discover_together([grid, pits]), alone_calls
+
+
+def test_a_thinly_served_element_is_read_again_on_its_own(monkeypatch):
+    shares, alone = _shared_reading(monkeypatch, ["G1", "G2", "G3", "G4", "P1"])
+    assert alone == ["run-pits"]
+    assert [o["checkId"] for o in shares[1]["observations"]] == ["P1", "P2", "P3"]
+    assert "read again on its own" in shares[1]["notes"][0] and "20%" in shares[1]["notes"][0]
+    # The well-served element keeps its share of the one reading.
+    assert [o["checkId"] for o in shares[0]["observations"]] == ["G1", "G2", "G3", "G4"]
+    assert "Read together" in shares[0]["notes"][0]
+
+
+def test_an_evenly_served_set_is_read_once(monkeypatch):
+    shares, alone = _shared_reading(monkeypatch, ["G1", "G2", "G3", "P1", "P2", "P3"])
+    assert alone == [] and all("Read together" in s["notes"][0] for s in shares)
+
+
+def test_a_failed_reread_keeps_the_thin_share_instead_of_failing_the_review(monkeypatch):
+    _, _ = _shared_reading(monkeypatch, ["G1"])  # sets up _ask
+    def fail(p):
+        raise rfi_review.StageFailed("discovery", "provider down")
+    monkeypatch.setattr(rfi_review, "_discover_alone", fail)
+    grid = _prep("run-grid", "Grid lines", ["G1", "G2"], [ev("ev1", "text", page=1)])
+    pits = _prep("run-pits", "Elevator pits", ["P1", "P2"], [ev("ev1", "text", page=2)])
+    shares = rfi_review._discover_together([grid, pits])
+    assert not isinstance(shares[1], BaseException)
+    assert shares[1]["observations"] == [] and "failed" in shares[1]["notes"][-1]
