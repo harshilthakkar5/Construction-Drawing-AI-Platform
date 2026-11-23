@@ -69,7 +69,7 @@ export function useLibrarySheets(projectId: string): LibrarySheet[] {
             combinedPageNumber: p.combinedPageNumber, sheetNumber: p.sheetNumber, discipline: p.discipline,
             sheetKind: p.sheetKind ?? null, level: p.level ?? null, levels: p.levels ?? [], title: p.sheetTitle ?? null,
             headings: headings.data?.[p.combinedPageNumber] ?? [],
-            titleBlock: titles.data?.[p.combinedPageNumber], processed: p.processed,
+            titleBlock: titles.data?.[p.combinedPageNumber], processed: p.processed, sheetRefs: p.sheetRefs ?? [],
           }]
         : [],
     );
@@ -418,12 +418,18 @@ export function SheetPicker({
   onChange,
   roomy = false,
   heading,
+  reasons,
+  suggestNote,
 }: {
   projectId: string;
   sheets: LibrarySheet[];
   value: string[];
   suggested: string[];
   onChange: (sheets: string[]) => void;
+  /** Why each suggested sheet is suggested: shown as a tickable list instead of the one-line button. */
+  reasons?: Record<string, string[]>;
+  /** A line above that list, e.g. which floor was assumed. */
+  suggestNote?: string;
   /** Larger text and thumbnails, for the Create RFI dialog. */
   roomy?: boolean;
   heading?: string;
@@ -543,7 +549,45 @@ export function SheetPicker({
         ) : (
           <span className="text-muted-foreground text-[11px]">No sheet matches “{typed.trim()}”.</span>
         ))}
-      {suggested.length > 0 && !sameAsSuggested && (
+      {reasons && suggested.length > 0 && (
+        <div className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${t}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-medium">Suggested for your elements</span>
+            {suggested.some((n) => !value.includes(n)) && (
+              <button type="button" className="text-primary text-xs hover:underline"
+                onClick={() => onChange([...new Set([...value, ...suggested])])}>
+                Add all suggested
+              </button>
+            )}
+          </div>
+          {suggestNote && <span className="text-muted-foreground text-xs">{suggestNote}</span>}
+          <ul className="flex max-h-72 flex-col divide-y overflow-y-auto">
+            {suggested.map((n) => {
+              const s = bySheet.get(n.toUpperCase());
+              const on = value.includes(n);
+              return (
+                <li key={n}>
+                  <label className={`hover:bg-accent/50 flex cursor-pointer items-center gap-2.5 px-1 py-1.5 ${on ? "bg-primary/5" : ""}`}>
+                    <Checkbox checked={on} onCheckedChange={() => toggleSheet(n)} />
+                    {s && (
+                      <img src={api.pageThumbUrl(projectId, s.combinedPageNumber)} alt="" loading="lazy"
+                        className={`${roomy ? "h-10 w-14" : "h-8 w-11"} shrink-0 rounded-sm border object-cover`} />
+                    )}
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-medium">
+                        {n}
+                        {s?.title && <span className="text-muted-foreground ml-2 font-normal">{s.title}</span>}
+                      </span>
+                      <span className="text-muted-foreground text-xs">{(reasons[n] ?? []).join(" · ")}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {!reasons && suggested.length > 0 && !sameAsSuggested && (
         <button
           type="button"
           className="text-primary self-start text-[11px] hover:underline"

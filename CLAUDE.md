@@ -3262,6 +3262,12 @@ a plan that names a level and keeping one level; the manifest now carries `sheet
 Compare Across entry, the element or its stage ("Deep Foundations" → FOUNDATION PLAN) comes first,
 and a code or finishes plan (life safety, egress, RCP, finishes, furniture, signage) last: page order
 alone handed every Leland foundation element the composite floor plan and the life safety plan.
+Create RFI suggests a SET per element and floor (`suggestForElement`, `@cdip/shared`): the plan of each Compare Across
+discipline on the floor, that plan's enlarged plans (≤2), and the details/sections/schedules it points to (`sheetRefs`)
+whose title names the element (≤3), each with a reason ("Structural plan · Level 5", "S1.101 points to it") in a tickable
+list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
+lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
+loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
 Until Phase 4 a choice is planned as an ordinary targeted review (one sheet, or the sheets compared)
 asked through `libraryCatalogueIds` — the chosen questions' own links, plus the element's when a
 chosen question has none. Phase 4 (`rfi_review.library_checks`): the plan request carries

@@ -9,6 +9,8 @@ import {
   compareAcrossNeeds,
   headingScore,
   libraryCatalogueIds,
+  elementLevel,
+  suggestForElement,
   suggestSheets,
   scheduleHeadings,
   scheduleSubject,
@@ -180,12 +182,12 @@ describe("sheet suggestions for an element", () => {
   });
 
   it("suggests one sheet per entry, the matching kind first, a page never read as a fallback", () => {
-    expect(suggestSheets(["Arch plans", "Struct plans", "Civil site plan", "MEP plans"], set)).toEqual({
+    expect(suggestSheets(["Arch plans", "Struct plans", "Civil site plan", "MEP plans"], set)).toMatchObject({
       sheets: ["A1.01", "S2.01", "M1.01"],
       missing: ["Civil site plan"],
       outside: [],
     });
-    expect(suggestSheets(["Struct plan", "pile cap schedule", "Geotech"], set)).toEqual({
+    expect(suggestSheets(["Struct plan", "pile cap schedule", "Geotech"], set)).toMatchObject({
       sheets: ["S2.01", "S5.01"],
       missing: [],
       outside: ["Geotech"],
@@ -253,6 +255,50 @@ describe("sheet suggestions for an element", () => {
     expect(suggestSheets(["Struct plans"], b2, Infinity, "Pile caps", "Deep Foundations").sheets).toEqual(["S2.30-A"]);
     // Nothing named: page order, as before, but never the life safety plan first.
     expect(suggestSheets(["Struct plans", "Arch plans"], b2, Infinity, "Beams").sheets).toEqual(["S2.20", "A2.20"]);
+  });
+
+  describe("a full set per floor (UT Law's shape)", () => {
+    const at = (n: string, d: LibrarySheet["discipline"], kind: LibrarySheet["sheetKind"], page: number, title: string, levels: string[] = [], sheetRefs: string[] = []): LibrarySheet => ({
+      ...sheet(n, d, kind, page), levels, level: levels[0] ?? null, title, sheetRefs,
+    });
+    const ut = [
+      at("A1.52", "architectural", "plan", 40, "FIRE EXTINGUISHER EXHIBIT - LEVEL 5", ["LEVEL 5"]),
+      at("A3.00", "architectural", "plan", 88, "BUILDING PLAN - LEVEL 1", ["LEVEL 1"]),
+      at("A3.04", "architectural", "plan", 92, "BUILDING PLAN - LEVEL 5", ["LEVEL 5"]),
+      at("S0.121", "structural", "detail", 210, "Typical Pile Cap Details"),
+      at("S0.305", "structural", "plan", 224, "Loading Plan - Level 5", ["LEVEL 5"]),
+      at("S0.315", "structural", "plan", 228, "Forming Plan - Roof", ["ROOF"]),
+      at("S1.101", "structural", "plan", 230, "Foundation Plan - Level 1", ["LEVEL 1"], ["S0.121", "S9.99"]),
+      at("S1.111", "structural", "plan", 233, "Enlarged Foundation Plans"),
+      at("S2.105", "structural", "plan", 236, "Forming Plan - Level 5", ["LEVEL 5"]),
+      at("S2.201", "structural", "plan", 241, "Enlarged Forming Plans", ["LEVEL 1", "LEVEL 5"]),
+      at("S5.100", "structural", "schedule", 300, "CIP Concrete Column Schedule"),
+    ];
+
+    it("puts foundations on the lowest planned level and roof items on the roof", () => {
+      expect(elementLevel("Pile caps", "Deep Foundations", ut)).toBe("LEVEL 1");
+      expect(elementLevel("Equipment curbs & roof curbs", "", ut)).toBe("ROOF");
+      expect(elementLevel("Beams", "Elevated Structure", ut)).toBeNull();
+    });
+
+    it("lets the chosen floor win over a title match, and skips exhibit and loading plans", () => {
+      const r = suggestSheets(["Struct plan", "Arch plans"], ut, Infinity, "Pile caps", "Deep Foundations", "LEVEL 5");
+      expect(r.sheets).toEqual(["S2.105", "A3.04"]);
+      expect(r.why).toEqual({ "S2.105": "Struct plan", "A3.04": "Arch plans" });
+    });
+
+    it("gives each sheet a reason: the plan, its enlarged plans, and what it points to about the element", () => {
+      const r = suggestForElement({ name: "Pile caps", compareAcross: ["Struct plan"] }, ut, { stageName: "Deep Foundations" });
+      expect(r).toMatchObject({ level: "LEVEL 1", levelChosenBy: "element" });
+      expect(r.suggestions).toEqual([
+        { sheetNumber: "S1.101", reasons: ["Structural plan · Level 1"] },
+        { sheetNumber: "S2.201", reasons: ["Enlarged plan of S1.101"] },
+        { sheetNumber: "S0.121", reasons: ["S1.101 points to it"] },
+      ]);
+      const mine = suggestForElement({ name: "Pile caps", compareAcross: ["Struct plan"] }, ut, { stageName: "Deep Foundations", level: "LEVEL 5" });
+      expect(mine).toMatchObject({ level: "LEVEL 5", levelChosenBy: "you" });
+      expect(mine.suggestions.map((s) => s.sheetNumber)).toEqual(["S2.105", "S2.201"]);
+    });
   });
 
   it("never suggests a sheet twice, and one per entry unless capped", () => {

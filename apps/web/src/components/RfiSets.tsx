@@ -5,7 +5,7 @@ import { userMessage,
   RFI_REVIEW_STAGE_LABELS,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
-  suggestSheets,
+  suggestForElement,
   levelLabel,
   levelRank,
   type LibrarySheet,
@@ -321,6 +321,7 @@ function CreateRfiDialog({
   const sheets = useLibrarySheets(projectId);
   const [name, setName] = useState("");
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
+  const [level, setLevel] = useState<string | null>(null);
   const [picks, setPicks] = useState<Picks>({});
   const [openPackage, setOpenPackage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -329,16 +330,28 @@ function CreateRfiDialog({
   const elements = useMemo(() => packages.flatMap((p) => p.elements), [packages]);
   const chosen = Object.entries(picks).filter(([, ids]) => ids.length > 0);
   const questionCount = chosen.reduce((n, [, ids]) => n + ids.length, 0);
-  // Sheets the chosen elements usually need, from their Compare Across words.
-  const suggested = useMemo(() => {
-    const all = new Set<string>();
+  // Every sheet the chosen elements need on the chosen floor (or each element's own:
+  // foundations on the lowest level, roof items on the roof), each with why.
+  const suggestion = useMemo(() => {
+    const reasons: Record<string, string[]> = {};
+    const assumed = new Map<string, string[]>();
     for (const [id] of chosen) {
       const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
       const e = pkg?.elements.find((x) => x.id === id);
-      if (e) suggestSheets(e.compareAcross, sheets, Infinity, e.name, pkg?.name).sheets.forEach((s) => all.add(s));
+      if (!e) continue;
+      const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
+      for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
+      if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
     }
-    return [...all];
-  }, [picks, elements, sheets]);
+    const note = [...assumed]
+      .map(([l, names]) => `${names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(" and ")} on ${levelLabel(l)}`)
+      .join("; ");
+    return {
+      sheets: Object.keys(reasons),
+      reasons,
+      note: note ? `Assumed floor: ${note}. Pick a level above to change it.` : undefined,
+    };
+  }, [picks, elements, sheets, level]);
 
   const pickPackage = (packageId: string) => {
     const pkg = packages.find((p) => p.id === packageId);
@@ -409,16 +422,19 @@ function CreateRfiDialog({
             <p className="text-sm font-semibold">2 · Sheets</p>
             <LevelChooser
               sheets={sheets}
-              onPick={(level, picked) => {
-                setChosenSheets(picked);
-                if (!name.trim()) setName(levelLabel(level));
+              onPick={(picked, numbers) => {
+                setLevel(picked);
+                setChosenSheets(numbers);
+                if (!name.trim()) setName(levelLabel(picked));
               }}
             />
             <SheetPicker
               projectId={projectId}
               sheets={sheets}
               value={chosenSheets}
-              suggested={suggested}
+              suggested={suggestion.sheets}
+              reasons={suggestion.reasons}
+              suggestNote={suggestion.note}
               onChange={setChosenSheets}
               roomy
             />
