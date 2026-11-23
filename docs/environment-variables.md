@@ -202,6 +202,7 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RFI_REVIEW_OVERVIEW_EDGE` | `1600` | Worker | Long edge (px) of the whole-sheet image a review sends. |
 | `RFI_REVIEW_CROP_EDGE` | `1400` | Worker | Long edge (px) of each close-up a review sends. |
 | `RFI_REVIEW_CONCURRENCY` | `2` | Worker | Targeted reviews at once. |
+| `RFI_SHARED_SET_READING` | `true` | worker + API | A named RFI's element reviews read the sheets once together; `false` = each element reads alone. The API prices the set to match. |
 | `RFI_PACKAGE_CONCURRENCY` | `2` | Worker | Marked-up RFI packages (cover form + clouded sheets) rendered at once. |
 | `RFI_FULL_SCAN` | `beta` | API | Full AI scan: `off` hides it, `beta` shows it marked "accuracy not yet measured", `on` once measured on real RFIs. |
 | `FULL_SCAN_TILE_DPI` / `FULL_SCAN_TILE_EDGE` | `150` / `1568` | Worker | One area of a full scan: rendered at this DPI, at most this many px on its long edge (sets the area's size in points). |

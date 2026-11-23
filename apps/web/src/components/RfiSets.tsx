@@ -867,10 +867,9 @@ function RfiSetDialog({
 
   const d = detail.data;
   const planned = d?.reviews.filter((r) => r.status === "planned") ?? [];
-  const plannedCost = usd(
-    planned.every((r) => r.estimate?.costLowUsd != null) ? planned.reduce((n, r) => n + (r.estimate!.costLowUsd ?? 0), 0) : null,
-    planned.every((r) => r.estimate?.costHighUsd != null) ? planned.reduce((n, r) => n + (r.estimate!.costHighUsd ?? 0), 0) : null,
-  );
+  // The set's price is the server's: one reading for every element when they are read together.
+  const plannedCost = planned.length ? usd(d?.costLowUsd ?? null, d?.costHighUsd ?? null) : null;
+  const aloneCost = d?.readTogether ? usd(d.separateLowUsd, d.separateHighUsd) : null;
   const pending = d?.candidates.filter((c) => c.status === "pending") ?? [];
   const errorOf = (elementId: string) => errors.find((e) => e.elementId === elementId)?.error;
   const busy = plan.isPending || start.isPending || remove.isPending;
@@ -911,6 +910,7 @@ function RfiSetDialog({
               {planned.length > 0 && (
                 <p className="text-muted-foreground -mt-3 text-sm">
                   Nothing has been sent to the AI yet. The price is a range because token counts are estimated.
+                  {aloneCost && ` The sheets are read once for all ${planned.length} elements (${aloneCost} if each read them alone); the prices beside each element are for reading alone.`}
                 </p>
               )}
               {(plan.error || start.error || remove.error) && (

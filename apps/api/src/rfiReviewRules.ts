@@ -859,6 +859,70 @@ export function estimateReview(scope: ReviewScope, settings: EstimateSettings, c
   };
 }
 
+/**
+ * A named RFI's price when its elements' reviews READ TOGETHER (the worker's
+ * `rfi_review._discover_together`): each element's own estimate, less its own
+ * reading, plus ONE reading of the evidence the reviews hold between them —
+ * a chunk once, a sheet picture once, each distinct close-up once. Reasoning
+ * and verification stay per element. Pure; the same model and settings for
+ * every element (the worker reads together only reviews that share them).
+ */
+export function estimateSharedReading(
+  parts: { scope: ReviewScope; checkCount: number; estimate: { costLowUsd: number | null; costHighUsd: number | null } }[],
+  settings: EstimateSettings,
+  costOf: CostOf,
+): { costLowUsd: number | null; costHighUsd: number | null; separateLowUsd: number | null; separateHighUsd: number | null } {
+  const separateLow = parts.reduce<number | null>((n, p) => (n == null || p.estimate.costLowUsd == null ? null : n + p.estimate.costLowUsd), 0);
+  const separateHigh = parts.reduce<number | null>((n, p) => (n == null || p.estimate.costHighUsd == null ? null : n + p.estimate.costHighUsd), 0);
+  if (!parts.length || !settings.priced || separateLow == null || separateHigh == null) {
+    return { costLowUsd: separateLow, costHighUsd: separateHigh, separateLowUsd: separateLow, separateHighUsd: separateHigh };
+  }
+  const caps = RFI_REVIEW_DEPTHS[settings.depth];
+  const thinkingPerCall = settings.maxThinkingTokens ?? EFFORT_HEADROOM[settings.thinkingEffort];
+  const reading = (chunkTokens: number, imageParts: number, checkCount: number, maxBatches: number) => {
+    const evidence = chunkTokens + imageParts * IMAGE_TOKENS;
+    const batches = Math.min(maxBatches, Math.max(1, Math.ceil(evidence / Math.max(1, settings.maxInputTokens - SYSTEM_TOKENS))));
+    return {
+      batches,
+      input: batches * SYSTEM_TOKENS + Math.min(evidence, batches * settings.maxInputTokens),
+      output: (OUTPUT.discovery + 250 * checkCount) * batches,
+    };
+  };
+  const pairImages = (scope: ReviewScope) => (scope.pages.filter((p) => p.visual).length >= 2 ? 2 * caps.pairWindows : 0);
+  const own = parts.map((p) =>
+    reading(
+      p.scope.chunks.reduce((sum, c) => sum + c.tokenCount + PER_CHUNK_OVERHEAD, 0),
+      p.scope.pages.filter((pg) => pg.visual).reduce((sum, pg) => sum + 1 + pg.crops.length, 0) + pairImages(p.scope),
+      p.checkCount,
+      caps.maxBatches,
+    ),
+  );
+  const chunks = new Map(parts.flatMap((p) => p.scope.chunks.map((c) => [c.chunkId, c.tokenCount + PER_CHUNK_OVERHEAD] as const)));
+  const sheets = new Set(parts.flatMap((p) => p.scope.pages.filter((pg) => pg.visual).map((pg) => pg.pageId)));
+  const crops = new Set(parts.flatMap((p) => p.scope.pages.filter((pg) => pg.visual).flatMap((pg) => pg.crops.map((c) => `${pg.pageId}:${c.chunkId}`))));
+  const shared = reading(
+    [...chunks.values()].reduce((a, b) => a + b, 0),
+    sheets.size + crops.size + Math.max(...parts.map((p) => pairImages(p.scope))),
+    parts.reduce((n, p) => n + p.checkCount, 0),
+    caps.maxBatches * parts.length,
+  );
+  const cost = (input: number, output: number) =>
+    costOf({ model: settings.model, inputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0 }) * (settings.useBatch ? 0.5 : 1);
+  // The readings each element no longer makes, at the same low/high rules estimateReview prices with.
+  const ownIn = own.reduce((n, r) => n + r.input, 0);
+  const ownOut = own.reduce((n, r) => n + r.output, 0);
+  const ownCalls = own.reduce((n, r) => n + r.batches, 0);
+  const low = separateLow - cost(Math.round(ownIn * 0.8), Math.round(ownOut * 0.5)) + cost(Math.round(shared.input * 0.8), Math.round(shared.output * 0.5));
+  const high = separateHigh - cost(Math.round(ownIn * 1.2), ownOut + thinkingPerCall * ownCalls)
+    + cost(Math.round(shared.input * 1.2), shared.output + thinkingPerCall * shared.batches);
+  return {
+    costLowUsd: Math.max(0, Math.min(low, separateLow)),
+    costHighUsd: Math.max(0, Math.min(high, separateHigh)),
+    separateLowUsd: separateLow,
+    separateHighUsd: separateHigh,
+  };
+}
+
 // --- Lifecycle --------------------------------------------------------------------
 
 /**

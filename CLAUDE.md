@@ -3311,7 +3311,21 @@ review per element (`rfiSets.setPlanRequest` from the project's review settings,
 `rfi_review_runs.setId`) — no model call — and `/start` starts every planned one through the same
 `startReview` the single route uses. A set's findings are its runs' candidates. `planReview` only
 cancels a user's earlier unstarted plans when it is NOT planning for a set, or pricing a 12-element
-RFI would cancel 11 of its own plans. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+RFI would cancel 11 of its own plans. A named RFI's elements READ TOGETHER (`RFI_SHARED_SET_READING`, default on, worker + API): the
+reading was ~75% of a review and every element read the same sheets again. The first of a set's reviews to start claims
+every waiting review of the set with the same person, model and settings, itself included, in ONE statement
+(`rfi_review._claim_set`; a sibling's own job finds its row running with a live heartbeat and steps aside). `_run` is split
+into `_prepare` (geometry, code checks, evidence) → reading → `_finish` (reasoning, verification, saving, unchanged); a group
+prepares each review, `_discover_together` reads the union ONCE (`shared_pool`: a chunk once, a picture once by its bytes,
+each distinct close-up once; `elements_block` says which question belongs to which element; output room and caps scale
+with the element count), and `split_reading` gives each review the observations, inventory, gaps and not-applicable
+claims of ITS questions with its own evidence ids (evidence another element held and this one's observation cites is
+copied in). The reading is billed on the lead review (each other's notes say so); a failed reading fails every review it
+served, the lead's cancel ends only the lead. The set's price is `estimateSharedReading` (each element's own estimate, less
+its own reading, plus one reading of the union), shown with the read-alone price; verification still re-reads per element,
+so the estimate is ~40-60% of reading alone, not 1/N. `npx tsx apps/api/src/rfiSetCompare.ts <setId> <setId>` prints two
+sets' real calls, tokens, cost (usage_events) and findings side by side — the paid comparison (one set read alone with the
+flag off, one together) has not been run. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

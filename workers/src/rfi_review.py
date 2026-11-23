@@ -50,6 +50,7 @@ an RFI is kept out of scope altogether (rfi_sources).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -57,7 +58,8 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from types import SimpleNamespace
 
 import fitz
 
@@ -1215,7 +1217,7 @@ def _inventory_item(item, known: set[str], checks: set[str]) -> dict | None:
             "source": _text(item.get("source"), 80) or None, "fields": fields[:20]}
 
 
-def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict | None:
+def parse_discovery(raw: str | None, known: set[str], checks: set[str], scale: int = 1) -> dict | None:
     """Everything discovery returns, each part validated on its own. A reply
     with no JSON at all is None (salvage it); missing parts are empty."""
     data = parse_json_object(raw)
@@ -1225,26 +1227,26 @@ def parse_discovery(raw: str | None, known: set[str], checks: set[str]) -> dict 
     if not isinstance(items, list):
         return None
     observations, dropped = [], 0
-    for item in items[: MAX_OBSERVATIONS * 2]:
+    for item in items[: MAX_OBSERVATIONS * 2 * scale]:
         obs = _observation(item, known, checks)
         if obs is None:
             dropped += 1
         else:
             observations.append(obs)
-    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:MAX_INVENTORY]) if i]
+    inventory = [i for i in (_inventory_item(x, known, checks) for x in (data.get("inventory") or [])[:MAX_INVENTORY * scale]) if i]
     gaps = [
         {"checkId": g["checkId"], "field": _text(g.get("field"), 120), "reason": _text(g.get("reason"), 300)}
-        for g in (data.get("gaps") or [])[:40]
+        for g in (data.get("gaps") or [])[:40 * scale]
         if isinstance(g, dict) and g.get("checkId") in checks and _text(g.get("field"), 120)
     ]
     not_applicable = [
         {"checkId": n["checkId"], "reason": _text(n.get("reason"), 300), "evidenceIds": _ids(n.get("evidenceIds"), known)}
-        for n in (data.get("notApplicable") or [])[:20]
+        for n in (data.get("notApplicable") or [])[:20 * scale]
         # "Does not apply" is a claim about the drawing, so it needs evidence.
         if isinstance(n, dict) and n.get("checkId") in checks and _ids(n.get("evidenceIds"), known)
     ]
     return {
-        "observations": observations[:MAX_OBSERVATIONS],
+        "observations": observations[:MAX_OBSERVATIONS * scale],
         "dropped": dropped,
         "inventory": inventory,
         "gaps": gaps,
@@ -2807,6 +2809,7 @@ def _ask(
     run: dict,
     usage: ReviewUsage,
     images: list[Evidence] | None = None,
+    budget: int | None = None,
 ):
     """One stage's call, with ONE salvage retry. A reply that is not JSON is
     re-asked with a formatting reminder; one cut off at the output cap is
@@ -2814,7 +2817,7 @@ def _ask(
     a failed stage is reported as a failure, never as "nothing found"."""
     images = images or []
     stage_usage = usage.stage(stage)
-    budget = TOKENS[stage]
+    budget = budget or TOKENS[stage]
     prompt = user
     limit = int((run.get("limits") or {}).get("maxTotalTokens") or 0)
     for attempt in range(2):
@@ -2937,20 +2940,25 @@ def still_allowed(run: dict) -> bool:
 
 
 @contextmanager
-def _heartbeat(run_id: str):
-    """Touch heartbeatAt while the run lives; a dead worker stops beating and
-    the API reports the run failed instead of running forever."""
+def _heartbeat(*run_ids: str):
+    """Touch heartbeatAt while the runs live; a dead worker stops beating and
+    the API reports the run failed instead of running forever. A set read
+    together beats for every review it holds, waiting ones included."""
     stop = threading.Event()
+
+    def touch() -> None:
+        with db.connect() as conn:
+            conn.execute('UPDATE rfi_review_runs SET "heartbeatAt" = now() WHERE id = ANY(%s)', (list(run_ids),))
 
     def beat() -> None:
         while not stop.wait(HEARTBEAT_SECONDS):
             try:
-                _set(run_id, heartbeatAt=_now())
+                touch()
             except Exception as exc:  # a missed beat must never fail the run
-                log.debug("rfi review heartbeat for %s failed: %s", run_id[:8], exc)
+                log.debug("rfi review heartbeat for %s failed: %s", run_ids[0][:8], exc)
 
-    _set(run_id, heartbeatAt=_now())
-    thread = threading.Thread(target=beat, name=f"rfi-review-heartbeat-{run_id[:8]}", daemon=True)
+    touch()
+    thread = threading.Thread(target=beat, name=f"rfi-review-heartbeat-{run_ids[0][:8]}", daemon=True)
     thread.start()
     try:
         yield
@@ -2968,7 +2976,7 @@ def load_run(run_id: str) -> dict | None:
         row = conn.execute(
             """
             SELECT id, "projectId", status::text, "checkIds", scope, "thinkingRequested", provider, model, depth,
-                   "createdById", limits, coverage, "checkPlan", "sourceRevisions"
+                   "createdById", limits, coverage, "checkPlan", "sourceRevisions", "setId"
               FROM rfi_review_runs WHERE id = %s
             """,
             (run_id,),
@@ -2976,7 +2984,7 @@ def load_run(run_id: str) -> dict | None:
     if not row:
         return None
     keys = ("id", "projectId", "status", "checkIds", "scope", "thinkingRequested", "provider", "model", "depth",
-            "createdById", "limits", "coverage", "checkPlan", "sourceRevisions")
+            "createdById", "limits", "coverage", "checkPlan", "sourceRevisions", "setId")
     return dict(zip(keys, row))
 
 
@@ -3818,18 +3826,49 @@ def run(run_id: str) -> dict:
     if loaded is None:
         log.warning("rfi review %s: no such run", run_id[:8])
         return {"skipped": "no such run"}
-    if loaded["status"] in ("cancelled", "stale", "ready", "partial"):
+    # Final states: a review a set's reading already failed is not read again
+    # alone by its own job arriving late — that would pay twice for one answer.
+    if loaded["status"] in ("cancelled", "stale", "ready", "partial", "failed"):
         return {"skipped": loaded["status"]}
-    _set(run_id, status="running", startedAt=_now(), error=None, stage="discovery", progress=5)
-    stage = "discovery"
+    # A named RFI's review claims every waiting review of the RFI, ITSELF
+    # included, in one statement: two workers starting two of its elements at
+    # once then agree on one reader instead of each reading alone.
+    group = _claim_set(loaded) if SHARED_SET_READING and loaded.get("setId") else []
+    if not any(r["id"] == run_id for r in group):
+        if not _claim(run_id):
+            # Another worker holds it: usually the review of another element
+            # of the same RFI, reading this one's sheets with its own.
+            log.info("rfi review %s: already being reviewed (with its RFI's other elements), skipped", run_id[:8])
+            return {"skipped": "being reviewed with its set"}
+        group = [loaded] + group
+    else:
+        group = [loaded] + [r for r in group if r["id"] != run_id]
     rec = None
     try:
         rec = _diag_start(loaded)
     except Exception as exc:  # a diagnostic export never stops a review
         log.warning("rfi review %s: diagnostics could not start: %s", run_id[:8], exc)
     try:
+        if len(group) > 1:
+            return _run_group(group)
         with _heartbeat(run_id):
-            return _run(loaded)
+            return _guarded(loaded, lambda: _run(loaded))
+    finally:
+        if rec is not None:
+            try:
+                _diag_output(rec, loaded)
+            except Exception as exc:
+                log.warning("rfi review %s: diagnostic output failed: %s", run_id[:8], exc)
+            rec.finish(_status(run_id) or "unknown")
+            diagnostics.stop()
+
+
+def _guarded(loaded: dict, work, reraise: bool = True):
+    """Run one review's step with its failures written to its own row: a
+    cancel, a revoked user and a failed stage end THIS review only."""
+    run_id = loaded["id"]
+    try:
+        return work()
     except Cancelled:
         log.info("rfi review %s: cancelled", run_id[:8])
         _set(run_id, status="cancelled", completedAt=_now())
@@ -3847,15 +3886,237 @@ def run(run_id: str) -> dict:
         return {"failed": str(exc), "stage": stage}
     except Exception as exc:
         _set(run_id, status="failed", error=doc_errors.scrub(str(exc)), completedAt=_now())
-        raise
-    finally:
-        if rec is not None:
-            try:
-                _diag_output(rec, loaded)
-            except Exception as exc:
-                log.warning("rfi review %s: diagnostic output failed: %s", run_id[:8], exc)
-            rec.finish(_status(run_id) or "unknown")
-            diagnostics.stop()
+        if reraise:
+            raise
+        log.exception("rfi review %s failed", run_id[:8])
+        return {"failed": doc_errors.scrub(str(exc))}
+
+
+# --- One reading for a named RFI's elements ------------------------------------------
+
+# A named RFI plans one review per element over the SAME sheets, and the
+# reading (discovery) was ~75% of each review's cost: seven elements paid to
+# read the same 24 sheets seven times. The first of them to start now claims
+# its waiting siblings, prepares each one's evidence, reads the union ONCE
+# with every element's questions, hands each review its own observations,
+# and finishes them one by one (reasoning, verification, saving stay per
+# element, unchanged). RFI_SHARED_SET_READING=false restores one reading each.
+SHARED_SET_READING = os.environ.get("RFI_SHARED_SET_READING", "true").lower() != "false"
+CLAIM_STALE_SECONDS = 120  # a "running" row this long without a heartbeat is a dead worker's
+MAX_SHARED_OUTPUT_SCALE = 4  # a shared reply's room: TOKENS["discovery"] x min(elements, this)
+
+
+def _claim(run_id: str) -> bool:
+    """Mark the run running unless a live worker already holds it."""
+    with db.connect() as conn:
+        row = conn.execute(
+            f"""
+            UPDATE rfi_review_runs
+               SET status = 'running', "startedAt" = now(), error = NULL, stage = 'discovery', progress = 5,
+                   "heartbeatAt" = now()
+             WHERE id = %s
+               AND (status <> 'running' OR "heartbeatAt" IS NULL
+                    OR "heartbeatAt" < now() - interval '{CLAIM_STALE_SECONDS} seconds')
+            RETURNING id
+            """,
+            (run_id,),
+        ).fetchone()
+    return row is not None
+
+
+def _claim_set(lead: dict) -> list[dict]:
+    """The lead's RFI's waiting reviews, the lead's own included: same RFI,
+    same person, same model and settings, still queued (or orphaned by a dead
+    worker). Claimed in one statement, so a sibling's own job finds it held
+    and steps aside."""
+    limits = lead.get("limits") or {}
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"""
+            UPDATE rfi_review_runs
+               SET status = 'running', "startedAt" = now(), error = NULL, stage = 'discovery', progress = 5,
+                   "heartbeatAt" = now()
+             WHERE "setId" = %s AND "projectId" = %s AND "createdById" IS NOT DISTINCT FROM %s
+               AND provider IS NOT DISTINCT FROM %s AND model IS NOT DISTINCT FROM %s
+               AND "thinkingRequested" IS NOT DISTINCT FROM %s
+               AND (limits ->> 'useBatch') IS NOT DISTINCT FROM %s
+               AND (status = 'queued'
+                    OR (status = 'running' AND ("heartbeatAt" IS NULL
+                        OR "heartbeatAt" < now() - interval '{CLAIM_STALE_SECONDS} seconds')))
+            RETURNING id
+            """,
+            (lead["setId"], lead["projectId"], lead.get("createdById"), lead.get("provider"),
+             lead.get("model"), lead.get("thinkingRequested"),
+             None if limits.get("useBatch") is None else json.dumps(limits.get("useBatch"))),
+        ).fetchall()
+    out = [load_run(r[0]) for r in rows]
+    return [r for r in out if r is not None]
+
+
+def _evidence_key(ev: Evidence) -> tuple:
+    """Two reviews hold the same evidence when it is the same chunk of the same
+    kind, or the same picture byte for byte (a whole sheet renders the same for
+    every element; close-ups aimed at different details do not)."""
+    if ev.image is not None:
+        return ("image", hashlib.sha1(ev.image).hexdigest())
+    if ev.chunk_id:
+        return (ev.kind, ev.chunk_id)
+    return (ev.kind, ev.document_id, ev.page_number, hashlib.sha1(ev.text.encode()).hexdigest())
+
+
+def shared_pool(groups: list[tuple[list[Evidence], list[Evidence]]]) -> tuple[list[Evidence], list[Evidence], list[dict[str, str]]]:
+    """(main, first, maps): one copy of each piece of evidence the reviews hold
+    between them, renumbered ev1.. in the order the reviews hold it; maps[i]
+    takes a shared id to review i's own id for that piece. Pure."""
+    pool: dict[tuple, Evidence] = {}
+    main: list[Evidence] = []
+    first: list[Evidence] = []
+    maps: list[dict[str, str]] = []
+    for items, opening in groups:
+        own: dict[str, str] = {}
+        for group, target in ((opening, first), (items, main)):
+            for ev in group:
+                key = _evidence_key(ev)
+                shared = pool.get(key)
+                if shared is None:
+                    shared = replace(ev, id=f"ev{len(pool) + 1}")
+                    pool[key] = shared
+                    target.append(shared)
+                own.setdefault(shared.id, ev.id)
+        maps.append(own)
+    return main, first, maps
+
+
+def elements_block(preps) -> str:
+    """Who each question belongs to, when one reading serves several elements."""
+    lines = []
+    for p in preps:
+        el = (p.scope.get("library") or {}).get("element") or {}
+        name = el.get("name") or "the reviewed sheets"
+        lines.append(
+            f"- {name}" + (f" ({el['variants']})" if el.get("variants") else "")
+            + f": questions {', '.join(p.asked)}."
+            + (f" For every source of it, record these where printed: {el['attributes']}." if el.get("attributes") else "")
+        )
+    return (
+        "<elements>This one reading serves the reviews of several elements over the same sheets. Each question "
+        "belongs to the element it is listed under (a question listed under several elements is asked for each of "
+        "them): answer it about that element only, and name the element in every observation and inventory "
+        "entry.\n" + "\n".join(lines) + "\n</elements>\n\n"
+    )
+
+
+def split_reading(p, found: dict, own: dict[str, str], pool: dict[str, Evidence],
+                  batches: list[list[Evidence]], unread: list[Evidence], n: int, lead_name: str) -> dict:
+    """This review's share of a reading done for several: the observations,
+    inventory, gaps and not-applicable claims of the questions IT asked, with
+    evidence ids turned into its own. Evidence another element's review held
+    and this one did not is copied in under a new id, so what was cited can be
+    shown and verified here too. Updates p's batches/sent/unread/batch_of to
+    what the shared reading did with this review's evidence."""
+    asked = set(p.asked)
+    next_id = max((int(e[2:]) for e in p.evidence), default=0) + 1
+    added: list[Evidence] = []
+
+    def mine(sid: str) -> str:
+        nonlocal next_id
+        if sid not in own:
+            copy = replace(pool[sid], id=f"ev{next_id}")
+            next_id += 1
+            p.evidence[copy.id] = copy
+            added.append(copy)
+            own[sid] = copy.id
+        return own[sid]
+
+    def ids(values: list[str]) -> list[str]:
+        return [mine(e) for e in values]
+
+    observations = [dict(o, evidenceIds=ids(o["evidenceIds"])) for o in found["observations"] if o["checkId"] in asked]
+    inventory = [
+        dict(i, fields=[dict(f, evidenceIds=ids(f["evidenceIds"])) for f in i["fields"]])
+        for i in found["inventory"] if i["checkId"] in asked
+    ]
+    gaps = [g for g in found["gaps"] if g["checkId"] in asked]
+    not_applicable = [dict(x, evidenceIds=ids(x["evidenceIds"])) for x in found["notApplicable"] if x["checkId"] in asked]
+    p.batches = [[p.evidence[own[ev.id]] for ev in b if ev.id in own] for b in batches]
+    p.batch_of = {own[ev.id]: i + 1 for i, b in enumerate(batches) for ev in b if ev.id in own}
+    in_batches = [ev for b in p.batches for ev in b]
+    held = {ev.id for ev in in_batches}
+    p.sent = in_batches + [ev for ev in added if ev.id not in held]
+    p.unread = [p.evidence[own[ev.id]] for ev in unread if ev.id in own]
+    notes = [
+        f"Read together with {n - 1} other element(s) of this RFI: one reading of {len(batches)} call(s) "
+        f"served all {n}, billed on the review of {lead_name}."
+    ]
+    if added:
+        notes.append(f"{len(added)} piece(s) of evidence another element's review held were cited for this one and added.")
+    return {"observations": observations, "inventory": inventory, "gaps": gaps, "notApplicable": not_applicable,
+            "notes": notes, "calls": len(batches)}
+
+
+def _discover_together(preps) -> list:
+    """ONE reading for several reviews of a set; each gets its own share, or
+    the exception that ended the reading (the lead's cancel ends only the
+    lead: the others report the reading failed)."""
+    lead = preps[0]
+    n = len(preps)
+    main, first, maps = shared_pool([p.reading for p in preps])
+    pool = {ev.id: ev for ev in main + first}
+    asked = list(dict.fromkeys(c for p in preps for c in p.asked))
+    catalogue = {k: v for p in preps for k, v in p.catalogue.items()}
+    batches, unread = discovery_batches(main, first, lead.max_input, sum(p.max_batches for p in preps))
+    limits = [int((p.run.get("limits") or {}).get("maxTotalTokens") or 0) for p in preps]
+    run = dict(lead.run, limits=dict(lead.run.get("limits") or {}, maxTotalTokens=0 if 0 in limits else sum(limits)))
+    already = "".join(dict.fromkeys(p.already for p in preps))
+    checked = "".join(dict.fromkeys(p.checked for p in preps))
+    block = elements_block(preps)
+    lead_name = ((lead.scope.get("library") or {}).get("element") or {}).get("name") or "the first element"
+    found = {"observations": [], "inventory": [], "gaps": [], "notApplicable": []}
+    log.info("rfi review set: %d element review(s) read together, %d evidence item(s) (from %d held), %d call(s)",
+             n, len(pool), sum(len(a) + len(b) for a, b in (p.reading for p in preps)), len(batches))
+    try:
+        for i, batch in enumerate(batches, start=1):
+            known = {ev.id for ev in batch}
+            header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
+            got = _ask(
+                "discovery", discovery_system(asked, catalogue),
+                header + already + checked + block + "\n".join(_evidence_block(ev) for ev in batch),
+                lambda raw, known=known: parse_discovery(raw, known, set(asked), scale=n),
+                run=run, usage=lead.usage, images=[ev for ev in batch if ev.visual],
+                budget=TOKENS["discovery"] * min(n, MAX_SHARED_OUTPUT_SCALE),
+            )
+            for key in found:
+                found[key] += got[key]
+    except Cancelled as exc:
+        stop = StageFailed("discovery", f"the shared reading stopped because the review of {lead_name} was cancelled")
+        return [exc] + [stop] * (n - 1)
+    except (BudgetStop, StageFailed, AccessRevoked) as exc:
+        return [exc] * n
+    return [split_reading(p, found, own, pool, batches, unread, n, lead_name) for p, own in zip(preps, maps)]
+
+
+def _take(share):
+    if isinstance(share, BaseException):
+        raise share
+    return share
+
+
+def _run_group(group: list[dict]) -> dict:
+    """A set's claimed reviews: prepare each, read together, finish each."""
+    results: dict[str, dict] = {}
+    with _heartbeat(*[r["id"] for r in group]):
+        preps = []
+        for r in group:
+            out = _guarded(r, lambda r=r: _prepare(r), reraise=False)
+            if isinstance(out, SimpleNamespace):
+                preps.append(out)
+            else:
+                results[r["id"]] = out
+        shares = _discover_together(preps) if len(preps) > 1 else [None] * len(preps)
+        for p, share in zip(preps, shares):
+            discover = (lambda p=p: _discover_alone(p)) if share is None else (lambda share=share: _take(share))
+            results[p.run_id] = _guarded(p.run, lambda p=p, d=discover: _finish(p, d), reraise=False)
+    return {"set": results}
 
 
 def _failed_results(run: dict, stage: str) -> dict:
@@ -3867,6 +4128,17 @@ def _failed_results(run: dict, stage: str) -> dict:
 
 
 def _run(run: dict) -> dict:
+    """One review on its own: prepare, read, reason, verify, save."""
+    prep = _prepare(run)
+    if isinstance(prep, dict):
+        return prep
+    return _finish(prep, lambda: _discover_alone(prep))
+
+
+def _prepare(run: dict):
+    """Everything a review does before its first model call: the exact
+    geometry, the code checks and the evidence. A dict is an early answer
+    (stale); otherwise a namespace the reading and the rest of the run use."""
     run_id, project_id, scope = run["id"], run["projectId"], run["scope"]
     check_ids = [c for c in (run["checkIds"] or []) if c in CHECKS]
     # "By element": the library questions are asked too, in their own words.
@@ -3983,16 +4255,6 @@ def _run(run: dict) -> dict:
     batch_of = {ev.id: i + 1 for i, b in enumerate(batches) for ev in b}
     _set(run_id, evidenceManifest=json.dumps([ev.manifest(batch_of.get(ev.id)) for ev in evidence.values()]))
     _diag_evidence(evidence, batch_of, unread, max_input, max_batches)
-    if unread:
-        pages = sorted({ev.where for ev in unread})
-        omissions.append(
-            f"{len(unread)} evidence item(s) from {', '.join(pages)} were not read: they did not fit in "
-            f"{max_batches} discovery call(s) of {max_input:,} input tokens"
-        )
-    log.info(
-        "rfi review %s: %d text, %d image, %d aid evidence in %d discovery call(s) (%d unread, %d pictures stored), checks %s",
-        run_id[:8], len(texts), len(all_images), len(aids) + len(index_aids), len(batches), len(unread), stored, check_ids,
-    )
 
     exact = grid_found + overlay.findings + code_found
     already = ""
@@ -4012,6 +4274,46 @@ def _run(run: dict) -> dict:
         + (f" For every source of it, record these where printed: {lib_element['attributes']}." if lib_element.get("attributes") else "")
         + "</element>\n\n"
     ) if library else ""
+    sent = [ev for b in batches for ev in b]
+    # Discovery's two groups, kept for a reading shared with other reviews.
+    reading = (texts + visuals + aids, overlay.pairs + index_aids)
+    return SimpleNamespace(**{k: v for k, v in locals().items() if k != "open_page"})
+
+
+def _discover_alone(p) -> dict:
+    """This review's own reading: its evidence, in as many calls as it needs."""
+    out = {"observations": [], "inventory": [], "gaps": [], "notApplicable": [], "notes": []}
+    for i, batch in enumerate(p.batches, start=1):
+        known = {ev.id for ev in batch}
+        images = [ev for ev in batch if ev.visual]
+        header = f"<batch>Call {i} of {len(p.batches)}: this call shows part of the evidence.</batch>\n\n" if len(p.batches) > 1 else ""
+        found = _ask(
+            "discovery", discovery_system(p.asked, p.catalogue),
+            header + p.already + p.checked + p.element_block + "\n".join(_evidence_block(ev) for ev in batch),
+            lambda raw, known=known: parse_discovery(raw, known, set(p.asked)), run=p.run, usage=p.usage, images=images,
+        )
+        out["observations"] += found["observations"]
+        out["inventory"] += found["inventory"]
+        out["gaps"] += found["gaps"]
+        out["notApplicable"] += found["notApplicable"]
+        if found["dropped"]:
+            out["notes"].append(f"Discovery call {i}: {found['dropped']} observation(s) dropped for citing evidence that was not supplied or naming no check.")
+    out["calls"] = len(p.batches)
+    return out
+
+
+def _finish(p, discover) -> dict:
+    """Read (through `discover`, this review's own reading or its share of a
+    set's), then reason, verify and save."""
+    run, run_id, project_id, scope = p.run, p.run_id, p.project_id, p.scope
+    check_ids, library, asked, catalogue, linked = p.check_ids, p.library, p.asked, p.catalogue, p.linked
+    notes, planned, search_log, omissions = p.notes, p.planned, p.search_log, p.omissions
+    usage, max_input, max_batches = p.usage, p.max_input, p.max_batches
+    grid_found, texts, aids, index_aids, measured = p.grid_found, p.texts, p.aids, p.index_aids, p.measured
+    overlay, all_images, evidence, stored = p.overlay, p.all_images, p.evidence, p.stored
+    element, schedule_sheets = p.element, p.schedule_sheets
+    exact, already, checked, element_block = p.exact, p.already, p.checked, p.element_block
+    batches, unread, batch_of, sent = p.batches, p.unread, p.batch_of, p.sent
     observations: list[dict] = []
     inventory: list[dict] = []
     # What the plan could not put in front of the review (rfiReviewPlanner:
@@ -4028,23 +4330,28 @@ def _run(run: dict) -> dict:
     unsettled: list[dict] = []
     covered: set[tuple[str, int, str]] = set()
     stopped: str | None = None
-    sent = [ev for b in batches for ev in b]
     try:
-        for i, batch in enumerate(batches, start=1):
-            known = {ev.id for ev in batch}
-            images = [ev for ev in batch if ev.visual]
-            header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
-            found = _ask(
-                "discovery", discovery_system(asked, catalogue), header + already + checked + element_block + "\n".join(_evidence_block(ev) for ev in batch),
-                lambda raw, known=known: parse_discovery(raw, known, set(asked)), run=run, usage=usage, images=images,
+        try:
+            found = discover()
+        finally:
+            # A shared reading may have handed this review more evidence, or
+            # left some of it unread: read what it settled on either way.
+            batches, unread, batch_of, sent = p.batches, p.unread, p.batch_of, p.sent
+            if unread:
+                pages = sorted({ev.where for ev in unread})
+                omissions.append(
+                    f"{len(unread)} evidence item(s) from {', '.join(pages)} were not read: they did not fit in "
+                    f"{max_batches} discovery call(s) of {max_input:,} input tokens"
+                )
+            log.info(
+                "rfi review %s: %d text, %d image, %d aid evidence in %d discovery call(s) (%d unread, %d pictures stored), checks %s",
+                run_id[:8], len(texts), len(all_images), len(aids) + len(index_aids), len(batches), len(unread), stored, check_ids,
             )
-            observations += found["observations"]
-            inventory += found["inventory"]
-            gaps += found["gaps"]
-            not_applicable += found["notApplicable"]
-            if found["dropped"]:
-                notes.append(f"Discovery call {i}: {found['dropped']} observation(s) dropped for citing evidence that was not supplied or naming no check.")
-        observations = observations[: MAX_OBSERVATIONS * max(1, len(batches))]
+        observations, inventory = found["observations"], found["inventory"]
+        gaps += found["gaps"]
+        not_applicable += found["notApplicable"]
+        notes += found["notes"]
+        observations = observations[: MAX_OBSERVATIONS * max(1, found["calls"])]
         inventory, split_note = complete_inventory(inventory, sent, lambda user, shown: _ask(
             "discovery", discovery_system(asked, catalogue), user + element_block + "\n".join(_evidence_block(ev) for ev in shown),
             lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
