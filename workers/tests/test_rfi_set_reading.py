@@ -243,3 +243,66 @@ def test_a_job_that_lost_its_own_review_still_reviews_the_siblings_it_claimed(mo
 
 def test_a_job_that_claimed_nothing_steps_aside(monkeypatch):
     assert _race(monkeypatch, []) == ({"skipped": "being reviewed with its set"}, [])
+
+
+_TEST_DB = __import__("os").environ.get("RFI_TEST_DATABASE_URL")
+
+
+@__import__("pytest").fixture
+def bare_db(monkeypatch):
+    import config
+    import db
+
+    monkeypatch.setattr(config, "DATABASE_URL", _TEST_DB)
+    monkeypatch.setattr(db, "_pool", None)
+    monkeypatch.setattr(db, "_pool_unavailable", True)
+    return db
+
+
+def _waiting_set(db, n=3):
+    user, project, set_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    runs = [str(uuid.uuid4()) for _ in range(n)]
+    with db.connect() as conn:
+        conn.execute("INSERT INTO users (id, email, name, \"passwordHash\") VALUES (%s, %s, 'set test', 'x')",
+                     (user, f"{user}@test.invalid"))
+        conn.execute('INSERT INTO projects (id, name, "ownerId") VALUES (%s, \'set test\', %s)', (project, user))
+        conn.execute('INSERT INTO rfi_sets (id, "projectId", name, sheets, items, "updatedAt") VALUES (%s, %s, %s, %s, %s, now())',
+                     (set_id, project, "race", json.dumps(["S1.101"]), json.dumps([])))
+        for r in runs:
+            conn.execute(
+                'INSERT INTO rfi_review_runs (id, "projectId", "createdById", target, "checkIds", status, provider, '
+                '"thinkingRequested", scope, "scopeHash", "setId") '
+                "VALUES (%s, %s, %s, %s, '[]', 'queued', 'claude', 'medium', '{}', %s, %s)",
+                (r, project, user, json.dumps({"type": "sheet", "values": ["S1.101"]}), r, set_id),
+            )
+    return runs
+
+
+@__import__("pytest").mark.skipif(not _TEST_DB, reason="set RFI_TEST_DATABASE_URL to a migrated database")
+def test_two_jobs_claiming_one_set_at_once_do_not_split_it(bare_db):
+    import threading
+
+    runs = _waiting_set(bare_db)
+    lead = rfi_review.load_run(runs[0])
+    # A claim already in progress elsewhere: hold the set's lock in an open transaction.
+    with bare_db.connect() as holder:
+        holder.execute("SELECT pg_advisory_xact_lock(%s)", (bare_db._lock_key(f"rfi-set:{lead['setId']}"),))
+        got: list = []
+        t = threading.Thread(target=lambda: got.append(rfi_review._claim_set(lead)))
+        t.start()
+        t.join(0.5)
+        assert t.is_alive(), "a second claim must wait for the first to commit"
+    t.join(5)
+    assert sorted(r["id"] for r in got[0]) == sorted(runs)
+
+    # Two claims started together: one takes every review, the other none.
+    runs = _waiting_set(bare_db)
+    lead = rfi_review.load_run(runs[0])
+    gate, results = threading.Barrier(2), []
+    def claim():
+        gate.wait()
+        results.append(len(rfi_review._claim_set(lead)))
+    threads = [threading.Thread(target=claim) for _ in range(2)]
+    [t.start() for t in threads]
+    [t.join(10) for t in threads]
+    assert sorted(results) == [0, 3]

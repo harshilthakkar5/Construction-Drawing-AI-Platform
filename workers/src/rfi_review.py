@@ -3948,6 +3948,12 @@ def _claim_set(lead: dict) -> list[dict]:
     and steps aside."""
     limits = lead.get("limits") or {}
     with db.connect() as conn:
+        # One claim per RFI at a time, held to this transaction's commit. The
+        # UPDATE alone splits a set when two of its jobs start together (each
+        # takes the rows the other has not locked yet, and the two halves read
+        # separately); serialised, the first takes every waiting review and the
+        # second finds none.
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (db._lock_key(f"rfi-set:{lead['setId']}"),))
         rows = conn.execute(
             f"""
             UPDATE rfi_review_runs
