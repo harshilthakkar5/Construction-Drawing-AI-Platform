@@ -3073,7 +3073,7 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
   * RFI 009 (10/S4.10's wall T.O.C. "SEE PLAN", nothing on S2.31-A where it is cut) was proposed and set aside twice,
     the second time CITING pier tops while conceding "the evidence does not show that the plans lack these values, so
     no gap is demonstrated". That asks a problem to prove an absence: `contested` now treats a reason of that shape
-    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. A kept deferral finding also gets, as `kind="callout"`
+    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. Either order counts: "rests on the plan not dimensioning the extents, which the evidence does not establish" (UT Law RFI 001, set aside by a guide-on run) names the absence first. A kept deferral finding also gets, as `kind="callout"`
     CONTEXT evidence, where the plans call out the details whose "SEE PLAN" lies in its cited boxes
     (`with_callout_context`, reviewed plans first, ≤3) — where the value belongs and a person looks. A callout is in
     WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was

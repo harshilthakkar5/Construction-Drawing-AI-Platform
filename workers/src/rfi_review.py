@@ -1997,7 +1997,13 @@ _DEFERS = re.compile(
 _UNPROVEN_ABSENCE = re.compile(
     r"\b(?:does\s+not|doesn'?t|do\s+not|don'?t|nothing|no\s+evidence)\s+(?:\w+\s+){0,3}?"
     r"(?:shows?|establish(?:es)?|demonstrates?|proves?|indicates?)\b[^.]{0,80}?"
-    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed))\b"
+    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed|stated|dimension(?:ed|s)?))\b"
+    # The absence first, then "which the evidence does not establish". UT Law RFI 001 with
+    # the review guide on: "the missing-run claim rests on the plan not dimensioning the
+    # extents, which the evidence does not establish".
+    r"|\b(?:not\s+(?:\w+ly\s+)?(?:\w+ing|given|shown|stated|printed|provided|dimensioned|specified|labell?ed)"
+    r"|lacks?|lacking|missing|absent|absence\s+of|omit(?:s|ted|ting)?)\b[^.]{0,100}?\bwhich\s+(?:the\s+)?"
+    r"(?:\w+\s+){0,2}?(?:does|do|did)\s+not\s+(?:\w+\s+)?(?:establish|show|demonstrate|prove|support)\b"
     r"|\bno\s+gap\s+(?:is|was|has\s+been)\s+(?:demonstrated|shown|established|proven)\b"
     r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b"
     # Victaulic RFI 005, re-checked twice: "cannot be settled from the evidence shown", and
