@@ -3334,7 +3334,16 @@ little to answer; on the stored runs it flags exactly that Elevator pits and not
 thin share. Two jobs of one RFI starting at the same instant could each claim part of it; the one whose OWN review the other
 took used to step aside, leaving the siblings IT had claimed "running" with no reader (the re-test lost Elevator pits so). It now
 reviews what it claimed. And the claim is serialised per RFI (`pg_advisory_xact_lock` on `rfi-set:<id>` inside `_claim_set`), so the first job takes
-every waiting review and the second none — unserialised, the re-test after that fix still read two elements together and one alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+every waiting review and the second none — unserialised, the re-test after that fix still read two elements together and one alone.
+Read alone (the default), the elements still send the SAME whole-sheet pictures, so `RFI_SET_PICTURE_CACHE` (default on) keeps
+the group claim and `_discover_in_turn` reads them IN TURN: the review with the most whole sheets first, then the rest together
+(`RFI_SET_READ_PARALLEL`), each its own reading, and every set reading marks its whole sheets for the prompt cache
+(`llm.complete(cache_images=n, cache_ttl=…)`: 1h in batch mode, since a batch can wait minutes). A cache is a PREFIX match, so the
+discovery opening had to stop varying: `discovery_system()` takes no questions (they travel at the END of the message,
+`discovery_questions`), and `sheets_first` puts whole sheets first in (document, page) order, labelled with no evidence id
+("Whole sheet 1 of 3: S1.101"), with a preface mapping each to its id. A single review sends no cache mark (a write costs 1.25x,
+2x for an hour). 1-hour writes are recorded as 1.6 write tokens (`usage.cache_write_tokens`) so every 1.25x price stays right.
+Not yet measured on a model; the estimate still prices reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

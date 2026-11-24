@@ -374,7 +374,8 @@ def _check_labels(images, image_labels) -> None:
 
 
 def _user_content_claude(
-    user: str, images: list[bytes] | None, image_labels: list[str] | None = None
+    user: str, images: list[bytes] | None, image_labels: list[str] | None = None, cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> str | list[dict]:
     """A plain string when there are no images, so every existing caller's
     request is byte-identical to what it sent before — a prompt cache is a
@@ -392,6 +393,12 @@ def _user_content_claude(
     run of near-identical close-ups — reading a real mark into the wrong grid
     crossing while every echoed index and coordinate still checks out, because
     the model copied the listing correctly and looked at the wrong picture.
+
+    `cache_images` = n puts a cache breakpoint on the n-th image: the system
+    prompt plus the first n images (and their labels) become a prefix a later
+    request can read back at a tenth of the price, when it opens with the SAME
+    bytes. The caller decides when that is worth the 25% a write costs —
+    another request must follow within the cache's lifetime.
     """
     _check_labels(images, image_labels)
     if not images:
@@ -410,6 +417,8 @@ def _user_content_claude(
                 },
             }
         )
+        if cache_images and i == min(cache_images, len(images)) - 1:
+            blocks[-1]["cache_control"] = {"type": "ephemeral", **({"ttl": cache_ttl} if cache_ttl else {})}
     blocks.append({"type": "text", "text": user})
     return blocks
 
@@ -446,7 +455,8 @@ def _send_claude(client, request: dict):
 
 def _complete_claude(
     system, user, *, model, max_tokens, kind, project_id, cache_system, images=None,
-    thinking_setting: str | None = None, image_labels: list[str] | None = None,
+    thinking_setting: str | None = None, image_labels: list[str] | None = None, cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> Reply:
     client = anthropic_client()
     if client is None:
@@ -458,7 +468,7 @@ def _complete_claude(
             max_tokens=max_tokens + extra,
             system=_system_blocks(system, cache_system),
             messages=[
-                {"role": "user", "content": _user_content_claude(user, images, image_labels)}
+                {"role": "user", "content": _user_content_claude(user, images, image_labels, cache_images, cache_ttl)}
             ],
         )
         if thinking is not None:
@@ -527,7 +537,7 @@ def _complete_claude(
         input_tokens=getattr(meta, "input_tokens", 0) or 0,
         output_tokens=getattr(meta, "output_tokens", 0) or 0,
         cache_read_tokens=getattr(meta, "cache_read_input_tokens", 0) or 0,
-        cache_write_tokens=getattr(meta, "cache_creation_input_tokens", 0) or 0,
+        cache_write_tokens=usage.cache_write_tokens(meta),
         thinking=describe_thinking(thinking, output_config),
         thinking_adjusted=adjusted,
     )
@@ -1125,6 +1135,8 @@ def _batch_claude(
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
     replies: dict[str, Reply] | None = None,
+    cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> dict[str, str]:
     """Run the batch with the SAME thinking fields a single call would send.
 
@@ -1143,7 +1155,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens + extra, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=thinking, output_config=output_config,
-        images=images, image_labels=image_labels, replies=replies,
+        images=images, image_labels=image_labels, replies=replies, cache_images=cache_images, cache_ttl=cache_ttl,
     )
     if results or not errored or thinking is None:
         return results
@@ -1163,7 +1175,7 @@ def _batch_claude(
         prompts, system=system, model=model, max_tokens=max_tokens, kind=kind,
         project_id=project_id, cache_system=cache_system,
         thinking=None, output_config=fallback,
-        images=images, image_labels=image_labels, replies=replies,
+        images=images, image_labels=image_labels, replies=replies, cache_images=cache_images, cache_ttl=cache_ttl,
     )
     if results and thinking_setting is None:
         _no_thinking_param.add(model)
@@ -1184,6 +1196,8 @@ def _run_claude_batch(
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
     replies: dict[str, Reply] | None = None,
+    cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> tuple[dict[str, str], bool]:
     """One submit-and-collect pass. Returns (results, every_entry_errored)."""
     client = anthropic_client()
@@ -1192,7 +1206,7 @@ def _run_claude_batch(
 
     def params(custom_id: str, prompt: str) -> dict:
         content = _user_content_claude(
-            prompt, (images or {}).get(custom_id), (image_labels or {}).get(custom_id)
+            prompt, (images or {}).get(custom_id), (image_labels or {}).get(custom_id), cache_images, cache_ttl
         )
         body = {
             "model": model,
@@ -1256,7 +1270,7 @@ def _run_claude_batch(
                 input_tokens=getattr(meta, "input_tokens", 0) or 0,
                 output_tokens=getattr(meta, "output_tokens", 0) or 0,
                 cache_read_tokens=getattr(meta, "cache_read_input_tokens", 0) or 0,
-                cache_write_tokens=getattr(meta, "cache_creation_input_tokens", 0) or 0,
+                cache_write_tokens=usage.cache_write_tokens(meta),
                 thinking=describe_thinking(thinking, output_config),
             )
     return results, entries > 0 and errored == entries
@@ -1498,6 +1512,8 @@ def complete_batch(
     images: dict[str, list[bytes]] | None = None,
     image_labels: dict[str, list[str]] | None = None,
     replies: dict[str, Reply] | None = None,
+    cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> dict[str, str]:
     """Run many prompts as one batch. {custom_id: prompt} -> {custom_id: text}.
 
@@ -1509,6 +1525,8 @@ def complete_batch(
     `images` / `image_labels` are per entry ({custom_id: [png, ...]}), built
     exactly as a single call builds them; an entry with none sends the plain
     string it always did.
+
+    `cache_images` / `cache_ttl` are as for `complete`, applied to every entry.
 
     `thinking` is a stage setting exactly as for `complete`: the batch sends
     the same fields, with the same output headroom, as one call would.
@@ -1553,6 +1571,8 @@ def complete_batch(
         images=images,
         image_labels=image_labels,
         replies=replies,
+        cache_images=cache_images,
+        cache_ttl=cache_ttl,
     )
 
 
@@ -1622,8 +1642,16 @@ def complete(
     images: list[bytes] | None = None,
     thinking: str | None = None,
     image_labels: list[str] | None = None,
+    cache_images: int = 0,
+    cache_ttl: str | None = None,
 ) -> Reply | None:
     """Ask the given provider for a completion.
+
+    `cache_images` = n (Claude) marks the system prompt plus the first n images
+    as a cached prefix — see `_user_content_claude`. Gemini caches a repeated
+    opening on its own, so there it only needs the caller's ordering.
+    `cache_ttl` "1h" keeps that prefix an hour (a write costs 2x rather than
+    1.25x) for a caller whose next request may wait minutes in a batch.
 
     `image_labels`, one per image, are placed as text directly before each
     image, so a model shown many images reads which is which instead of
@@ -1672,6 +1700,8 @@ def complete(
                 images=images,
                 thinking_setting=thinking,
                 image_labels=image_labels,
+                cache_images=cache_images,
+                cache_ttl=cache_ttl,
             )
     except Exception as exc:
         _note_missing_model(provider, model_for(provider, claude_model, gemini_model), kind, exc)

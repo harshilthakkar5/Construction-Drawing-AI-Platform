@@ -55,7 +55,9 @@ import json
 import os
 import re
 import tempfile
+import contextvars
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -104,7 +106,7 @@ CROP_MIN_PT = 260.0
 
 # Bumped whenever a prompt below changes meaning; the diagnostic export also
 # records each prompt's sha256.
-PROMPT_VERSION = "review-2026-11-11.1"
+PROMPT_VERSION = "review-2026-11-24.1"
 
 MAX_OBSERVATIONS = 40
 MAX_CANDIDATES = 12
@@ -963,11 +965,15 @@ GRID_SPANS_RULE = (
 )
 
 
-def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str:
+def discovery_system() -> str:
+    """The SAME for every review, element and question set, so it and the
+    whole-sheet pictures after it make one opening that several reviews of the
+    same sheets can read from the prompt cache. What differs per review — the
+    questions — travels at the END of the message (`discovery_questions`)."""
     return (
         "You review construction drawings for coordination problems. This is step 1 of 3: "
         "DISCOVERY. Record what the evidence SHOWS. Do not decide yet whether anything is wrong.\n\n"
-        f"Questions to answer (only these):\n{_checks_block(check_ids, catalogue=catalogue)}\n\n"
+        "The questions to answer are listed at the END of the message, under <questions>: answer only those.\n\n"
         f"{_TRUST_RULES}\n"
         "Rules:\n"
         "- Every observation names its check and cites the ids of the evidence it comes from, and ONLY "
@@ -989,8 +995,7 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "only the ones a question names: the code compares sources field by field. A field is `supported` only "
         "with evidence ids; `unknown` when the evidence given does not show it; `not_applicable` when the "
         "element has no such field. Mark `derived: true` for a value you worked out rather than read.\n"
-        + (GRID_SPANS_RULE if "G01" in check_ids else "")
-        + "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
+        "- gaps: a field a check needs that no evidence given shows. notApplicable: a check whose elements "
         "the evidence shows do not exist here (e.g. no beams on a slab plan), with the evidence that shows it.\n"
         'Respond with ONLY JSON, no prose and no code fences: {"observations": [{"checkId": "C01", '
         '"element": "...", "location": "...", "statement": "...", "evidenceIds": ["ev3"], '
@@ -998,6 +1003,15 @@ def discovery_system(check_ids: list[str], catalogue: dict | None = None) -> str
         '"location": "3/C", "source": "column schedule on S8.02", "fields": [{"name": "size", "value": "14 x 30", "state": "supported", '
         '"evidenceIds": ["ev3"], "derived": false}]}], "gaps": [{"checkId": "C01", "field": "...", '
         '"reason": "..."}], "notApplicable": [{"checkId": "B01", "reason": "...", "evidenceIds": ["ev2"]}]}'
+    )
+
+
+def discovery_questions(check_ids: list[str], catalogue: dict | None = None) -> str:
+    """This review's questions, placed after the evidence (see discovery_system)."""
+    return (
+        f"\n\n<questions>\nQuestions to answer (only these):\n{_checks_block(check_ids, catalogue=catalogue)}\n"
+        + (f"For the grid question, also:\n{GRID_SPANS_RULE}" if "G01" in check_ids else "")
+        + "</questions>"
     )
 
 
@@ -2770,10 +2784,43 @@ class ReviewUsage:
 # --- Model calls ---------------------------------------------------------------------
 
 
-def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: int, images: list[Evidence]):
+def sheets_first(images: list[Evidence]) -> tuple[list[Evidence], list[str], str, int]:
+    """(images, labels, preface, n): the whole-sheet pictures first, in one
+    fixed order (document, page) and labelled WITHOUT this review's evidence
+    ids, then everything else as before. Two reviews of the same sheets then
+    open with byte-identical pictures, which is what lets the second read them
+    from the prompt cache. The preface, placed after the pictures, tells the
+    model which evidence id each of them is, so citations work exactly as
+    they did. Pure."""
+    sheets = sorted((ev for ev in images if ev.kind == "page" and not ev.caption),
+                    key=lambda ev: (ev.document_id, ev.page_number))
+    if not sheets:
+        return images, [ev.label() for ev in images], "", 0
+    ids = {ev.id for ev in sheets}
+    rest = [ev for ev in images if ev.id not in ids]
+    n = len(sheets)
+    labels = [f"Whole sheet {i} of {n}: {ev.where}" for i, ev in enumerate(sheets, start=1)]
+    preface = (
+        "The whole-sheet pictures at the start of this message are, by evidence id: "
+        + "; ".join(f"whole sheet {i} = {ev.id} ({ev.where})" for i, ev in enumerate(sheets, start=1))
+        + ". Cite them by those ids.\n\n"
+    )
+    return sheets + rest, labels + [ev.label() for ev in rest], preface, n
+
+
+# A set's later readings reuse the first one's whole-sheet pictures within this
+# time, so a batch (which can wait minutes before it runs) asks for the 1-hour
+# cache, and a direct call the default 5 minutes. llm marks it; this decides it.
+CACHE_TTL_BATCH = "1h"
+
+
+def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: int, images: list[Evidence],
+          labels: list[str] | None = None, cache_images: int = 0):
     """One model call: direct, or — when the plan chose batch mode — as a
     one-entry batch at half price, waited for. The request is the same either
-    way, so a review reads and answers exactly what it would have."""
+    way, so a review reads and answers exactly what it would have.
+    `cache_images` marks the first n pictures (with the system prompt) as a
+    cached opening, for a set whose next review will open the same way."""
     common = dict(
         provider=usage.provider,
         claude_model=usage.model if usage.provider == "claude" else REVIEW_MODEL,
@@ -2785,8 +2832,12 @@ def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: in
         thinking=thinking_setting(run),
     )
     pictures = [ev.image for ev in images] or None
-    labels = [ev.label() for ev in images] or None
-    if not (run.get("limits") or {}).get("useBatch"):
+    labels = (labels if labels is not None else [ev.label() for ev in images]) or None
+    batch = bool((run.get("limits") or {}).get("useBatch"))
+    if cache_images and pictures:
+        common["cache_images"] = cache_images
+        common["cache_ttl"] = CACHE_TTL_BATCH if batch else None
+    if not batch:
         return llm.complete(system, prompt, images=pictures, image_labels=labels, **common)
     # shortcut: one batch per call, so a cancelled run is noticed only when its
     # batch lands; submit a set's calls together if the wait becomes the cost.
@@ -2810,12 +2861,23 @@ def _ask(
     usage: ReviewUsage,
     images: list[Evidence] | None = None,
     budget: int | None = None,
+    sheets_first_order: bool = False,
+    cache_sheets: bool = False,
 ):
     """One stage's call, with ONE salvage retry. A reply that is not JSON is
     re-asked with a formatting reminder; one cut off at the output cap is
     re-asked with twice the room. Anything still unusable raises StageFailed —
-    a failed stage is reported as a failure, never as "nothing found"."""
+    a failed stage is reported as a failure, never as "nothing found".
+
+    `sheets_first_order` (discovery) opens with the whole-sheet pictures in a
+    fixed order (`sheets_first`); `cache_sheets` marks them as a cached opening,
+    asked only when another review of the same sheets will follow."""
     images = images or []
+    labels, cache_n = None, 0
+    if sheets_first_order and images:
+        images, labels, preface, n_sheets = sheets_first(images)
+        user = preface + user
+        cache_n = n_sheets if cache_sheets else 0
     stage_usage = usage.stage(stage)
     budget = budget or TOKENS[stage]
     prompt = user
@@ -2843,7 +2905,8 @@ def _ask(
                 if dc is not None:
                     dc.describe_images([_image_source(ev) for ev in images])
                     _stage_calls(stage, dc.id)
-                reply = _send(system, prompt, run=run, usage=usage, budget=budget, images=images)
+                reply = _send(system, prompt, run=run, usage=usage, budget=budget, images=images,
+                              labels=labels, cache_images=cache_n)
             if reply is not None:
                 break
             stage_usage.failed_calls += 1
@@ -3833,7 +3896,7 @@ def run(run_id: str) -> dict:
     # A named RFI's review claims every waiting review of the RFI, ITSELF
     # included, in one statement: two workers starting two of its elements at
     # once then agree on one reader instead of each reading alone.
-    group = _claim_set(loaded) if SHARED_SET_READING and loaded.get("setId") else []
+    group = _claim_set(loaded) if (SHARED_SET_READING or SET_PICTURE_CACHE) and loaded.get("setId") else []
     if not any(r["id"] == run_id for r in group):
         if _claim(run_id):
             group = [loaded] + group
@@ -3921,6 +3984,16 @@ def shared_reading_on(value: str | None) -> bool:
 
 
 SHARED_SET_READING = shared_reading_on(os.environ.get("RFI_SHARED_SET_READING"))
+
+# Reading alone, a named RFI's elements still send the SAME whole-sheet pictures
+# to the AI, one review after another. With this on (the default) one worker
+# takes the set's waiting reviews together, reads the first element, and once
+# its call has landed sends the others' readings, which open with the same
+# pictures (`sheets_first`) and read them from the prompt cache at a tenth of
+# the price. Each element still gets its own reading. false = every review
+# reads in its own job, as before.
+SET_PICTURE_CACHE = (os.environ.get("RFI_SET_PICTURE_CACHE") or "true").strip().lower() != "false"
+SET_READ_PARALLEL = max(1, int(os.environ.get("RFI_SET_READ_PARALLEL", "4")))
 CLAIM_STALE_SECONDS = 120  # a "running" row this long without a heartbeat is a dead worker's
 MAX_SHARED_OUTPUT_SCALE = 4  # a shared reply's room: TOKENS["discovery"] x min(elements, this)
 # One reading can serve its elements unevenly: the first paid A/B (UT Law, three
@@ -4138,11 +4211,12 @@ def _discover_together(preps) -> list:
             known = {ev.id for ev in batch}
             header = f"<batch>Call {i} of {len(batches)}: this call shows part of the evidence.</batch>\n\n" if len(batches) > 1 else ""
             got = _ask(
-                "discovery", discovery_system(asked, catalogue),
-                header + already + checked + block + "\n".join(_evidence_block(ev) for ev in batch),
+                "discovery", discovery_system(),
+                header + already + checked + block + "\n".join(_evidence_block(ev) for ev in batch)
+                + discovery_questions(asked, catalogue),
                 lambda raw, known=known: parse_discovery(raw, known, set(asked), scale=n),
                 run=run, usage=lead.usage, images=[ev for ev in batch if ev.visual],
-                budget=TOKENS["discovery"] * min(n, MAX_SHARED_OUTPUT_SCALE),
+                budget=TOKENS["discovery"] * min(n, MAX_SHARED_OUTPUT_SCALE), sheets_first_order=True,
             )
             for key in found:
                 found[key] += got[key]
@@ -4195,7 +4269,12 @@ def _run_group(group: list[dict]) -> dict:
                 preps.append(out)
             else:
                 results[r["id"]] = out
-        shares = _discover_together(preps) if len(preps) > 1 else [None] * len(preps)
+        if len(preps) < 2:
+            shares = [None] * len(preps)
+        elif SHARED_SET_READING:
+            shares = _discover_together(preps)
+        else:
+            shares = _discover_in_turn(preps)
         for p, share in zip(preps, shares):
             discover = (lambda p=p: _discover_alone(p)) if share is None else (lambda share=share: _take(share))
             results[p.run_id] = _guarded(p.run, lambda p=p, d=discover: _finish(p, d), reraise=False)
@@ -4363,17 +4442,57 @@ def _prepare(run: dict):
     return SimpleNamespace(**{k: v for k, v in locals().items() if k != "open_page"})
 
 
-def _discover_alone(p) -> dict:
-    """This review's own reading: its evidence, in as many calls as it needs."""
+def sheet_count(p) -> int:
+    return sum(1 for b in p.batches for ev in b if ev.kind == "page" and not ev.caption)
+
+
+def _discover_in_turn(preps) -> list:
+    """Each review's OWN reading, ordered so the prompt cache pays: the review
+    with the most whole-sheet pictures reads first (its call writes them to the
+    cache), and once it has landed the others are sent together and read the
+    pictures they share with it at a tenth of the price. A reading that fails
+    is that review's failure only. Returns, per prep, a share or the exception."""
+    order = sorted(range(len(preps)), key=lambda i: -sheet_count(preps[i]))
+    out: list = [None] * len(preps)
+    lead = preps[order[0]]
+    lead_name = ((lead.scope.get("library") or {}).get("element") or {}).get("name") or "the first element"
+
+    def read(i: int):
+        try:
+            got = _discover_alone(preps[i], cache=True)
+        except (Cancelled, AccessRevoked, BudgetStop, StageFailed) as exc:
+            return exc
+        if i != order[0]:
+            got["notes"] = [f"Read after {lead_name}, reusing the whole-sheet pictures it sent to the AI "
+                            "where they are the same."] + got["notes"]
+        return got
+
+    out[order[0]] = read(order[0])
+    rest = order[1:]
+    log.info("rfi review set: %d element review(s) read one by one; the first wrote %d whole-sheet picture(s) "
+             "to the cache, %d more now read in parallel", len(preps), sheet_count(lead), len(rest))
+    with ThreadPoolExecutor(max_workers=min(len(rest), SET_READ_PARALLEL)) as pool:
+        futures = {i: pool.submit(contextvars.copy_context().run, read, i) for i in rest}
+        for i, f in futures.items():
+            out[i] = f.result()
+    return out
+
+
+def _discover_alone(p, cache: bool = False) -> dict:
+    """This review's own reading: its evidence, in as many calls as it needs.
+    `cache`: another review of the same sheets reads next, so mark the
+    whole-sheet pictures as a cached opening (see `_discover_in_turn`)."""
     out = {"observations": [], "inventory": [], "gaps": [], "notApplicable": [], "notes": []}
     for i, batch in enumerate(p.batches, start=1):
         known = {ev.id for ev in batch}
         images = [ev for ev in batch if ev.visual]
         header = f"<batch>Call {i} of {len(p.batches)}: this call shows part of the evidence.</batch>\n\n" if len(p.batches) > 1 else ""
         found = _ask(
-            "discovery", discovery_system(p.asked, p.catalogue),
-            header + p.already + p.checked + p.element_block + "\n".join(_evidence_block(ev) for ev in batch),
+            "discovery", discovery_system(),
+            header + p.already + p.checked + p.element_block + "\n".join(_evidence_block(ev) for ev in batch)
+            + discovery_questions(p.asked, p.catalogue),
             lambda raw, known=known: parse_discovery(raw, known, set(p.asked)), run=p.run, usage=p.usage, images=images,
+            sheets_first_order=True, cache_sheets=cache,
         )
         out["observations"] += found["observations"]
         out["inventory"] += found["inventory"]
@@ -4436,17 +4555,19 @@ def _finish(p, discover) -> dict:
         notes += found["notes"]
         observations = observations[: MAX_OBSERVATIONS * max(1, found["calls"])]
         inventory, split_note = complete_inventory(inventory, sent, lambda user, shown: _ask(
-            "discovery", discovery_system(asked, catalogue), user + element_block + "\n".join(_evidence_block(ev) for ev in shown),
+            "discovery", discovery_system(),
+            user + element_block + "\n".join(_evidence_block(ev) for ev in shown) + discovery_questions(asked, catalogue),
             lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
-            run=run, usage=usage, images=[ev for ev in shown if ev.visual],
+            run=run, usage=usage, images=[ev for ev in shown if ev.visual], sheets_first_order=True,
         )["inventory"])
         if split_note:
             notes.append(split_note)
         if "G01" in asked:
             inventory, spans_note = complete_grid_spans(inventory, sent, lambda user, shown: _ask(
-                "discovery", discovery_system(asked, catalogue), user + "\n".join(_evidence_block(ev) for ev in shown),
+                "discovery", discovery_system(),
+                user + "\n".join(_evidence_block(ev) for ev in shown) + discovery_questions(asked, catalogue),
                 lambda raw, known={ev.id for ev in shown}: parse_discovery(raw, known, set(asked)),
-                run=run, usage=usage, images=shown,
+                run=run, usage=usage, images=shown, sheets_first_order=True,
             )["inventory"])
             if spans_note:
                 notes.append(spans_note)

@@ -318,3 +318,95 @@ def test_reading_together_is_off_unless_asked_for():
     for value, expected in ((None, False), ("", False), ("false", False), ("yes", False),
                             ("true", True), (" TRUE ", True)):
         assert rfi_review.shared_reading_on(value) is expected
+
+
+# --- The same whole-sheet pictures, cached across a set's element reviews ---------------------
+
+
+def test_the_shared_opening_is_the_same_for_every_question_set():
+    # The cache is a prefix match: the instructions before the pictures must not vary.
+    assert rfi_review.discovery_system() == rfi_review.discovery_system()
+    question = rfi_review.CHECKS["C01"]["originalQuestion"]
+    assert question not in rfi_review.discovery_system() and question in rfi_review.discovery_questions(["C01"])
+
+
+def test_whole_sheets_open_the_message_in_one_order_with_labels_no_review_owns():
+    a_crop, a_s2, a_s1 = _pic("ev1", b"crop-a"), _pic("ev2", b"S2", page=2, kind="page"), _pic("ev3", b"S1", page=1, kind="page")
+    for e, sheet in ((a_s2, "S1.111"), (a_s1, "S1.101"), (a_crop, "S1.101")):
+        e.sheet_number = sheet
+    ordered, labels, preface, n = rfi_review.sheets_first([a_crop, a_s2, a_s1])
+    assert [e.id for e in ordered] == ["ev3", "ev2", "ev1"] and n == 2
+    assert labels[:2] == ["Whole sheet 1 of 2: S1.101", "Whole sheet 2 of 2: S1.111"]
+    assert "whole sheet 1 = ev3 (S1.101)" in preface and "whole sheet 2 = ev2 (S1.111)" in preface
+    # Another review numbers the same sheets differently: its opening is still identical.
+    b_s1, b_s2 = _pic("ev9", b"S1", page=1, kind="page"), _pic("ev4", b"S2", page=2, kind="page")
+    b_s1.sheet_number, b_s2.sheet_number = "S1.101", "S1.111"
+    b_ordered, b_labels, _, _ = rfi_review.sheets_first([b_s2, b_s1, _pic("ev5", b"crop-b")])
+    assert [e.image for e in b_ordered[:2]] == [e.image for e in ordered[:2]] and b_labels[:2] == labels[:2]
+    # No whole sheets: exactly what was sent before.
+    crops = [_pic("ev1", b"c")]
+    assert rfi_review.sheets_first(crops) == (crops, [crops[0].label()], "", 0)
+
+
+def test_the_cache_mark_is_sent_only_when_asked_and_reaches_the_transport(monkeypatch):
+    import llm
+    sent = []
+    monkeypatch.setattr(llm, "complete", lambda system, prompt, **kw: sent.append((prompt, kw)) or llm.Reply(
+        text="{}", stop_reason="end_turn", model="stub", input_tokens=1, output_tokens=1))
+    run = {"id": "r1", "projectId": "p", "limits": {}}
+    usage = rfi_review.ReviewUsage("claude", "claude-sonnet-5-5", "medium")
+    sheet = _pic("ev2", b"S1", kind="page")
+    for cache in (False, True):
+        rfi_review._ask("discovery", rfi_review.discovery_system(), "body", lambda raw: {}, run=run, usage=usage,
+                        images=[_pic("ev1", b"crop"), sheet], sheets_first_order=True, cache_sheets=cache)
+    (plain, kw_plain), (cached, kw_cached) = sent
+    assert "cache_images" not in kw_plain and kw_cached["cache_images"] == 1 and kw_cached["cache_ttl"] is None
+    assert kw_cached["images"] == [b"S1", b"crop"] and plain.startswith("The whole-sheet pictures")
+    # A batch waits minutes before it runs: it asks for the hour-long cache.
+    monkeypatch.setattr(llm, "complete_batch", lambda prompts, **kw: sent.append(("batch", kw)) or kw["replies"].update(
+        call=llm.Reply(text="{}", stop_reason="end_turn", model="stub", input_tokens=1, output_tokens=1)))
+    rfi_review._ask("discovery", rfi_review.discovery_system(), "body", lambda raw: {}, run=dict(run, limits={"useBatch": True}),
+                    usage=usage, images=[sheet], sheets_first_order=True, cache_sheets=True)
+    assert sent[-1][1]["cache_images"] == 1 and sent[-1][1]["cache_ttl"] == "1h"
+
+
+def test_a_set_read_alone_reads_the_most_sheeted_element_first_then_the_rest_with_the_cache(monkeypatch):
+    import threading
+    pits = _prep("run-pits", "Elevator pits", ["P1"], [_pic("ev1", b"S1", kind="page")])
+    grid = _prep("run-grid", "Grid lines", ["G1"], [_pic("ev1", b"S1", kind="page"), _pic("ev2", b"S2", page=2, kind="page")])
+    caps = _prep("run-caps", "Pile caps", ["C1"], [_pic("ev1", b"S1", kind="page")])
+    order, first_done = [], threading.Event()
+    def alone(p, cache=False):
+        assert cache, "every reading of a set marks its sheets for the cache"
+        if order:
+            assert first_done.is_set(), "the others wait until the first reading has landed"
+        order.append(p.run_id)
+        if p.run_id == "run-grid":
+            first_done.set()
+        return {**_found(), "notes": [], "calls": 1}
+    monkeypatch.setattr(rfi_review, "_discover_alone", alone)
+    shares = rfi_review._discover_in_turn([pits, grid, caps])
+    assert order[0] == "run-grid" and sorted(order[1:]) == ["run-caps", "run-pits"]
+    assert "Read after Grid lines" in shares[0]["notes"][0] and shares[1]["notes"] == []
+
+
+def test_one_element_s_failed_reading_fails_only_that_element(monkeypatch):
+    a, b = _prep("a", "A", ["Q"], []), _prep("b", "B", ["Q"], [])
+    def alone(p, cache=False):
+        if p.run_id == "b":
+            raise rfi_review.StageFailed("discovery", "provider down")
+        return {**_found(), "notes": [], "calls": 1}
+    monkeypatch.setattr(rfi_review, "_discover_alone", alone)
+    out = rfi_review._discover_in_turn([a, b])
+    assert isinstance(out[1], rfi_review.StageFailed) and not isinstance(out[0], BaseException)
+
+
+def test_one_hour_cache_writes_are_priced_at_two_times_input():
+    import usage
+    from types import SimpleNamespace as NS
+    plain = NS(cache_creation_input_tokens=1000, cache_creation=NS(ephemeral_1h_input_tokens=0, ephemeral_5m_input_tokens=1000))
+    hour = NS(cache_creation_input_tokens=1000, cache_creation=NS(ephemeral_1h_input_tokens=1000, ephemeral_5m_input_tokens=0))
+    assert usage.cache_write_tokens(plain) == 1000
+    # Priced at 1.25x per write token everywhere: 1600 x 1.25 = 2000 = 1000 at 2x.
+    assert usage.cache_write_tokens(hour) == 1600
+    assert usage.cache_write_tokens(NS(cache_creation_input_tokens=0)) == 0
