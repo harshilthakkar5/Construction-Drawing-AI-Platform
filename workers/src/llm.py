@@ -350,18 +350,22 @@ def _describe_blocks(content) -> str:
     return ", ".join(f"{n}x {kind}" for kind, n in kinds.items()) or "no blocks"
 
 
-def _system_blocks(system: str | list[dict], cache: bool) -> list[dict]:
+def _system_blocks(system: str | list[dict], cache: bool, ttl: str | None = None) -> list[dict]:
     """Normalize to Anthropic content blocks, adding the cache breakpoint.
 
     A caller that already built its own blocks (summaries put the role focus in
     a second block so the first keeps a byte-identical cache prefix) passes
     them through untouched.
+
+    `ttl`: the lifetime the request's LATER marks ask for. Anthropic refuses a
+    1-hour mark after a 5-minute one (system comes first), so when the images
+    ask for an hour the system block asks for the same.
     """
     if isinstance(system, list):
         return system
     block: dict = {"type": "text", "text": system}
     if cache:
-        block["cache_control"] = {"type": "ephemeral"}
+        block["cache_control"] = {"type": "ephemeral", **({"ttl": ttl} if ttl else {})}
     return [block]
 
 
@@ -466,7 +470,7 @@ def _complete_claude(
         request = dict(
             model=model,
             max_tokens=max_tokens + extra,
-            system=_system_blocks(system, cache_system),
+            system=_system_blocks(system, cache_system, cache_ttl if cache_images else None),
             messages=[
                 {"role": "user", "content": _user_content_claude(user, images, image_labels, cache_images, cache_ttl)}
             ],
@@ -1211,7 +1215,7 @@ def _run_claude_batch(
         body = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": _system_blocks(system, cache_system),
+            "system": _system_blocks(system, cache_system, cache_ttl if cache_images else None),
             "messages": [{"role": "user", "content": content}],
         }
         if thinking is not None:

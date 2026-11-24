@@ -458,3 +458,22 @@ def test_a_picture_is_rendered_once_for_the_rfi_and_released_when_it_ends(monkey
     assert rfi_review._set_pictures.get() is None
     rfi_review.set_picture(("page", "d", 1, 1600), lambda: renders.append(1) or b"png")
     assert len(renders) == 2
+
+
+def test_an_hour_long_picture_cache_gives_the_system_block_the_same_hour():
+    import llm
+    # Anthropic refuses a 1-hour mark after a 5-minute one, and system comes first.
+    assert llm._system_blocks("rules", True, "1h")[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert llm._system_blocks("rules", True)[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in llm._system_blocks("rules", False, "1h")[0]
+
+
+def test_a_refused_request_fails_that_element_and_not_the_set_s_job(monkeypatch):
+    a, b = _prep("a", "A", ["Q"], []), _prep("b", "B", ["Q"], [])
+    def alone(p, cache=False):
+        if p.run_id == "a":
+            raise RuntimeError("Error code: 400 - invalid_request_error")
+        return {**_found(), "notes": [], "calls": 1}
+    monkeypatch.setattr(rfi_review, "_discover_alone", alone)
+    out = rfi_review._discover_in_turn([a, b])
+    assert isinstance(out[0], rfi_review.StageFailed) and "400" in str(out[0]) and not isinstance(out[1], BaseException)

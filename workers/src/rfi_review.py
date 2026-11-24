@@ -4538,6 +4538,9 @@ def _discover_in_turn(preps) -> list:
             got = _discover_alone(preps[i], cache=True)
         except (Cancelled, AccessRevoked, BudgetStop, StageFailed) as exc:
             return exc
+        except Exception as exc:  # a refused request fails THIS review, never the set's job
+            log.exception("rfi review %s: the reading failed", preps[i].run_id[:8])
+            return StageFailed("discovery", f"the reading call failed: {doc_errors.scrub(str(exc))}")
         if i != order[0]:
             got["notes"] = [f"Read after {lead_name}, reusing the whole-sheet pictures it sent to the AI "
                             "where they are the same."] + got["notes"]
