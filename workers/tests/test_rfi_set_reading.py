@@ -410,3 +410,51 @@ def test_one_hour_cache_writes_are_priced_at_two_times_input():
     # Priced at 1.25x per write token everywhere: 1600 x 1.25 = 2000 = 1000 at 2x.
     assert usage.cache_write_tokens(hour) == 1600
     assert usage.cache_write_tokens(NS(cache_creation_input_tokens=0)) == 0
+
+
+# --- One RFI, one set of pictures, released when its work ends ----------------------------------
+
+
+def _held(run_id, name, pictures):
+    p = _prep(run_id, name, ["Q"], pictures)
+    p.notes, p.sent, p.batch_of = [], list(pictures), {e.id: 1 for e in pictures}
+    p.batches = [list(pictures)]
+    return p
+
+
+def test_every_element_of_an_rfi_opens_with_the_same_whole_sheets():
+    s1, s2 = _pic("ev1", b"S1", page=1, kind="page"), _pic("ev2", b"S2", page=2, kind="page")
+    s1.sheet_number, s2.sheet_number = "S1.101", "S1.111"
+    grid = _held("g", "Grid lines", [s1, s2, _pic("ev3", b"crop-grid")])
+    caps = _held("c", "Pile caps", [_pic("ev1", b"S1", page=1, kind="page")])
+    assert rfi_review.share_whole_sheets([grid, caps]) == 1
+    # Pile caps now holds S1.111 too, under an id of its own, in its first call.
+    added = [e for e in caps.evidence.values() if e.image == b"S2"]
+    assert len(added) == 1 and added[0].id == "ev2" and added[0] in caps.batches[0] and caps.batch_of["ev2"] == 1
+    assert "Also shown 1 whole sheet(s)" in caps.notes[0] and grid.notes == []
+    # So both open with the same pictures in the same order.
+    first = [rfi_review.sheets_first([e for e in p.batches[0] if e.visual])[0][:2] for p in (grid, caps)]
+    assert [e.image for e in first[0]] == [e.image for e in first[1]] == [b"S1", b"S2"]
+    # Close-ups are each element's own; nothing is added twice.
+    assert not any(e.image == b"crop-grid" for e in caps.evidence.values())
+    assert rfi_review.share_whole_sheets([grid, caps]) == 0
+
+
+def test_a_picture_is_rendered_once_for_the_rfi_and_released_when_it_ends(monkeypatch):
+    renders = []
+    def run_group_body(group, results):
+        for _ in group:
+            rfi_review.set_picture(("page", "d", 1, 1600), lambda: renders.append(1) or b"png")
+        held.update(rfi_review._set_pictures.get())
+        raise RuntimeError("a review failed")
+    held = {}
+    monkeypatch.setattr(rfi_review, "_run_group_with_pictures", run_group_body)
+    try:
+        rfi_review._run_group([{"id": "a"}, {"id": "b"}, {"id": "c"}])
+    except RuntimeError:
+        pass
+    assert len(renders) == 1 and len(held) == 1
+    # Released whether the work finished or failed; outside a set nothing is kept.
+    assert rfi_review._set_pictures.get() is None
+    rfi_review.set_picture(("page", "d", 1, 1600), lambda: renders.append(1) or b"png")
+    assert len(renders) == 2

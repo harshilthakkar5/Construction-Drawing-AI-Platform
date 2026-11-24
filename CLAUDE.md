@@ -3343,7 +3343,13 @@ discovery opening had to stop varying: `discovery_system()` takes no questions (
 `discovery_questions`), and `sheets_first` puts whole sheets first in (document, page) order, labelled with no evidence id
 ("Whole sheet 1 of 3: S1.101"), with a preface mapping each to its id. A single review sends no cache mark (a write costs 1.25x,
 2x for an hour). 1-hour writes are recorded as 1.6 write tokens (`usage.cache_write_tokens`) so every 1.25x price stays right.
-Not yet measured on a model; the estimate still prices reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+Every element of the RFI gets the SAME whole sheets (`share_whole_sheets`: any sheet a sibling holds is added to its first call
+under its own id), and each picture is rendered ONCE for the RFI (`set_picture`, a store that lives for `_run_group` and is
+cleared when its last review ends, finished or failed). On the UT Law test RFI the three elements held 8, 8 and 9 sheets, and the
+9th (S0.101) sorted first, so that review shared no cached opening at all; after, all three open with the same 9 and the RFI's 24
+distinct pictures are rendered once (checked offline, no model call). The provider's cache cannot be deleted: it expires by itself
+(5 min after last use, 1 h in batch mode) and storing it costs nothing. Not yet measured on a model; the estimate still prices
+reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

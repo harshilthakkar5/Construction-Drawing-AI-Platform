@@ -623,6 +623,64 @@ def details_cut(scope: dict, open_page) -> dict[str, set[str]]:
     return out
 
 
+# --- One named RFI's pictures -----------------------------------------------------------
+
+# While a named RFI's reviews run together, every picture is rendered ONCE for
+# the whole RFI and every element's review takes the same bytes — which is also
+# what makes their openings identical for the AI's prompt cache. The store
+# lives for that run of the RFI and is released when its last review ends,
+# finished or failed (`_run_group`). Outside a set there is no store and
+# every picture is rendered as before.
+_set_pictures: contextvars.ContextVar["dict | None"] = contextvars.ContextVar("rfi_set_pictures", default=None)
+
+
+def set_picture(key: tuple, make):
+    store = _set_pictures.get()
+    if store is None:
+        return make()
+    if key not in store:
+        store[key] = make()
+    return store[key]
+
+
+def share_whole_sheets(preps) -> int:
+    """Give every review of the set every whole-sheet picture any of them holds,
+    so each element opens with the SAME pictures — every question has the same
+    images, and the second element on reads all of them from the prompt cache.
+    An added sheet goes into the review's first call (only the picture: its
+    words stay where that review's plan put them) under a new id of its own.
+    Returns how many pictures were added in all. Pure on the preps."""
+    pool: dict[bytes, Evidence] = {}
+    for p in preps:
+        for ev in p.evidence.values():
+            if ev.kind == "page" and not ev.caption and ev.image is not None:
+                pool.setdefault(ev.image, ev)
+    added = 0
+    for p in preps:
+        if not p.batches:
+            continue
+        have = {ev.image for ev in p.evidence.values() if ev.kind == "page" and ev.image is not None}
+        next_id = max((int(e[2:]) for e in p.evidence if e[2:].isdigit()), default=0) + 1
+        extra = []
+        for image, ev in pool.items():
+            if image in have:
+                continue
+            copy = replace(ev, id=f"ev{next_id}", side=None)
+            next_id += 1
+            p.evidence[copy.id] = copy
+            p.batches[0].append(copy)
+            p.batch_of[copy.id] = 1
+            p.sent.append(copy)
+            extra.append(copy)
+        if extra:
+            added += len(extra)
+            p.notes.append(
+                f"Also shown {len(extra)} whole sheet(s) the RFI's other elements read "
+                f"({', '.join(ev.where for ev in extra)}), so every element opens with the same pictures."
+            )
+    return added
+
+
 def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str]] | None = None) -> list[Evidence]:
     """A whole-page overview and the planned crops for every visual page.
 
@@ -651,7 +709,8 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
             side=side.get(p["pageId"]),
         )
         whole = {"x": unrotated.x0, "y": unrotated.y0, "width": unrotated.width, "height": unrotated.height}
-        out.append(Evidence(id=f"ev{n}", kind="page", bbox=whole, image=vlm.render(page, OVERVIEW_EDGE), **common))
+        image = set_picture(("page", p["documentId"], p["pageNumber"], OVERVIEW_EDGE), lambda: vlm.render(page, OVERVIEW_EDGE))
+        out.append(Evidence(id=f"ev{n}", kind="page", bbox=whole, image=image, **common))
         n += 1
         # The planned close-ups' SLOTS, aimed first at the details whose titles
         # name the element (By element), then at a plan's rare tags (By
@@ -696,7 +755,9 @@ def image_evidence(scope: dict, open_page, start: int, cut_by: dict[str, set[str
                     bbox={"x": box.x0, "y": box.y0, "width": box.width, "height": box.height},
                     chunk_id=anchor.get("chunkId"),
                     caption=GRID_STRIP_CAPTION if anchor.get("strip") else None,
-                    image=vlm.render_crop(page, shown, CROP_EDGE),
+                    image=set_picture(
+                        ("crop", p["documentId"], p["pageNumber"], tuple(round(v, 1) for v in shown), CROP_EDGE),
+                        lambda shown=shown: vlm.render_crop(page, shown, CROP_EDGE)),
                     **common,
                 )
             )
@@ -4261,6 +4322,18 @@ def _take(share):
 def _run_group(group: list[dict]) -> dict:
     """A set's claimed reviews: prepare each, read together, finish each."""
     results: dict[str, dict] = {}
+    store_token = _set_pictures.set({})
+    try:
+        return _run_group_with_pictures(group, results)
+    finally:
+        store = _set_pictures.get() or {}
+        log.info("rfi review set: released %d picture(s), %.1f MB, after its %d review(s) ended",
+                 len(store), sum(len(b) for b in store.values() if isinstance(b, (bytes, bytearray))) / 1e6, len(group))
+        store.clear()
+        _set_pictures.reset(store_token)
+
+
+def _run_group_with_pictures(group: list[dict], results: dict[str, dict]) -> dict:
     with _heartbeat(*[r["id"] for r in group]):
         preps = []
         for r in group:
@@ -4274,6 +4347,9 @@ def _run_group(group: list[dict]) -> dict:
         elif SHARED_SET_READING:
             shares = _discover_together(preps)
         else:
+            added = share_whole_sheets(preps)
+            if added:
+                log.info("rfi review set: %d whole-sheet picture(s) added so every element opens the same way", added)
             shares = _discover_in_turn(preps)
         for p, share in zip(preps, shares):
             discover = (lambda p=p: _discover_alone(p)) if share is None else (lambda share=share: _take(share))
