@@ -3312,7 +3312,7 @@ review per element (`rfiSets.setPlanRequest` from the project's review settings,
 `rfi_review_runs.setId`) — no model call — and `/start` starts every planned one through the same
 `startReview` the single route uses. A set's findings are its runs' candidates. `planReview` only
 cancels a user's earlier unstarted plans when it is NOT planning for a set, or pricing a 12-element
-RFI would cancel 11 of its own plans. A named RFI's elements READ TOGETHER (`RFI_SHARED_SET_READING`, default on, worker + API): the
+RFI would cancel 11 of its own plans. A named RFI's elements can READ TOGETHER (`RFI_SHARED_SET_READING`, default OFF since the paid test below, worker + API): the
 reading was ~75% of a review and every element read the same sheets again. The first of a set's reviews to start claims
 every waiting review of the set with the same person, model and settings, itself included, in ONE statement
 (`rfi_review._claim_set`; a sibling's own job finds its row running with a live heartbeat and steps aside). `_run` is split
@@ -3325,8 +3325,32 @@ copied in). The reading is billed on the lead review (each other's notes say so)
 served, the lead's cancel ends only the lead. The set's price is `estimateSharedReading` (each element's own estimate, less
 its own reading, plus one reading of the union), shown with the read-alone price; verification still re-reads per element,
 so the estimate is ~40-60% of reading alone, not 1/N. `npx tsx apps/api/src/rfiSetCompare.ts <setId> <setId>` prints two
-sets' real calls, tokens, cost (usage_events) and findings side by side — the paid comparison (one set read alone with the
-flag off, one together) has not been run. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
+sets' real calls, tokens, cost (usage_events) and findings side by side. The paid comparison (UT Law, Grid lines + Pile caps +
+Elevator pits over S1.101/S1.111/S0.121, Sonnet 5.5 batch, one run each): alone $0.445 / 12 calls / 9 findings, together $0.324 / 9
+calls / 7 findings, both hitting RFI 008 and 002 — but Elevator pits got a third of its usual notes and two findings went with them.
+So `elements_block` now asks for every element's questions to be covered as fully as the first's, and `thin_shares` re-reads ON ITS
+OWN any element answered on under `RFI_SHARED_THIN_SHARE` (0.6) of the share its best-served sibling got (`answered_share`: a
+question counts once any observation, inventory entry, gap or not-applicable names it). Relative, since some elements honestly have
+little to answer; on the stored runs it flags exactly that Elevator pits and nothing in the read-alone set. A failed re-read keeps the
+thin share. Two jobs of one RFI starting at the same instant could each claim part of it; the one whose OWN review the other
+took used to step aside, leaving the siblings IT had claimed "running" with no reader (the re-test lost Elevator pits so). It now
+reviews what it claimed. And the claim is serialised per RFI (`pg_advisory_xact_lock` on `rfi-set:<id>` inside `_claim_set`), so the first job takes
+every waiting review and the second none — unserialised, the re-test after that fix still read two elements together and one alone.
+Read alone (the default), the elements still send the SAME whole-sheet pictures, so `RFI_SET_PICTURE_CACHE` (default on) keeps
+the group claim and `_discover_in_turn` reads them IN TURN: the review with the most whole sheets first, then the rest together
+(`RFI_SET_READ_PARALLEL`), each its own reading, and every set reading marks its whole sheets for the prompt cache
+(`llm.complete(cache_images=n, cache_ttl=…)`: 1h in batch mode, since a batch can wait minutes). A cache is a PREFIX match, so the
+discovery opening had to stop varying: `discovery_system()` takes no questions (they travel at the END of the message,
+`discovery_questions`), and `sheets_first` puts whole sheets first in (document, page) order, labelled with no evidence id
+("Whole sheet 1 of 3: S1.101"), with a preface mapping each to its id. A single review sends no cache mark (a write costs 1.25x,
+2x for an hour). 1-hour writes are recorded as 1.6 write tokens (`usage.cache_write_tokens`) so every 1.25x price stays right.
+Every element of the RFI gets the SAME whole sheets (`share_whole_sheets`: any sheet a sibling holds is added to its first call
+under its own id), and each picture is rendered ONCE for the RFI (`set_picture`, a store that lives for `_run_group` and is
+cleared when its last review ends, finished or failed). On the UT Law test RFI the three elements held 8, 8 and 9 sheets, and the
+9th (S0.101) sorted first, so that review shared no cached opening at all; after, all three open with the same 9 and the RFI's 24
+distinct pictures are rendered once (checked offline, no model call). The provider's cache cannot be deleted: it expires by itself
+(5 min after last use, 1 h in batch mode) and storing it costs nothing. Not yet measured on a model; the estimate still prices
+reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
 Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"

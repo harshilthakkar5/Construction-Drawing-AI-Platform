@@ -102,6 +102,24 @@ def record(
         log.warning("could not record %s usage: %s", kind, exc)
 
 
+# A 1-hour cache write is billed at 2x input, a 5-minute one at 1.25x, and
+# every price here (this module and apps/api/src/usage.ts) prices a write at
+# 1.25x. So a 1-hour write is counted as 2 / 1.25 = 1.6 write tokens: the
+# dollars come out right with no new column, and the write count reads as
+# "5-minute-write equivalents".
+ONE_HOUR_WRITE_WEIGHT = 2.0 / 1.25
+
+
+def cache_write_tokens(usage) -> int:
+    """Cache-write tokens from an Anthropic usage object, 1-hour writes weighted."""
+    total = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    detail = getattr(usage, "cache_creation", None)
+    one_hour = (getattr(detail, "ephemeral_1h_input_tokens", 0) or 0) if detail is not None else 0
+    if not one_hour:
+        return int(total)
+    return int(round(total - one_hour + one_hour * ONE_HOUR_WRITE_WEIGHT))
+
+
 def record_message(project_id: str | None, kind: str, model: str, usage) -> None:
     """Record from an Anthropic response `usage` object (or a batch result's)."""
     record(
@@ -111,5 +129,5 @@ def record_message(project_id: str | None, kind: str, model: str, usage) -> None
         input_tokens=getattr(usage, "input_tokens", 0) or 0,
         output_tokens=getattr(usage, "output_tokens", 0) or 0,
         cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-        cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        cache_write_tokens=cache_write_tokens(usage),
     )

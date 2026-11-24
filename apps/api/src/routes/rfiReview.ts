@@ -202,7 +202,19 @@ export async function queuedReviewJobs(rows: readonly { id: string; status: stri
   return out;
 }
 
-export async function startReview(projectId: string, runId: string, key: string): Promise<{ status: number; body: unknown }> {
+/**
+ * `deferQueue`: claim the run (planned → queued) but hand it to the worker only
+ * when the caller calls the returned `enqueue`. A named RFI claims ALL its runs
+ * first and queues them after: queued one by one, the worker took the first
+ * review before its siblings were queued, so the set's reviews could not be
+ * read together (or in turn, for the picture cache) — each read alone.
+ */
+export async function startReview(
+  projectId: string,
+  runId: string,
+  key: string,
+  opts: { deferQueue?: boolean } = {},
+): Promise<{ status: number; body: unknown; enqueue?: () => Promise<void> }> {
   const run = await runFor(projectId, runId);
 
   const repeat = await prisma.rfiReviewRun.findFirst({ where: { projectId, idempotencyKey: key } });
@@ -274,10 +286,16 @@ export async function startReview(projectId: string, runId: string, key: string)
     claimed = { count: 0 }; // the key's unique index lost a race
   }
   if (claimed.count === 0) return refuse(409, { error: "this review was started by another request" });
-  const job = await rfiReviewQueue.add("review", { runId: run.id }, { jobId: `rfi-review-${run.id}` });
-  const updated = await prisma.rfiReviewRun.update({ where: { id: run.id }, data: { jobId: job.id ?? null } });
-  console.log(`[rfi-review] ${run.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)} on ${run.provider}/${run.model}`);
-  return { status: 202, body: toReviewDto(updated, 0) };
+  const enqueue = async () => {
+    const job = await rfiReviewQueue.add("review", { runId: run.id }, { jobId: `rfi-review-${run.id}` });
+    await prisma.rfiReviewRun.update({ where: { id: run.id }, data: { jobId: job.id ?? null } });
+    console.log(`[rfi-review] ${run.id.slice(0, 8)} queued for project ${projectId.slice(0, 8)} on ${run.provider}/${run.model}`);
+  };
+  if (opts.deferQueue) {
+    return { status: 202, body: toReviewDto(await runFor(projectId, runId), 0), enqueue };
+  }
+  await enqueue();
+  return { status: 202, body: toReviewDto(await runFor(projectId, runId), 0) };
 }
 
 /** Two runs' cost and tokens side by side, with the reasons the comparison

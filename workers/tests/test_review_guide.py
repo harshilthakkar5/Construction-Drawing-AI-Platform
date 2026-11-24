@@ -13,13 +13,13 @@ TOKEN = re.compile(r"""\b[A-Z]{1,3}-?\d+(?:\.\d+)?[A-Z]?\b|\d+'-\d+(?:\s?\d+/\d+
 
 def test_off_by_default_leaves_every_prompt_unchanged(monkeypatch):
     monkeypatch.setattr(rfi_review, "REVIEW_GUIDE", False)
-    for prompt in (rfi_review.discovery_system(["G01"]), rfi_review.reasoning_system(["G01"]), rfi_review.verification_system()):
+    for prompt in (rfi_review.discovery_system(), rfi_review.reasoning_system(["G01"]), rfi_review.verification_system()):
         assert "<glossary>" not in prompt and "<worked_examples>" not in prompt
 
 
 def test_on_gives_reading_the_glossary_and_judging_the_examples(monkeypatch):
     monkeypatch.setattr(rfi_review, "REVIEW_GUIDE", True)
-    discovery = rfi_review.discovery_system(["G01"])
+    discovery = rfi_review.discovery_system()
     assert "<glossary>" in discovery and "<worked_examples>" not in discovery
     for prompt in (rfi_review.reasoning_system(["G01"]), rfi_review.verification_system()):
         assert "<glossary>" in prompt and "<worked_examples>" in prompt

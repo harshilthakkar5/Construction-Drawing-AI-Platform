@@ -104,7 +104,9 @@ async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
 
 /** One reading for every element when the worker will read them together
  * (rfi_review._claim_set: same model and settings); else each element's own. */
-const SHARED_SET_READING = process.env.RFI_SHARED_SET_READING?.toLowerCase() !== "false";
+// Off by default, like the worker: read together, one element was served thinly in
+// each paid run, and the re-read that catches it cost more than reading alone.
+const SHARED_SET_READING = process.env.RFI_SHARED_SET_READING?.toLowerCase() === "true";
 
 type PricedRun = { estimate: unknown; scope: unknown; depth: string; limits: unknown; checkIds: unknown };
 
@@ -234,14 +236,21 @@ rfiSetsRouter.post("/:setId/start", summaryLimiter, async (req, res) => {
   await prisma.rfiSet.findFirstOrThrow({ where: { id: setId, projectId } });
   const planned = await prisma.rfiReviewRun.findMany({ where: { setId, status: "planned" }, orderBy: { createdAt: "asc" } });
   const errors: RfiSetDetailDto["planErrors"] = [];
+  // Claim every review first, queue them after: the worker groups a set's reviews
+  // that are QUEUED when its first job starts, so queueing one at a time handed
+  // it the first before the others existed and each element read alone.
+  const enqueue: Array<() => Promise<void>> = [];
   for (const run of planned) {
     // One key per review, so a repeated Start never starts one twice.
-    const { status, body } = await startReview(projectId, run.id, `set-${run.id}`);
-    if (status >= 400) {
+    const started = await startReview(projectId, run.id, `set-${run.id}`, { deferQueue: true });
+    if (started.status >= 400) {
       const elementId = elementOf(run);
-      errors.push({ elementId, error: (body as { error?: string }).error ?? `could not start (${status})` });
+      errors.push({ elementId, error: (started.body as { error?: string }).error ?? `could not start (${started.status})` });
+    } else if (started.enqueue) {
+      enqueue.push(started.enqueue);
     }
   }
+  for (const add of enqueue) await add();
   res.json(await detail(projectId, setId, errors));
 });
 

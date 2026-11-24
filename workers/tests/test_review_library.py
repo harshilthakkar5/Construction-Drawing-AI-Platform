@@ -37,11 +37,11 @@ def test_library_questions_become_review_questions_in_their_own_words():
 def test_prompts_carry_catalogue_and_library_questions():
     lib = rr.library_checks(SCOPE)
     catalogue = {**rr.CHECKS, **lib}
-    system = rr.discovery_system(["F04", "CE-03-01-Q01", "c-1"], catalogue)
-    assert "F04" in system and "Which mark is the pier at A1/BK?" in system
+    questions = rr.discovery_questions(["F04", "CE-03-01-Q01", "c-1"], catalogue)
+    assert "F04" in questions and "Which mark is the pier at A1/BK?" in questions
     assert "Pier mark not in schedule" in rr.reasoning_system(["CE-03-01-Q01"], catalogue)
     # The default catalogue is untouched for every other caller.
-    assert "CE-03-01-Q01" not in rr.discovery_system(["F04"])
+    assert "CE-03-01-Q01" not in rr.discovery_questions(["F04"])
 
 
 def test_code_checks_credit_every_question_they_answer():

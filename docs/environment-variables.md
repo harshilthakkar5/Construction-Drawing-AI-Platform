@@ -202,7 +202,9 @@ Web = browser bundle (`apps/web`), Deploy = docker compose files only.
 | `RFI_REVIEW_OVERVIEW_EDGE` | `1600` | Worker | Long edge (px) of the whole-sheet image a review sends. |
 | `RFI_REVIEW_CROP_EDGE` | `1400` | Worker | Long edge (px) of each close-up a review sends. |
 | `RFI_REVIEW_CONCURRENCY` | `2` | Worker | Targeted reviews at once. |
-| `RFI_SHARED_SET_READING` | `true` | worker + API | A named RFI's element reviews read the sheets once together; `false` = each element reads alone. The API prices the set to match. |
+| `RFI_SET_PICTURE_CACHE` | `true` | worker | A named RFI's elements read one after another so the 2nd, 3rd… element reads the whole-sheet pictures the first sent from the AI's prompt cache (~10% of their price; 1-hour cache in batch mode). `false` = each review in its own job. |
+| `RFI_SET_READ_PARALLEL` | `4` | worker | How many of a set's later readings are sent at once. |
+| `RFI_SHARED_SET_READING` | `false` | worker + API | `true` = a named RFI's element reviews read the sheets once together (off by default: the paid test short-changed one element each run, and the re-read cost more than reading alone). The API prices the set to match. |
 | `RFI_REVIEW_GUIDE` | `off` | worker | `on` adds a short drawing-abbreviation glossary and four worked examples (two RFIs, two non-RFIs, all invented) to the targeted review's prompts, ~1,700 tokens a review. Off until a paid on/off comparison shows it helps. |
 | `RFI_PACKAGE_CONCURRENCY` | `2` | Worker | Marked-up RFI packages (cover form + clouded sheets) rendered at once. |
 | `RFI_FULL_SCAN` | `beta` | API | Full AI scan: `off` hides it, `beta` shows it marked "accuracy not yet measured", `on` once measured on real RFIs. |
