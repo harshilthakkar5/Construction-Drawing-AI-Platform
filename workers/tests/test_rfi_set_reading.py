@@ -81,6 +81,8 @@ def _second_run_in_set(db, seeded, checks=("C01",)) -> str:
 def test_a_set_reads_its_sheets_once_and_finishes_every_element(database, monkeypatch):
     import llm
 
+    monkeypatch.setattr(rfi_review, "SHARED_SET_READING", True)  # off by default
+
     seeded = _seed(database, checks=("C01",))
     other = _second_run_in_set(database, seeded)
     model = FakeModel()
@@ -105,6 +107,8 @@ def test_a_set_reads_its_sheets_once_and_finishes_every_element(database, monkey
 def test_a_sibling_held_by_a_live_worker_is_not_read_twice(database, monkeypatch):
     import llm
 
+    monkeypatch.setattr(rfi_review, "SHARED_SET_READING", True)  # off by default
+
     seeded = _seed(database, checks=("C01",))
     other = _second_run_in_set(database, seeded)
     with database.connect() as conn:  # another worker started it a moment ago
@@ -120,6 +124,8 @@ def test_a_sibling_held_by_a_live_worker_is_not_read_twice(database, monkeypatch
 def test_a_failed_shared_reading_fails_every_element_it_served(database, monkeypatch):
     import llm
 
+    monkeypatch.setattr(rfi_review, "SHARED_SET_READING", True)  # off by default
+
     seeded = _seed(database, checks=("C01",))
     other = _second_run_in_set(database, seeded)
     monkeypatch.setattr(llm, "complete", FakeModel(fail_stage="discovery"))
@@ -130,7 +136,7 @@ def test_a_failed_shared_reading_fails_every_element_it_served(database, monkeyp
 
 
 @needs_db
-def test_switched_off_each_element_reads_alone(database, monkeypatch):
+def test_switched_off_each_element_reads_alone(database, monkeypatch):  # the default
     import llm
 
     seeded = _seed(database, checks=("C01",))
@@ -306,3 +312,9 @@ def test_two_jobs_claiming_one_set_at_once_do_not_split_it(bare_db):
     [t.start() for t in threads]
     [t.join(10) for t in threads]
     assert sorted(results) == [0, 3]
+
+
+def test_reading_together_is_off_unless_asked_for():
+    for value, expected in ((None, False), ("", False), ("false", False), ("yes", False),
+                            ("true", True), (" TRUE ", True)):
+        assert rfi_review.shared_reading_on(value) is expected

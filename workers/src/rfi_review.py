@@ -3910,8 +3910,17 @@ def _guarded(loaded: dict, work, reraise: bool = True):
 # its waiting siblings, prepares each one's evidence, reads the union ONCE
 # with every element's questions, hands each review its own observations,
 # and finishes them one by one (reasoning, verification, saving stay per
-# element, unchanged). RFI_SHARED_SET_READING=false restores one reading each.
-SHARED_SET_READING = os.environ.get("RFI_SHARED_SET_READING", "true").lower() != "false"
+# element, unchanged). OFF by default since the paid A/B (UT Law, three
+# elements, Sonnet 5.5 batch): read together, a DIFFERENT element was served
+# thinly in each of two runs, and the re-read that catches it (thin_shares)
+# made the set cost more than reading alone ($0.53 against $0.45).
+# RFI_SHARED_SET_READING=true turns it back on.
+def shared_reading_on(value: str | None) -> bool:
+    """RFI_SHARED_SET_READING: only an explicit "true" turns it on."""
+    return (value or "").strip().lower() == "true"
+
+
+SHARED_SET_READING = shared_reading_on(os.environ.get("RFI_SHARED_SET_READING"))
 CLAIM_STALE_SECONDS = 120  # a "running" row this long without a heartbeat is a dead worker's
 MAX_SHARED_OUTPUT_SCALE = 4  # a shared reply's room: TOKENS["discovery"] x min(elements, this)
 # One reading can serve its elements unevenly: the first paid A/B (UT Law, three

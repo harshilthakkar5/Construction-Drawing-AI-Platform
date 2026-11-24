@@ -3311,7 +3311,7 @@ review per element (`rfiSets.setPlanRequest` from the project's review settings,
 `rfi_review_runs.setId`) — no model call — and `/start` starts every planned one through the same
 `startReview` the single route uses. A set's findings are its runs' candidates. `planReview` only
 cancels a user's earlier unstarted plans when it is NOT planning for a set, or pricing a 12-element
-RFI would cancel 11 of its own plans. A named RFI's elements READ TOGETHER (`RFI_SHARED_SET_READING`, default on, worker + API): the
+RFI would cancel 11 of its own plans. A named RFI's elements can READ TOGETHER (`RFI_SHARED_SET_READING`, default OFF since the paid test below, worker + API): the
 reading was ~75% of a review and every element read the same sheets again. The first of a set's reviews to start claims
 every waiting review of the set with the same person, model and settings, itself included, in ONE statement
 (`rfi_review._claim_set`; a sibling's own job finds its row running with a live heartbeat and steps aside). `_run` is split

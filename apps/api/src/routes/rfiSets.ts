@@ -104,7 +104,9 @@ async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
 
 /** One reading for every element when the worker will read them together
  * (rfi_review._claim_set: same model and settings); else each element's own. */
-const SHARED_SET_READING = process.env.RFI_SHARED_SET_READING?.toLowerCase() !== "false";
+// Off by default, like the worker: read together, one element was served thinly in
+// each paid run, and the re-read that catches it cost more than reading alone.
+const SHARED_SET_READING = process.env.RFI_SHARED_SET_READING?.toLowerCase() === "true";
 
 type PricedRun = { estimate: unknown; scope: unknown; depth: string; limits: unknown; checkIds: unknown };
 
