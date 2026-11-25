@@ -3347,7 +3347,7 @@ Every element of the RFI gets the SAME whole sheets (`share_whole_sheets`: any s
 under its own id), and each picture is rendered ONCE for the RFI (`set_picture`, a store that lives for `_run_group` and is
 cleared when its last review ends, finished or failed). On the UT Law test RFI the three elements held 8, 8 and 9 sheets, and the
 9th (S0.101) sorted first, so that review shared no cached opening at all; after, all three open with the same 9 and the RFI's 24
-distinct pictures are rendered once (checked offline, no model call). The provider's cache cannot be deleted: it expires by itself
+distinct pictures are rendered once (checked offline, no model call). After the reading, a set's elements FINISH SIDE BY SIDE (`_run_group_with_pictures`, `RFI_SET_READ_PARALLEL` threads, each in a copy of the job's context): reasoning, verification and the re-check need nothing from a sibling, and one after another three elements waited ~22 minutes of batch queues; a failure ends only its own review. The "SEE PLAN" dimension aid is memoised per sheet (`page_memo`, `deferred_dimensions@1:<sheet>`, memory only), since every element read it again (~30 s each on one PC); 13 of 13 lists matched a fresh reading. The provider's cache cannot be deleted: it expires by itself
 (5 min after last use, 1 h in batch mode) and storing it costs nothing. Not yet measured on a model; the estimate still prices
 reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,

@@ -4485,9 +4485,25 @@ def _run_group_with_pictures(group: list[dict], results: dict[str, dict]) -> dic
             if added:
                 log.info("rfi review set: %d whole-sheet picture(s) added so every element opens the same way", added)
             shares = _discover_in_turn(preps)
+        jobs = []
         for p, share in zip(preps, shares):
             discover = (lambda p=p: _discover_alone(p)) if share is None else (lambda share=share: _take(share))
-            results[p.run_id] = _guarded(p.run, lambda p=p, d=discover: _finish(p, d), reraise=False)
+            jobs.append((p, lambda p=p, d=discover: _guarded(p.run, lambda: _finish(p, d), reraise=False)))
+        # The rest of each review (reasoning, verification, re-check) needs nothing from its siblings,
+        # so the elements finish side by side: one after another, three elements waited ~22 minutes
+        # of batch queues where ~8 do, with every call and every input unchanged.
+        if len(jobs) < 2:
+            for p, job in jobs:
+                results[p.run_id] = job()
+        else:
+            with ThreadPoolExecutor(max_workers=min(SET_READ_PARALLEL, len(jobs))) as pool:
+                futures = [(p, pool.submit(contextvars.copy_context().run, job)) for p, job in jobs]
+                for p, f in futures:
+                    try:
+                        results[p.run_id] = f.result()
+                    except Exception as exc:  # _guarded saves the failure itself; never lose a sibling's result
+                        log.exception("rfi review %s: finishing failed", p.run_id[:8])
+                        results[p.run_id] = {"failed": doc_errors.user_message(exc)}
     return {"set": results}
 
 
@@ -4629,7 +4645,10 @@ def _prepare(run: dict):
                 continue
             try:
                 page = open_page(p["documentId"], p["pageNumber"])
-                text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
+                sheet = p.get("sheetNumber") or f"page {p['pageNumber']}"
+                # Same sheet, same code, same text: every element of a named RFI asked it again (~30 s each).
+                text = page_memo.memo(f"deferred_dimensions@1:{sheet}", page,
+                                      lambda page=page, sheet=sheet: review_aids.deferred_dimensions(page, sheet)) if page else None
             except Exception as exc:
                 text = None
                 notes.append(f"The dimensions marked \"SEE PLAN\" on {p.get('sheetNumber') or 'page ' + str(p['pageNumber'])} "
