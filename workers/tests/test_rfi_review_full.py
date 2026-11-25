@@ -868,6 +868,16 @@ def test_a_rejection_that_only_says_absence_is_unproven_is_contested_even_citing
         decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev79"], "reason": reason}
         assert rfi_review.contested(decision, {"ev79"}, problem), reason
         assert rfi_review.contested(decision, {"ev79"}), reason  # the wording alone, whatever the problem
+    # The absence named first, the doubt after it (UT Law RFI 001, verbatim).
+    ramp = {"decision": "reject", "basis": "other", "answeredBy": ["ev5"],
+            "reason": "The 8.33% slope labels are printed on the plan, and the plaza T.O.C. low and high values are "
+                      "given. The missing-run claim rests on the plan not dimensioning the extents, which the "
+                      "evidence does not establish, and the slope can be derived from the T.O.C. range."}
+    assert rfi_review.contested(ramp, {"ev5"})
+    # A real answer in that shape still stands: the evidence answers it, it does not merely doubt it.
+    answered = dict(ramp, reason="The detail is said to be missing, which the evidence does not support: "
+                                 "S4.02 prints detail 24 (ev5).")
+    assert not rfi_review.contested(answered, {"ev5"})
     # Specifications governing still stands, and so does a plain "not visible".
     assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
                                      "reason": "Per the specifications; nothing shows the plans lack it."}, set(), problem)

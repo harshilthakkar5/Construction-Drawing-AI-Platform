@@ -2056,7 +2056,14 @@ _UNPROVEN_ABSENCE = re.compile(
     # "the base plate size is on S3.2, which is not among the evidence shown".
     r"|\bcannot\s+be\s+(?:settled|established|determined|confirmed|demonstrated|verified|shown)\s+(?:from|by|with)\s+"
     r"(?:the\s+)?(?:\w+\s+)?evidence\b"
-    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b",
+    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b"
+    # The absence named FIRST, the doubt after it. UT Law RFI 001, set aside on S2.105: "The
+    # missing-run claim rests on the plan not dimensioning the extents, which the evidence does
+    # not establish". "Support" is left out on purpose: "…is missing, which the evidence does not
+    # support, since S4.02 prints it" is a real answer, not an unproven absence.
+    r"|\b(?:missing|absen(?:t|ce)|lack(?:s|ing)?|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed|\w+ing))\b"
+    r"[^.]{0,120}?\b(?:which|that)\s+(?:the\s+)?(?:\w+\s+)?evidence\s+(?:does|did)\s+not\s+"
+    r"(?:establish|show|demonstrate|prove)\b",
     re.I,
 )
 # A rejection that says the value is given ELSEWHERE while its own reason says the value
