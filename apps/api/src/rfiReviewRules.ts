@@ -510,6 +510,9 @@ export interface RankInput {
   elementName?: string;
   /** The review asks a grid question (G01): the named sheets' free close-ups go to their grid dimension strips. */
   gridAsked?: boolean;
+  /** Each page's floors (`pages.levels`) and sheet kind. With them, a plan the search found that is drawn
+   * for other floors only is left out (`offFloorPage`) when a named sheet is a plan with a floor read. */
+  floorsOf?: ReadonlyMap<string, { levels: readonly string[]; kind: string | null }>;
 }
 
 // Mirrors workers/src/rfi_review.py `_NOT_A_TITLE_WORD` / `TITLE_SYNONYMS` / `element_title_words`;
@@ -572,11 +575,43 @@ export const TITLED_EXTRA_PAGES = 2;
  *   - forced pages (references, same-level correspondences), which a reranker
  *     must not be allowed to discard, since the comparison IS them.
  */
+const PLAN_KINDS = new Set(["plan", "enlarged_plan"]);
+
+/** The floors a review is ABOUT: every floor a named plan draws. Empty when no named sheet is a plan
+ * with a floor read, and then nothing is left out by floor. Mirrors the worker's `target_floors`. */
+export function targetFloors(
+  named: readonly { pageId: string }[],
+  floorsOf: ReadonlyMap<string, { levels: readonly string[]; kind: string | null }> | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  for (const p of named) {
+    const f = floorsOf?.get(p.pageId);
+    if (f && f.kind && PLAN_KINDS.has(f.kind)) f.levels.forEach((l) => out.add(l));
+  }
+  return out;
+}
+
+/** A plan drawn for other floors only — not evidence about this review's floors. A page with no floor
+ * read, a section, a detail, a schedule, or a plan drawn for several floors including one of these, is
+ * never off-floor. UT Law: a review of S2.105 (Level 5) read A3.01–A3.08 through the library search,
+ * and raised "S2.105's overall differs from A3.05's" with A3.05 the Level 6 plan. */
+export function offFloorPage(
+  floors: { levels: readonly string[]; kind: string | null } | undefined,
+  here: ReadonlySet<string>,
+): boolean {
+  if (!here.size || !floors || !floors.kind || !PLAN_KINDS.has(floors.kind) || !floors.levels.length) return false;
+  return !floors.levels.some((l) => here.has(l));
+}
+
 export function rankScope(input: RankInput): ReviewScope {
   const caps = RFI_REVIEW_DEPTHS[input.depth];
   const allowed = new Set<string>(SCOPE_KINDS);
   const named = [...input.sides.flatMap((s) => s.pages), ...(input.elementPages ?? [])];
   const targetPageIds = new Set(named.map((p) => p.pageId));
+  const here = targetFloors(named, input.floorsOf);
+  const forcedIds = new Set((input.forced ?? []).map((f) => f.page.pageId));
+  const offFloor = (pageId: string) =>
+    !targetPageIds.has(pageId) && !forcedIds.has(pageId) && offFloorPage(input.floorsOf?.get(pageId), here);
   const elementIds = input.elementChunkIds ?? new Set<string>();
 
   const score = new Map<string, number>();
@@ -598,7 +633,7 @@ export function rankScope(input: RankInput): ReviewScope {
   const alternatives = elementTitleWords(input.elementName);
   // Detail titles of the element on pages nobody named: kept, and their pages rendered.
   const titleChunks = alternatives.length
-    ? [...input.chunks.values()].filter((c) => c.kind === "text" && !targetPageIds.has(c.pageId) && input.pages.has(c.pageId) && titlesElement(c.text, alternatives))
+    ? [...input.chunks.values()].filter((c) => c.kind === "text" && !targetPageIds.has(c.pageId) && input.pages.has(c.pageId) && !offFloor(c.pageId) && titlesElement(c.text, alternatives))
     : [];
   const titledPages = new Set(
     [...new Set(titleChunks.map((c) => c.pageId))]
@@ -616,7 +651,7 @@ export function rankScope(input: RankInput): ReviewScope {
   for (const c of input.targetChunks) pool.set(c.chunkId, c);
   for (const id of score.keys()) {
     const c = input.chunks.get(id);
-    if (c) pool.set(id, c);
+    if (c && !offFloor(c.pageId)) pool.set(id, c);
   }
   const ranked = [...pool.values()]
     .filter((c) => allowed.has(c.kind) && !mustIds.has(c.chunkId))
@@ -666,6 +701,14 @@ export function rankScope(input: RankInput): ReviewScope {
   const omitted: { sheetNumber: string | null; reason: string }[] = [];
   for (const [pageId, checks] of foundBy) {
     if (seen.has(pageId) || !input.pages.has(pageId)) continue;
+    if (offFloor(pageId)) {
+      const levels = input.floorsOf!.get(pageId)!.levels;
+      omitted.push({
+        sheetNumber: input.pages.get(pageId)!.sheetNumber,
+        reason: `matched ${[...checks].sort().join(", ")} but is a plan of ${levels.join(", ")}, not ${[...here].sort().join(", ")}`,
+      });
+      continue;
+    }
     omitted.push({
       sheetNumber: input.pages.get(pageId)!.sheetNumber,
       reason: `matched ${[...checks].sort().join(", ")} but ranked below the ${caps.chunks}-piece cap of this depth`,

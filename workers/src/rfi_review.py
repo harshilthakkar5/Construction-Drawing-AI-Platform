@@ -970,9 +970,11 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     findings, notes = [], []
     text = wanted & set(TEXT_CODE_CHECKS)
     if text:
+        t = time.monotonic()
         found, more = rfi_checks.run_all(pages, chunks, None, only=text)
         findings += [f for f in found if f.check_type in SET_CODE_CHECKS or on_mine(f)]
         notes += more
+        log.info("rfi review: code checks %s took %.1fs", ", ".join(sorted(text)), time.monotonic() - t)
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import cap_tags
     import column_schedule
@@ -987,9 +989,11 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
             try:
                 # These read the sheets a symbol points to, which need not be reviewed.
                 extra = {"every": pages} if module in (cap_tags, detail_map, schedule_loops) else {}
+                t = time.monotonic()
                 found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more
+                log.info("rfi review: code check %s took %.1fs (%d finding(s))", check_type, time.monotonic() - t, len(found))
             except Exception as exc:  # a check failing is a note, never a failed review
                 log.exception("rfi review: %s check failed", check_type)
                 notes.append(f"The check for \"{doc_errors.check_label(check_type)}\" could not run this time, "
@@ -2489,6 +2493,82 @@ def _dimensions(text: str) -> list[tuple[int, int, float]]:
         if den and int(den) == 0:
             continue
         out.append((m.start(), m.end(), int(ft or 0) * 12 + int(inch) + (int(num) / int(den) if num else 0)))
+    return out
+
+
+PLAN_KINDS = ("plan", "enlarged_plan")
+
+
+def target_floors(scope: dict, floors: dict) -> frozenset:
+    """The floors the review is ABOUT: every floor a named plan draws. Pure.
+    Empty when no named sheet is a plan with a floor read (then nothing here
+    applies). A person who names a Level 5 and a Level 6 plan gets both."""
+    out: set = set()
+    for p in scope.get("pages", []):
+        if str(p.get("role") or "").startswith("side"):
+            levels, kind = floors.get((p.get("documentId"), p.get("pageNumber")), (frozenset(), None))
+            if kind in PLAN_KINDS:
+                out |= set(levels)
+    return frozenset(out)
+
+
+def off_floor(candidate: dict, decision: dict, evidence: dict[str, Evidence], floors: dict,
+              target: frozenset) -> tuple[dict, str | None]:
+    """A finding with its plans of OTHER floors taken out, or why it cannot
+    stand without them. Pure. Different floors differ on purpose, and the
+    prompt saying so was not enough: a UT Law review of S2.105 (Level 5) read
+    every architectural plan its library search found and raised "S2.105's
+    overall 190'-0\" differs from A3.05's 165'-11\"" — A3.05 is Level 6. A plan
+    of another floor is not evidence about this one: it is dropped from the
+    finding, a conflict left with one source is rejected, and so is a finding
+    whose question is built on that sheet. Sheets with no floor read
+    (sections, details, schedules) and plans drawn for several floors that
+    include this one are never off-floor."""
+    if not target:
+        return candidate, None
+    away = [e for e in candidate["evidenceIds"]
+            if e in evidence
+            and (lv := floors.get((evidence[e].document_id, evidence[e].page_number)))
+            and lv[1] in PLAN_KINDS and lv[0] and not (lv[0] & target)]
+    if not away:
+        return candidate, None
+    sheets = sorted({evidence[e].sheet_number or evidence[e].where for e in away})
+    names = ", ".join(f"{s} ({'/'.join(sorted(floors[(evidence[e].document_id, evidence[e].page_number)][0]))})"
+                      for s, e in {evidence[e].sheet_number or evidence[e].where: e for e in away}.items())
+    here = "/".join(sorted(target))
+    kept = [e for e in candidate["evidenceIds"] if e not in away]
+    if not any(evidence[e].kind not in WEAK_KINDS for e in kept if e in evidence):
+        return candidate, f"its only drawing evidence is a plan of another floor ({names}; this review is about {here})"
+    wording = f"{decision.get('subject') or ''}\n{decision.get('question') or ''}"
+    if any(re.search(rf"(?<![\w.]){re.escape(s)}(?![\w.]|\.\d)", wording) for s in sheets):
+        return candidate, f"it compares this floor ({here}) with a plan of another floor ({names}); floors differ on purpose"
+    if candidate["kind"] in ("conflict", "inconsistency"):
+        two_pages = len({(evidence[e].document_id, evidence[e].page_number) for e in kept if e in evidence}) >= 2
+        two_items = candidate.get("fromValues") and len([e for e in kept if evidence[e].kind not in WEAK_KINDS]) >= 2
+        if not (two_pages or two_items):
+            return candidate, f"without the plan of another floor ({names}) it has one source left"
+    return dict(candidate, evidenceIds=kept), None
+
+
+def page_floors(keys: set) -> dict:
+    """(documentId, pageNumber) → (floors drawn, sheet kind), read once. A read
+    failure returns nothing, and then no finding is changed by floor."""
+    if not keys:
+        return {}
+    docs = sorted({k[0] for k in keys})
+    try:
+        with db.connect() as conn:
+            rows = conn.execute(
+                'SELECT "documentId", "pageNumber", levels, level, "sheetKind" FROM pages WHERE "documentId" = ANY(%s)',
+                (docs,),
+            ).fetchall()
+    except Exception as exc:  # noqa: BLE001 — a floor rule must never fail a review
+        log.warning("rfi review: could not read the pages' floors (%s); findings are not checked by floor", exc)
+        return {}
+    out = {}
+    for doc, page, levels, level, kind in rows:
+        if (doc, page) in keys:
+            out[(doc, page)] = (frozenset(levels or ([level] if level else [])), kind)
     return out
 
 
@@ -4427,6 +4507,21 @@ def _run(run: dict) -> dict:
     return _finish(prep, lambda: _discover_alone(prep))
 
 
+class _Steps:
+    """Times a review's preparation, one log line per step as it ends. Preparation spends no model
+    call and used to log nothing: a review sat 22 minutes between two lines while one code check
+    read all 351 sheets of a project, and nothing said which step it was in."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id[:8]
+        self.t0 = self.last = time.monotonic()
+
+    def done(self, name: str) -> None:
+        now = time.monotonic()
+        log.info("rfi review %s: prepared %s in %.1fs (%.0fs so far)", self.run_id, name, now - self.last, now - self.t0)
+        self.last = now
+
+
 def _prepare(run: dict):
     """Everything a review does before its first model call: the exact
     geometry, the code checks and the evidence. A dict is an early answer
@@ -4439,6 +4534,7 @@ def _prepare(run: dict):
     catalogue = {**CHECKS, **library}
     linked = code_checks_for(asked, library)
     notes: list[str] = []
+    steps = _Steps(run_id)
     planned = run.get("coverage") or {}
     search_log: list[dict] = list(planned.get("searchLog") or [])
     omissions: list[str] = list(planned.get("omissions") or [])
@@ -4467,9 +4563,11 @@ def _prepare(run: dict):
     if "G01" in check_ids:
         grid_found, grid_note = _grid_findings(project_id, scope)
         notes.append(grid_note or f"Exact grid comparison: {len(grid_found)} grid naming disagreement(s).")
+        steps.done("the grid comparison")
 
     # 2. Evidence: text first, then the images the plan asked for, then aids.
     texts = text_evidence(scope)
+    steps.done(f"{len(texts)} text pieces")
     aids: list[Evidence] = []
     index_aids: list[Evidence] = []
     # C03: every column-mark occurrence on each rendered page, measured.
@@ -4478,7 +4576,9 @@ def _prepare(run: dict):
     code_found: list = []
     with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", [])} | code_docs)) as open_page:
         # 1b. The code checks the asked questions link to, on these sheets.
+        steps.done("the drawings' download")
         code_found, code_notes = library_code_findings(project_id, scope, set(linked), open_page)
+        steps.done("the code checks")
         notes += code_notes
         element = (scope.get("library") or {}).get("element") or {}
         other = [f for f in code_found if not credited(f, linked, element)]
@@ -4492,14 +4592,17 @@ def _prepare(run: dict):
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
                                   for p in scope.get("pages", [])
                                   if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
+        steps.done("the column schedule check")
         visuals = image_evidence(scope, open_page, start=len(texts) + 1,
                                  cut_by=details_cut(scope, open_page) if scope.get("library") else None)
+        steps.done(f"{len(visuals)} pictures")
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
         overlay = plan_overlay(
             scope, open_page, columns="C01" in check_ids,
             pair_windows=depth.get("pairWindows", 0), start=len(texts) + len(visuals) + 1,
         )
+        steps.done("the plan overlay")
         n = len(texts) + len(visuals) + len(overlay.pairs) + 1
         if "C03" in check_ids:
             for p in scope.get("pages", []):
@@ -4518,6 +4621,8 @@ def _prepare(run: dict):
                     n += 1
         # Dimensions a detail prints as "SEE PLAN": listed for every review, so
         # whether the plan gives them never depends on the model noticing.
+        if "C03" in check_ids:
+            steps.done("the column positions")
         see_plan = _pages_whose_text(scope, r"see\s+(plans?|civil|arch)")  # what review_aids._DEFERRED reads
         for p in scope.get("pages", []):
             if (p["documentId"], p["pageNumber"]) not in see_plan:
@@ -4540,7 +4645,9 @@ def _prepare(run: dict):
     notes += overlay.notes
     evidence = {ev.id: ev for ev in texts + visuals + overlay.pairs + aids + index_aids}
     all_images = visuals + overlay.pairs
+    steps.done("the deferred dimensions")
     stored = _store_images(project_id, run_id, all_images)
+    steps.done("storing the pictures")
 
     # 3. Discovery, in as many calls as the input limit needs (up to the cap).
     batches, unread = discovery_batches(texts + visuals + aids, overlay.pairs + index_aids, max_input, max_batches)
@@ -4787,10 +4894,18 @@ def _finish(p, discover) -> dict:
             to_verify.append(with_sheet_closeups(candidate, evidence))
 
         scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+        floors = page_floors(scope_keys | {(ev.document_id, ev.page_number) for ev in evidence.values()})
+        floors_here = target_floors(scope, floors)
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
+            candidate, why_not = off_floor(candidate, decision, evidence, floors, floors_here)
+            if why_not:
+                set_aside(candidate, why_not, "guard", decision)
+                diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                  reason=why_not, rule="plans of another floor")
+                return
             why_not = guard(candidate, decision, evidence, observations)
             if why_not:
                 set_aside(candidate, why_not, "guard", decision)

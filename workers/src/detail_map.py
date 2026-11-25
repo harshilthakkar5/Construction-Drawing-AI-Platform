@@ -134,7 +134,16 @@ def findings(pages, chunks, open_page, every=None, progress=None) -> tuple[list,
     from rfi_checks import MAX_EVIDENCE, Finding, fingerprint, page_label
 
     every = every or pages
-    entries = ensure({p.id: p for p in [*pages, *every]}.values(), open_page, progress)
+    # Only the sheets a symbol on `pages` points at can be looked up, so only those are read: a review
+    # of 40 sheets in a 351-sheet set read all 351 on its first run (~1-3 s a sheet, ~22 minutes on one
+    # PC, silent) to answer a question about the 40 and the handful their symbols name.
+    entries = ensure({p.id: p for p in pages}.values(), open_page, progress)
+    pointed = {link["sheet"].upper() for p in pages
+               for link in (entries.get((p.document_id, p.page_number)) or {}).get("links") or []}
+    targets = [p for p in every if p.sheet_number and p.sheet_number.upper() in pointed]
+    entries.update(ensure({p.id: p for p in targets if (p.document_id, p.page_number) not in entries}.values(),
+                          open_page, progress))
+    every = [p for p in every if (p.document_id, p.page_number) in entries]
     entry = lambda p: entries.get((p.document_id, p.page_number), {})
     out = []
     for m in missing_details([(p, entry(p)) for p in pages], [(p, entry(p)) for p in every]):
