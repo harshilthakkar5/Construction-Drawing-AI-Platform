@@ -812,55 +812,6 @@ _TRUST_RULES = (
 )
 
 
-# A short reading guide (glossary + worked examples), OFF until a paid A/B shows it
-# finds more real RFIs without adding false ones (RFI_REVIEW_GUIDE=on). Every
-# sheet, mark and value in the examples is MADE UP on purpose: a real one would
-# seed the model with the answer key (test_review_guide_never_seeds_the_answer_key).
-REVIEW_GUIDE = os.environ.get("RFI_REVIEW_GUIDE", "off").lower() in ("on", "true", "1")
-
-GLOSSARY = (
-    "<glossary>Drawing abbreviations (meaning, and what it implies for an RFI):\n"
-    "- T.O.C. / T.O.S. / T.O.W. / T.O.F.: top of concrete / slab or steel / wall / footing (an elevation).\n"
-    "- B.O.F. / B.O.S.: bottom of footing / slab. EL. or ELEV.: elevation. FFE / FFL: finished floor.\n"
-    "- TYP.: typical — the item applies at every similar place, not only where it is drawn.\n"
-    "- SIM.: similar — like the referenced item but not identical; a differing value is not a conflict by itself.\n"
-    "- U.N.O. / U.O.N.: unless noted otherwise — a specific note elsewhere overrides it.\n"
-    "- SEE / REFER TO / REF.: a pointer, never the value itself.\n"
-    "- N.I.C.: not in contract. BY OTHERS: another party designs or supplies it — who is settled, "
-    "its size or place to coordinate with may still be missing.\n"
-    "- V.I.F. / F.V.: verify in field — the contractor's duty, not a question for the designer.\n"
-    "- E.Q. / EQ.: equal spacing. CLR.: clear distance. O.C.: on centre. C/L or CL: centreline.\n"
-    "- EW / EF / T&B: each way / each face / top and bottom (reinforcement).\n"
-    "- CJ / EJ / CTRL JT: construction / expansion / control joint.\n"
-    "- DIM. / DWG / DET. / SECT. / ELEV.: dimension / drawing / detail / section / elevation view.\n"
-    "- Detail callout \"3/S7.40\": detail 3 on sheet S7.40. A grid crossing \"B/7\" or \"7/B\": grid lines B and 7.\n"
-    "- TBD / TBC / HOLD: an open item the designer has not decided.\n"
-    "</glossary>\n"
-)
-
-EXAMPLES = (
-    "<worked_examples>Invented sheets and values, to show the standard only — never report them.\n"
-    "1. RFI (conflict). Detail 2/S7.42 shows grade beam GB-9 as 2'-2\" deep; section 5/S7.44, cut through "
-    "the same beam at grid R/31, shows 1'-10\". Two sources, one element, one place, two values. Question: "
-    "\"Detail 2/S7.42 shows GB-9 at 2'-2\" deep and section 5/S7.44 at 1'-10\" at grid R/31. Which depth governs?\"\n"
-    "2. RFI (missing). Plan A7.43 labels trench drain TD-4 \"SEE CIVIL\", and no civil sheet in the project "
-    "gives its invert. Question: \"A7.43 refers trench drain TD-4 to the civil drawings, which are not in "
-    "the set. Provide the invert elevation and slope of TD-4.\"\n"
-    "3. NOT an RFI. S7.42 notes \"T.O.C. SEE 6/S7.44\", and detail 6/S7.44 prints T.O.C. EL. 103'-4\" for "
-    "that wall. The pointer is answered by the sheet it points to.\n"
-    "4. NOT an RFI. Level 2 shows a column 16x16 and Level 5 shows it 12x12: expected change between "
-    "levels, unless a note says otherwise.\n"
-    "</worked_examples>\n"
-)
-
-
-def review_guide(stage: str) -> str:
-    """The guide text a stage gets: glossary to read with, examples to judge with. Pure."""
-    if not REVIEW_GUIDE:
-        return ""
-    return {"discovery": GLOSSARY, "reasoning": GLOSSARY + EXAMPLES, "verification": GLOSSARY + EXAMPLES}[stage]
-
-
 # Code checks a review can run on its own pages (rfi_checks text checks over the
 # project, filtered to the review's sheets; element_marks / column_schedule on
 # the sheets themselves). Grid naming and the column overlay run as G01 / C01.
@@ -1085,7 +1036,6 @@ def discovery_system() -> str:
         "DISCOVERY. Record what the evidence SHOWS. Do not decide yet whether anything is wrong.\n\n"
         "The questions to answer are listed at the END of the message, under <questions>: answer only those.\n\n"
         f"{_TRUST_RULES}\n"
-        f"{review_guide('discovery')}"
         "Rules:\n"
         "- Every observation names its check and cites the ids of the evidence it comes from, and ONLY "
         "ids from the evidence given.\n"
@@ -1132,7 +1082,6 @@ def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str
         "REASONING. You are given observations already made from the evidence, with the ids of the "
         "evidence behind each. Decide which of them show a problem that needs an RFI.\n\n"
         f"Questions in scope:\n{_checks_block(check_ids, rules=True, catalogue=catalogue)}\n\n"
-        f"{review_guide('reasoning')}"
         "A problem is one of:\n"
         "- conflict: two sources show the same element differently (place, size, mark, name);\n"
         "- missing: a value needed to locate or build the element is in none of the sources given;\n"
@@ -1173,7 +1122,6 @@ def verification_system() -> str:
         "You review construction drawings. This is step 3 of 3: VERIFICATION. For each proposed "
         "problem, look again at ONLY the evidence it cites (shown to you) and decide: keep or reject.\n\n"
         f"{_TRUST_RULES}\n"
-        f"{review_guide('verification')}"
         "Some problems carry evidence the server FOUND by searching the project for what would settle "
         "them (listed under `searched`). If that evidence settles the problem, reject it and say which "
         "evidence settles it; if it does not, the problem stands.\n"
@@ -2049,21 +1997,20 @@ _DEFERS = re.compile(
 _UNPROVEN_ABSENCE = re.compile(
     r"\b(?:does\s+not|doesn'?t|do\s+not|don'?t|nothing|no\s+evidence)\s+(?:\w+\s+){0,3}?"
     r"(?:shows?|establish(?:es)?|demonstrates?|proves?|indicates?)\b[^.]{0,80}?"
-    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed))\b"
+    r"\b(?:lacks?|missing|absent|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed|stated|dimension(?:ed|s)?))\b"
+    # The absence first, then "which the evidence does not establish". UT Law RFI 001 with
+    # the review guide on: "the missing-run claim rests on the plan not dimensioning the
+    # extents, which the evidence does not establish".
+    r"|\b(?:not\s+(?:\w+ly\s+)?(?:\w+ing|given|shown|stated|printed|provided|dimensioned|specified|labell?ed)"
+    r"|lacks?|lacking|missing|absent|absence\s+of|omit(?:s|ted|ting)?)\b[^.]{0,100}?\bwhich\s+(?:the\s+)?"
+    r"(?:\w+\s+){0,2}?(?:does|do|did)\s+not\s+(?:\w+\s+)?(?:establish|show|demonstrate|prove|support)\b"
     r"|\bno\s+gap\s+(?:is|was|has\s+been)\s+(?:demonstrated|shown|established|proven)\b"
     r"|\bgap\s+(?:is|was)\s+not\s+(?:demonstrated|shown|established|proven)\b"
     # Victaulic RFI 005, re-checked twice: "cannot be settled from the evidence shown", and
     # "the base plate size is on S3.2, which is not among the evidence shown".
     r"|\bcannot\s+be\s+(?:settled|established|determined|confirmed|demonstrated|verified|shown)\s+(?:from|by|with)\s+"
     r"(?:the\s+)?(?:\w+\s+)?evidence\b"
-    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b"
-    # The absence named FIRST, the doubt after it. UT Law RFI 001, set aside on S2.105: "The
-    # missing-run claim rests on the plan not dimensioning the extents, which the evidence does
-    # not establish". "Support" is left out on purpose: "…is missing, which the evidence does not
-    # support, since S4.02 prints it" is a real answer, not an unproven absence.
-    r"|\b(?:missing|absen(?:t|ce)|lack(?:s|ing)?|omit(?:s|ted)?|not\s+(?:given|shown|provided|printed|\w+ing))\b"
-    r"[^.]{0,120}?\b(?:which|that)\s+(?:the\s+)?(?:\w+\s+)?evidence\s+(?:does|did)\s+not\s+"
-    r"(?:establish|show|demonstrate|prove)\b",
+    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b",
     re.I,
 )
 # A rejection that says the value is given ELSEWHERE while its own reason says the value
@@ -3596,7 +3543,7 @@ def discovery_batches(
     calls is the lowest-ranked evidence, returned so the run can say it was
     not read rather than pretend it was.
     """
-    capacity = max(1, max_input - SYSTEM_TOKENS - len(review_guide("discovery")) // 3)
+    capacity = max(1, max_input - SYSTEM_TOKENS)
     groups: list[list[Evidence]] = []
     if first:
         groups.append(list(first))

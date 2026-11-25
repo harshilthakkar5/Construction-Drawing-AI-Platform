@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -323,7 +323,8 @@ function CreateRfiDialog({
   const sheets = useLibrarySheets(projectId);
   const [name, setName] = useState("");
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
-  const [level, setLevel] = useState<string | null>(null);
+  const autoName = useRef("");
+  const [levels, setLevels] = useState<string[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [openPackage, setOpenPackage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -341,9 +342,12 @@ function CreateRfiDialog({
       const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
       const e = pkg?.elements.find((x) => x.id === id);
       if (!e) continue;
-      const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
-      for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
-      if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
+      // Each ticked level is suggested on its own and the sheets merged; none ticked lets the element pick its floor.
+      for (const level of levels.length ? levels : [null]) {
+        const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
+        for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
+        if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
+      }
     }
     const note = [...assumed]
       .map(([l, names]) => `${names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(" and ")} on ${levelLabel(l)}`)
@@ -353,7 +357,7 @@ function CreateRfiDialog({
       reasons,
       note: note ? `Assumed floor: ${note}. Pick a level above to change it.` : undefined,
     };
-  }, [picks, elements, sheets, level]);
+  }, [picks, elements, sheets, levels]);
 
   // Before anything is priced: the schedules, sections and details the chosen
   // elements ask for that are not among the sheets to read.
@@ -437,10 +441,12 @@ function CreateRfiDialog({
             <p className="text-sm font-semibold">2 · Sheets</p>
             <LevelChooser
               sheets={sheets}
-              onPick={(picked, numbers, label) => {
-                setLevel(picked);
-                setChosenSheets(numbers);
-                if (!name.trim()) setName(label);
+              onPick={({ levels: picked, added, removed, name: label }) => {
+                setLevels(picked);
+                setChosenSheets((prev) => [...prev.filter((n) => !removed.includes(n)), ...added.filter((n) => !prev.includes(n))]);
+                // The name follows the levels until the person types their own.
+                if (!name.trim() || name === autoName.current) setName(label);
+                autoName.current = label;
               }}
             />
             <SheetPicker
@@ -1097,14 +1103,14 @@ function SetFindings({
 }
 
 
-/** Pick a level and its sheets are ticked: every sheet the sheet read found drawn for it.
- * Typical floors (`typicalFloors`) are offered as one choice, so one review covers them all. */
+/** Tick a level and its sheets are ticked: every sheet the sheet read found drawn for it; untick it and they go.
+ * Several levels may be ticked. Typical floors (`typicalFloors`) are offered as one choice, so one review covers them all. */
 function LevelChooser({
   sheets,
   onPick,
 }: {
   sheets: LibrarySheet[];
-  onPick: (level: string, sheetNumbers: string[], name: string) => void;
+  onPick: (pick: { levels: string[]; added: string[]; removed: string[]; name: string }) => void;
 }) {
   const levels = useMemo(() => {
     const by = new Map<string, string[]>();
@@ -1115,8 +1121,29 @@ function LevelChooser({
     });
   }, [sheets]);
   const groups = useMemo(() => typicalFloors(sheets), [sheets]);
-  const [picked, setPicked] = useState("");
-  const group = groups.find((g) => `typical:${g.label}` === picked);
+  const choices = useMemo(
+    () => [
+      ...groups.map((g) => ({ key: `typical:${g.label}`, level: g.levels[0]!, sheets: g.sheets, name: `${g.label} (typical)`, label: `${g.label} (typical) · ${g.sheets.length} sheets` })),
+      ...levels.map(([level, numbers]) => ({ key: level, level, sheets: numbers, name: levelLabel(level), label: `${levelLabel(level)} · ${numbers.length} sheet${numbers.length === 1 ? "" : "s"}` })),
+    ],
+    [groups, levels],
+  );
+  const [picked, setPicked] = useState<string[]>([]);
+  const union = (keys: string[]) => new Set(choices.filter((c) => keys.includes(c.key)).flatMap((c) => c.sheets));
+  const toggle = (key: string) => {
+    const next = picked.includes(key) ? picked.filter((k) => k !== key) : [...picked, key];
+    const [before, after] = [union(picked), union(next)];
+    const ticked = choices.filter((c) => next.includes(c.key));
+    setPicked(next);
+    onPick({
+      levels: [...new Set(ticked.map((c) => c.level))],
+      added: [...after].filter((n) => !before.has(n)),
+      // A sheet another ticked level still draws stays.
+      removed: [...before].filter((n) => !after.has(n)),
+      name: ticked.map((c) => c.name).join(", "),
+    });
+  };
+  const groupsPicked = groups.filter((g) => picked.includes(`typical:${g.label}`));
   if (!levels.length) {
     return (
       <p className="text-muted-foreground text-sm">
@@ -1127,39 +1154,41 @@ function LevelChooser({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={picked}
-          onValueChange={(value) => {
-            setPicked(value);
-            const g = groups.find((x) => `typical:${x.label}` === value);
-            if (g) onPick(g.levels[0]!, g.sheets, `${g.label} (typical)`);
-            else onPick(value, levels.find(([l]) => l === value)?.[1] ?? [], levelLabel(value));
-          }}
-        >
-          <SelectTrigger className="h-10 w-72 text-sm" aria-label="Level">
-            <SelectValue placeholder="Pick a level to tick its sheets" />
-          </SelectTrigger>
-          <SelectContent>
-            {groups.map((g) => (
-              <SelectItem key={g.label} value={`typical:${g.label}`}>
-                {g.label} (typical) · {g.sheets.length} sheets
-              </SelectItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" className="h-10 w-72 justify-between text-sm font-normal" aria-label="Levels">
+              <span className={cn("truncate", !picked.length && "text-muted-foreground")}>
+                {picked.length === 0
+                  ? "Pick levels to tick their sheets"
+                  : picked.length === 1
+                    ? choices.find((c) => c.key === picked[0])?.label
+                    : `${picked.length} levels picked`}
+              </span>
+              <ChevronDownIcon className="opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-80 w-(--radix-dropdown-menu-trigger-width) overflow-y-auto">
+            {choices.map((c) => (
+              <DropdownMenuCheckboxItem
+                key={c.key}
+                checked={picked.includes(c.key)}
+                // Radix closes on select by default; a multi-select must not.
+                onSelect={(event) => event.preventDefault()}
+                onCheckedChange={() => toggle(c.key)}
+              >
+                {c.label}
+              </DropdownMenuCheckboxItem>
             ))}
-            {levels.map(([level, numbers]) => (
-              <SelectItem key={level} value={level}>
-                {levelLabel(level)} · {numbers.length} sheet{numbers.length === 1 ? "" : "s"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-muted-foreground text-sm">You can still untick sheets or add others below.</span>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <span className="text-muted-foreground text-sm">Untick a level to take its sheets off. You can still untick sheets or add others below.</span>
       </div>
-      {group && (
-        <p className="text-muted-foreground text-sm">
+      {groupsPicked.map((group) => (
+        <p key={group.label} className="text-muted-foreground text-sm">
           {group.label} share their plans, so one review covers them all. {levelLabel(group.levels[0]!)}&apos;s own sheets stand for the rest
           {group.leftOut.length > 0 && <>; left out: {group.leftOut.join(", ")}. Add any whose floor differs</>}.
         </p>
-      )}
+      ))}
     </div>
   );
 }

@@ -426,7 +426,7 @@ miss falls back to the code readers (`sheet_facts.title_block_level` / `level_in
 `pages.sheetRefs` (sheets it points to, by code). `buildSheetMap` (`@cdip/shared`) turns the manifest into four
 links: level → sheets, same level other disciplines, enlarged ↔ overall plan, points to / pointed to by
 (missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
-rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. "Re-read sheets" makes EVERY live page pending
+rescrape) and as the Level picker in Create RFI, a tick list: ticking a level ticks its sheets, unticking it takes them off again (a sheet another ticked level draws stays, hand edits to other sheets are kept), and the RFI's name follows the levels until the person types their own. "Re-read sheets" makes EVERY live page pending
 (`titleLines` set NULL) — the worker reads only pending pages, so it used to re-sort without reading; unchanged
 sheets still cost no AI (cache by text). It shows `sheet_regions.progress` ({stage reading|sheets|grouping, done,
 total}, `REGION_STAGES` + `regionPercent` in `@cdip/shared`) and a Stop button (`POST /region/rescrape/stop`:
@@ -3050,7 +3050,6 @@ omitted the field for a whole batch, and the parser's default had turned RFI 008
 A pointer is settled when the code has READ its target: "details say SEE PLAN, plan says SEE COL SCHEDULE, so no source gives the column size" was kept on a Leland review that had S8.02 among its sheets — discovery could not read the schedule's boxes at the rendered resolution, and the deferral rule above reopened the rejection. `answered_by_column_schedule` rejects such a `missing` claim before verification when a reviewed sheet carries a column schedule `column_schedule.sizes_columns` reads as sizing columns; a column it leaves unsized is `unsized_column`'s finding, by location (on S8.02: B6/B7-BA/BB, Leland RFI 005, and B3(2'-4 3/4")-BB). Still open: the 002 re-check cited S2.31-A for showing the piers, and a citation makes a rejection stand even when the
 cited text prints no offset; the code cannot yet tell a citation of the value from a citation of the element.
 
-`RFI_REVIEW_GUIDE=on` (default off) adds a glossary of drawing abbreviations (T.O.C., TYP., SIM., V.I.F., BY OTHERS…) to all three review calls and four worked examples (two RFIs, two non-RFIs) to reasoning and verification (`rfi_review.review_guide`). Every sheet, mark and value in them is invented; `test_review_guide.py` fails if one appears in `benchmarks/rfi_eval_cases.json`, since a real one would seed the answer key. Unmeasured: switch it on only after a paid on/off run on the same set.
 Values are compared by CODE, not the model (`value_conflicts`). On Leland RFI 007 two models read
 detail 4's 1'-4" pit slab correctly and then compared detail 4 with detail 5 (which agree) instead
 of detail 3 (8") — and the inventory could not have shown it, because it held one MERGED row per
@@ -3074,9 +3073,7 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
   * RFI 009 (10/S4.10's wall T.O.C. "SEE PLAN", nothing on S2.31-A where it is cut) was proposed and set aside twice,
     the second time CITING pier tops while conceding "the evidence does not show that the plans lack these values, so
     no gap is demonstrated". That asks a problem to prove an absence: `contested` now treats a reason of that shape
-    (`_UNPROVEN_ABSENCE`) as no answer, citation or not — the absence may come first too (UT Law RFI 001: "rests on
-    the plan not dimensioning the extents, which the evidence does not establish"; "does not support" stays an
-    answer; 1 of 57 stored set-asides changes, that one). A kept deferral finding also gets, as `kind="callout"`
+    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. Either order counts: "rests on the plan not dimensioning the extents, which the evidence does not establish" (UT Law RFI 001, set aside by a guide-on run) names the absence first. A kept deferral finding also gets, as `kind="callout"`
     CONTEXT evidence, where the plans call out the details whose "SEE PLAN" lies in its cited boxes
     (`with_callout_context`, reviewed plans first, ≤3) — where the value belongs and a person looks. A callout is in
     WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was
@@ -3276,7 +3273,7 @@ alone handed every Leland foundation element the composite floor plan and the li
 Create RFI suggests a SET per element and floor (`suggestForElement`, `@cdip/shared`): the plan of each Compare Across
 discipline on the floor, that plan's enlarged plans (≤2), and the details/sections/schedules it points to (`sheetRefs`)
 whose title names the element (≤3), each with a reason ("Structural plan · Level 5", "S1.101 points to it") in a tickable
-list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
+list. The floor is each one ticked in the dialog (suggested once per ticked floor, merged), else the element's own (`elementLevel`: foundations, piles, pits → the
 lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
 loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
 That early floor slot splits only on-floor from the rest (another floor and no floor tie), or a notes sheet tagged ROOF
