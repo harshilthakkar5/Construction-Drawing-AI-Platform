@@ -10,6 +10,7 @@ import {
   withGridSlots,
   elementFamily,
   estimateReview,
+  estimateSharedReading,
   levelOf,
   missingViews,
   pageLevel,
@@ -768,5 +769,33 @@ describe("pointedSheets", () => {
     expect(pointedSheets([{ from: "S1.1D", text: "GENERAL NOTES SEE S0.1\nFOOTING STEP, SEE 8/S3.1" }], wanted, sheets, new Set())).toEqual([]);
     expect(pointedSheets([s11d], wanted, sheets, new Set(["S32"]))).toEqual([]);
     expect(pointedSheets([{ from: "x", text: "COLUMN BASE PLATE, SEE S9.9" }], wanted, sheets, new Set())).toEqual([]);
+  });
+});
+
+
+describe("a named RFI read together", () => {
+  const cost = (row: { inputTokens: number; outputTokens: number }) => row.inputTokens / 1e6 + row.outputTokens / 1e5;
+
+  it("prices one reading of the evidence the elements share, not one each", () => {
+    const scope = rankScope(input());
+    const one = estimateReview(scope, settings(), cost);
+    const parts = Array.from({ length: 7 }, () => ({ scope, checkCount: 3, estimate: one }));
+    const got = estimateSharedReading(parts, settings(), cost);
+    expect(got.separateLowUsd).toBeCloseTo(7 * one.costLowUsd!);
+    expect(got.separateHighUsd).toBeCloseTo(7 * one.costHighUsd!);
+    // Seven elements over identical sheets: the reading is paid once; each element's
+    // reasoning and verification are still its own.
+    expect(got.costLowUsd!).toBeLessThan(got.separateLowUsd! * 0.65);
+    expect(got.costHighUsd!).toBeLessThan(got.separateHighUsd! * 0.65);
+    expect(got.costLowUsd!).toBeGreaterThan(one.costLowUsd!);
+  });
+
+  it("never prices the shared reading above reading alone, and keeps an unknown price unknown", () => {
+    const scope = rankScope(input());
+    const one = estimateReview(scope, settings(), cost);
+    const single = estimateSharedReading([{ scope, checkCount: 3, estimate: one }], settings(), cost);
+    expect(single.costHighUsd!).toBeLessThanOrEqual(one.costHighUsd! + 1e-9);
+    const unknown = estimateSharedReading([{ scope, checkCount: 3, estimate: { costLowUsd: null, costHighUsd: null } }], settings(), cost);
+    expect(unknown.costLowUsd).toBeNull();
   });
 });

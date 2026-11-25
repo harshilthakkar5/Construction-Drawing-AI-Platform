@@ -864,10 +864,19 @@ def test_a_rejection_that_only_says_absence_is_unproven_is_contested_even_citing
     for reason in ("The plans do print pier top elevations: S2.30-B shows (-26'-2\") on its piers. The evidence does not "
                    "show that the plans lack these values, so no gap is demonstrated.",
                    "Nothing shown establishes that the plans lack these values, so a gap is not demonstrated.",
-                   "Nothing shown indicates an offset; the claim that plans lack offsets is not supported."):
+                   "Nothing shown indicates an offset; the claim that plans lack offsets is not supported.",
+                   # UT Law RFI 001: the absence first, then "which the evidence does not establish".
+                   "S4.135 gives slopes; the missing-run claim rests on the plan not dimensioning the extents, "
+                   "which the evidence does not establish.",
+                   "The evidence does not establish that the extents are not dimensioned on S2.105."):
         decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev79"], "reason": reason}
         assert rfi_review.contested(decision, {"ev79"}, problem), reason
         assert rfi_review.contested(decision, {"ev79"}), reason  # the wording alone, whatever the problem
+    # A rejection resting on a value shown, or calling a CONFLICT unproven, still stands.
+    for reason in ("S2.105 dimensions the extents at 24'-0\", which the evidence shows.",
+                   "The evidence does not establish a conflict or that note 8 applies to these wall footings."):
+        decision = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev79"], "reason": reason}
+        assert not rfi_review.contested(decision, {"ev79"}), reason
     # Specifications governing still stands, and so does a plain "not visible".
     assert not rfi_review.contested({"decision": "reject", "basis": "other", "answeredBy": [],
                                      "reason": "Per the specifications; nothing shows the plans lack it."}, set(), problem)

@@ -917,8 +917,9 @@ def test_grid_spacings_go_into_the_inventory_one_span_per_sheet_and_code_compare
     """Victaulic RFI 007: S1.1G prints 13'-11 1/4" for grid 15 to 15.6 where S1.1D
     prints 14'-0". Discovery read both and compared neither; recorded as one span
     per sheet, value_conflicts proposes the conflict."""
-    assert "grid 15 to 15.6" in rfi_review.discovery_system(["G01"])
-    assert "Grid spacing" not in rfi_review.discovery_system(["F01"])
+    assert "grid 15 to 15.6" in rfi_review.discovery_questions(["G01"])
+    assert "Grid spacing" not in rfi_review.discovery_questions(["F01"])
+    assert "Grid spacing" not in rfi_review.discovery_system()  # the shared opening never varies
     rows = [
         {"checkId": "G01", "entity": "grid 15 to 15.6", "location": "", "source": "S1.1G",
          "fields": [{"name": "spacing", "value": "13'-11 1/4\"", "state": "supported", "evidenceIds": ["ev51"], "derived": False}]},

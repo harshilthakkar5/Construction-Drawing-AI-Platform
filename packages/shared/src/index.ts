@@ -1967,7 +1967,7 @@ export interface RfiProjectSettings {
 /** Both RFI runs default to Claude Sonnet 5.5 (owner's choice, Nov 2026), whatever the server's env picks. */
 export const RFI_DEFAULT_MODEL = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
-  review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: false },
+  review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: true },
   fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. A model
@@ -2563,9 +2563,15 @@ export interface RfiSetDto {
   /** Findings of this RFI's reviews still waiting in "Needs your review". */
   pending: number;
   findings: number;
-  /** Sum of the planned reviews' price range; null when any is unpriced. */
+  /** The planned reviews' price range (or all of them once none is planned);
+   * null when any is unpriced. Read together (one reading for every element)
+   * when `readTogether`, else the sum of the elements' own prices. */
   costLowUsd: number | null;
   costHighUsd: number | null;
+  /** What the same reviews would cost each reading the sheets alone. */
+  separateLowUsd: number | null;
+  separateHighUsd: number | null;
+  readTogether: boolean;
 }
 export interface RfiSetDetailDto extends RfiSetDto {
   reviews: RfiReviewRunDto[];

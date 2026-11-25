@@ -1,12 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  RFI_REVIEW_INPUT_LIMITS,
   RFI_REVIEW_SHEETS_GUARD,
   RFI_SET_MAX_ELEMENTS,
   RFI_SET_NAME_CHARS,
   reviewThinkingCapability,
   rfiSettingsOf,
+  type RfiReviewDepth,
   type RfiReviewEstimateDto,
+  type RfiReviewLimitsDto,
+  type RfiReviewThinking,
   type RfiSetDetailDto,
   type RfiSetDto,
   type RfiSetItem,
@@ -16,7 +20,9 @@ import { prisma } from "../db.js";
 import { summaryLimiter } from "../rateLimit.js";
 import { buildLibrary, library } from "../rfiLibrary.js";
 import { planReview, reviewModelOptions, toReviewDto } from "../rfiReviewPlanner.js";
+import { estimateSharedReading, type ReviewScope } from "../rfiReviewRules.js";
 import { setCost, setPlanRequest } from "../rfiSets.js";
+import { estimateCostUsd } from "../usage.js";
 import { toCandidateDto } from "../rfiStore.js";
 import { customElementsOf } from "./rfiLibrary.js";
 import { planBody, queuedReviewJobs, startReview } from "./rfiReview.js";
@@ -59,7 +65,7 @@ async function libraryFor(projectId: string) {
 async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
   const runs = await prisma.rfiReviewRun.findMany({
     where: { setId: { in: sets.map((s) => s.id) }, status: { not: "cancelled" } },
-    select: { id: true, setId: true, status: true, estimate: true, scope: true, progress: true },
+    select: { id: true, setId: true, status: true, estimate: true, scope: true, progress: true, depth: true, limits: true, checkIds: true },
     orderBy: { createdAt: "desc" },
   });
   const counts = await prisma.rfiCandidate.groupBy({
@@ -91,9 +97,57 @@ async function summaries(sets: SetRow[]): Promise<RfiSetDto[]> {
         : 0,
       pending: found.filter((c) => c.status === "pending").reduce((n, c) => n + c._count._all, 0),
       findings: found.reduce((n, c) => n + c._count._all, 0),
-      ...setCost(mine.filter((r) => r.status !== "stale").map((r) => r.estimate as RfiReviewEstimateDto | null)),
+      ...setPrice(latest.some((r) => r.status === "planned") ? latest.filter((r) => r.status === "planned") : latest.filter((r) => r.status !== "stale")),
     };
   });
+}
+
+/** One reading for every element when the worker will read them together
+ * (rfi_review._claim_set: same model and settings); else each element's own. */
+// Off by default, like the worker: read together, one element was served thinly in
+// each paid run, and the re-read that catches it cost more than reading alone.
+const SHARED_SET_READING = process.env.RFI_SHARED_SET_READING?.toLowerCase() === "true";
+
+type PricedRun = { estimate: unknown; scope: unknown; depth: string; limits: unknown; checkIds: unknown };
+
+function setPrice(runs: PricedRun[]) {
+  const estimates = runs.map((r) => r.estimate as RfiReviewEstimateDto | null);
+  const alone = setCost(estimates);
+  const separate = { separateLowUsd: alone.costLowUsd, separateHighUsd: alone.costHighUsd };
+  const first = estimates[0];
+  const limitsOf = (r: PricedRun) => (r.limits ?? {}) as Partial<RfiReviewLimitsDto>;
+  const settingsKey = (r: PricedRun) => {
+    const e = r.estimate as RfiReviewEstimateDto | null;
+    const l = limitsOf(r);
+    return JSON.stringify([e?.provider, e?.model, r.depth, l.thinkingEffort, l.maxThinkingTokens, !!l.useBatch, l.maxInputTokens]);
+  };
+  if (!SHARED_SET_READING || runs.length < 2 || !first || estimates.some((e) => !e) || new Set(runs.map(settingsKey)).size > 1) {
+    return { ...alone, ...separate, readTogether: false };
+  }
+  const limits = limitsOf(runs[0]!);
+  const shared = estimateSharedReading(
+    runs.map((r) => {
+      const scope = r.scope as ReviewScope;
+      const checks = Array.isArray(r.checkIds) ? r.checkIds.length : 0;
+      // The planner's own count (rfiReviewPlanner: checkIds + library questions / 3).
+      return { scope, checkCount: checks + Math.ceil((scope.library?.questions.length ?? 0) / 3), estimate: r.estimate as RfiReviewEstimateDto };
+    }),
+    {
+      provider: first.provider,
+      model: first.model,
+      depth: runs[0]!.depth as RfiReviewDepth,
+      maxInputTokens: limits.maxInputTokens ?? RFI_REVIEW_INPUT_LIMITS.default,
+      thinkingEffort: (limits.thinkingEffort ?? "medium") as RfiReviewThinking,
+      maxThinkingTokens: limits.maxThinkingTokens ?? null,
+      useBatch: !!limits.useBatch,
+      checkCount: 0,
+      pricingVersion: first.pricingVersion,
+      priced: first.costLowUsd != null,
+      planning: { tokens: 0, costUsd: null },
+    },
+    estimateCostUsd,
+  );
+  return { costLowUsd: shared.costLowUsd, costHighUsd: shared.costHighUsd, ...separate, readTogether: true };
 }
 
 async function detail(projectId: string, setId: string, errors: RfiSetDetailDto["planErrors"] = []): Promise<RfiSetDetailDto> {
@@ -182,14 +236,21 @@ rfiSetsRouter.post("/:setId/start", summaryLimiter, async (req, res) => {
   await prisma.rfiSet.findFirstOrThrow({ where: { id: setId, projectId } });
   const planned = await prisma.rfiReviewRun.findMany({ where: { setId, status: "planned" }, orderBy: { createdAt: "asc" } });
   const errors: RfiSetDetailDto["planErrors"] = [];
+  // Claim every review first, queue them after: the worker groups a set's reviews
+  // that are QUEUED when its first job starts, so queueing one at a time handed
+  // it the first before the others existed and each element read alone.
+  const enqueue: Array<() => Promise<void>> = [];
   for (const run of planned) {
     // One key per review, so a repeated Start never starts one twice.
-    const { status, body } = await startReview(projectId, run.id, `set-${run.id}`);
-    if (status >= 400) {
+    const started = await startReview(projectId, run.id, `set-${run.id}`, { deferQueue: true });
+    if (started.status >= 400) {
       const elementId = elementOf(run);
-      errors.push({ elementId, error: (body as { error?: string }).error ?? `could not start (${status})` });
+      errors.push({ elementId, error: (started.body as { error?: string }).error ?? `could not start (${started.status})` });
+    } else if (started.enqueue) {
+      enqueue.push(started.enqueue);
     }
   }
+  for (const add of enqueue) await add();
   res.json(await detail(projectId, setId, errors));
 });
 
