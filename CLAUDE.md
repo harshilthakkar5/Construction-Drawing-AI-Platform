@@ -3028,7 +3028,7 @@ the verifier's wording only if it is `grounded` and no guard refused it, else th
 under the question as "Considered, not raised", and `POST /reviews/:runId/set-aside/keep` files one
 as a LOW pending candidate (409 if its fingerprint is on file). On Leland the AI proposed RFIs 008
 and 009 when asked directly and verification rejected both — this is where a person overrules it.
-A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
+A PLAN OF ANOTHER FLOOR IS NOT EVIDENCE ABOUT THIS ONE (`off_floor`, run in `accept` before `guard`): the related-pages search ignores floors, so a UT Law review of S2.105 (Level 5) read A3.01-A3.08 and raised "S2.105's overall 190'-0\" differs from A3.05's 165'-11\"" — A3.05 is Level 6. When a named sheet is a plan with a floor read (`target_floors`), a cited plan whose `pages.levels` share none of those floors is dropped from an AI finding; the finding is rejected when nothing else supports it, when its subject/question names that sheet, or when a conflict is left one source. Sections, details and multi-floor plans that include this floor never count; code findings (grid naming, missing detail) are saved by their own path and untouched. On the 73 stored local review findings it changes one AI finding (trimmed, kept). A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
 points elsewhere ("T.O.C. SEE PLAN", "SEE 24/S4.02", "SEE CIVIL") — never checking the place it points
 to. Discovery records such a field `unknown` with the reference quoted; reasoning proposes the problem
 `needs_evidence` with the referenced sheet in `searchFor`; and `contested` now also catches a rejection

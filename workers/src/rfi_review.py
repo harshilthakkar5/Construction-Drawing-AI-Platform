@@ -2492,6 +2492,82 @@ def _dimensions(text: str) -> list[tuple[int, int, float]]:
     return out
 
 
+PLAN_KINDS = ("plan", "enlarged_plan")
+
+
+def target_floors(scope: dict, floors: dict) -> frozenset:
+    """The floors the review is ABOUT: every floor a named plan draws. Pure.
+    Empty when no named sheet is a plan with a floor read (then nothing here
+    applies). A person who names a Level 5 and a Level 6 plan gets both."""
+    out: set = set()
+    for p in scope.get("pages", []):
+        if str(p.get("role") or "").startswith("side"):
+            levels, kind = floors.get((p.get("documentId"), p.get("pageNumber")), (frozenset(), None))
+            if kind in PLAN_KINDS:
+                out |= set(levels)
+    return frozenset(out)
+
+
+def off_floor(candidate: dict, decision: dict, evidence: dict[str, Evidence], floors: dict,
+              target: frozenset) -> tuple[dict, str | None]:
+    """A finding with its plans of OTHER floors taken out, or why it cannot
+    stand without them. Pure. Different floors differ on purpose, and the
+    prompt saying so was not enough: a UT Law review of S2.105 (Level 5) read
+    every architectural plan its library search found and raised "S2.105's
+    overall 190'-0\" differs from A3.05's 165'-11\"" — A3.05 is Level 6. A plan
+    of another floor is not evidence about this one: it is dropped from the
+    finding, a conflict left with one source is rejected, and so is a finding
+    whose question is built on that sheet. Sheets with no floor read
+    (sections, details, schedules) and plans drawn for several floors that
+    include this one are never off-floor."""
+    if not target:
+        return candidate, None
+    away = [e for e in candidate["evidenceIds"]
+            if e in evidence
+            and (lv := floors.get((evidence[e].document_id, evidence[e].page_number)))
+            and lv[1] in PLAN_KINDS and lv[0] and not (lv[0] & target)]
+    if not away:
+        return candidate, None
+    sheets = sorted({evidence[e].sheet_number or evidence[e].where for e in away})
+    names = ", ".join(f"{s} ({'/'.join(sorted(floors[(evidence[e].document_id, evidence[e].page_number)][0]))})"
+                      for s, e in {evidence[e].sheet_number or evidence[e].where: e for e in away}.items())
+    here = "/".join(sorted(target))
+    kept = [e for e in candidate["evidenceIds"] if e not in away]
+    if not any(evidence[e].kind not in WEAK_KINDS for e in kept if e in evidence):
+        return candidate, f"its only drawing evidence is a plan of another floor ({names}; this review is about {here})"
+    wording = f"{decision.get('subject') or ''}\n{decision.get('question') or ''}"
+    if any(re.search(rf"(?<![\w.]){re.escape(s)}(?![\w.]|\.\d)", wording) for s in sheets):
+        return candidate, f"it compares this floor ({here}) with a plan of another floor ({names}); floors differ on purpose"
+    if candidate["kind"] in ("conflict", "inconsistency"):
+        two_pages = len({(evidence[e].document_id, evidence[e].page_number) for e in kept if e in evidence}) >= 2
+        two_items = candidate.get("fromValues") and len([e for e in kept if evidence[e].kind not in WEAK_KINDS]) >= 2
+        if not (two_pages or two_items):
+            return candidate, f"without the plan of another floor ({names}) it has one source left"
+    return dict(candidate, evidenceIds=kept), None
+
+
+def page_floors(keys: set) -> dict:
+    """(documentId, pageNumber) → (floors drawn, sheet kind), read once. A read
+    failure returns nothing, and then no finding is changed by floor."""
+    if not keys:
+        return {}
+    docs = sorted({k[0] for k in keys})
+    try:
+        with db.connect() as conn:
+            rows = conn.execute(
+                'SELECT "documentId", "pageNumber", levels, level, "sheetKind" FROM pages WHERE "documentId" = ANY(%s)',
+                (docs,),
+            ).fetchall()
+    except Exception as exc:  # noqa: BLE001 — a floor rule must never fail a review
+        log.warning("rfi review: could not read the pages' floors (%s); findings are not checked by floor", exc)
+        return {}
+    out = {}
+    for doc, page, levels, level, kind in rows:
+        if (doc, page) in keys:
+            out[(doc, page)] = (frozenset(levels or ([level] if level else [])), kind)
+    return out
+
+
 def guard(candidate: dict, decision: dict, evidence: dict[str, Evidence], observations: list[dict]) -> str | None:
     """Why a KEPT candidate must still be rejected, or None to save it.
 
@@ -4787,10 +4863,18 @@ def _finish(p, discover) -> dict:
             to_verify.append(with_sheet_closeups(candidate, evidence))
 
         scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+        floors = page_floors(scope_keys | {(ev.document_id, ev.page_number) for ev in evidence.values()})
+        floors_here = target_floors(scope, floors)
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
+            candidate, why_not = off_floor(candidate, decision, evidence, floors, floors_here)
+            if why_not:
+                set_aside(candidate, why_not, "guard", decision)
+                diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                  reason=why_not, rule="plans of another floor")
+                return
             why_not = guard(candidate, decision, evidence, observations)
             if why_not:
                 set_aside(candidate, why_not, "guard", decision)

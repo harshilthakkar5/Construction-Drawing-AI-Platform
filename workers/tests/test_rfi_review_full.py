@@ -1093,3 +1093,48 @@ def test_a_rejection_that_doubts_a_missing_value_and_brings_nothing_new_is_conte
     assert not rfi_review.contested(summed, {"ev4"}, dict(ramp, issue="G to G.9 18'-10 1/2\", G.9 to H 2'-3\"."))
     assert not rfi_review.contested(dict(doubt, basis="not_visible"), {"ev4"}, ramp)
     assert not rfi_review.contested(doubt, {"ev4"}, dict(ramp, kind="conflict"))
+
+
+def _floor_ev(i, page, sheet, kind="text"):
+    return rfi_review.Evidence(id=f"ev{i}", kind=kind, document_id="d", page_number=page, combined_page_number=page,
+                               sheet_number=sheet, side=None, bbox=None, text="")
+
+
+def test_a_plan_of_another_floor_is_not_evidence_about_this_one():
+    """UT Law, a review of S2.105 (Level 5): "S2.105's overall 190'-0\" differs from A3.05's 165'-11\"",
+    and A3.05 is the Level 6 plan."""
+    floors = {("d", 1): (frozenset({"LEVEL 5"}), "plan"), ("d", 2): (frozenset({"LEVEL 6"}), "plan"),
+              ("d", 3): (frozenset(), "section"), ("d", 4): (frozenset({"LEVEL 1", "LEVEL 5"}), "enlarged_plan"),
+              ("d", 5): (frozenset({"LEVEL 5"}), "plan")}
+    scope = {"pages": [{"role": "side:0", "documentId": "d", "pageNumber": 1},
+                       {"role": "side:1", "documentId": "d", "pageNumber": 3},
+                       {"role": "related", "documentId": "d", "pageNumber": 2}]}
+    here = rfi_review.target_floors(scope, floors)
+    assert here == {"LEVEL 5"}
+    evidence = {e.id: e for e in (_floor_ev(1, 1, "S2.105"), _floor_ev(2, 2, "A3.05"), _floor_ev(3, 3, "S4.135"),
+                                  _floor_ev(4, 4, "S2.201"), _floor_ev(5, 5, "A3.04"))}
+    kept = {"subject": "Overall dimension", "question": "S2.105 shows 190'-0\" where A3.05 shows 165'-11\". Which governs?"}
+    # A conflict built on the other floor's plan is rejected, by the wording or by losing its second source.
+    conflict = {"kind": "conflict", "evidenceIds": ["ev1", "ev2"]}
+    _, why = rfi_review.off_floor(conflict, kept, evidence, floors, here)
+    assert why and "A3.05 (LEVEL 6)" in why
+    _, why = rfi_review.off_floor(conflict, {"subject": "Overall", "question": "Which overall governs?"},
+                                  evidence, floors, here)
+    assert why and "one source left" in why
+    # Only the other floor's plan to stand on: rejected.
+    _, why = rfi_review.off_floor({"kind": "missing", "evidenceIds": ["ev2"]}, {"subject": "x", "question": "y?"},
+                                  evidence, floors, here)
+    assert why and "only drawing evidence" in why
+    # A finding that merely also cites it keeps standing, without it.
+    trimmed, why = rfi_review.off_floor({"kind": "missing", "evidenceIds": ["ev1", "ev2"]},
+                                        {"subject": "Slope extent", "question": "Where are the low points?"},
+                                        evidence, floors, here)
+    assert why is None and trimmed["evidenceIds"] == ["ev1"]
+    # The same floor, a plan drawn for several floors including this one, and a section are never off-floor.
+    same = {"kind": "conflict", "evidenceIds": ["ev1", "ev5", "ev4", "ev3"]}
+    assert rfi_review.off_floor(same, kept, evidence, floors, here) == (same, None)
+    # No named plan with a floor read: the rule does not apply.
+    assert rfi_review.off_floor(conflict, kept, evidence, floors, frozenset()) == (conflict, None)
+    # Naming a Level 5 and a Level 6 plan on purpose makes both this review's floors.
+    both = dict(scope, pages=scope["pages"] + [{"role": "side:2", "documentId": "d", "pageNumber": 2}])
+    assert rfi_review.target_floors(both, floors) == {"LEVEL 5", "LEVEL 6"}
