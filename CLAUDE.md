@@ -426,7 +426,7 @@ miss falls back to the code readers (`sheet_facts.title_block_level` / `level_in
 `pages.sheetRefs` (sheets it points to, by code). `buildSheetMap` (`@cdip/shared`) turns the manifest into four
 links: level → sheets, same level other disciplines, enlarged ↔ overall plan, points to / pointed to by
 (missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
-rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. "Re-read sheets" makes EVERY live page pending
+rescrape) and as the Level picker in Create RFI, a tick list: ticking a level ticks its sheets, unticking it takes them off again (a sheet another ticked level draws stays, hand edits to other sheets are kept), and the RFI's name follows the levels until the person types their own. "Re-read sheets" makes EVERY live page pending
 (`titleLines` set NULL) — the worker reads only pending pages, so it used to re-sort without reading; unchanged
 sheets still cost no AI (cache by text). It shows `sheet_regions.progress` ({stage reading|sheets|grouping, done,
 total}, `REGION_STAGES` + `regionPercent` in `@cdip/shared`) and a Stop button (`POST /region/rescrape/stop`:
@@ -3273,7 +3273,7 @@ alone handed every Leland foundation element the composite floor plan and the li
 Create RFI suggests a SET per element and floor (`suggestForElement`, `@cdip/shared`): the plan of each Compare Across
 discipline on the floor, that plan's enlarged plans (≤2), and the details/sections/schedules it points to (`sheetRefs`)
 whose title names the element (≤3), each with a reason ("Structural plan · Level 5", "S1.101 points to it") in a tickable
-list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
+list. The floor is each one ticked in the dialog (suggested once per ticked floor, merged), else the element's own (`elementLevel`: foundations, piles, pits → the
 lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
 loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
 That early floor slot splits only on-floor from the rest (another floor and no floor tie), or a notes sheet tagged ROOF
