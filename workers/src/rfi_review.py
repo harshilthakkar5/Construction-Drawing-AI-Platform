@@ -2120,6 +2120,52 @@ def deferral_claim(issue: str | None) -> str:
     return " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (issue or "").strip()) if _DEFERS.search(s))
 
 
+# Sheet numbers and evidence ids are names, not values printed on a drawing.
+_NOT_A_VALUE = re.compile(r"\b[A-Z]{1,3}-?\d+(?:\.\d+)+[A-Z]?\b|\bev\d+\b|\bproblem\s+\d+\b", re.I)
+
+
+def _numbers(text: str) -> set[str]:
+    return set(_DIGITS.findall(_NOT_A_VALUE.sub(" ", (text or "").translate(_QUOTES))))
+
+
+# A reason that DOUBTS the claim rather than answering it: "the claim that no run is given is not
+# clearly supported", "the absence is not demonstrated".
+_DOUBTS_CLAIM = re.compile(
+    r"\b(?:claim|absence|that\s+(?:it|they|the\s+\w+)\s+(?:is|are)\s+missing)\b[^.]{0,60}?\b(?:is|are|was)\s+not\s+"
+    r"(?:clearly\s+|fully\s+|adequately\s+|well\s+)?(?:supported|established|demonstrated|proven|shown)\b"
+    r"|\bnot\s+clearly\s+(?:supported|established|demonstrated|shown)\b",
+    re.I,
+)
+
+
+def brings_nothing_new(decision: dict, candidate: dict, cited: set[str], shown: set[str]) -> bool:
+    """A rejection of a MISSING-value problem that doubts the claim and brings
+    nothing the problem did not already have: no shown evidence besides the
+    evidence the absence was observed on, and no number the problem did not
+    already quote. Pure. Such a reason can only doubt the absence; the next run
+    words it differently. UT Law RFI 001 was set aside as "not established by
+    the evidence", then "not clearly supported, and the run can be derived from
+    the percentage", each time over the same S2.105 labels the problem quoted.
+    The doubt alone is not enough — "no problem is shown, 18'-10 1/2\" + 2'-3\"
+    = 21'-1 1/2\"" is an answer — and nothing new alone is not either: on 59
+    stored rejections that reopened 23, most of them right. Duplicates, the
+    specs, field verification and the two bases that argue the problem itself
+    (not visible, different condition) are not this rule's."""
+    if candidate.get("kind") != "missing":
+        return False
+    if (decision.get("basis") or "other") not in ("other", "answered_elsewhere"):
+        return False
+    reason = decision.get("reason") or ""
+    if not _DOUBTS_CLAIM.search(reason):
+        return False
+    if _SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or re.search(r"\bduplicat|\bcovered\s+by\s+problem\b", reason, re.I):
+        return False
+    if (cited - set(candidate.get("evidenceIds") or [])) & shown:
+        return False
+    problem = " ".join(str(candidate.get(k) or "") for k in ("issue", "why", "element", "location", "subject"))
+    return not (_numbers(reason) - _numbers(problem))
+
+
 def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
@@ -2139,6 +2185,8 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
+    if candidate and brings_nothing_new(decision, candidate, cited, shown):
+        return True
     defers = bool(candidate and _deferral(candidate))
     if defers:
         # The problem's own evidence is the details that DEFER the value; pointing back at them

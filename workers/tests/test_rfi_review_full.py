@@ -1071,3 +1071,25 @@ def test_located_by_the_grid_does_not_answer_a_pier_at_a_wall():
     on_grid = dict(piers, issue="Column footings sit at gridline intersections. No bolt group dimensions to grids are given.")
     assert not rfi_review.place_unanswered(
         dict(reject, reason="The footing marks sit on gridlines, so the bolt groups are located by the grid."), on_grid)
+
+
+def test_a_rejection_that_doubts_a_missing_value_and_brings_nothing_new_is_contested():
+    """UT Law RFI 001, set aside on S2.105 in a second wording ("not clearly supported", "can be
+    derived"), over the same labels the problem itself quoted."""
+    ramp = {"checkId": "FL04", "kind": "missing", "element": "Plaza deck slope run and direction",
+            "issue": "The plan prints 'slp DN 8.33%' and the low and high T.O.C. elevations. It gives no legible "
+                     "horizontal run, and the direction is given only as 'DN'.", "evidenceIds": ["ev4"]}
+    doubt = {"decision": "reject", "basis": "other", "answeredBy": ["ev4"],
+             "reason": "The slope is printed on the plan as 'slp DN 8.33%' with low and high T.O.C. points, and the "
+                       "plan shows the extent of the zone. The claim that no run is given is not clearly supported, "
+                       "and the run can be derived from the percentage and the elevation change."}
+    assert rfi_review.contested(doubt, {"ev4"}, ramp)
+    # Citing ANOTHER shown drawing, or quoting a value the problem did not have, is an answer.
+    assert not rfi_review.contested(dict(doubt, answeredBy=["ev4", "ev9"]), {"ev4", "ev9"}, ramp)
+    quoted = dict(doubt, reason="The claim that no run is given is not supported: S2.105 dimensions the ramp 36'-0\".")
+    assert not rfi_review.contested(quoted, {"ev4"}, ramp)
+    # An answer with no doubt in it stands, as does a not-visible rejection and a conflict problem.
+    summed = dict(doubt, reason="No problem is shown: 18'-10 1/2\" + 2'-3\" = 21'-1 1/2\" as printed.")
+    assert not rfi_review.contested(summed, {"ev4"}, dict(ramp, issue="G to G.9 18'-10 1/2\", G.9 to H 2'-3\"."))
+    assert not rfi_review.contested(dict(doubt, basis="not_visible"), {"ev4"}, ramp)
+    assert not rfi_review.contested(doubt, {"ev4"}, dict(ramp, kind="conflict"))
