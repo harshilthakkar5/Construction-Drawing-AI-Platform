@@ -324,7 +324,7 @@ function CreateRfiDialog({
   const [name, setName] = useState("");
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
   const autoName = useRef("");
-  const [level, setLevel] = useState<string | null>(null);
+  const [levels, setLevels] = useState<string[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [openPackage, setOpenPackage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -342,9 +342,12 @@ function CreateRfiDialog({
       const pkg = packages.find((p) => p.elements.some((x) => x.id === id));
       const e = pkg?.elements.find((x) => x.id === id);
       if (!e) continue;
-      const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
-      for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
-      if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
+      // Each ticked level is suggested on its own and the sheets merged; none ticked lets the element pick its floor.
+      for (const level of levels.length ? levels : [null]) {
+        const r = suggestForElement(e, sheets, { stageName: pkg?.name, level });
+        for (const s of r.suggestions) reasons[s.sheetNumber] = [...new Set([...(reasons[s.sheetNumber] ?? []), ...s.reasons])];
+        if (r.level && r.levelChosenBy === "element") assumed.set(r.level, [...(assumed.get(r.level) ?? []), e.name]);
+      }
     }
     const note = [...assumed]
       .map(([l, names]) => `${names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(" and ")} on ${levelLabel(l)}`)
@@ -354,7 +357,7 @@ function CreateRfiDialog({
       reasons,
       note: note ? `Assumed floor: ${note}. Pick a level above to change it.` : undefined,
     };
-  }, [picks, elements, sheets, level]);
+  }, [picks, elements, sheets, levels]);
 
   // Before anything is priced: the schedules, sections and details the chosen
   // elements ask for that are not among the sheets to read.
@@ -438,8 +441,8 @@ function CreateRfiDialog({
             <p className="text-sm font-semibold">2 · Sheets</p>
             <LevelChooser
               sheets={sheets}
-              onPick={({ level: picked, added, removed, name: label }) => {
-                setLevel(picked);
+              onPick={({ levels: picked, added, removed, name: label }) => {
+                setLevels(picked);
                 setChosenSheets((prev) => [...prev.filter((n) => !removed.includes(n)), ...added.filter((n) => !prev.includes(n))]);
                 // The name follows the levels until the person types their own.
                 if (!name.trim() || name === autoName.current) setName(label);
@@ -1107,7 +1110,7 @@ function LevelChooser({
   onPick,
 }: {
   sheets: LibrarySheet[];
-  onPick: (pick: { level: string | null; added: string[]; removed: string[]; name: string }) => void;
+  onPick: (pick: { levels: string[]; added: string[]; removed: string[]; name: string }) => void;
 }) {
   const levels = useMemo(() => {
     const by = new Map<string, string[]>();
@@ -1133,7 +1136,7 @@ function LevelChooser({
     const ticked = choices.filter((c) => next.includes(c.key));
     setPicked(next);
     onPick({
-      level: ticked[0]?.level ?? null,
+      levels: [...new Set(ticked.map((c) => c.level))],
       added: [...after].filter((n) => !before.has(n)),
       // A sheet another ticked level still draws stays.
       removed: [...before].filter((n) => !after.has(n)),

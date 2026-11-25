@@ -3273,7 +3273,7 @@ alone handed every Leland foundation element the composite floor plan and the li
 Create RFI suggests a SET per element and floor (`suggestForElement`, `@cdip/shared`): the plan of each Compare Across
 discipline on the floor, that plan's enlarged plans (≤2), and the details/sections/schedules it points to (`sheetRefs`)
 whose title names the element (≤3), each with a reason ("Structural plan · Level 5", "S1.101 points to it") in a tickable
-list. The floor is the one picked in the dialog, else the element's own (`elementLevel`: foundations, piles, pits → the
+list. The floor is each one ticked in the dialog (suggested once per ticked floor, merged), else the element's own (`elementLevel`: foundations, piles, pits → the
 lowest planned level; roof items → ROOF), else the first plan's; a chosen floor outranks a title match, and exhibit,
 loading and ceiling plans rank with the code plans (UT Law: Level 5 gave the loading plan and the fire extinguisher exhibit).
 That early floor slot splits only on-floor from the rest (another floor and no floor tie), or a notes sheet tagged ROOF
