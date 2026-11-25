@@ -202,6 +202,8 @@ interface PageRow {
   scales: unknown;
   /** sheet_facts' kind (plan, section, schedule, …), or null before a scan read it. */
   sheetKind: string | null;
+  /** Every floor the sheet is drawn for (sheet_info), e.g. ["LEVEL 7", "LEVEL 8"]; empty when none is read. */
+  levels: string[] | null;
   revision: number;
   /** Words drawn as lines: OCR found no text layer or shape text, or the page holds no text at all. */
   drawnText: boolean;
@@ -214,7 +216,7 @@ interface PageRow {
 async function analysablePages(projectId: string): Promise<PageRow[]> {
   return prisma.$queryRaw<PageRow[]>`
     SELECT p.id, p."documentId", p."pageNumber", p."combinedPageNumber", p."sheetNumber",
-           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, p."sheetKind", d.revision,
+           p.discipline, p."pdfWidth", p."pdfHeight", p."sheetRegionText", p.level, p."gridSummary", p.scales, p."sheetKind", p.levels, d.revision,
            (p.ocr->>'reason' IN ('no text layer', 'text drawn as shapes') OR btrim(coalesce(p.text, '')) = '') AS "drawnText"
       FROM pages p JOIN documents d ON d.id = p."documentId"
      WHERE d."projectId" = ${projectId}
@@ -704,6 +706,7 @@ export async function planReview(
     pages,
     elementName: libraryScope?.element.name,
     gridAsked: selection.checkIds.includes("G01"),
+    floorsOf: new Map(all.map((p) => [p.id, { levels: p.levels?.length ? p.levels : p.level ? [p.level] : [], kind: p.sheetKind }])),
   });
   scope.omitted.push(...omittedForced);
 

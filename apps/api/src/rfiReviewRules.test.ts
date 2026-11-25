@@ -23,6 +23,8 @@ import {
   drawsGrid,
   mentions,
   normalizeSheet,
+  offFloorPage,
+  targetFloors,
   referencedSheets,
   sheetShape,
   rankScope,
@@ -797,5 +799,69 @@ describe("a named RFI read together", () => {
     expect(single.costHighUsd!).toBeLessThanOrEqual(one.costHighUsd! + 1e-9);
     const unknown = estimateSharedReading([{ scope, checkCount: 3, estimate: { costLowUsd: null, costHighUsd: null } }], settings(), cost);
     expect(unknown.costLowUsd).toBeNull();
+  });
+});
+
+
+describe("the related-pages search stays on the review's floor", () => {
+  // UT Law: a review of S2.105 (Level 5) read A3.01-A3.08 through the library search and raised
+  // "S2.105's overall differs from A3.05's" — A3.05 is the Level 6 plan.
+  const floorsOf = new Map([
+    ["t", { levels: ["LEVEL 5"], kind: "plan" }],
+    ["l5", { levels: ["LEVEL 5"], kind: "plan" }],
+    ["l6", { levels: ["LEVEL 6"], kind: "plan" }],
+    ["many", { levels: ["LEVEL 2", "LEVEL 5", "LEVEL 9"], kind: "enlarged_plan" }],
+    ["sec", { levels: [], kind: "section" }],
+    ["ref6", { levels: ["LEVEL 6"], kind: "plan" }],
+  ]);
+  const pages = new Map(["t", "l5", "l6", "many", "sec", "ref6"].map((id) => [id, page(id, id.toUpperCase())]));
+  const chunks = new Map(["l5", "l6", "many", "sec", "ref6"].map((id) => [`c-${id}`, chunk(`c-${id}`, id)]));
+  chunks.set("c-t", chunk("c-t", "t"));
+  const base = (over: Partial<RankInput> = {}): RankInput => ({
+    depth: "standard",
+    sides: [{ label: "S2.105", pages: [pages.get("t")!] }],
+    targetChunks: [chunks.get("c-t")!],
+    hitLists: [["c-l6", "c-l5", "c-many", "c-sec"]],
+    hitChecks: ["Grid lines: Location"],
+    chunks,
+    pages,
+    floorsOf,
+    ...over,
+  });
+
+  it("knows the floors a named plan draws, and none for a named section", () => {
+    expect([...targetFloors([{ pageId: "t" }], floorsOf)]).toEqual(["LEVEL 5"]);
+    expect(targetFloors([{ pageId: "sec" }], floorsOf).size).toBe(0);
+    expect(targetFloors([{ pageId: "t" }], undefined).size).toBe(0);
+  });
+
+  it("calls a plan off-floor only when it draws none of this review's floors", () => {
+    const here = new Set(["LEVEL 5"]);
+    expect(offFloorPage(floorsOf.get("l6"), here)).toBe(true);
+    expect(offFloorPage(floorsOf.get("l5"), here)).toBe(false);
+    expect(offFloorPage(floorsOf.get("many"), here)).toBe(false);
+    expect(offFloorPage(floorsOf.get("sec"), here)).toBe(false);
+    expect(offFloorPage({ levels: [], kind: "plan" }, here)).toBe(false);
+    expect(offFloorPage(floorsOf.get("l6"), new Set())).toBe(false);
+  });
+
+  it("leaves another floor's plan out of what the search found, and says so", () => {
+    const scope = rankScope(base());
+    const ids = scope.pages.map((p) => p.pageId);
+    expect(ids).toEqual(expect.arrayContaining(["t", "l5", "many", "sec"]));
+    expect(ids).not.toContain("l6");
+    expect(scope.chunks.map((c) => c.chunkId)).not.toContain("c-l6");
+    expect(scope.omitted).toContainEqual({ sheetNumber: "L6", reason: expect.stringMatching(/plan of LEVEL 6, not LEVEL 5/) });
+  });
+
+  it("keeps a sheet the target refers to, whatever its floor, and changes nothing without floors", () => {
+    const forced = [{ page: pages.get("ref6")!, role: "reference" as const, reason: "the target refers to REF6" }];
+    expect(rankScope(base({ forced, hitLists: [["c-ref6"]] })).pages.map((p) => p.pageId)).toContain("ref6");
+    expect(rankScope(base({ floorsOf: undefined })).pages.map((p) => p.pageId)).toContain("l6");
+  });
+
+  it("lets a person who names a Level 6 plan too review both floors", () => {
+    const sides = [{ label: "S2.105", pages: [pages.get("t")!] }, { label: "A3.05", pages: [pages.get("ref6")!] }];
+    expect(rankScope(base({ sides })).pages.map((p) => p.pageId)).toContain("l6");
   });
 });
