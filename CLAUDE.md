@@ -3103,6 +3103,11 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     PLAN' … pointers to plan, not values") broke on `-4'-0", 8" CMU` — an inch mark before a comma reads as
     a string's end to any pattern — and the retry that replaced it (a second 160k-token call) dropped it.
     `_escape_inches_where_it_breaks` escapes the last quote before each parse error when a digit precedes it.
+    A reply the local repairs still cannot read is now sent ALONE to a small repair call (`_fix_json`: no
+    pictures, thinking off, "change nothing but the punctuation") before the stage is asked again: a UT Law grid
+    review's broken discovery reply re-sent ~68k tokens of drawings (~$0.08 batch) to fix a ~4k-token answer. The
+    repaired object must carry the reply's own words and length (`_same_content`) and pass the stage's parser;
+    otherwise the old whole-stage retry runs.
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to

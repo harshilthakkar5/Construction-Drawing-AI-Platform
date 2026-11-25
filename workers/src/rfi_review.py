@@ -3010,7 +3010,7 @@ CACHE_TTL_BATCH = "1h"
 
 
 def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: int, images: list[Evidence],
-          labels: list[str] | None = None, cache_images: int = 0):
+          labels: list[str] | None = None, cache_images: int = 0, thinking: str | None = None):
     """One model call: direct, or — when the plan chose batch mode — as a
     one-entry batch at half price, waited for. The request is the same either
     way, so a review reads and answers exactly what it would have.
@@ -3024,7 +3024,7 @@ def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: in
         kind="rfi",
         project_id=run["projectId"],
         json_only=True,
-        thinking=thinking_setting(run),
+        thinking=thinking or thinking_setting(run),
     )
     pictures = [ev.image for ev in images] or None
     labels = (labels if labels is not None else [ev.label() for ev in images]) or None
@@ -3130,9 +3130,78 @@ def _ask(
                             run["id"][:8], stage, spent)
                 budget *= 2
             else:
+                fixed = _fix_json(stage, reply.text, parse, run=run, usage=usage, budget=budget)
+                if fixed is not None:
+                    return fixed
                 log.warning("rfi review %s: %s reply was not the JSON asked for — retrying once", run["id"][:8], stage)
                 prompt = user + "\n\nRespond with ONLY the JSON object described above."
     raise StageFailed(stage, f"the model's {stage} reply was not usable JSON twice")
+
+
+FIX_JSON_SYSTEM = (
+    "You repair broken JSON. The user message is a reply that should be one JSON object but does not parse. "
+    "Return that same object as valid JSON: escape quotes and inch marks inside strings, add missing commas, "
+    "quote bare words, drop trailing commas. Change NOTHING else — every key, value, id and word stays exactly "
+    "as written, nothing added, removed, reordered or reworded. Output only the JSON object."
+)
+
+
+def _same_content(raw: str, fixed: dict) -> bool:
+    """The repaired object says what the broken reply said: every string in it
+    is in the reply (escapes aside), and nothing was dropped (the two are about
+    as long once whitespace and escapes are set aside). Pure."""
+    norm = lambda t: re.sub(r"\s+", "", t.replace("\\", ""))
+    body = norm(raw)
+    strings: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str):
+            strings.append(v)
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                strings.append(k)
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(fixed)
+    if any(norm(t) not in body for t in strings if norm(t)):
+        return False
+    return len(norm(json.dumps(fixed, ensure_ascii=False))) >= 0.9 * len(body)
+
+
+def _fix_json(stage: str, raw: str | None, parse, *, run: dict, usage: ReviewUsage, budget: int):
+    """A reply that broke as JSON, repaired by a small call shown ONLY that
+    reply — no drawings, no thinking — before the whole stage is asked again.
+    A UT Law grid review's discovery reply broke in a way the local repairs did
+    not cover, and the retry re-sent ~68k tokens of drawings (about $0.08 in
+    batch) to fix the punctuation of a ~4k-token answer. The repaired object
+    must carry the reply's own words (`_same_content`) and pass the stage's own
+    parser; otherwise None and the stage retries as before."""
+    if not raw or "{" not in raw:
+        return None
+    room = min(budget * 2, max(2000, int(len(raw) / 2.5) + 1000))
+    with usage_ledger.tagged(run["id"], stage, 2), diagnostics.call(
+        stage, attempt=2, jsonFix=True, maxTokens=room, provider=usage.provider, model=usage.model,
+        promptVersion=PROMPT_VERSION,
+    ):
+        try:
+            reply = _send(FIX_JSON_SYSTEM, raw, run=run, usage=usage, budget=room, images=[], thinking="off")
+        except Exception as exc:  # a failed repair is the old retry, never a failed stage
+            log.warning("rfi review %s: repairing the %s reply failed (%s)", run["id"][:8], stage, exc)
+            return None
+    if reply is None:
+        return None
+    usage.stage(stage).add(reply)
+    data = parse_json_object(reply.text)
+    if data is None or not _same_content(raw, data):
+        log.warning("rfi review %s: the repaired %s reply did not match the original — asking again", run["id"][:8], stage)
+        return None
+    parsed = parse(json.dumps(data, ensure_ascii=False))
+    if parsed is not None:
+        log.info("rfi review %s: %s reply was not valid JSON — repaired from the reply alone, no drawings re-sent",
+                 run["id"][:8], stage)
+    return parsed
 
 
 def thinking_setting(run: dict) -> str:
