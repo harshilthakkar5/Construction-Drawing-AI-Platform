@@ -426,7 +426,7 @@ miss falls back to the code readers (`sheet_facts.title_block_level` / `level_in
 `pages.sheetRefs` (sheets it points to, by code). `buildSheetMap` (`@cdip/shared`) turns the manifest into four
 links: level → sheets, same level other disciplines, enlarged ↔ overall plan, points to / pointed to by
 (missing references listed apart). Shown in Categories (`SheetMapPanel`, with "Re-read sheets" = region
-rescrape) and as the Level picker in Create RFI, which ticks that level's sheets. "Re-read sheets" makes EVERY live page pending
+rescrape) and as the Level picker in Create RFI, a tick list: ticking a level ticks its sheets, unticking it takes them off again (a sheet another ticked level draws stays, hand edits to other sheets are kept), and the RFI's name follows the levels until the person types their own. "Re-read sheets" makes EVERY live page pending
 (`titleLines` set NULL) — the worker reads only pending pages, so it used to re-sort without reading; unchanged
 sheets still cost no AI (cache by text). It shows `sheet_regions.progress` ({stage reading|sheets|grouping, done,
 total}, `REGION_STAGES` + `regionPercent` in `@cdip/shared`) and a Stop button (`POST /region/rescrape/stop`:
