@@ -3002,7 +3002,7 @@ each call of a review as a ONE-entry batch (`rfi_review._send` → `llm.complete
 price; spend is recorded as "<model>-batch", which `usage.rateFor` prices at half its model. One batch per
 call, so a review waits for each (a tiny batch took 89 s) and a cancel is noticed when its batch lands.
 
-A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
+A review's first run on a project spent 22 SILENT minutes in preparation (one PC, UT Law): `missing_detail` read the project map of all 351 sheets (`every=`, ~1-3 s a sheet) to look up symbols on the ~40 reviewed. `detail_map.findings` now reads the reviewed sheets first and then only the sheets their symbols name (39 stored reviews: identical findings, 351 → 95 sheets read on average, and only on the first run — the map is saved). `_prepare` logs every step as it ends (`_Steps`: "prepared the code checks in 12.8s (13s so far)") and `library_code_findings` each check's time. A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
 before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet
 results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
 page: grid bubbles, `styled_systems` (also in Redis, versioned by `grid.STYLED_VERSION`, which a test

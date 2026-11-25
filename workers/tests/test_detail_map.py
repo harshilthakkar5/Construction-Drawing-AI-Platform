@@ -140,3 +140,18 @@ def test_a_review_finds_symbols_on_its_sheets_pointing_at_a_sheet_it_did_not_pic
     assert len(dm.findings([src], [], open_page, every=[src, tgt])[0]) == 1
     # reviewing only the target sheet: its own symbols point nowhere wrong
     assert dm.findings([tgt], [], open_page, every=[src, tgt])[0] == []
+
+
+def test_a_review_reads_only_its_sheets_and_the_sheets_they_point_at(monkeypatch):
+    """A review of 40 sheets in UT Law's 351 read all 351 on its first run (~22 minutes on one PC,
+    with nothing logged) though a symbol can only be looked up on the sheet it names."""
+    fake = _FakeDb()
+    monkeypatch.setitem(sys.modules, "db", fake)
+    doc = _set()
+    src, tgt = _page("p1", "S4.10", 1), _page("p2", "S4.02", 2)
+    others = [_page(f"x{i}", f"A9.{i:02d}", 2) for i in range(5)]  # sheets no symbol names
+    opened = []
+    open_page = lambda d, n: opened.append(n) or doc[n - 1]
+    [f], _ = dm.findings([src], [], open_page, every=[src, tgt, *others])
+    assert f.fingerprint == dm.findings([src], [], lambda d, n: doc[n - 1], every=[src, tgt])[0][0].fingerprint
+    assert sorted(fake.updates) == ["p1", "p2"] and sorted(opened) == [1, 2]
