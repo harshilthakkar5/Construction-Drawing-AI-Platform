@@ -81,7 +81,7 @@ import review_aids
 import storage
 import usage as usage_ledger
 from callouts import detail_ref, display_words, section_callouts  # noqa: F401 (used here and by tests)
-from generated import RFI_QUESTION_CODE_CHECKS, RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, review_evidence_key
+from generated import RFI_QUESTION_CODE_CHECKS, RFI_REVIEW_CHECKS, RFI_REVIEW_DEPTHS, RFI_SCOPE_TOPICS, review_evidence_key
 
 log = logutil.get("rfi_review")
 
@@ -1076,12 +1076,44 @@ def discovery_questions(check_ids: list[str], catalogue: dict | None = None) -> 
     )
 
 
-def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str:
+def _scope_topics(out_of_scope) -> list[dict]:
+    return [t for t in RFI_SCOPE_TOPICS if t["id"] in (out_of_scope or ())]
+
+
+def out_of_scope_block(out_of_scope) -> str:
+    """Settings → Project scope, for reasoning and verification: the client's RFIs about rebar
+    detailing (a beam schedule with no bars) were not theirs to ask."""
+    topics = _scope_topics(out_of_scope)
+    if not topics:
+        return ""
+    lines = "\n".join(f"- {t['label']}: {t['hint']}" for t in topics)
+    return (
+        "<out_of_scope>This contractor does not build the following, so a gap or conflict in it is never "
+        f"an RFI on this project:\n{lines}\nNever propose or keep a problem about it. A problem that "
+        "also covers in-scope work (size, place, elevation) is about that work alone: leave the "
+        "out-of-scope part out of its issue and question.</out_of_scope>\n\n"
+    )
+
+
+def out_of_scope_topic(candidate: dict, out_of_scope) -> str | None:
+    """The out-of-scope topic a proposed problem is ABOUT: its element, or the first sentence of its
+    issue (a later sentence may mention dowels in passing). Pure."""
+    issue = str(candidate.get("issue") or "")
+    first = re.split(r"(?<=[.;])\s", issue, maxsplit=1)[0]  # outside the f-string: Python 3.11 refuses a backslash there
+    text = f"{candidate.get('element') or ''} {first}"
+    for t in _scope_topics(out_of_scope):
+        if re.search(t["pattern"], text, re.I):
+            return t["label"]
+    return None
+
+
+def reasoning_system(check_ids: list[str], catalogue: dict | None = None, out_of_scope=()) -> str:
     return (
         "You review construction drawings for coordination problems. This is step 2 of 3: "
         "REASONING. You are given observations already made from the evidence, with the ids of the "
         "evidence behind each. Decide which of them show a problem that needs an RFI.\n\n"
         f"Questions in scope:\n{_checks_block(check_ids, rules=True, catalogue=catalogue)}\n\n"
+        f"{out_of_scope_block(out_of_scope)}"
         "A problem is one of:\n"
         "- conflict: two sources show the same element differently (place, size, mark, name);\n"
         "- missing: a value needed to locate or build the element is in none of the sources given;\n"
@@ -1117,11 +1149,12 @@ def reasoning_system(check_ids: list[str], catalogue: dict | None = None) -> str
     )
 
 
-def verification_system() -> str:
+def verification_system(out_of_scope=()) -> str:
     return (
         "You review construction drawings. This is step 3 of 3: VERIFICATION. For each proposed "
         "problem, look again at ONLY the evidence it cites (shown to you) and decide: keep or reject.\n\n"
         f"{_TRUST_RULES}\n"
+        f"{out_of_scope_block(out_of_scope)}"
         "Some problems carry evidence the server FOUND by searching the project for what would settle "
         "them (listed under `searched`). If that evidence settles the problem, reject it and say which "
         "evidence settles it; if it does not, the problem stands.\n"
@@ -4666,7 +4699,7 @@ def _finish(p, discover) -> dict:
             raise _NothingObserved()
         index = "\n".join(f"{ev.id}: {ev.kind} on {ev.where}" + (f" (side {ev.side})" if ev.side else "") for ev in sent)
         candidates, dropped = _ask(
-            "reasoning", reasoning_system(asked, catalogue),
+            "reasoning", reasoning_system(asked, catalogue, scope.get("outOfScope")),
             already + checked + f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
             + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else ""),
             lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
@@ -4724,6 +4757,12 @@ def _finish(p, discover) -> dict:
 
         to_verify: list[dict] = []
         for candidate in candidates:
+            topic = out_of_scope_topic(candidate, scope.get("outOfScope"))
+            if topic:
+                set_aside(candidate, f"About {topic.lower()}, which this project holds out of its scope (Settings, Project scope).",
+                          "out of scope")
+                diagnostics.event("rejected_before_verification", candidate=candidate, reason=topic, rule="out_of_scope_topic")
+                continue
             answered = answered_by_column_schedule(candidate, schedule_sheets)
             if answered:
                 set_aside(candidate, answered, "column schedule read by code")
@@ -4782,7 +4821,7 @@ def _finish(p, discover) -> dict:
                 ensure_ascii=False,
             )
             decisions = _ask(
-                "verification", verification_system(),
+                "verification", verification_system(scope.get("outOfScope")),
                 f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}",
                 lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
@@ -4874,7 +4913,7 @@ def _finish(p, discover) -> dict:
                     ensure_ascii=False,
                 )
                 second = _ask(
-                    "verification", verification_system(),
+                    "verification", verification_system(scope.get("outOfScope")),
                     "\n".join(_evidence_block(evidence[e]) for e in cited2)
                     + f"\n\n{RECHECK}\n\n<problems>\n{problems2}\n</problems>{not_in_project_block(planned)}",
                     lambda raw: parse_decisions(raw, len(recheck)), run=run, usage=usage,

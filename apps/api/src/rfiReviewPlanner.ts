@@ -25,6 +25,8 @@ import {
   type RfiReviewTarget,
   type RfiReviewThinking,
   type RfiScanUsageDto,
+  questionOutOfScope,
+  rfiSettingsOf,
 } from "@cdip/shared";
 import { prisma } from "./db.js";
 import type { QueueJob } from "./queueJobs.js";
@@ -497,6 +499,16 @@ export async function planReview(
   } catch (err) {
     throw new PlanError((err as Error).message, 400);
   }
+  // Settings → Project scope: work this contractor does not build is never asked about. A named RFI saved
+  // before a topic was set out of scope still carries its questions, so they are dropped here too.
+  const stored = await prisma.project.findUnique({ where: { id: projectId }, select: { rfiSettings: true } });
+  const outOfScope = rfiSettingsOf(stored?.rfiSettings as Parameters<typeof rfiSettingsOf>[0]).scope.outOfScope;
+  if (libraryScope && outOfScope.length) {
+    const elementId = libraryScope.element.id;
+    const kept = libraryScope.questions.filter((q) => !questionOutOfScope(q, elementId, outOfScope));
+    if (!kept.length) throw new PlanError("every question chosen is about work this project holds out of its scope (Settings, Project scope)", 400);
+    libraryScope = { ...libraryScope, questions: kept };
+  }
 
   // Forced pages: what the target's own words point at, and the same level
   // drawn by another discipline. Added BEFORE ranking, so no cap can drop them
@@ -714,6 +726,7 @@ export async function planReview(
     : planningRows.reduce((sum, r) => sum + estimateCostUsd(r), 0);
 
   if (libraryScope) scope.library = libraryScope;
+  if (outOfScope.length) scope.outOfScope = outOfScope;
   const hash = scopeHash(scope, selection.checkIds, request.depth, { provider: settings.provider, model: settings.model, limits: settings.limits });
   // Library questions are asked alongside the catalogue ones, roughly three to a check's prompt weight.
   const asked = selection.checkIds.length + Math.ceil((libraryScope?.questions.length ?? 0) / 3);

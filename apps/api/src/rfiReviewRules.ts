@@ -456,6 +456,8 @@ export interface ReviewScope {
     element: { id: string; name: string; variants: string; attributes: string; triggers: string };
     questions: { id: string; text: string; category: string | null; source: string; codeChecks: string[] }[];
   };
+  /** Settings → Project scope topic ids (`RFI_SCOPE_TOPICS`): the worker raises no RFI about them. */
+  outOfScope?: string[];
 }
 
 /**
@@ -758,6 +760,7 @@ export function scopeHash(scope: ReviewScope, checkIds: readonly string[], depth
     chunks: scope.chunks.map((c) => c.chunkId).sort(),
     // Only when present, so a plan made before library questions keeps its hash.
     ...(scope.library ? { library: canonical(scope.library) } : {}),
+    ...(scope.outOfScope?.length ? { outOfScope: [...scope.outOfScope].sort() } : {}),
   });
   return createHash("sha256").update(body).digest("hex");
 }
