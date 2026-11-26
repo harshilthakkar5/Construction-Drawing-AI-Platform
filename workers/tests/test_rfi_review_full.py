@@ -1167,3 +1167,27 @@ def test_a_foundation_plan_with_no_floor_read_is_the_lowest_floor():
     evidence[_floor_ev(3, 3, "S1.101").id] = _floor_ev(3, 3, "S1.101")
     level_one = {"kind": "conflict", "evidenceIds": ["ev3", "ev2"]}
     assert rfi_review.off_floor(level_one, wording, evidence, no_basement, frozenset({"LEVEL 1"})) == (level_one, None)
+
+
+def test_a_symbol_note_pointing_at_its_detail_is_not_a_deferral():
+    # Victaulic S1.1A note 13: "-(/)- INDICATES FOOTING STEP, SEE 8/S3.1". The plans print the
+    # top-of-footing elevation in a boxed tag either side of every step, and the verifier said so.
+    from rfi_review import contested, deferral_claim, overruled
+    problem = {"kind": "missing", "element": "Wall footing steps", "evidenceIds": ["ev1", "ev2"],
+               "issue": "Plan note 13 says the footing step symbol marks a footing step (see 8/S3.1). "
+                        "The step locations are not dimensioned from the grid lines.",
+               "location": "S1.1A"}
+    assert deferral_claim(problem["issue"]) == ""
+    verdict = {"decision": "reject", "basis": "other", "answeredBy": ["ev1"],
+               "reason": "The plan crops show step symbols and elevation tags at drawn locations."}
+    assert not contested(verdict, {"ev1", "ev2"}, problem)
+    kept = overruled(problem, {"decision": "reject"})
+    assert "not dimensioned from the grid lines" in kept["question"]
+
+
+def test_a_value_given_only_as_a_reference_is_still_a_deferral():
+    from rfi_review import deferral_claim
+    issue = "Detail 10/S4.10 gives the wall T.O.C. as 'SEE PLAN' but the plan gives only slab elevations."
+    assert deferral_claim(issue) == issue
+    # A symbol sentence whose pointer is to the PLAN, not to a detail, still defers.
+    assert deferral_claim("The section symbol shows T.O.C. SEE PLAN.") != ""
