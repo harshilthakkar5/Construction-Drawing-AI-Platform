@@ -129,3 +129,33 @@ def test_an_absence_the_verifier_could_not_see_is_no_answer_and_is_kept_as_where
     kept = overruled(problem, {"decision": "reject"})
     assert kept["question"].endswith("Please locate each one from the grids. (S1.1A)")
     assert "provide it" not in kept["question"]
+
+
+def test_the_diagnostics_export_starts(monkeypatch):
+    # The 26 Nov paid run lost its export: "discovery_system() takes 0 positional arguments but 1 was given".
+    import contextlib
+    import rfi_review
+
+    class Conn:
+        def execute(self, *a, **k):
+            return self
+
+        def fetchall(self):
+            return []
+
+    class Rec:
+        def __init__(self):
+            self.files = {}
+
+        def write_json(self, path, data):
+            self.files[path] = data
+
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+
+    rec = Rec()
+    monkeypatch.setattr(rfi_review.diagnostics, "enabled", lambda: True)
+    monkeypatch.setattr(rfi_review.diagnostics, "start", lambda *a, **k: rec)
+    monkeypatch.setattr(rfi_review.db, "connect", lambda: contextlib.nullcontext(Conn()))
+    assert rfi_review._diag_start({"id": "r", "projectId": "p", "scope": {"pages": [], "chunks": []}}) is rec
+    assert set(rec.files["run/settings.json"]["prompts"]) == {"discovery", "reasoning", "verification"}

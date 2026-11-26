@@ -4297,7 +4297,8 @@ def _diag_start(run: dict):
             for c in scope.get("chunks", [])
         ],
     })
-    prompts = {name: fn(list(CHECKS)) for name, fn in (("discovery", discovery_system), ("reasoning", reasoning_system))}
+    # Discovery's system prompt takes no questions (they travel at the end of the message, for the cache).
+    prompts = {"discovery": discovery_system(), "reasoning": reasoning_system(list(CHECKS))}
     prompts["verification"] = verification_system()
     rec.write_json("run/settings.json", {
         "promptVersion": PROMPT_VERSION,
