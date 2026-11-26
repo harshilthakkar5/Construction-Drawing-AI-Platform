@@ -1157,7 +1157,9 @@ def drawn_text_block(scope: dict) -> str:
     return (
         f"\n\n<drawn_text_sheets>{', '.join(sheets)}: the words and symbols on these sheets are drawn as lines, not "
         "text, and were read from pictures, so a small symbol, tag or note may have been missed. Never claim a "
-        "symbol, tag or note is absent from them; say only that a value or a dimension is not given.</drawn_text_sheets>"
+        "symbol, tag or note is absent from them; say only that a value or a dimension is not given. A value that "
+        "the sheet's notes or legend give by a tag (\"boxed number indicates top of footing elevation\") is given "
+        "wherever that tag is drawn: never ask for it.</drawn_text_sheets>"
     )
 
 
@@ -1920,7 +1922,7 @@ def with_callout_context(project_id: str, candidate: dict, evidence: dict, scope
     callouts_in_project and `deferred(ev) -> detail numbers` reads a cited
     detail sheet; both injectable for tests."""
     text = f"{candidate.get('issue') or ''} {candidate.get('why') or ''} {candidate.get('element') or ''}"
-    if not _DEFERS.search(text):
+    if not any(_defers(s) for s in _sentences(text)):
         return candidate
     cited = [evidence[e] for e in candidate["evidenceIds"] if e in evidence and evidence[e].sheet_number
              and evidence[e].kind in ("text", "crop")]
@@ -2196,15 +2198,35 @@ def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
     return sorted(set(ids) | set(extra), key=lambda e: int(e[2:]))
 
 
+# A sentence saying what a symbol MEANS, whose pointer is to the detail drawing it ("note 13: the step
+# symbol indicates a footing step, see 8/S3.1"). That points at a picture of the thing, not at a value
+# printed elsewhere: Victaulic's footing-step problem was read as a deferral, the verifier's correct
+# rejection ("the plans show the step symbols and elevation tags") was overruled, and the kept question
+# asked the designer to "provide" the note.
+_DEFINES = re.compile(r"\b(?:indicates?|denotes?|represents?|means?)\b|\bsymbols?\b", re.I)
+_DETAIL_POINTER = re.compile(r"\bSEE\s+(?:DETAIL\s+)?\d+[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b", re.I)
+
+
+def _defers(sentence: str) -> bool:
+    """A sentence saying a value is only a reference. Pure."""
+    if _DEFINES.search(sentence):
+        sentence = _DETAIL_POINTER.sub(" ", sentence)
+    return bool(_DEFERS.search(sentence))
+
+
+def _sentences(text: str | None) -> list[str]:
+    # A period after a lone capital is an abbreviation ("T.O.C. is"), not a sentence end.
+    return re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (text or "").strip())
+
+
 def _deferral(candidate: dict) -> bool:
-    return bool(_DEFERS.search(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"))
+    return any(_defers(s) for s in _sentences(f"{candidate.get('issue') or ''} {candidate.get('why') or ''}"))
 
 
 def deferral_claim(issue: str | None) -> str:
     """The sentences of an issue that say a value is only a reference ("T.O.C.
     is 'SEE PLAN' but the plan gives only slab elevations"), or "". Pure."""
-    # A period after a lone capital is an abbreviation ("T.O.C. is"), not a sentence end.
-    return " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (issue or "").strip()) if _DEFERS.search(s))
+    return " ".join(s for s in _sentences(issue) if _defers(s))
 
 
 # Sheet numbers and evidence ids are names, not values printed on a drawing.
