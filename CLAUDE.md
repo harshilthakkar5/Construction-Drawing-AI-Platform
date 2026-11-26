@@ -3367,7 +3367,13 @@ expanded over all 120 elements) and its rebar ELEMENTS (CE-01-05, CE-12-03), and
 line); the planner drops them from a saved set's questions too and stores `scope.outOfScope` (in `scopeHash` only when present); the
 worker's reasoning and verification prompts carry an `<out_of_scope>` block, and a candidate whose element or FIRST issue sentence is
 about the topic is set aside before verification ("out of scope", under Considered, not raised, where a person can still keep it).
-The scan and the full AI scan do not read it yet (neither is on screen). Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
+The scan and the full AI scan do not read it yet (neither is on screen). A second topic, `interiors` (out by default too), is matched by SHEET TITLE (`sheets`: interior elevations, casework, millwork,
+finish/furniture plans, signage — narrow on purpose: a finish schedule shares A1.05 with the rated assembly matrix, interior details can
+hold a shower's slab recess; on UT Law's 351 sheets it matches A7.80 only): a code finding with any evidence on such a sheet is left out
+of the review (`without_out_of_scope_sheets`, counted in the notes) and an AI problem citing only such sheets is set aside — the
+Victaulic test raised 1A/1B/A5.1 (A1.5's elevation tags into A5.1's interior casework elevations). Sheets the plan marks `drawnText`
+reach reasoning and verification as `<drawn_text_sheets>` (never claim a symbol is absent there), and `kept_for_placement` never
+repeats an absence-of-symbol claim (`_ABSENT_MARK`): it said "No step symbol … could be found" over S1.1A, whose note 13 draws it. Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
 (`store.openRfiSetId`, a browser history entry so Back closes it; the log and the chat list hide until "RFIs" is clicked; an open id the project has no set for — deleted, or another project's set brought back by Back — is cleared by `RfiSetsSection`, or the log stayed hidden behind the list) showing `SetFindings`, the same
 cached `rfi-set` query the full-view popup reads. A finding card shows its subject; the question, reasons and
 sources sit under "Show details". The work column's section header is sticky and the RFIs tab's "Needs your review" lists only

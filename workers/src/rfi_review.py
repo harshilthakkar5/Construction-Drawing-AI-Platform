@@ -1111,6 +1111,56 @@ def out_of_scope_topic(candidate: dict, out_of_scope) -> str | None:
     return None
 
 
+def sheets_out_of_scope(rows, out_of_scope) -> dict[tuple[str, int], str]:
+    """(documentId, pageNumber) -> topic label for the pages whose TITLE says they are wholly work the
+    project holds out of scope (a topic's `sheets`). `rows`: (documentId, pageNumber, sheetTitle). Pure."""
+    topics = [t for t in _scope_topics(out_of_scope) if t.get("sheets")]
+    out: dict[tuple[str, int], str] = {}
+    for doc, page, title in rows:
+        hit = next((t for t in topics if title and re.search(t["sheets"], title, re.I)), None)
+        if hit:
+            out[(doc, page)] = hit["label"]
+    return out
+
+
+def out_of_scope_pages(project_id: str, out_of_scope) -> dict[tuple[str, int], str]:
+    """`sheets_out_of_scope` over the project's pages. A failed read leaves nothing out, never the run."""
+    if not any(t.get("sheets") for t in _scope_topics(out_of_scope)):
+        return {}
+    try:
+        with db.connect() as conn:
+            rows = conn.execute(
+                'SELECT p."documentId", p."pageNumber", p."sheetTitle" FROM pages p JOIN documents d ON d.id = p."documentId" '
+                'WHERE d."projectId" = %s AND p."sheetTitle" IS NOT NULL',
+                (project_id,),
+            ).fetchall()
+    except Exception:  # noqa: BLE001 — scope is a filter; without titles, nothing is filtered
+        log.warning("could not read sheet titles for the project scope", exc_info=True)
+        return {}
+    return sheets_out_of_scope(rows, out_of_scope)
+
+
+def without_out_of_scope_sheets(findings: list, oos_pages: dict) -> tuple[list, int]:
+    """Code findings with no evidence on an out-of-scope sheet, and how many were left out. A missing
+    detail ON a floor plan pointing AT an interior casework sheet touches that sheet. Pure."""
+    keep = [f for f in findings
+            if not any((ev.get("documentId"), ev.get("pageNumber")) in oos_pages for ev in f.evidence or [])]
+    return keep, len(findings) - len(keep)
+
+
+def drawn_text_block(scope: dict) -> str:
+    """The reviewed sheets whose words are drawn as lines (the plan's `drawnText`). The AI reads them
+    from pictures and can miss a small symbol, so it may not claim one is absent there. Pure."""
+    sheets = sorted({p.get("sheetNumber") for p in scope.get("pages") or [] if p.get("drawnText") and p.get("sheetNumber")})
+    if not sheets:
+        return ""
+    return (
+        f"\n\n<drawn_text_sheets>{', '.join(sheets)}: the words and symbols on these sheets are drawn as lines, not "
+        "text, and were read from pictures, so a small symbol, tag or note may have been missed. Never claim a "
+        "symbol, tag or note is absent from them; say only that a value or a dimension is not given.</drawn_text_sheets>"
+    )
+
+
 def reasoning_system(check_ids: list[str], catalogue: dict | None = None, out_of_scope=()) -> str:
     return (
         "You review construction drawings for coordination problems. This is step 2 of 3: "
@@ -2394,6 +2444,15 @@ def place_unanswered(decision: dict | None, candidate: dict) -> bool:
     return by_detail or by_size or by_words or by_grid
 
 
+# A claim that a symbol, tag, callout or note is ABSENT. On a sheet read from pictures it may only be unread.
+_ABSENT_MARK = re.compile(
+    r"\b(?:no|without)\s+(?:\w+\s+){0,2}(?:symbols?|tags?|callouts?|keynotes?|legends?)\b"
+    r"|\b(?:symbols?|tags?|callouts?)\b[^.]{0,40}\b(?:not|never)\s+(?:shown|found|drawn|given|indicated)\b"
+    r"|\bcould\s+(?:not\s+)?be\s+found\b",
+    re.I,
+)
+
+
 def kept_for_placement(candidate: dict, decision: dict) -> dict:
     """The decision a `place_unanswered` rejection becomes: LOW, asking where
     each one is, worded from the issue's sentences about place (an issue often
@@ -2403,6 +2462,12 @@ def kept_for_placement(candidate: dict, decision: dict) -> dict:
     issue = candidate.get("issue") or ""
     claim = " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", issue.strip()) if _LOCATES.search(s)) or issue
     question = asked if _LOCATES.search(asked) else f"{claim.rstrip('.')}. Please locate each one from the grids."
+    # Victaulic RFI 003: "No step symbol or grid dimension … could be found" — S1.1A draws the step
+    # symbol (note 13) and its words are lines, so the AI missed it. The rule kept a missing PLACE;
+    # that is all the question may claim.
+    if _ABSENT_MARK.search(question):
+        element = (candidate.get("element") or "Each one").strip().rstrip(".")
+        question = f"{element} {'are' if element.lower().endswith('s') else 'is'} not dimensioned from the grid lines. Please locate each one from the grids."
     location = candidate.get("location") or ""
     if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
         question = f"{question.rstrip()} ({location})"
@@ -4977,7 +5042,7 @@ def _finish(p, discover) -> dict:
         candidates, dropped = _ask(
             "reasoning", reasoning_system(asked, catalogue, scope.get("outOfScope")),
             already + checked + f"<evidence_index>\n{index}\n</evidence_index>\n\n<observations>\n{json.dumps(observations, ensure_ascii=False)}\n</observations>"
-            + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else ""),
+            + (f"\n\n<gaps>\n{json.dumps(gaps, ensure_ascii=False)}\n</gaps>" if gaps else "") + drawn_text_block(scope),
             lambda raw: parse_candidates(raw, {e for o in observations for e in o["evidenceIds"]}, set(asked)),
             run=run, usage=usage,
         )
@@ -5032,8 +5097,12 @@ def _finish(p, discover) -> dict:
             aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
 
         to_verify: list[dict] = []
+        oos_pages = out_of_scope_pages(project_id, scope.get("outOfScope"))
         for candidate in candidates:
             topic = out_of_scope_topic(candidate, scope.get("outOfScope"))
+            cited = [evidence[e] for e in candidate.get("evidenceIds") or [] if e in evidence]
+            if not topic and cited and all((ev.document_id, ev.page_number) in oos_pages for ev in cited):
+                topic = oos_pages[(cited[0].document_id, cited[0].page_number)]
             if topic:
                 set_aside(candidate, f"About {topic.lower()}, which this project holds out of its scope (Settings, Project scope).",
                           "out of scope")
@@ -5106,7 +5175,7 @@ def _finish(p, discover) -> dict:
             )
             decisions = _ask(
                 "verification", verification_system(scope.get("outOfScope")),
-                f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}",
+                f"{body}\n\n<problems>\n{problems}\n</problems>{not_in_project_block(planned)}{drawn_text_block(scope)}",
                 lambda raw: parse_decisions(raw, len(to_verify)), run=run, usage=usage, images=cited_images,
             )
             shown = {e for e in cited if evidence[e].kind != "aid"}  # an aid never answers a problem
@@ -5199,7 +5268,7 @@ def _finish(p, discover) -> dict:
                 second = _ask(
                     "verification", verification_system(scope.get("outOfScope")),
                     "\n".join(_evidence_block(evidence[e]) for e in cited2)
-                    + f"\n\n{RECHECK}\n\n<problems>\n{problems2}\n</problems>{not_in_project_block(planned)}",
+                    + f"\n\n{RECHECK}\n\n<problems>\n{problems2}\n</problems>{not_in_project_block(planned)}{drawn_text_block(scope)}",
                     lambda raw: parse_decisions(raw, len(recheck)), run=run, usage=usage,
                     images=[evidence[e] for e in cited2 if evidence[e].visual],
                 )
@@ -5255,6 +5324,10 @@ def _finish(p, discover) -> dict:
         # A finding a person dismissed and asked to be remembered is not raised again.
         exact, remembered = dismissals.apply(exact, dismissals.load_rules(conn, project_id))
         notes += remembered
+        exact, scoped_out = without_out_of_scope_sheets(exact, out_of_scope_pages(project_id, scope.get("outOfScope")))
+        if scoped_out:
+            notes.append(f"Left out {scoped_out} code finding{'s' if scoped_out != 1 else ''} on sheets outside this "
+                         "project's scope (Settings, Project scope).")
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
             saved += wrote
             # Credit every asked question the check answers; the overlay is C01's.

@@ -1971,8 +1971,8 @@ export const RFI_DEFAULT_MODEL = { provider: "claude", model: "claude-sonnet-5-5
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
   review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: true },
   fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
-  // The client's scope (Nov 2026): rebar detailing is by others.
-  scope: { outOfScope: ["rebar"] },
+  // The client's scope (Nov 2026): rebar detailing is by others, and interior casework is not concrete work.
+  scope: { outOfScope: ["rebar", "interiors"] },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. A model
  * saved as "Server default" is stored as null and stays so; only an unsaved one gets the default. */
@@ -2005,6 +2005,9 @@ export interface RfiScopeTopic {
   categories: string[];
   elements: string[];
   pattern: string;
+  /** Sheets that are wholly this work, by TITLE (pages.sheetTitle): a code finding touching one, or an AI
+   * problem citing only such sheets, is not raised. "" for none. */
+  sheets: string;
 }
 export const RFI_SCOPE_TOPICS: RfiScopeTopic[] = [
   {
@@ -2015,6 +2018,21 @@ export const RFI_SCOPE_TOPICS: RfiScopeTopic[] = [
     elements: ["CE-01-05", "CE-12-03"],
     pattern:
       "\\b(?:re-?bars?|reinforcing|reinforcement|stirrups?|hoops|tie spacing|ties and spacing|bar (?:sizes?|spacing|callouts?|lengths?)|(?:top|bottom|side|trim|dowel|starter|vertical|horizontal) bars?|lap (?:splices?|lengths?)|development lengths?|dowels?|dowell?ed|standard hooks?|clear cover)\\b",
+    sheets: "",
+  },
+  {
+    // The client's Victaulic test: A1.5's elevation tags 1A/1B pointed at A5.1, interior casework
+    // elevations, and two RFIs a concrete contractor would never send were raised.
+    id: "interiors",
+    label: "Interior finishes, casework and millwork",
+    hint: "interior elevations, cabinets and countertops, finish, furniture and signage plans",
+    categories: [],
+    elements: [],
+    pattern: "\\b(?:casework|millwork|cabinets?|countertops?)\\b",
+    sheets:
+      // Narrow on purpose: a finish schedule shares a sheet with the rated assembly matrix (slab fire ratings), and
+      // interior details can carry a shower's slab recess. Only sheets that are wholly casework are matched.
+      "\\b(?:INTERIOR ELEVATIONS?|CASEWORK|MILLWORK|FINISH PLANS?|FURNITURE (?:PLANS?|LAYOUTS?)|SIGNAGE)\\b",
   },
 ];
 
