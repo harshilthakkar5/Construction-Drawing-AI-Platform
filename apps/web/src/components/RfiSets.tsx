@@ -8,6 +8,8 @@ import { userMessage,
   suggestForElement,
   missingSheetKinds,
   typicalFloors,
+  withinScope,
+  RFI_SCOPE_TOPICS,
   levelLabel,
   levelRank,
   type LibrarySheet,
@@ -21,6 +23,7 @@ import { userMessage,
 import { api } from "@/api";
 import { AllBox, flat, QuestionTree, SheetPicker, useLibrarySheets } from "@/components/LibraryPicker";
 import { CandidateCard } from "@/components/RfiReview";
+import { useRfiSettings } from "@/components/ProjectSettings";
 import { ConfirmDialog, JobProgress, Notice, ProblemNotice, Spinner } from "@/components/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -319,7 +322,11 @@ function CreateRfiDialog({
   onCreated: (detail: RfiSetDetailDto) => void;
 }) {
   const queryClient = useQueryClient();
-  const library = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
+  const libraryQuery = useQuery({ queryKey: ["rfi-library", projectId], queryFn: () => api.rfiLibrary(projectId) });
+  // Settings → Project scope: work this contractor does not build is not offered at all.
+  const outOfScope = useRfiSettings(projectId).scope.outOfScope;
+  const scoped = useMemo(() => (libraryQuery.data ? withinScope(libraryQuery.data, outOfScope) : null), [libraryQuery.data, outOfScope]);
+  const library = { ...libraryQuery, data: scoped?.library };
   const sheets = useLibrarySheets(projectId);
   const [name, setName] = useState("");
   const [chosenSheets, setChosenSheets] = useState<string[]>([]);
@@ -468,6 +475,13 @@ function CreateRfiDialog({
                 Pick a stage to select all its elements and questions, then narrow it down.
               </span>
             </div>
+            {!!scoped?.removed && (
+              <p className="text-muted-foreground text-xs">
+                {scoped.removed} question{scoped.removed === 1 ? " is" : "s are"} left out:{" "}
+                {RFI_SCOPE_TOPICS.filter((t) => outOfScope.includes(t.id)).map((t) => t.label.toLowerCase()).join(", ")} is not in
+                this project&apos;s scope. Change it in Settings, Project scope.
+              </p>
+            )}
             <SearchBox value={query} onChange={setQuery}
               placeholder="Search elements and questions, e.g. elevator pit, dowel, top of slab" />
             {library.isLoading ? (

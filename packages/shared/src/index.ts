@@ -1963,20 +1963,100 @@ export interface RfiProjectSettings {
     useBatch: boolean;
   };
   fullScan: { provider: RfiReviewProvider | null; model: string | null; useBatch: boolean; budgetUsd: number | null };
+  /** What this contractor does not build: no question about it is offered or asked, and no RFI about it is raised. */
+  scope: { outOfScope: string[] };
 }
 /** Both RFI runs default to Claude Sonnet 5.5 (owner's choice, Nov 2026), whatever the server's env picks. */
 export const RFI_DEFAULT_MODEL = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 export const RFI_SETTINGS_DEFAULTS: RfiProjectSettings = {
   review: { ...RFI_DEFAULT_MODEL, depth: "standard", thinking: "medium", maxInputTokens: null, maxThinkingTokens: null, useBatch: true },
   fullScan: { ...RFI_DEFAULT_MODEL, useBatch: true, budgetUsd: null },
+  // The client's scope (Nov 2026): rebar detailing is by others.
+  scope: { outOfScope: ["rebar"] },
 };
 /** Stored settings over the defaults — a row saved before a field existed still reads whole. A model
  * saved as "Server default" is stored as null and stays so; only an unsaved one gets the default. */
-export function rfiSettingsOf(stored: { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]> } | null | undefined): RfiProjectSettings {
+export function rfiSettingsOf(
+  stored:
+    | { review?: Partial<RfiProjectSettings["review"]>; fullScan?: Partial<RfiProjectSettings["fullScan"]>; scope?: Partial<RfiProjectSettings["scope"]> }
+    | null
+    | undefined,
+): RfiProjectSettings {
   return {
     review: { ...RFI_SETTINGS_DEFAULTS.review, ...stored?.review },
     fullScan: { ...RFI_SETTINGS_DEFAULTS.fullScan, ...stored?.fullScan },
+    scope: { ...RFI_SETTINGS_DEFAULTS.scope, ...stored?.scope },
   };
+}
+
+/**
+ * Work a contractor may hold outside its scope (Settings → Project scope). A
+ * library question is out when the client's own CATEGORY or ELEMENT says so
+ * (the workbook files 66 questions under "Reinforcement"); a question of the
+ * project's own and a finding's subject by `pattern` — "reinforcing" and
+ * "reinforcement", never "reinforced", since a reinforced concrete wall's
+ * thickness is in scope. Copied to workers/src/generated.py by codegen: the
+ * worker drops a finding whose subject matches.
+ */
+export interface RfiScopeTopic {
+  id: string;
+  label: string;
+  hint: string;
+  categories: string[];
+  elements: string[];
+  pattern: string;
+}
+export const RFI_SCOPE_TOPICS: RfiScopeTopic[] = [
+  {
+    id: "rebar",
+    label: "Rebar detailing",
+    hint: "bar sizes and spacing, laps and splices, stirrups and ties, dowels, hooks, clear cover",
+    categories: ["Reinforcement"],
+    elements: ["CE-01-05", "CE-12-03"],
+    pattern:
+      "\\b(?:re-?bars?|reinforcing|reinforcement|stirrups?|hoops|tie spacing|ties and spacing|bar (?:sizes?|spacing|callouts?|lengths?)|(?:top|bottom|side|trim|dowel|starter|vertical|horizontal) bars?|lap (?:splices?|lengths?)|development lengths?|dowels?|dowell?ed|standard hooks?|clear cover)\\b",
+  },
+];
+
+/** The out-of-scope topics a text is about (by their patterns). Pure. */
+export function outOfScopeTopics(text: string, outOfScope: readonly string[]): RfiScopeTopic[] {
+  return RFI_SCOPE_TOPICS.filter((t) => outOfScope.includes(t.id) && new RegExp(t.pattern, "i").test(text));
+}
+
+/** Whether a library question (or a project's own) is about work the project holds out of scope. Pure. */
+export function questionOutOfScope(
+  q: { category: string | null; source: string; text: string },
+  elementId: string,
+  outOfScope: readonly string[],
+): boolean {
+  return RFI_SCOPE_TOPICS.some(
+    (t) =>
+      outOfScope.includes(t.id) &&
+      (t.elements.includes(elementId) ||
+        (q.category != null && t.categories.includes(q.category)) ||
+        (q.source === "custom" && new RegExp(t.pattern, "i").test(q.text))),
+  );
+}
+
+/** The library with every element and question this project holds out of scope taken away, and how
+ * many questions that was. A follow-up goes with its parent. Pure. */
+export function withinScope(library: RfiLibraryDto, outOfScope: readonly string[]): { library: RfiLibraryDto; removed: number } {
+  if (!RFI_SCOPE_TOPICS.some((t) => outOfScope.includes(t.id))) return { library, removed: 0 };
+  let removed = 0;
+  const count = (q: RfiLibraryQuestionDto): number => 1 + q.children.reduce((n, c) => n + count(c), 0);
+  const keep = (qs: RfiLibraryQuestionDto[], elementId: string): RfiLibraryQuestionDto[] =>
+    qs.flatMap((q) => (questionOutOfScope(q, elementId, outOfScope) ? ((removed += count(q)), []) : [{ ...q, children: keep(q.children, elementId) }]));
+  const packages = library.packages.map((p) => ({
+    ...p,
+    elements: p.elements.flatMap((e) => {
+      if (RFI_SCOPE_TOPICS.some((t) => outOfScope.includes(t.id) && t.elements.includes(e.id))) {
+        removed += e.questions.reduce((n, q) => n + count(q), 0);
+        return [];
+      }
+      return [{ ...e, questions: keep(e.questions, e.id) }];
+    }),
+  }));
+  return { library: { ...library, packages }, removed };
 }
 
 /**

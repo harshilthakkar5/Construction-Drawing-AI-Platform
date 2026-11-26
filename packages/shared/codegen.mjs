@@ -21,6 +21,7 @@ import {
   PROBLEMS,
   PROBLEM_RULES,
   RFI_CHECK_LABELS,
+  RFI_SCOPE_TOPICS,
   TECHNICAL_PATTERN,
   QUEUES,
   RFI_REVIEW_CATALOGUE_VERSION,
@@ -126,6 +127,8 @@ function render() {
   lines.push(`TECHNICAL_PATTERN = ${py(TECHNICAL_PATTERN)}`);
   lines.push("");
   lines.push(`RFI_CHECK_LABELS = ${py(RFI_CHECK_LABELS)}`);
+  lines.push("");
+  lines.push(`RFI_SCOPE_TOPICS = ${py(RFI_SCOPE_TOPICS)}`);
   lines.push("");
 
   lines.push("", "# --- Targeted RFI review: check catalogue and depth caps ---", "");

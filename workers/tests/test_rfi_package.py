@@ -157,6 +157,28 @@ def test_the_cover_carries_the_forms_fields_and_a_picture_of_the_cloud():
     assert len(cover.get_images()) == 1
 
 
+def test_the_covers_values_are_form_fields_a_reader_can_change():
+    """The client could not edit the cover: its values were printed text. They are text fields
+    now, saved and reopened with the package, and a changed question is what the PDF then says."""
+    src = _sheet(90)
+    items = [_item([rp.Mark("d", 1, 1, "S2.105", _box(src[0], "C-6"))]) for _ in range(2)]
+    out, _ = rp.render(items, lambda d: src)
+    reopened = fitz.open("pdf", out.tobytes(garbage=3, deflate=True))
+    fields = {w.field_name: w for w in reopened[0].widgets()}
+    assert {n.split("_", 1)[1] for n in fields} == {"date", "author", "discipline", "description", "sheets", "issue", "question"}
+    assert fields["rfi0_question"].field_value.startswith("Q.1) Please confirm the location of column C-6")
+    assert fields["rfi0_author"].field_value == "AA"
+    # Two covers in one package keep separate fields: one name each would edit both at once.
+    names = [w.field_name for page in reopened for w in page.widgets()]
+    assert len(names) == len(set(names)) == 14
+    first = reopened[0]
+    for w in first.widgets():
+        if w.field_name == "rfi0_question":
+            w.field_value = "Q.1) Edited by the reviewer."
+            w.update()
+    assert "Edited by the reviewer" in fitz.open("pdf", reopened.tobytes())[0].get_text()
+
+
 def test_a_draft_has_no_number_and_says_it_is_not_issued_on_every_page():
     src = _sheet()
     out, _ = rp.render([_item([rp.Mark("d", 1, 1, "S2.105", _box(src[0], "C-6"))], draft=True)], lambda d: src)

@@ -434,6 +434,22 @@ def _box_text(page, rect, text, size=10, color=(0, 0, 0)) -> float:
     return y - rect.y0
 
 
+def _field(page, name: str, rect, value: str, size: float = 10, multiline: bool = False) -> None:
+    """A text field holding `value`: the cover's values stay editable in any PDF
+    reader (the client could not change printed text). Names are unique per cover."""
+    w = fitz.Widget()
+    w.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+    w.field_name = f"rfi{page.number}_{name}"
+    w.field_value = _plain(value)
+    w.rect = fitz.Rect(rect)
+    w.text_font = "Helv"
+    w.text_fontsize = size
+    w.border_width = 0
+    if multiline:
+        w.field_flags |= fitz.PDF_TX_FIELD_IS_MULTILINE
+    page.add_widget(w)
+
+
 def _text_height(text: str, width: float, size: float) -> float:
     chars = max(20, int(width / (size * 0.5)))
     return len(wrap(text, chars)) * size * 1.25 + size
@@ -465,20 +481,18 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
 
     box = fitz.Rect(18, 106, 594, 190)
     page.draw_rect(box, color=(0, 0, 0), width=0.8)
-    left = [("Date Issued:", item.issued.strftime("%m/%d/%Y") if item.issued else ""),
-            ("Author:", item.author or ""), ("Discipline:", (item.discipline or "").upper())]
-    for i, (label, value) in enumerate(left):
+    left = [("date", "Date Issued:", item.issued.strftime("%m/%d/%Y") if item.issued else ""),
+            ("author", "Author:", item.author or ""), ("discipline", "Discipline:", (item.discipline or "").upper())]
+    for i, (name, label, value) in enumerate(left):
         _text(page, 104, 126 + i * 18, label, bold=True, right=True)
-        _text(page, 110, 126 + i * 18, value[:34])
+        _field(page, name, (108, 115 + i * 18, 300, 130 + i * 18), value)
     _text(page, 376, 126, "Description:", bold=True, right=True)
-    _box_text(page, fitz.Rect(382, 117, 590, 150), item.subject, size=9)
+    _field(page, "description", (380, 115, 590, 151), item.subject, size=9, multiline=True)
     _text(page, 376, 162, "Plan/Sheet:", bold=True, right=True)
-    _text(page, 382, 162, ", ".join(item.sheets)[:44])
+    _field(page, "sheets", (380, 152, 590, 166), ", ".join(item.sheets))
     _text(page, 376, 180, "Issue:", bold=True, right=True)
-    if item.revision:
-        _box_text(page, fitz.Rect(382, 171, 590, 202), item.revision, size=8)
-    else:
-        _text(page, 382, 180, "Unknown (not read from the title block)", size=9)
+    _field(page, "issue", (380, 170, 590, 189), item.revision or "Unknown (not read from the title block)",
+           size=8 if item.revision else 9, multiline=True)
 
     heading = "BIM RFI Description:" if not item.draft else "Proposed RFI Description:"
     _text(page, 26, 220, heading, size=12, bold=True)
@@ -489,8 +503,8 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
     need = (len(wrap(body, chars)) + 1) * 12.5
     q.y1 = q.y0 + max(60, need)
     page.draw_rect(q, color=None, fill=QUESTION_FILL)
-    used = _box_text(page, fitz.Rect(q.x0 + 4, q.y0 + 2, q.x1 - 4, q.y1), body)
-    y = max(q.y1, q.y0 + used) + 10
+    _field(page, "question", (q.x0 + 2, q.y0 + 2, q.x1 - 2, q.y1 - 2), body, multiline=True)
+    y = q.y1 + 10
     for m in missing:
         y += _box_text(page, fitz.Rect(40, y, 572, 760), m, size=8.5, color=(0.7, 0.1, 0.1)) + 2
     note = None
@@ -519,7 +533,7 @@ def cover_page(out: fitz.Document, item: Item, snippets: list[tuple[bytes, str]]
             y += each
     if note:
         _flow(out, page, y + 4, note, item, size=8.5, color=(0.45, 0.45, 0.45))
-    _text(page, 36, 780, "Clouds mark the evidence this question cites. Marks are PDF annotations and can be edited.",
+    _text(page, 36, 780, "Clouds mark the evidence this question cites. Marks are PDF annotations, and the fields above are form fields: both can be edited.",
           size=7, color=(0.5, 0.5, 0.5))
     return page
 
