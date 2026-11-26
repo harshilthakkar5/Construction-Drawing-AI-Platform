@@ -392,6 +392,16 @@ describe("withDrawingSlots", () => {
     expect(withDrawingSlots({}, [], 3)).toEqual([]);
     expect(withDrawingSlots({ drawnText: true }, cropAnchors(["a", "b", "c"].map((id) => ({ ...chunk(id, "p"), score: 1 })), 3), 3)).toHaveLength(3);
   });
+
+  it("does not spend a picture sheet's close-ups on OCR'd note strips most of the sheet wide", () => {
+    // The 26 Nov paid run: S1.1A's three slots went to 2189x498, 2022x553 and 2359x375 notes strips.
+    const strip = (id: string, width: number, height: number) => ({ chunkId: id, bbox: { x: 0, y: 0, width, height } });
+    const s11a = { drawnText: true, pdfWidth: 2592, pdfHeight: 1728 };
+    const got = withDrawingSlots(s11a, [strip("n1", 2189, 498), strip("n2", 2022, 553), strip("tag", 300, 200)], 3);
+    expect(got.map((c) => c.chunkId)).toEqual(["tag", "drawing:1", "drawing:2"]);
+    // A sheet with a text layer keeps its pieces, whatever their size.
+    expect(withDrawingSlots({ pdfWidth: 2592, pdfHeight: 1728 }, [strip("n1", 2189, 498)], 3)).toHaveLength(1);
+  });
 });
 
 describe("withGridSlots", () => {
