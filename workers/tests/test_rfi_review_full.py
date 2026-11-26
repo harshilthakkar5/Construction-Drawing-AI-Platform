@@ -1191,3 +1191,17 @@ def test_a_value_given_only_as_a_reference_is_still_a_deferral():
     assert deferral_claim(issue) == issue
     # A symbol sentence whose pointer is to the PLAN, not to a detail, still defers.
     assert deferral_claim("The section symbol shows T.O.C. SEE PLAN.") != ""
+
+
+def test_a_symbol_note_that_refers_to_its_detail_is_not_a_deferral_either():
+    # The 26 Nov run on the user's PC: "Plan note 13 says the step symbol marks a footing step and refers to
+    # 8/S3.1." was kept as "… Please provide it, or confirm which drawing shows it."
+    from rfi_review import deferral_claim, overruled
+    issue = ("Plan note 13 says the step symbol marks a footing step and refers to 8/S3.1. No dimension "
+             "locates each step from the grid lines.")
+    assert deferral_claim(issue) == ""
+    kept = overruled({"element": "Wall footing steps", "location": "S1.1A", "issue": issue}, {"decision": "reject"})
+    assert "provide it" not in kept["question"]
+    assert kept["question"].startswith("No dimension locates each step from the grid lines. Please locate each one")
+    # A value deferred by "refers to the plan" is still a deferral.
+    assert deferral_claim("Detail 10 gives the T.O.C. as a note that refers to the plan.") != ""
