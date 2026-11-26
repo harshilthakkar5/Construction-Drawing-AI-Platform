@@ -2559,16 +2559,49 @@ def page_floors(keys: set) -> dict:
     try:
         with db.connect() as conn:
             rows = conn.execute(
-                'SELECT "documentId", "pageNumber", levels, level, "sheetKind" FROM pages WHERE "documentId" = ANY(%s)',
+                'SELECT "documentId", "pageNumber", levels, level, "sheetKind", "sheetTitle" FROM pages '
+                'WHERE "documentId" = ANY(%s)',
                 (docs,),
             ).fetchall()
     except Exception as exc:  # noqa: BLE001 — a floor rule must never fail a review
         log.warning("rfi review: could not read the pages' floors (%s); findings are not checked by floor", exc)
         return {}
+    return floors_of_rows(rows, keys)
+
+
+_FOUNDATION_TITLE = re.compile(r"\b(FOUNDATION|PIERS?|PILES?|PILE\s+CAPS?|FOOTINGS?|GRADE\s+BEAMS?)\b", re.I)
+
+
+def _floor_rank(level: str) -> float | None:
+    """Height order of a floor name: LEVEL B2 < LEVEL B1 < LEVEL 1 < LEVEL 2. None for a named floor
+    whose place is not certain (GROUND, MEZZANINE, ROOF)."""
+    m = re.fullmatch(r"LEVEL\s+(B?)(\d+)", level.strip().upper())
+    if not m:
+        return None
+    return -int(m.group(2)) if m.group(1) else int(m.group(2))
+
+
+def floors_of_rows(rows, keys: set) -> dict:
+    """(documentId, pageNumber) → (floors, kind) from page rows
+    (doc, page, levels, level, kind, title). Pure.
+
+    A FOUNDATION plan with no floor read is the lowest floor any plan in these
+    documents names: UT Law's S1.102 "Foundation Pier Layout Plan" carries no
+    level, so a Level 5 review compared its pier-level column sizes with
+    S2.105's and raised two "sizes differ" drafts — sizes that change down a
+    building on purpose. With no numbered floor anywhere it stays unknown."""
+    rows = list(rows)
+    ranked = [(r, lv) for row in rows for lv in (row[2] or ([row[3]] if row[3] else []))
+              if (r := _floor_rank(lv)) is not None]
+    lowest = min(ranked)[1] if ranked else None
     out = {}
-    for doc, page, levels, level, kind in rows:
-        if (doc, page) in keys:
-            out[(doc, page)] = (frozenset(levels or ([level] if level else [])), kind)
+    for doc, page, levels, level, kind, title in rows:
+        if (doc, page) not in keys:
+            continue
+        floors = frozenset(levels or ([level] if level else []))
+        if not floors and lowest and kind in PLAN_KINDS and _FOUNDATION_TITLE.search(title or ""):
+            floors = frozenset({lowest})
+        out[(doc, page)] = (floors, kind)
     return out
 
 

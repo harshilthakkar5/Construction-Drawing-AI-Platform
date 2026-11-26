@@ -1138,3 +1138,32 @@ def test_a_plan_of_another_floor_is_not_evidence_about_this_one():
     # Naming a Level 5 and a Level 6 plan on purpose makes both this review's floors.
     both = dict(scope, pages=scope["pages"] + [{"role": "side:2", "documentId": "d", "pageNumber": 2}])
     assert rfi_review.target_floors(both, floors) == {"LEVEL 5", "LEVEL 6"}
+
+
+def test_a_foundation_plan_with_no_floor_read_is_the_lowest_floor():
+    """UT Law, 26 Nov: S1.102 "Foundation Pier Layout Plan" has no level read, so a Level 5 review of S2.105
+    raised two "column sizes differ between S2.105 and S1.102" drafts — sizes change down a building on purpose."""
+    rows = [("d", 1, ["LEVEL 5"], "LEVEL 5", "plan", "Forming Plan - Level 5"),
+            ("d", 2, [], None, "plan", "Foundation Pier Layout Plan"),
+            ("d", 3, ["LEVEL 1"], "LEVEL 1", "plan", "Foundation Plan - Level 1"),
+            ("d", 4, [], None, "detail", "Typical Pile Cap Details"),
+            ("d", 5, [], None, "plan", "Key Plan"),
+            ("d", 6, ["LEVEL B1"], "LEVEL B1", "plan", "Basement Plan")]
+    keys = {("d", n) for n in range(1, 7)}
+    floors = rfi_review.floors_of_rows(rows, keys)
+    assert floors[("d", 2)] == (frozenset({"LEVEL B1"}), "plan")      # the lowest floor any plan names
+    assert floors[("d", 4)] == (frozenset(), "detail")                # a detail stays floorless
+    assert floors[("d", 5)] == (frozenset(), "plan")                  # a plan not titled foundation stays unknown
+    no_basement = rfi_review.floors_of_rows(rows[:5], keys)
+    assert no_basement[("d", 2)][0] == {"LEVEL 1"}
+    # With no numbered floor anywhere it stays unknown, never guessed.
+    assert rfi_review.floors_of_rows([rows[1]], keys)[("d", 2)][0] == frozenset()
+    # The draft itself: S2.105 (Level 5) against S1.102 — rejected; a Level 1 review keeps it.
+    evidence = {e.id: e for e in (_floor_ev(1, 1, "S2.105"), _floor_ev(2, 2, "S1.102"))}
+    draft = {"kind": "conflict", "evidenceIds": ["ev1", "ev2"]}
+    wording = {"subject": "Column mark sizes differ between S2.105 and S1.102", "question": "Which size governs?"}
+    _, why = rfi_review.off_floor(draft, wording, evidence, no_basement, frozenset({"LEVEL 5"}))
+    assert why and "S1.102 (LEVEL 1)" in why
+    evidence[_floor_ev(3, 3, "S1.101").id] = _floor_ev(3, 3, "S1.101")
+    level_one = {"kind": "conflict", "evidenceIds": ["ev3", "ev2"]}
+    assert rfi_review.off_floor(level_one, wording, evidence, no_basement, frozenset({"LEVEL 1"})) == (level_one, None)
