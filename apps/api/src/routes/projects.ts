@@ -6,6 +6,7 @@ import {
   RFI_REVIEW_INPUT_LIMITS,
   RFI_REVIEW_THINKING,
   RFI_REVIEW_THINKING_LIMITS,
+  RFI_SCOPE_TOPICS,
 } from "@cdip/shared";
 import { z } from "zod";
 import { assertProjectOwner, currentUser } from "../auth.js";
@@ -46,6 +47,10 @@ const rfiSettingsSchema = z
     fullScan: z
       .object({ provider, model, useBatch: z.boolean(), budgetUsd: z.number().positive().max(10_000).nullable() })
       .strict(),
+    scope: z
+      .object({ outOfScope: z.array(z.enum(RFI_SCOPE_TOPICS.map((t) => t.id) as [string, ...string[]])).max(RFI_SCOPE_TOPICS.length) })
+      .strict()
+      .optional(),
   })
   .strict()
   .nullable();

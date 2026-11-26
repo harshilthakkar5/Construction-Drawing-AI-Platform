@@ -2897,7 +2897,9 @@ layout (project, `RFI: 002` or `DRAFT RFI`, date, author initials, discipline, d
 plan/sheet, the `Q.1)` question box, cropped pictures captioned by sheet) followed by the ORIGINAL
 sheets copied as vector pages with a red cloud per piece of evidence, a yellow callout and a leader
 — real Polygon/FreeText/Line annotations, editable in Bluebeam. PyMuPDF 1.25 draws a FreeText only
-when its colours are passed AGAIN to `update()`, and `set_info()` blanks it.
+when its colours are passed AGAIN to `update()`, and `set_info()` blanks it. The cover's VALUES (date, author, discipline, description,
+plan/sheet, issue, the Q.1 question) are PDF text FIELDS (`rfi_package._field`, named `rfi<page>_<field>` so two covers
+in one package never share one), editable in any reader: the client could not change printed text (Nov 2026).
 
 BOX SPACE is a rule now, and it was being broken: every stored box (chunk, evidence, pin) is in the
 page's UNROTATED space — what `get_text` reports and PDF annotations take. The grid check stored
@@ -3357,7 +3359,15 @@ distinct pictures are rendered once (checked offline, no model call). After the 
 reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,
 `sheetTitleFrom` in `@cdip/shared`), every hit tickable in place.
-Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
+**Project scope** (Settings, `rfiSettings.scope.outOfScope`, client request Nov 2026: "rebar detailing is not in our scope"): work the
+contractor does not build is never offered, asked or raised. `RFI_SCOPE_TOPICS` (`@cdip/shared`, codegen'd to the worker) has one
+topic, `rebar` — out by DEFAULT — matching library questions by the client's own CATEGORY ("Reinforcement": 66 questions, and U-05
+expanded over all 120 elements) and its rebar ELEMENTS (CE-01-05, CE-12-03), and a project's own question or a finding by `pattern`
+("reinforcing"/"reinforcement", never "reinforced"). `withinScope` removes them from Create RFI's library (207 questions, said in a
+line); the planner drops them from a saved set's questions too and stores `scope.outOfScope` (in `scopeHash` only when present); the
+worker's reasoning and verification prompts carry an `<out_of_scope>` block, and a candidate whose element or FIRST issue sentence is
+about the topic is set aside before verification ("out of scope", under Considered, not raised, where a person can still keep it).
+The scan and the full AI scan do not read it yet (neither is on screen). Deleting a set (trash on its card, Delete on its page, confirmed) cancels its planned/queued/running reviews and deletes its PENDING findings in one transaction (they would be visible nowhere); accepted and dismissed ones stay. A set's findings are listed ONLY under that set: a card opens the set as its own page, breadcrumb "RFIs / <name>"
 (`store.openRfiSetId`, a browser history entry so Back closes it; the log and the chat list hide until "RFIs" is clicked; an open id the project has no set for — deleted, or another project's set brought back by Back — is cleared by `RfiSetsSection`, or the log stayed hidden behind the list) showing `SetFindings`, the same
 cached `rfi-set` query the full-view popup reads. A finding card shows its subject; the question, reasons and
 sources sit under "Show details". The work column's section header is sticky and the RFIs tab's "Needs your review" lists only

@@ -250,6 +250,22 @@ RFI_CHECK_LABELS = {
     "grid_spacing": "Grid lines drawn a different distance apart on two drawings",
 }
 
+RFI_SCOPE_TOPICS = [
+    {
+        "id": "rebar",
+        "label": "Rebar detailing",
+        "hint": "bar sizes and spacing, laps and splices, stirrups and ties, dowels, hooks, clear cover",
+        "categories": [
+            "Reinforcement",
+        ],
+        "elements": [
+            "CE-01-05",
+            "CE-12-03",
+        ],
+        "pattern": "\\b(?:re-?bars?|reinforcing|reinforcement|stirrups?|hoops|tie spacing|ties and spacing|bar (?:sizes?|spacing|callouts?|lengths?)|(?:top|bottom|side|trim|dowel|starter|vertical|horizontal) bars?|lap (?:splices?|lengths?)|development lengths?|dowels?|dowell?ed|standard hooks?|clear cover)\\b",
+    },
+]
+
 
 # --- Targeted RFI review: check catalogue and depth caps ---
 

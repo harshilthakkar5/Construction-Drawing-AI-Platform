@@ -9,6 +9,7 @@ import {
   RFI_REVIEW_INPUT_LIMITS,
   RFI_REVIEW_THINKING,
   RFI_REVIEW_THINKING_LIMITS,
+  RFI_SCOPE_TOPICS,
   rfiSettingsOf,
   type ProjectDto,
   type RfiProjectSettings,
@@ -20,6 +21,7 @@ import { api } from "@/api";
 import { RolesSelect } from "@/components/RolesSelect";
 import { Notice, Spinner, TextField } from "@/components/shared";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,6 +79,7 @@ interface Draft {
   roles: string[];
   review: RfiProjectSettings["review"];
   fullScan: RfiProjectSettings["fullScan"];
+  scope: RfiProjectSettings["scope"];
   maxInput: string;
   maxThinking: string;
   budget: string;
@@ -91,6 +94,7 @@ function draftOf(p: ProjectDto): Draft {
     roles: p.roles,
     review: s.review,
     fullScan: s.fullScan,
+    scope: s.scope,
     maxInput: text(s.review.maxInputTokens),
     maxThinking: text(s.review.maxThinkingTokens),
     budget: text(s.fullScan.budgetUsd),
@@ -132,6 +136,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         rfiSettings: {
           review: { ...d.review, maxInputTokens: num(d.maxInput), maxThinkingTokens: num(d.maxThinking) },
           fullScan: { ...d.fullScan, budgetUsd: num(d.budget) },
+          scope: d.scope,
         },
       }),
     onSuccess: (p) => {
@@ -192,6 +197,35 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           />
         </div>
         <RolesSelect value={d.roles} onChange={(roles) => set({ roles })} />
+      </section>
+
+      <Separator />
+
+      <section className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Project scope</h3>
+          <p className="text-muted-foreground text-xs">
+            Work you do not build here. Its questions are left out of Create RFI, and the review raises no RFI about it.
+          </p>
+        </div>
+        {RFI_SCOPE_TOPICS.map((t) => {
+          const out = d.scope.outOfScope.includes(t.id);
+          return (
+            <label key={t.id} className="flex items-start gap-2 text-sm">
+              <Checkbox
+                className="mt-0.5"
+                checked={out}
+                onCheckedChange={(on) =>
+                  set({ scope: { outOfScope: on ? [...d.scope.outOfScope, t.id] : d.scope.outOfScope.filter((x) => x !== t.id) } })
+                }
+              />
+              <span>
+                <span className="font-medium">{t.label}</span> is not in our scope
+                <span className="text-muted-foreground block text-xs">{t.hint}</span>
+              </span>
+            </label>
+          );
+        })}
       </section>
 
       <Separator />
