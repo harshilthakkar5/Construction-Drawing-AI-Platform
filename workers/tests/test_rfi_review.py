@@ -1024,3 +1024,56 @@ def test_batch_mode_sends_the_same_call_as_one_batch_entry(monkeypatch):
     run["limits"] = {"thinkingEffort": "low"}
     assert rfi_review._send("SYSTEM", "PROMPT", run=run, usage=usage, budget=900, images=[picture]) == "REPLY"
     assert direct["images"] == [b"png"] and direct["system"] == "SYSTEM"
+
+
+def _broken_then(monkeypatch, fix_text):
+    """_send stub: the stage call returns a reply no local repair can parse; the
+    repair call (no pictures, thinking off) returns `fix_text`; a third call is
+    the old whole-stage retry."""
+    calls = []
+    broken = '{"observations": [{"checkId": "G01", "statement": "grid "C.1" has no dimension"} {"checkId": "G01"}]}'
+
+    def send(system, prompt, *, images, thinking=None, **kw):
+        calls.append({"system": system, "images": images, "thinking": thinking, "prompt": prompt})
+        if len(calls) == 1:
+            return rfi_review.llm.Reply(text=broken, stop_reason="end_turn", input_tokens=68000, output_tokens=4000)
+        if system == rfi_review.FIX_JSON_SYSTEM:
+            return rfi_review.llm.Reply(text=fix_text, stop_reason="end_turn", input_tokens=4000, output_tokens=4000)
+        return rfi_review.llm.Reply(text='{"observations": []}', stop_reason="end_turn", input_tokens=68000)
+
+    monkeypatch.setattr(rfi_review, "_send", send)
+    monkeypatch.setattr(rfi_review, "_stage_calls", lambda *a: None, raising=False)
+    return calls, broken
+
+
+def test_a_broken_reply_is_repaired_from_the_reply_alone_not_by_resending_the_drawings(monkeypatch):
+    # UT Law grid review, 25 Nov: one discovery reply broke as JSON and the retry re-sent
+    # ~68k tokens of drawings (~$0.08) to fix its punctuation.
+    fixed = '{"observations": [{"checkId": "G01", "statement": "grid \\"C.1\\" has no dimension"}, {"checkId": "G01"}]}'
+    calls, broken = _broken_then(monkeypatch, fixed)
+    assert rfi_review.parse_json_object(broken) is None
+    usage = rfi_review.ReviewUsage(provider="claude", model="claude-sonnet-5-5", thinking="medium")
+    run = {"id": "run1", "projectId": "p", "limits": {}}
+    picture = ev("ev9", kind="crop")
+    picture.image = b"png"
+    out = rfi_review._ask("discovery", "SYS", "USER", rfi_review.parse_json_object, run=run, usage=usage, images=[picture])
+    assert out["observations"][0]["statement"] == 'grid "C.1" has no dimension'
+    assert len(calls) == 2
+    assert calls[1]["images"] == [] and calls[1]["thinking"] == "off" and calls[1]["prompt"] == broken
+    assert usage.stage("discovery").input_tokens == 72000
+
+
+def test_a_repair_that_changes_the_words_is_refused_and_the_stage_asked_again(monkeypatch):
+    reworded = '{"observations": [{"checkId": "G01", "statement": "grid C.1 is missing a locating dimension"}]}'
+    calls, _ = _broken_then(monkeypatch, reworded)
+    usage = rfi_review.ReviewUsage(provider="claude", model="claude-sonnet-5-5", thinking="medium")
+    out = rfi_review._ask("discovery", "SYS", "USER", rfi_review.parse_json_object,
+                          run={"id": "run1", "projectId": "p", "limits": {}}, usage=usage)
+    assert out == {"observations": []} and len(calls) == 3
+    assert calls[2]["system"] == "SYS" and "ONLY the JSON" in calls[2]["prompt"]
+
+
+def test_same_content_refuses_dropped_items():
+    raw = '{"a": ["one", "two", "three"] "b": "x"}'
+    assert rfi_review._same_content(raw, {"a": ["one", "two", "three"], "b": "x"})
+    assert not rfi_review._same_content(raw, {"a": ["one"], "b": "x"})

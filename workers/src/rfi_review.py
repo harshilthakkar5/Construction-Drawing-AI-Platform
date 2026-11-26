@@ -970,9 +970,11 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
     findings, notes = [], []
     text = wanted & set(TEXT_CODE_CHECKS)
     if text:
+        t = time.monotonic()
         found, more = rfi_checks.run_all(pages, chunks, None, only=text)
         findings += [f for f in found if f.check_type in SET_CODE_CHECKS or on_mine(f)]
         notes += more
+        log.info("rfi review: code checks %s took %.1fs", ", ".join(sorted(text)), time.monotonic() - t)
     reviewed = [p for p in pages if (p.document_id, p.page_number) in mine]
     import cap_tags
     import column_schedule
@@ -987,9 +989,11 @@ def library_code_findings(project_id: str, scope: dict, check_types: set[str], o
             try:
                 # These read the sheets a symbol points to, which need not be reviewed.
                 extra = {"every": pages} if module in (cap_tags, detail_map, schedule_loops) else {}
+                t = time.monotonic()
                 found, more = module.findings(reviewed, chunks, open_page, **extra)
                 findings += found
                 notes += more
+                log.info("rfi review: code check %s took %.1fs (%d finding(s))", check_type, time.monotonic() - t, len(found))
             except Exception as exc:  # a check failing is a note, never a failed review
                 log.exception("rfi review: %s check failed", check_type)
                 notes.append(f"The check for \"{doc_errors.check_label(check_type)}\" could not run this time, "
@@ -2153,6 +2157,52 @@ def deferral_claim(issue: str | None) -> str:
     return " ".join(s for s in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+", (issue or "").strip()) if _DEFERS.search(s))
 
 
+# Sheet numbers and evidence ids are names, not values printed on a drawing.
+_NOT_A_VALUE = re.compile(r"\b[A-Z]{1,3}-?\d+(?:\.\d+)+[A-Z]?\b|\bev\d+\b|\bproblem\s+\d+\b", re.I)
+
+
+def _numbers(text: str) -> set[str]:
+    return set(_DIGITS.findall(_NOT_A_VALUE.sub(" ", (text or "").translate(_QUOTES))))
+
+
+# A reason that DOUBTS the claim rather than answering it: "the claim that no run is given is not
+# clearly supported", "the absence is not demonstrated".
+_DOUBTS_CLAIM = re.compile(
+    r"\b(?:claim|absence|that\s+(?:it|they|the\s+\w+)\s+(?:is|are)\s+missing)\b[^.]{0,60}?\b(?:is|are|was)\s+not\s+"
+    r"(?:clearly\s+|fully\s+|adequately\s+|well\s+)?(?:supported|established|demonstrated|proven|shown)\b"
+    r"|\bnot\s+clearly\s+(?:supported|established|demonstrated|shown)\b",
+    re.I,
+)
+
+
+def brings_nothing_new(decision: dict, candidate: dict, cited: set[str], shown: set[str]) -> bool:
+    """A rejection of a MISSING-value problem that doubts the claim and brings
+    nothing the problem did not already have: no shown evidence besides the
+    evidence the absence was observed on, and no number the problem did not
+    already quote. Pure. Such a reason can only doubt the absence; the next run
+    words it differently. UT Law RFI 001 was set aside as "not established by
+    the evidence", then "not clearly supported, and the run can be derived from
+    the percentage", each time over the same S2.105 labels the problem quoted.
+    The doubt alone is not enough — "no problem is shown, 18'-10 1/2\" + 2'-3\"
+    = 21'-1 1/2\"" is an answer — and nothing new alone is not either: on 59
+    stored rejections that reopened 23, most of them right. Duplicates, the
+    specs, field verification and the two bases that argue the problem itself
+    (not visible, different condition) are not this rule's."""
+    if candidate.get("kind") != "missing":
+        return False
+    if (decision.get("basis") or "other") not in ("other", "answered_elsewhere"):
+        return False
+    reason = decision.get("reason") or ""
+    if not _DOUBTS_CLAIM.search(reason):
+        return False
+    if _SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or re.search(r"\bduplicat|\bcovered\s+by\s+problem\b", reason, re.I):
+        return False
+    if (cited - set(candidate.get("evidenceIds") or [])) & shown:
+        return False
+    problem = " ".join(str(candidate.get(k) or "") for k in ("issue", "why", "element", "location", "subject"))
+    return not (_numbers(reason) - _numbers(problem))
+
+
 def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
@@ -2172,6 +2222,8 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
     # An id written in the reason ("S1.110 (ev75) gives the dimensions") is a
     # citation too — models often cite in prose instead of the field.
     cited = set(decision.get("answeredBy") or []) | set(re.findall(r"\bev\d+\b", decision.get("reason") or ""))
+    if candidate and brings_nothing_new(decision, candidate, cited, shown):
+        return True
     defers = bool(candidate and _deferral(candidate))
     if defers:
         # The problem's own evidence is the details that DEFER the value; pointing back at them
@@ -2474,6 +2526,82 @@ def _dimensions(text: str) -> list[tuple[int, int, float]]:
         if den and int(den) == 0:
             continue
         out.append((m.start(), m.end(), int(ft or 0) * 12 + int(inch) + (int(num) / int(den) if num else 0)))
+    return out
+
+
+PLAN_KINDS = ("plan", "enlarged_plan")
+
+
+def target_floors(scope: dict, floors: dict) -> frozenset:
+    """The floors the review is ABOUT: every floor a named plan draws. Pure.
+    Empty when no named sheet is a plan with a floor read (then nothing here
+    applies). A person who names a Level 5 and a Level 6 plan gets both."""
+    out: set = set()
+    for p in scope.get("pages", []):
+        if str(p.get("role") or "").startswith("side"):
+            levels, kind = floors.get((p.get("documentId"), p.get("pageNumber")), (frozenset(), None))
+            if kind in PLAN_KINDS:
+                out |= set(levels)
+    return frozenset(out)
+
+
+def off_floor(candidate: dict, decision: dict, evidence: dict[str, Evidence], floors: dict,
+              target: frozenset) -> tuple[dict, str | None]:
+    """A finding with its plans of OTHER floors taken out, or why it cannot
+    stand without them. Pure. Different floors differ on purpose, and the
+    prompt saying so was not enough: a UT Law review of S2.105 (Level 5) read
+    every architectural plan its library search found and raised "S2.105's
+    overall 190'-0\" differs from A3.05's 165'-11\"" — A3.05 is Level 6. A plan
+    of another floor is not evidence about this one: it is dropped from the
+    finding, a conflict left with one source is rejected, and so is a finding
+    whose question is built on that sheet. Sheets with no floor read
+    (sections, details, schedules) and plans drawn for several floors that
+    include this one are never off-floor."""
+    if not target:
+        return candidate, None
+    away = [e for e in candidate["evidenceIds"]
+            if e in evidence
+            and (lv := floors.get((evidence[e].document_id, evidence[e].page_number)))
+            and lv[1] in PLAN_KINDS and lv[0] and not (lv[0] & target)]
+    if not away:
+        return candidate, None
+    sheets = sorted({evidence[e].sheet_number or evidence[e].where for e in away})
+    names = ", ".join(f"{s} ({'/'.join(sorted(floors[(evidence[e].document_id, evidence[e].page_number)][0]))})"
+                      for s, e in {evidence[e].sheet_number or evidence[e].where: e for e in away}.items())
+    here = "/".join(sorted(target))
+    kept = [e for e in candidate["evidenceIds"] if e not in away]
+    if not any(evidence[e].kind not in WEAK_KINDS for e in kept if e in evidence):
+        return candidate, f"its only drawing evidence is a plan of another floor ({names}; this review is about {here})"
+    wording = f"{decision.get('subject') or ''}\n{decision.get('question') or ''}"
+    if any(re.search(rf"(?<![\w.]){re.escape(s)}(?![\w.]|\.\d)", wording) for s in sheets):
+        return candidate, f"it compares this floor ({here}) with a plan of another floor ({names}); floors differ on purpose"
+    if candidate["kind"] in ("conflict", "inconsistency"):
+        two_pages = len({(evidence[e].document_id, evidence[e].page_number) for e in kept if e in evidence}) >= 2
+        two_items = candidate.get("fromValues") and len([e for e in kept if evidence[e].kind not in WEAK_KINDS]) >= 2
+        if not (two_pages or two_items):
+            return candidate, f"without the plan of another floor ({names}) it has one source left"
+    return dict(candidate, evidenceIds=kept), None
+
+
+def page_floors(keys: set) -> dict:
+    """(documentId, pageNumber) → (floors drawn, sheet kind), read once. A read
+    failure returns nothing, and then no finding is changed by floor."""
+    if not keys:
+        return {}
+    docs = sorted({k[0] for k in keys})
+    try:
+        with db.connect() as conn:
+            rows = conn.execute(
+                'SELECT "documentId", "pageNumber", levels, level, "sheetKind" FROM pages WHERE "documentId" = ANY(%s)',
+                (docs,),
+            ).fetchall()
+    except Exception as exc:  # noqa: BLE001 — a floor rule must never fail a review
+        log.warning("rfi review: could not read the pages' floors (%s); findings are not checked by floor", exc)
+        return {}
+    out = {}
+    for doc, page, levels, level, kind in rows:
+        if (doc, page) in keys:
+            out[(doc, page)] = (frozenset(levels or ([level] if level else [])), kind)
     return out
 
 
@@ -2915,7 +3043,7 @@ CACHE_TTL_BATCH = "1h"
 
 
 def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: int, images: list[Evidence],
-          labels: list[str] | None = None, cache_images: int = 0):
+          labels: list[str] | None = None, cache_images: int = 0, thinking: str | None = None):
     """One model call: direct, or — when the plan chose batch mode — as a
     one-entry batch at half price, waited for. The request is the same either
     way, so a review reads and answers exactly what it would have.
@@ -2929,7 +3057,7 @@ def _send(system: str, prompt: str, *, run: dict, usage: ReviewUsage, budget: in
         kind="rfi",
         project_id=run["projectId"],
         json_only=True,
-        thinking=thinking_setting(run),
+        thinking=thinking or thinking_setting(run),
     )
     pictures = [ev.image for ev in images] or None
     labels = (labels if labels is not None else [ev.label() for ev in images]) or None
@@ -3035,9 +3163,78 @@ def _ask(
                             run["id"][:8], stage, spent)
                 budget *= 2
             else:
+                fixed = _fix_json(stage, reply.text, parse, run=run, usage=usage, budget=budget)
+                if fixed is not None:
+                    return fixed
                 log.warning("rfi review %s: %s reply was not the JSON asked for — retrying once", run["id"][:8], stage)
                 prompt = user + "\n\nRespond with ONLY the JSON object described above."
     raise StageFailed(stage, f"the model's {stage} reply was not usable JSON twice")
+
+
+FIX_JSON_SYSTEM = (
+    "You repair broken JSON. The user message is a reply that should be one JSON object but does not parse. "
+    "Return that same object as valid JSON: escape quotes and inch marks inside strings, add missing commas, "
+    "quote bare words, drop trailing commas. Change NOTHING else — every key, value, id and word stays exactly "
+    "as written, nothing added, removed, reordered or reworded. Output only the JSON object."
+)
+
+
+def _same_content(raw: str, fixed: dict) -> bool:
+    """The repaired object says what the broken reply said: every string in it
+    is in the reply (escapes aside), and nothing was dropped (the two are about
+    as long once whitespace and escapes are set aside). Pure."""
+    norm = lambda t: re.sub(r"\s+", "", t.replace("\\", ""))
+    body = norm(raw)
+    strings: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str):
+            strings.append(v)
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                strings.append(k)
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(fixed)
+    if any(norm(t) not in body for t in strings if norm(t)):
+        return False
+    return len(norm(json.dumps(fixed, ensure_ascii=False))) >= 0.9 * len(body)
+
+
+def _fix_json(stage: str, raw: str | None, parse, *, run: dict, usage: ReviewUsage, budget: int):
+    """A reply that broke as JSON, repaired by a small call shown ONLY that
+    reply — no drawings, no thinking — before the whole stage is asked again.
+    A UT Law grid review's discovery reply broke in a way the local repairs did
+    not cover, and the retry re-sent ~68k tokens of drawings (about $0.08 in
+    batch) to fix the punctuation of a ~4k-token answer. The repaired object
+    must carry the reply's own words (`_same_content`) and pass the stage's own
+    parser; otherwise None and the stage retries as before."""
+    if not raw or "{" not in raw:
+        return None
+    room = min(budget * 2, max(2000, int(len(raw) / 2.5) + 1000))
+    with usage_ledger.tagged(run["id"], stage, 2), diagnostics.call(
+        stage, attempt=2, jsonFix=True, maxTokens=room, provider=usage.provider, model=usage.model,
+        promptVersion=PROMPT_VERSION,
+    ):
+        try:
+            reply = _send(FIX_JSON_SYSTEM, raw, run=run, usage=usage, budget=room, images=[], thinking="off")
+        except Exception as exc:  # a failed repair is the old retry, never a failed stage
+            log.warning("rfi review %s: repairing the %s reply failed (%s)", run["id"][:8], stage, exc)
+            return None
+    if reply is None:
+        return None
+    usage.stage(stage).add(reply)
+    data = parse_json_object(reply.text)
+    if data is None or not _same_content(raw, data):
+        log.warning("rfi review %s: the repaired %s reply did not match the original — asking again", run["id"][:8], stage)
+        return None
+    parsed = parse(json.dumps(data, ensure_ascii=False))
+    if parsed is not None:
+        log.info("rfi review %s: %s reply was not valid JSON — repaired from the reply alone, no drawings re-sent",
+                 run["id"][:8], stage)
+    return parsed
 
 
 def thinking_setting(run: dict) -> str:
@@ -4390,9 +4587,25 @@ def _run_group_with_pictures(group: list[dict], results: dict[str, dict]) -> dic
             if added:
                 log.info("rfi review set: %d whole-sheet picture(s) added so every element opens the same way", added)
             shares = _discover_in_turn(preps)
+        jobs = []
         for p, share in zip(preps, shares):
             discover = (lambda p=p: _discover_alone(p)) if share is None else (lambda share=share: _take(share))
-            results[p.run_id] = _guarded(p.run, lambda p=p, d=discover: _finish(p, d), reraise=False)
+            jobs.append((p, lambda p=p, d=discover: _guarded(p.run, lambda: _finish(p, d), reraise=False)))
+        # The rest of each review (reasoning, verification, re-check) needs nothing from its siblings,
+        # so the elements finish side by side: one after another, three elements waited ~22 minutes
+        # of batch queues where ~8 do, with every call and every input unchanged.
+        if len(jobs) < 2:
+            for p, job in jobs:
+                results[p.run_id] = job()
+        else:
+            with ThreadPoolExecutor(max_workers=min(SET_READ_PARALLEL, len(jobs))) as pool:
+                futures = [(p, pool.submit(contextvars.copy_context().run, job)) for p, job in jobs]
+                for p, f in futures:
+                    try:
+                        results[p.run_id] = f.result()
+                    except Exception as exc:  # _guarded saves the failure itself; never lose a sibling's result
+                        log.exception("rfi review %s: finishing failed", p.run_id[:8])
+                        results[p.run_id] = {"failed": doc_errors.user_message(exc)}
     return {"set": results}
 
 
@@ -4412,6 +4625,21 @@ def _run(run: dict) -> dict:
     return _finish(prep, lambda: _discover_alone(prep))
 
 
+class _Steps:
+    """Times a review's preparation, one log line per step as it ends. Preparation spends no model
+    call and used to log nothing: a review sat 22 minutes between two lines while one code check
+    read all 351 sheets of a project, and nothing said which step it was in."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id[:8]
+        self.t0 = self.last = time.monotonic()
+
+    def done(self, name: str) -> None:
+        now = time.monotonic()
+        log.info("rfi review %s: prepared %s in %.1fs (%.0fs so far)", self.run_id, name, now - self.last, now - self.t0)
+        self.last = now
+
+
 def _prepare(run: dict):
     """Everything a review does before its first model call: the exact
     geometry, the code checks and the evidence. A dict is an early answer
@@ -4424,6 +4652,7 @@ def _prepare(run: dict):
     catalogue = {**CHECKS, **library}
     linked = code_checks_for(asked, library)
     notes: list[str] = []
+    steps = _Steps(run_id)
     planned = run.get("coverage") or {}
     search_log: list[dict] = list(planned.get("searchLog") or [])
     omissions: list[str] = list(planned.get("omissions") or [])
@@ -4452,9 +4681,11 @@ def _prepare(run: dict):
     if "G01" in check_ids:
         grid_found, grid_note = _grid_findings(project_id, scope)
         notes.append(grid_note or f"Exact grid comparison: {len(grid_found)} grid naming disagreement(s).")
+        steps.done("the grid comparison")
 
     # 2. Evidence: text first, then the images the plan asked for, then aids.
     texts = text_evidence(scope)
+    steps.done(f"{len(texts)} text pieces")
     aids: list[Evidence] = []
     index_aids: list[Evidence] = []
     # C03: every column-mark occurrence on each rendered page, measured.
@@ -4463,7 +4694,9 @@ def _prepare(run: dict):
     code_found: list = []
     with _documents(project_id, sorted({p["documentId"] for p in scope.get("pages", [])} | code_docs)) as open_page:
         # 1b. The code checks the asked questions link to, on these sheets.
+        steps.done("the drawings' download")
         code_found, code_notes = library_code_findings(project_id, scope, set(linked), open_page)
+        steps.done("the code checks")
         notes += code_notes
         element = (scope.get("library") or {}).get("element") or {}
         other = [f for f in code_found if not credited(f, linked, element)]
@@ -4477,14 +4710,17 @@ def _prepare(run: dict):
         schedule_sheets = sorted({p.get("sheetNumber") or f"page {p['combinedPageNumber']}"
                                   for p in scope.get("pages", [])
                                   if (p["documentId"], p["pageNumber"]) in schedule_pages and _sizes_columns(open_page, p)})
+        steps.done("the column schedule check")
         visuals = image_evidence(scope, open_page, start=len(texts) + 1,
                                  cut_by=details_cut(scope, open_page) if scope.get("library") else None)
+        steps.done(f"{len(visuals)} pictures")
         # 2b. Lay the rendered sheets over each other: C01's exact half, and
         # side-by-side pictures of the same area for the model.
         overlay = plan_overlay(
             scope, open_page, columns="C01" in check_ids,
             pair_windows=depth.get("pairWindows", 0), start=len(texts) + len(visuals) + 1,
         )
+        steps.done("the plan overlay")
         n = len(texts) + len(visuals) + len(overlay.pairs) + 1
         if "C03" in check_ids:
             for p in scope.get("pages", []):
@@ -4503,13 +4739,18 @@ def _prepare(run: dict):
                     n += 1
         # Dimensions a detail prints as "SEE PLAN": listed for every review, so
         # whether the plan gives them never depends on the model noticing.
+        if "C03" in check_ids:
+            steps.done("the column positions")
         see_plan = _pages_whose_text(scope, r"see\s+(plans?|civil|arch)")  # what review_aids._DEFERRED reads
         for p in scope.get("pages", []):
             if (p["documentId"], p["pageNumber"]) not in see_plan:
                 continue
             try:
                 page = open_page(p["documentId"], p["pageNumber"])
-                text = review_aids.deferred_dimensions(page, p.get("sheetNumber") or f"page {p['pageNumber']}") if page else None
+                sheet = p.get("sheetNumber") or f"page {p['pageNumber']}"
+                # Same sheet, same code, same text: every element of a named RFI asked it again (~30 s each).
+                text = page_memo.memo(f"deferred_dimensions@1:{sheet}", page,
+                                      lambda page=page, sheet=sheet: review_aids.deferred_dimensions(page, sheet)) if page else None
             except Exception as exc:
                 text = None
                 notes.append(f"The dimensions marked \"SEE PLAN\" on {p.get('sheetNumber') or 'page ' + str(p['pageNumber'])} "
@@ -4525,7 +4766,9 @@ def _prepare(run: dict):
     notes += overlay.notes
     evidence = {ev.id: ev for ev in texts + visuals + overlay.pairs + aids + index_aids}
     all_images = visuals + overlay.pairs
+    steps.done("the deferred dimensions")
     stored = _store_images(project_id, run_id, all_images)
+    steps.done("storing the pictures")
 
     # 3. Discovery, in as many calls as the input limit needs (up to the cap).
     batches, unread = discovery_batches(texts + visuals + aids, overlay.pairs + index_aids, max_input, max_batches)
@@ -4778,10 +5021,18 @@ def _finish(p, discover) -> dict:
             to_verify.append(with_sheet_closeups(candidate, evidence))
 
         scope_keys = {(p["documentId"], p["pageNumber"]) for p in scope.get("pages", [])}
+        floors = page_floors(scope_keys | {(ev.document_id, ev.page_number) for ev in evidence.values()})
+        floors_here = target_floors(scope, floors)
 
         def accept(candidate: dict, decision: dict) -> None:
             """A kept verdict still has to pass the code's own rules."""
             label = f"{candidate['checkId']} {candidate['element'] or candidate['kind']}"
+            candidate, why_not = off_floor(candidate, decision, evidence, floors, floors_here)
+            if why_not:
+                set_aside(candidate, why_not, "guard", decision)
+                diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                  reason=why_not, rule="plans of another floor")
+                return
             why_not = guard(candidate, decision, evidence, observations)
             if why_not:
                 set_aside(candidate, why_not, "guard", decision)

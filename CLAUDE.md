@@ -3004,7 +3004,7 @@ each call of a review as a ONE-entry batch (`rfi_review._send` → `llm.complete
 price; spend is recorded as "<model>-batch", which `usage.rateFor` prices at half its model. One batch per
 call, so a review waits for each (a tiny batch took 89 s) and a cancel is noticed when its batch lands.
 
-A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
+A review's first run on a project spent 22 SILENT minutes in preparation (one PC, UT Law): `missing_detail` read the project map of all 351 sheets (`every=`, ~1-3 s a sheet) to look up symbols on the ~40 reviewed. `detail_map.findings` now reads the reviewed sheets first and then only the sheets their symbols name (39 stored reviews: identical findings, 351 → 95 sheets read on average, and only on the first run — the map is saved). `_prepare` logs every step as it ends (`_Steps`: "prepared the code checks in 12.8s (13s so far)") and `library_code_findings` each check's time. A review's PREPARATION, not the model, was most of its time: a Columns review spent ~100 s of CPU
 before its first call, reading the grid of its 9 sheets 23 times. `page_memo` keeps per-sheet
 results keyed by (documentId, page) — a document's bytes never change — once `_documents` tags the
 page: grid bubbles, `styled_systems` (also in Redis, versioned by `grid.STYLED_VERSION`, which a test
@@ -3030,7 +3030,7 @@ the verifier's wording only if it is `grounded` and no guard refused it, else th
 under the question as "Considered, not raised", and `POST /reviews/:runId/set-aside/keep` files one
 as a LOW pending candidate (409 if its fingerprint is on file). On Leland the AI proposed RFIs 008
 and 009 when asked directly and verification rejected both — this is where a person overrules it.
-A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
+A PLAN OF ANOTHER FLOOR IS NOT EVIDENCE ABOUT THIS ONE (`off_floor`, run in `accept` before `guard`): the related-pages search ignores floors, so a UT Law review of S2.105 (Level 5) read A3.01-A3.08 and raised "S2.105's overall 190'-0\" differs from A3.05's 165'-11\"" — A3.05 is Level 6. When a named sheet is a plan with a floor read (`target_floors`), a cited plan whose `pages.levels` share none of those floors is dropped from an AI finding; the finding is rejected when nothing else supports it, when its subject/question names that sheet, or when a conflict is left one source. Sections, details and multi-floor plans that include this floor never count; code findings (grid naming, missing detail) are saved by their own path and untouched. On the 73 stored local review findings it changes one AI finding (trimmed, kept). The search stays on the floor too (`rankScope` + `offFloorPage`/`targetFloors` in `rfiReviewRules.ts`, `floorsOf` from `pages.levels`): a plan the related-pages search found that draws none of the named plans' floors is left out and listed in `omitted` ("a plan of LEVEL 6, not LEVEL 5"); named and forced sheets (references) are kept whatever their floor. The floor comes from the SHEETS picked, not the Level picker. Re-planned, the S2.105 + S4.135 RFI drops 22 other-floor plans and keeps A3.04 (Level 5); a project-wide code finding on a left-out sheet (2A/S0.132 on S1.101, Level 1) no longer reaches that review. A REFERENCE IS NOT A VALUE. Leland 002, 008 and 009 were each judged answered because the drawing
 points elsewhere ("T.O.C. SEE PLAN", "SEE 24/S4.02", "SEE CIVIL") — never checking the place it points
 to. Discovery records such a field `unknown` with the reference quoted; reasoning proposes the problem
 `needs_evidence` with the referenced sheet in `searchFor`; and `contested` now also catches a rejection
@@ -3075,7 +3075,7 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
   * RFI 009 (10/S4.10's wall T.O.C. "SEE PLAN", nothing on S2.31-A where it is cut) was proposed and set aside twice,
     the second time CITING pier tops while conceding "the evidence does not show that the plans lack these values, so
     no gap is demonstrated". That asks a problem to prove an absence: `contested` now treats a reason of that shape
-    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. Either order counts: "rests on the plan not dimensioning the extents, which the evidence does not establish" (UT Law RFI 001, set aside by a guide-on run) names the absence first. A kept deferral finding also gets, as `kind="callout"`
+    (`_UNPROVEN_ABSENCE`) as no answer, citation or not. Either order counts: "rests on the plan not dimensioning the extents, which the evidence does not establish" (UT Law RFI 001, set aside by a guide-on run) names the absence first. And a reason that DOUBTS a missing value ("the claim that no run is given is not clearly supported") while bringing nothing new — no shown evidence beyond the problem's own, no number the problem did not already quote — is contested too (`brings_nothing_new`): RFI 001 came back in that second wording. The doubt alone or "nothing new" alone is not enough; "nothing new" alone reopened 23 of 59 stored rejections, most of them right, and both together reopen 2. A kept deferral finding also gets, as `kind="callout"`
     CONTEXT evidence, where the plans call out the details whose "SEE PLAN" lies in its cited boxes
     (`with_callout_context`, reviewed plans first, ≤3) — where the value belongs and a person looks. A callout is in
     WEAK_KINDS: never a finding's only support. A plain "T.O.C. SEE PLAN, nothing printed near the callout" CHECK was
@@ -3105,6 +3105,11 @@ Three more Leland misses (002, 004, 009), each a different failure, none fixed b
     PLAN' … pointers to plan, not values") broke on `-4'-0", 8" CMU` — an inch mark before a comma reads as
     a string's end to any pattern — and the retry that replaced it (a second 160k-token call) dropped it.
     `_escape_inches_where_it_breaks` escapes the last quote before each parse error when a digit precedes it.
+    A reply the local repairs still cannot read is now sent ALONE to a small repair call (`_fix_json`: no
+    pictures, thinking off, "change nothing but the punctuation") before the stage is asked again: a UT Law grid
+    review's broken discovery reply re-sent ~68k tokens of drawings (~$0.08 batch) to fix a ~4k-token answer. The
+    repaired object must carry the reply's own words and length (`_same_content`) and pass the stage's parser;
+    otherwise the old whole-stage retry runs.
   * RFI 002 (piers under the SW3 core walls, centre not dimensioned) was SEEN: discovery wrote "the crops show no
     dimension for the pier centre" four times, reasoning proposed testing, sockets and casing, and the location
     questions ended "no issue". `unclaimed_absences` now turns discovery's own observation that a value needed to
@@ -3349,7 +3354,7 @@ Every element of the RFI gets the SAME whole sheets (`share_whole_sheets`: any s
 under its own id), and each picture is rendered ONCE for the RFI (`set_picture`, a store that lives for `_run_group` and is
 cleared when its last review ends, finished or failed). On the UT Law test RFI the three elements held 8, 8 and 9 sheets, and the
 9th (S0.101) sorted first, so that review shared no cached opening at all; after, all three open with the same 9 and the RFI's 24
-distinct pictures are rendered once (checked offline, no model call). The provider's cache cannot be deleted: it expires by itself
+distinct pictures are rendered once (checked offline, no model call). After the reading, a set's elements FINISH SIDE BY SIDE (`_run_group_with_pictures`, `RFI_SET_READ_PARALLEL` threads, each in a copy of the job's context): reasoning, verification and the re-check need nothing from a sibling, and one after another three elements waited ~22 minutes of batch queues; a failure ends only its own review. The "SEE PLAN" dimension aid is memoised per sheet (`page_memo`, `deferred_dimensions@1:<sheet>`, memory only), since every element read it again (~30 s each on one PC); 13 of 13 lists matched a fresh reading. The provider's cache cannot be deleted: it expires by itself
 (5 min after last use, 1 h in batch mode) and storing it costs nothing. Not yet measured on a model; the estimate still prices
 reading alone. The dialog, each stage's window and the sheet picker all SEARCH: elements and questions by their
 words, sheets by number, discipline, kind, level and the title-block reading (`GET /rfis/library/titles`,

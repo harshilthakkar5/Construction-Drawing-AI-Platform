@@ -477,3 +477,55 @@ def test_a_refused_request_fails_that_element_and_not_the_set_s_job(monkeypatch)
     monkeypatch.setattr(rfi_review, "_discover_alone", alone)
     out = rfi_review._discover_in_turn([a, b])
     assert isinstance(out[0], rfi_review.StageFailed) and "400" in str(out[0]) and not isinstance(out[1], BaseException)
+
+
+def test_a_named_rfis_elements_finish_side_by_side_and_one_failure_keeps_the_others(monkeypatch):
+    """After the shared reading each element's reasoning, verification and re-check need nothing from
+    its siblings; one after another, three elements waited ~22 minutes of batch queues."""
+    import threading
+    import time as _time
+    import contextlib
+
+    group = [{"id": f"run-{i}", "checkIds": []} for i in range(3)]
+    preps = [rfi_review.SimpleNamespace(run_id=r["id"], run=r) for r in group]
+    monkeypatch.setattr(rfi_review, "_prepare", lambda r: preps[group.index(r)])
+    monkeypatch.setattr(rfi_review, "share_whole_sheets", lambda ps: 0)
+    monkeypatch.setattr(rfi_review, "_discover_in_turn", lambda ps: [{"observations": []}] * len(ps))
+    monkeypatch.setattr(rfi_review, "_heartbeat", lambda *ids: contextlib.nullcontext())
+    monkeypatch.setattr(rfi_review, "SHARED_SET_READING", False)
+    monkeypatch.setattr(rfi_review, "_set", lambda *a, **k: None)
+    inside, most = [0], [0]
+    lock = threading.Lock()
+    marker = rfi_review.contextvars.ContextVar("marker", default=None)
+    marker.set("from the job")
+    seen = []
+
+    def finish(p, discover):
+        with lock:
+            inside[0] += 1
+            most[0] = max(most[0], inside[0])
+        seen.append(marker.get())  # each thread runs in a copy of the job's context
+        _time.sleep(0.2)
+        with lock:
+            inside[0] -= 1
+        if p.run_id == "run-1":
+            raise RuntimeError("verification blew up")
+        return {"saved": p.run_id, "share": discover()}
+
+    monkeypatch.setattr(rfi_review, "_finish", finish)
+    out = rfi_review._run_group_with_pictures(group, {})["set"]
+    assert most[0] == 3 and seen == ["from the job"] * 3
+    assert out["run-0"]["saved"] == "run-0" and out["run-2"]["saved"] == "run-2"
+    assert "failed" in out["run-1"]
+
+
+def test_the_see_plan_dimensions_are_read_once_per_sheet(monkeypatch):
+    import page_memo, review_aids
+    calls = []
+    monkeypatch.setattr(review_aids, "deferred_dimensions", lambda page, sheet: calls.append(sheet) or f"{sheet}: 1 dimension")
+    class Page: pass
+    a, b = page_memo.tag(Page(), "doc-x", 7), page_memo.tag(Page(), "doc-x", 7)
+    name = "deferred_dimensions@1:S4.10"
+    first = page_memo.memo(name, a, lambda: review_aids.deferred_dimensions(a, "S4.10"))
+    second = page_memo.memo(name, b, lambda: review_aids.deferred_dimensions(b, "S4.10"))
+    assert first == second == "S4.10: 1 dimension" and calls == ["S4.10"]
