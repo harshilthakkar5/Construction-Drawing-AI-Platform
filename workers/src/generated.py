@@ -263,6 +263,16 @@ RFI_SCOPE_TOPICS = [
             "CE-12-03",
         ],
         "pattern": "\\b(?:re-?bars?|reinforcing|reinforcement|stirrups?|hoops|tie spacing|ties and spacing|bar (?:sizes?|spacing|callouts?|lengths?)|(?:top|bottom|side|trim|dowel|starter|vertical|horizontal) bars?|lap (?:splices?|lengths?)|development lengths?|dowels?|dowell?ed|standard hooks?|clear cover)\\b",
+        "sheets": "",
+    },
+    {
+        "id": "interiors",
+        "label": "Interior finishes, casework and millwork",
+        "hint": "interior elevations, cabinets and countertops, finish, furniture and signage plans",
+        "categories": [],
+        "elements": [],
+        "pattern": "\\b(?:casework|millwork|cabinets?|countertops?)\\b",
+        "sheets": "\\b(?:INTERIOR ELEVATIONS?|CASEWORK|MILLWORK|FINISH PLANS?|FURNITURE (?:PLANS?|LAYOUTS?)|SIGNAGE)\\b",
     },
 ]
 

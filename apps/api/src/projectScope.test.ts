@@ -8,15 +8,15 @@ describe("project scope", () => {
   const real = () => buildLibrary(library().file, library().version, []);
   const questions = (lib: RfiLibraryDto) => lib.packages.flatMap((p) => p.elements.flatMap((e) => e.questions.map((q) => ({ e, q }))));
 
-  it("holds rebar detailing out by default, and a saved choice wins", () => {
-    expect(rfiSettingsOf(null).scope.outOfScope).toEqual(["rebar"]);
-    expect(rfiSettingsOf({ review: { depth: "quick" } }).scope.outOfScope).toEqual(["rebar"]);
+  it("holds rebar detailing and interior casework out by default, and a saved choice wins", () => {
+    expect(rfiSettingsOf(null).scope.outOfScope).toEqual(["rebar", "interiors"]);
+    expect(rfiSettingsOf({ review: { depth: "quick" } }).scope.outOfScope).toEqual(["rebar", "interiors"]);
     expect(rfiSettingsOf({ scope: { outOfScope: [] } }).scope.outOfScope).toEqual([]);
   });
 
   it("is saved with the RFI settings, and an unknown topic is refused", () => {
     const base = rfiSettingsOf(null);
-    expect(updateProjectSchema.parse({ rfiSettings: base }).rfiSettings!.scope).toEqual({ outOfScope: ["rebar"] });
+    expect(updateProjectSchema.parse({ rfiSettings: base }).rfiSettings!.scope).toEqual({ outOfScope: ["rebar", "interiors"] });
     expect(updateProjectSchema.safeParse({ rfiSettings: { ...base, scope: { outOfScope: ["plumbing"] } } }).success).toBe(false);
     // Settings saved before the scope existed still validate.
     const { scope: _, ...before } = base;
@@ -36,6 +36,8 @@ describe("project scope", () => {
     expect(gone.every(({ e, q }) => q.category === "Reinforcement" || e.id === "CE-01-05" || e.id === "CE-12-03")).toBe(true);
     expect(removed).toBeGreaterThan(60);
     expect(after.some(({ e }) => e.name === "Beams & girders")).toBe(true);
+    // Interior casework is out by sheet title only: it takes no library question with it.
+    expect(withinScope(all, ["interiors"]).removed).toBe(0);
     // Nothing out of scope: the library as it was.
     expect(withinScope(all, []).library).toBe(all);
   });
