@@ -76,3 +76,32 @@ def test_a_kept_placement_question_never_says_a_symbol_is_missing():
     assert "symbol" not in q and "could be found" not in q
     assert q.startswith("Wall footing steps are not dimensioned from the grid lines. Please locate each one from the grids.")
     assert "S1.1A" in q
+
+
+def _ev(sheet, kind="crop"):
+    from types import SimpleNamespace
+    return SimpleNamespace(sheet_number=sheet, kind=kind)
+
+
+def test_a_symbol_absence_on_picture_read_sheets_becomes_the_grid_question():
+    # Victaulic, the 26 Nov run: kept as "Footing step locations not shown", why "no step symbol visible",
+    # asking also for top-of-footing elevations — which the boxed tags beside each step give.
+    from rfi_review import absent_on_picture_sheets, placement_only
+    candidate = {"element": "Wall footing steps", "evidenceIds": ["ev1", "ev2"], "location": "S1.1A, S1.1B",
+                 "issue": "Footing step locations are not shown on the foundation plans.",
+                 "why": "The plans show only boxed footing elevations along walls, with no step symbol visible."}
+    decision = {"decision": "keep", "subject": "Footing step locations not shown on foundation plans",
+                "question": "Where do footing steps occur, and what are the top-of-footing elevations each side?"}
+    evidence = {"ev1": _ev("S1.1A"), "ev2": _ev("S1.1B")}
+    assert absent_on_picture_sheets(candidate, decision, evidence, {"S1.1A", "S1.1B"})
+    # A sheet with a text layer among them: the claim may be right, leave it.
+    assert not absent_on_picture_sheets(candidate, decision, evidence, {"S1.1A"})
+    kept = placement_only(candidate, decision)
+    assert kept["question"].startswith("Wall footing steps are not dimensioned from the grid lines.")
+    assert "elevation" not in kept["question"] and kept["confidence"] == "low"
+
+
+def test_a_value_claim_is_not_a_symbol_absence():
+    from rfi_review import absent_on_picture_sheets
+    candidate = {"element": "Footing", "evidenceIds": ["ev1"], "issue": "The footing width is not dimensioned."}
+    assert not absent_on_picture_sheets(candidate, {"decision": "keep"}, {"ev1": _ev("S1.1A")}, {"S1.1A"})

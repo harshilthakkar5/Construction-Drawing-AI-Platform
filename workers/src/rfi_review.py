@@ -2475,6 +2475,35 @@ _ABSENT_MARK = re.compile(
 )
 
 
+def absent_on_picture_sheets(candidate: dict, decision: dict, evidence: dict, drawn: set) -> bool:
+    """A KEPT problem claiming a symbol, tag or callout is not shown, citing only sheets whose words are
+    drawn as lines (the plan's `drawnText`). Pure. The AI reads those from pictures and misses small
+    symbols: Victaulic's "no step symbol visible" over S1.1A-C, which draw one at every step."""
+    text = " ".join(str(x or "") for x in (candidate.get("issue"), candidate.get("why"), decision.get("subject"),
+                                           decision.get("question"), decision.get("why")))
+    if not _ABSENT_MARK.search(text):
+        return False
+    sheets = {evidence[e].sheet_number for e in candidate.get("evidenceIds") or []
+              if e in evidence and evidence[e].kind != "aid"}
+    return bool(sheets) and None not in sheets and sheets <= drawn
+
+
+def placement_only(candidate: dict, decision: dict) -> dict:
+    """`absent_on_picture_sheets` about WHERE: the one claim left is that the plan gives no distance to a
+    grid, asked LOW. Pure. The symbol claim and anything bundled with it (Victaulic's kept question also
+    asked for the top-of-footing elevations, which the boxed tags beside each step give) are dropped."""
+    element = (candidate.get("element") or "Each one").strip().rstrip(".")
+    question = (f"{element} {'are' if element.lower().endswith('s') else 'is'} not dimensioned from the grid lines. "
+                "Please locate each one from the grids.")
+    location = candidate.get("location") or ""
+    if _SHEET_TOKEN.search(location):
+        question = f"{question} ({location})"
+    why = (f"{candidate.get('why') or ''} These sheets were read from pictures, so a claim that a symbol is not "
+           "shown is not trusted; only the missing grid dimensions are asked.").strip()
+    return dict(decision, decision="keep", subject=_text(f"{element}: not dimensioned from the grid lines", 90),
+                question=question, why=why, confidence="low", priority="normal")
+
+
 def kept_for_placement(candidate: dict, decision: dict) -> dict:
     """The decision a `place_unanswered` rejection becomes: LOW, asking where
     each one is, worded from the issue's sentences about place (an issue often
@@ -5119,6 +5148,7 @@ def _finish(p, discover) -> dict:
             aside.append(set_aside_entry(candidate, reason, rule, decision, evidence, observations))
 
         to_verify: list[dict] = []
+        drawn_sheets = {p.get("sheetNumber") for p in scope.get("pages") or [] if p.get("drawnText") and p.get("sheetNumber")}
         oos_pages = out_of_scope_pages(project_id, scope.get("outOfScope"))
         for candidate in candidates:
             topic = out_of_scope_topic(candidate, scope.get("outOfScope"))
@@ -5246,6 +5276,16 @@ def _finish(p, discover) -> dict:
                     notes.append(f"Kept {label} low: the drawings assign it to another party, so the question is "
                                  "its size and place, not who provides it.")
                     decision = kept_for_coordination(candidate, decision)
+                elif absent_on_picture_sheets(candidate, decision, evidence, drawn_sheets):
+                    if not _LOCATES.search(f"{candidate.get('issue') or ''} {decision.get('subject') or ''}"):
+                        set_aside(candidate, "It says a symbol is not shown on sheets read from pictures, where a "
+                                  "small symbol is easily missed.", "absence on a picture-read sheet", decision)
+                        diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
+                                          rule="absence on a picture-read sheet")
+                        continue
+                    notes.append(f"Kept {label} low as a grid-dimension question: its sheets were read from pictures, "
+                                 "so 'no symbol shown' is not trusted.")
+                    decision = placement_only(candidate, decision)
                 accept(candidate, decision)
 
             # 5b. "Another drawing gives this" must be shown, not assumed:
@@ -5346,10 +5386,21 @@ def _finish(p, discover) -> dict:
         # A finding a person dismissed and asked to be remembered is not raised again.
         exact, remembered = dismissals.apply(exact, dismissals.load_rules(conn, project_id))
         notes += remembered
+        before = exact
         exact, scoped_out = without_out_of_scope_sheets(exact, out_of_scope_pages(project_id, scope.get("outOfScope")))
         if scoped_out:
             notes.append(f"Left out {scoped_out} code finding{'s' if scoped_out != 1 else ''} on sheets outside this "
                          "project's scope (Settings, Project scope).")
+            # An earlier run may have listed them already (one row per fingerprint per project), and a
+            # pending row would stay on screen and in packages: Victaulic's 1A/1B/A5.1 did after the
+            # interiors topic existed. Accepted and dismissed rows are a person's decision and stay.
+            gone = [f.fingerprint for f in before if f not in exact]
+            removed = conn.execute(
+                'DELETE FROM rfi_candidates WHERE "projectId" = %s AND fingerprint = ANY(%s) AND status = \'pending\'',
+                (project_id, gone),
+            ).rowcount
+            if removed:
+                notes.append(f"Removed {removed} earlier finding{'s' if removed != 1 else ''} now outside this project's scope.")
         for f, wrote in zip(exact, _save_exact_findings(conn, run_id, project_id, exact)):
             saved += wrote
             # Credit every asked question the check answers; the overlay is C01's.
