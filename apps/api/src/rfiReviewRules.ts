@@ -759,11 +759,16 @@ export function cropAnchors(chunks: ScopeChunk[], limit: number): { chunkId: str
  * the drawing (the worker's `drawing_regions`), counted here so the price holds.
  */
 export function withDrawingSlots(
-  page: { drawnText?: boolean },
+  page: { drawnText?: boolean; pdfWidth?: number | null; pdfHeight?: number | null },
   crops: { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[],
   limit: number,
 ): { chunkId: string; bbox: Box | null; drawing?: true; grid?: true }[] {
   if (!page.drawnText) return crops;
+  // Once the sheet's OCR lines are chunks, its NOTES are text pieces again, each a strip most of the sheet
+  // wide: the 26 Nov paid run gave all three of S1.1A's slots to 2,000pt+ strips and none to the drawing,
+  // so RFI 003's steps were again seen only whole. A piece over half the sheet's long side is no close-up.
+  const side = Math.max(page.pdfWidth ?? 0, page.pdfHeight ?? 0);
+  if (side > 0) crops = crops.filter((c) => !c.bbox || Math.max(c.bbox.width, c.bbox.height) <= side / 2);
   const free = Math.max(0, limit - crops.length);
   return [...crops, ...Array.from({ length: free }, (_, i) => ({ chunkId: `drawing:${i + 1}`, bbox: null, drawing: true as const }))];
 }

@@ -1111,16 +1111,50 @@ def out_of_scope_topic(candidate: dict, out_of_scope) -> str | None:
     return None
 
 
+# A title the page PRINTS as a run of short whole lines ("INTERIOR / ELEVATIONS & / DETAILS" stacked in
+# Victaulic A5.1's title block). The sheet reader stored that sheet's title as "ELEV @ LOBBY 101", one of
+# its drawings, so the stored title alone missed it. A line carrying a sheet number is an index entry, a
+# pointer word makes it a note ("REFER TO INTERIOR ELEVATIONS"), and a sheet index page is never a title.
+_TITLE_LINE_MAX = 40
+_POINTER = re.compile(r"\b(?:SEE|REFER|REF\.?|PER|ON\s+SHEET)\b", re.I)
+_SHEET_NO = re.compile(r"\b[A-Z]{1,3}-?\d+(?:\.\d+)+[A-Z]?\b")
+
+
+def title_runs(text: str | None) -> list[str]:
+    """Runs of one to three consecutive short lines, joined: the shapes a printed sheet title takes. Pure."""
+    lines = [ln.strip() for ln in (text or "").splitlines()]
+    runs = []
+    for i in range(len(lines)):
+        for n in (1, 2, 3):
+            part = lines[i:i + n]
+            if len(part) < n or not all(0 < len(ln) <= _TITLE_LINE_MAX for ln in part):
+                break
+            run = " ".join(part)
+            if not _POINTER.search(run) and not _SHEET_NO.search(run):
+                runs.append(run)
+    return runs
+
+
 def sheets_out_of_scope(rows, out_of_scope) -> dict[tuple[str, int], str]:
     """(documentId, pageNumber) -> topic label for the pages whose TITLE says they are wholly work the
-    project holds out of scope (a topic's `sheets`). `rows`: (documentId, pageNumber, sheetTitle). Pure."""
+    project holds out of scope (a topic's `sheets`). `rows`: (documentId, pageNumber, sheetTitle[, text]):
+    the stored title, else a title the page prints (`title_runs`). Pure."""
     topics = [t for t in _scope_topics(out_of_scope) if t.get("sheets")]
     out: dict[tuple[str, int], str] = {}
-    for doc, page, title in rows:
-        hit = next((t for t in topics if title and re.search(t["sheets"], title, re.I)), None)
+    for row in rows:
+        doc, page, title = row[0], row[1], row[2]
+        text = row[3] if len(row) > 3 else None
+        printed = [] if text and sheet_info_index(text) else title_runs(text)
+        hit = next((t for t in topics for c in [title or "", *printed] if c and re.search(t["sheets"], c, re.I)), None)
         if hit:
             out[(doc, page)] = hit["label"]
     return out
+
+
+def sheet_info_index(text: str) -> bool:
+    import sheet_info
+
+    return bool(sheet_info.index_entries(text))
 
 
 def out_of_scope_pages(project_id: str, out_of_scope) -> dict[tuple[str, int], str]:
@@ -1130,8 +1164,8 @@ def out_of_scope_pages(project_id: str, out_of_scope) -> dict[tuple[str, int], s
     try:
         with db.connect() as conn:
             rows = conn.execute(
-                'SELECT p."documentId", p."pageNumber", p."sheetTitle" FROM pages p JOIN documents d ON d.id = p."documentId" '
-                'WHERE d."projectId" = %s AND p."sheetTitle" IS NOT NULL',
+                'SELECT p."documentId", p."pageNumber", p."sheetTitle", p.text FROM pages p '
+                'JOIN documents d ON d.id = p."documentId" WHERE d."projectId" = %s AND d."supersededAt" IS NULL',
                 (project_id,),
             ).fetchall()
     except Exception:  # noqa: BLE001 — scope is a filter; without titles, nothing is filtered
@@ -2099,7 +2133,10 @@ _UNPROVEN_ABSENCE = re.compile(
     # "the base plate size is on S3.2, which is not among the evidence shown".
     r"|\bcannot\s+be\s+(?:settled|established|determined|confirmed|demonstrated|verified|shown)\s+(?:from|by|with)\s+"
     r"(?:the\s+)?(?:\w+\s+)?evidence\b"
-    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b",
+    r"|\bnot\s+(?:among|in|part\s+of)\s+(?:the\s+)?evidence\s+shown\b"
+    # Victaulic RFI 003, 26 Nov paid run: "the cited crops show no footing-step symbol that lacks a
+    # location, so a missing step dimension cannot be seen" — an absence it could not see is not answered.
+    r"|\b(?:missing|absent|lack(?:ing)?|absence\s+of)\b[^.]{0,60}?\bcannot\s+be\s+(?:seen|confirmed|verified|established|determined)\b",
     re.I,
 )
 # A rejection that says the value is given ELSEWHERE while its own reason says the value
@@ -2401,6 +2438,10 @@ def overruled(candidate: dict, decision: dict) -> dict:
     # 009's problem bundled "T.O.C. SEE PLAN, the plan gives only slab elevations" with a heel/toe
     # and a thickness claim, and the verifier's own question asked only about the thickness.
     deferred = deferral_claim(candidate.get("issue"))
+    if not deferred and not _LOCATES.search(decision.get("question") or "") and _LOCATES.search(candidate.get("issue") or ""):
+        # Kept because WHERE was never shown: ask where, not to "provide it" (Victaulic RFI 003).
+        claim = " ".join(s for s in _sentences(candidate.get("issue")) if _LOCATES.search(s))
+        question = f"{claim.rstrip('.')}. Please locate each one from the grids."
     if deferred:
         subject = _text(f"{candidate.get('element') or 'Value'}: {deferred}", 120)
         question = f"{deferred.rstrip('.')}. Please provide it, or confirm which drawing shows it."

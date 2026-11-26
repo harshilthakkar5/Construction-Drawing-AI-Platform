@@ -105,3 +105,27 @@ def test_a_value_claim_is_not_a_symbol_absence():
     from rfi_review import absent_on_picture_sheets
     candidate = {"element": "Footing", "evidenceIds": ["ev1"], "issue": "The footing width is not dimensioned."}
     assert not absent_on_picture_sheets(candidate, {"decision": "keep"}, {"ev1": _ev("S1.1A")}, {"S1.1A"})
+
+
+def test_a_title_the_sheet_prints_puts_it_out_of_scope_when_the_stored_title_is_a_drawing():
+    # Victaulic A5.1: stored title "ELEV @ LOBBY 101", printed title "INTERIOR / ELEVATIONS & / DETAILS".
+    from rfi_review import sheets_out_of_scope
+    a51 = "ELEV @ LOBBY 101\nTMF FABRICATION FACILITY\nINTERIOR\nELEVATIONS &\nDETAILS\nA5.1"
+    plan = "FLOOR PLAN - 1ST FLOOR\nREFER TO INTERIOR ELEVATIONS\nFOR CASEWORK SEE A5.1"
+    index = "\\n".join(f"A{n}.1 SHEET {n}" for n in range(1, 7)) + "\nA5.1 INTERIOR ELEVATIONS & DETAILS"
+    rows = [("d", 15, "ELEV @ LOBBY 101", a51), ("d", 6, "FLOOR PLAN - 1ST FLOOR", plan), ("d", 1, None, index)]
+    assert set(sheets_out_of_scope(rows, ["interiors"])) == {("d", 15)}
+    assert sheets_out_of_scope(rows, ["rebar"]) == {}
+
+
+def test_an_absence_the_verifier_could_not_see_is_no_answer_and_is_kept_as_where():
+    from rfi_review import _UNPROVEN_ABSENCE, overruled
+    reason = ("The cited crops show no footing-step symbol that lacks a location, so a missing step dimension "
+              "cannot be seen.")
+    assert _UNPROVEN_ABSENCE.search(reason)
+    problem = {"element": "Wall footing steps", "location": "S1.1A",
+               "issue": "Footing step symbols are tied to detail 8/S3.1 by note 13. No dimension locating each "
+                        "step from the grid lines is given, so the step positions cannot be set out."}
+    kept = overruled(problem, {"decision": "reject"})
+    assert kept["question"].endswith("Please locate each one from the grids. (S1.1A)")
+    assert "provide it" not in kept["question"]
