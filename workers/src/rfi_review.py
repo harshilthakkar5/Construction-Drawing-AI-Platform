@@ -2477,6 +2477,16 @@ def overruled(candidate: dict, decision: dict) -> dict:
 # "at location B/4" names a place for some other claim and does not count.
 _LOCATES = re.compile(r"(?<!\bat )\blocat\w*|\bwhere\b|\bposition\w*|\bw\.?\s?r\.?\s?t\.?(?!\w)"
                       r"|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b|\bextents?\b", re.I)
+# A problem that ASKS where: a distance to a grid, an extent, a verb of placing. A bare noun "the step
+# locations" does not: Victaulic, 27 Nov on the user's PC, "No elevation pair is tied to the step locations
+# on the plans" — an elevation claim, which the boxed tags beside each step answer — was kept as "Please
+# locate each one from the grids".
+_ASKS_PLACE = re.compile(
+    r"\bwhere\b|\b(?:from|to)\s+(?:the\s+|a\s+)?grids?\b|\bgrid\s+(?:line\s+)?(?:dimensions?|extents?)\b|\bextents?\b"
+    r"|\blocat(?:e|es|ed|ing)\b|\bpositioned\b|\b(?:no|not)\s+(?:\w+\s+){0,2}?locations?\b"
+    r"|\blocations?\s+(?:are\s+|is\s+)?not\s+(?:shown|given|dimensioned|indicated)\b",
+    re.I,
+)
 _DETAIL_REF = re.compile(r"\b\d{1,3}\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b|\btypical\s+detail\b", re.I)
 _QUOTES_LENGTH = re.compile(r"\d+\s*'\s*-?\s*\d+")
 # What a reason must say to have answered WHERE: a place, a grid, an offset or a dimension to something.
@@ -2514,7 +2524,7 @@ def place_unanswered(decision: dict | None, candidate: dict) -> bool:
     if _SPEC_GOVERNED.search(reason) or _FIELD_DUTY.search(reason) or re.search(r"\bduplicat", reason, re.I):
         return False
     issue = f"{candidate.get('issue') or ''} {candidate.get('element') or ''}"
-    if not _LOCATES.search(issue):
+    if not _ASKS_PLACE.search(issue):
         return False
     by_detail = bool(_DETAIL_REF.search(reason)) and not _QUOTES_LENGTH.search(reason)
     by_size = bool(_QUOTES_LENGTH.search(reason)) and not (_LOCATES.search(reason) or _SPEAKS_OF_PLACE.search(reason))
@@ -5336,7 +5346,7 @@ def _finish(p, discover) -> dict:
                                  "its size and place, not who provides it.")
                     decision = kept_for_coordination(candidate, decision)
                 elif absent_on_picture_sheets(candidate, decision, evidence, drawn_sheets):
-                    if not _LOCATES.search(f"{candidate.get('issue') or ''} {decision.get('subject') or ''}"):
+                    if not _ASKS_PLACE.search(f"{candidate.get('issue') or ''} {decision.get('subject') or ''}"):
                         set_aside(candidate, "It says a symbol is not shown on sheets read from pictures, where a "
                                   "small symbol is easily missed.", "absence on a picture-read sheet", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
