@@ -2241,7 +2241,12 @@ def with_page_aids(ids: list[str], evidence: dict) -> list[str]:
 # rejection ("the plans show the step symbols and elevation tags") was overruled, and the kept question
 # asked the designer to "provide" the note.
 _DEFINES = re.compile(r"\b(?:indicates?|denotes?|represents?|means?)\b|\bsymbols?\b", re.I)
-_DETAIL_POINTER = re.compile(r"\bSEE\s+(?:DETAIL\s+)?\d+[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b", re.I)
+# "SEE 8/S3.1", "refers to 8/S3.1", "per detail 8/S3.1": the 26 Nov run on the user's PC worded it "refers to".
+_DETAIL_POINTER = re.compile(
+    r"\b(?:SEE|PER|REF(?:ER(?:S|RED|RING)?)?\.?(?:\s+\S+){0,2}?\s+TO|REF\.?)\s+(?:DETAIL\s+)?"
+    r"\d+[A-Z]?\s*/\s*[A-Z]{1,2}-?\d+(?:\.\d+)*[A-Z]?\b",
+    re.I,
+)
 
 
 def _defers(sentence: str) -> bool:
