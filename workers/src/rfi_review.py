@@ -2444,22 +2444,27 @@ def overruled(candidate: dict, decision: dict) -> dict:
     no twice; kept because "another drawing gives it" with nothing shown is
     how UT Law's RFI 006 was dropped twice. Pure."""
     subject = decision.get("subject") or _text(candidate.get("element") or candidate.get("issue"), 90)
+    element = (candidate.get("element") or "").strip().rstrip(".")
+    named = f"{element[:1].lower()}{element[1:]}"
+    # "Please provide it" after a three-sentence issue names nothing (Victaulic, 27 Nov): say what is asked for.
     question = decision.get("question") or (
-        f"{candidate.get('issue', '').rstrip('.')}. Please provide it, or confirm which drawing shows it."
+        f"{candidate.get('issue', '').rstrip('.')}. Please provide "
+        f"{f'the missing information for the {named}' if element else 'it'}, or confirm which drawing shows it."
     )
     # Kept because a deferred value was never shown, so it asks about THAT value only. Leland RFI
     # 009's problem bundled "T.O.C. SEE PLAN, the plan gives only slab elevations" with a heel/toe
     # and a thickness claim, and the verifier's own question asked only about the thickness.
     deferred = deferral_claim(candidate.get("issue"))
-    if not deferred and not _LOCATES.search(decision.get("question") or "") and _LOCATES.search(candidate.get("issue") or ""):
+    issue_text = candidate.get("issue") or ""
+    if (not deferred and not _LOCATES.search(decision.get("question") or "")
+            and _LOCATES.search(issue_text) and _ASKS_PLACE.search(issue_text)):
         # Kept because WHERE was never shown: ask where, not to "provide it" (Victaulic RFI 003).
         claim = " ".join(s for s in _sentences(candidate.get("issue")) if _LOCATES.search(s))
         question = f"{claim.rstrip('.')}. Please locate each one from the grids."
     if deferred:
         subject = _text(f"{candidate.get('element') or 'Value'}: {deferred}", 120)
         # Say WHAT is asked for: "Please provide it" after "the sections say 'SEE PLAN'" names nothing.
-        what = (candidate.get("element") or "").strip().rstrip(".")
-        what = f"the value for the {what[:1].lower()}{what[1:]}" if what else "the value"
+        what = f"the value for the {named}" if element else "the value"
         question = f"{deferred.rstrip('.')}. Please give {what}, or confirm which drawing shows it."
     # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
     location = candidate.get("location") or ""

@@ -576,7 +576,8 @@ def test_an_overruled_rejection_is_kept_at_low_and_says_why():
     kept = rfi_review.overruled(candidate, {"decision": "reject", "confidence": "high", "subject": "", "question": ""})
     assert kept["decision"] == "keep" and kept["confidence"] == "low" and kept["priority"] == "normal"
     assert kept["subject"] == "Level 2 slab openings"
-    assert kept["question"].startswith("Shaft openings have no sizes or grid dimensions. Please provide it")
+    assert kept["question"].startswith("Shaft openings have no sizes or grid dimensions. Please provide the missing "
+                                      "information for the level 2 slab openings, or confirm")
     assert kept["why"].startswith("plans show no sizes") and "could not point to evidence" in kept["why"]
 
 
@@ -1234,3 +1235,12 @@ def test_an_elevation_problem_naming_the_step_locations_is_not_a_where_problem()
     assert not rfi_review.place_unanswered(reject, steps)
     # The where-problem it resembles still is one.
     assert rfi_review.place_unanswered(reject, dict(steps, issue="No dimension locates each step from the grid lines."))
+
+
+def test_a_kept_elevation_problem_says_what_it_asks_for():
+    # Victaulic, 27 Nov: "...so it cannot be checked that the steps keep frost cover. Please provide it, or ..."
+    problem = {"element": "Footing step elevations vs finished grade", "location": "S1.1A",
+               "issue": "No Civil grade is tied to the footing steps. No elevation pair is tied to the step locations."}
+    kept = rfi_review.overruled(problem, {"decision": "reject"})
+    assert "Please provide the missing information for the footing step elevations vs finished grade" in kept["question"]
+    assert "locate each one" not in kept["question"]
