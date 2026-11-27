@@ -1221,3 +1221,16 @@ def test_a_value_the_plan_prints_settles_a_deferral_made_on_the_details():
     assert contested(dict(verdict, answeredBy=["ev1"]), {"ev1", "ev2"}, problem, sheets)
     kept = overruled(problem, {"decision": "reject"})
     assert "Please give the value for the footing step elevations vs finished grade, or confirm" in kept["question"]
+
+
+def test_an_elevation_problem_naming_the_step_locations_is_not_a_where_problem():
+    # Victaulic, 27 Nov on the user's PC: kept as "No elevation pair is tied to the step locations on the plans.
+    # Please locate each one from the grids." S1.1A gives a boxed elevation either side of every step.
+    steps = {"checkId": "CE-04-05-Q03", "kind": "missing", "element": "Footing step top-of-footing elevations",
+             "location": "S3.1, S1.1A", "why": "",
+             "issue": "Detail 8/S3.1 gives no elevations. No elevation pair is tied to the step locations on the plans."}
+    reject = {"decision": "reject", "basis": "other", "question": "", "subject": "",
+              "reason": "Note 13 sends the step to detail 8/S3.1, and the plans give boxed footing elevations either side."}
+    assert not rfi_review.place_unanswered(reject, steps)
+    # The where-problem it resembles still is one.
+    assert rfi_review.place_unanswered(reject, dict(steps, issue="No dimension locates each step from the grid lines."))
