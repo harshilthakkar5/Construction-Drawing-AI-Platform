@@ -557,8 +557,8 @@ def test_pointing_back_at_the_details_that_defer_a_value_does_not_settle_it():
 
 def test_an_overruled_deferral_asks_only_about_the_deferred_value():
     kept = rfi_review.overruled(_BUNDLED, _RECHECK_REJECTION)
-    assert kept["question"] == ("T.O.C. is 'SEE PLAN' but the plan gives only slab elevations. Please provide it, or "
-                                "confirm which drawing shows it. (S4.10 details 8 and 13)")
+    assert kept["question"] == ("T.O.C. is 'SEE PLAN' but the plan gives only slab elevations. Please give the value for "
+                                "the basement retaining walls, details 8 and 13 on S4.10, or confirm which drawing shows it.")
     assert "heel" not in kept["question"] + kept["subject"] and "thickness" not in kept["question"] + kept["subject"]
     assert kept["subject"].startswith("Basement retaining walls, details 8 and 13 on S4.10: T.O.C. is 'SEE PLAN'")
     assert kept["confidence"] == "low" and kept["decision"] == "keep"
@@ -1205,3 +1205,19 @@ def test_a_symbol_note_that_refers_to_its_detail_is_not_a_deferral_either():
     assert kept["question"].startswith("No dimension locates each step from the grid lines. Please locate each one")
     # A value deferred by "refers to the plan" is still a deferral.
     assert deferral_claim("Detail 10 gives the T.O.C. as a note that refers to the plan.") != ""
+
+
+def test_a_value_the_plan_prints_settles_a_deferral_made_on_the_details():
+    # Victaulic, 27 Nov on the user's PC: "The S3.1 sections say 'FIN GRADE VARIES' and 'SEE PLAN'", citing
+    # S3.1 and S1.1A; the verifier cited S1.1A's boxed footing elevations and the rule threw that away.
+    from rfi_review import contested, overruled
+    problem = {"kind": "missing", "element": "Footing step elevations vs finished grade",
+               "issue": "The S3.1 sections say 'FIN GRADE VARIES' and 'SEE PLAN'.", "evidenceIds": ["ev1", "ev2"]}
+    verdict = {"decision": "reject", "basis": "answered_elsewhere", "answeredBy": ["ev2"],
+               "reason": "The plan gives boxed footing elevations."}
+    sheets = {"ev1": "S3.1", "ev2": "S1.1A"}
+    assert not contested(verdict, {"ev1", "ev2"}, problem, sheets)
+    # Citing only the sheet that defers still settles nothing.
+    assert contested(dict(verdict, answeredBy=["ev1"]), {"ev1", "ev2"}, problem, sheets)
+    kept = overruled(problem, {"decision": "reject"})
+    assert "Please give the value for the footing step elevations vs finished grade, or confirm" in kept["question"]

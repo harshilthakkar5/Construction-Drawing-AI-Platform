@@ -2317,7 +2317,8 @@ def brings_nothing_new(decision: dict, candidate: dict, cited: set[str], shown: 
     return not (_numbers(reason) - _numbers(problem))
 
 
-def contested(decision: dict | None, shown: set[str], candidate: dict | None = None) -> bool:
+def contested(decision: dict | None, shown: set[str], candidate: dict | None = None,
+              sheet_of: dict | None = None) -> bool:
     """A rejection that says another drawing gives the value but cites no
     evidence shown that gives it. Pure. RFI 006 was proposed twice and dropped
     twice this way ("dimensions belong to forming plans (such as S2.102)") on a
@@ -2343,7 +2344,14 @@ def contested(decision: dict | None, shown: set[str], candidate: dict | None = N
         # The problem's own evidence is the details that DEFER the value; pointing back at them
         # shows the pointer again, not the value. Leland RFI 009, re-checked: "detail 8 (ev51)
         # prints the 10\" wall thickness" — an answer to another claim in the same problem.
-        cited -= set(candidate.get("evidenceIds") or [])
+        own = set(candidate.get("evidenceIds") or [])
+        # Only the sheets that DEFER are the pointer. Victaulic, 27 Nov: "The S3.1 sections say 'FIN GRADE
+        # VARIES' and 'SEE PLAN'" cited S1.1A too, whose boxed tags print the footing elevations; the verifier
+        # cited them and the rule discounted them as the pointer, so a value the plan gives was kept as an RFI.
+        named = set(_SHEET_NO.findall(deferral_claim(candidate.get("issue"))))
+        if sheet_of and named:
+            own = {e for e in own if sheet_of.get(e) in named}
+        cited -= own
     if cited & shown:
         return False
     # A problem ABOUT a deferred value ("the details give the offset only as
@@ -2449,7 +2457,10 @@ def overruled(candidate: dict, decision: dict) -> dict:
         question = f"{claim.rstrip('.')}. Please locate each one from the grids."
     if deferred:
         subject = _text(f"{candidate.get('element') or 'Value'}: {deferred}", 120)
-        question = f"{deferred.rstrip('.')}. Please provide it, or confirm which drawing shows it."
+        # Say WHAT is asked for: "Please provide it" after "the sections say 'SEE PLAN'" names nothing.
+        what = (candidate.get("element") or "").strip().rstrip(".")
+        what = f"the value for the {what[:1].lower()}{what[1:]}" if what else "the value"
+        question = f"{deferred.rstrip('.')}. Please give {what}, or confirm which drawing shows it."
     # An RFI names where it is asked about: a question naming no sheet gets the problem's own location.
     location = candidate.get("location") or ""
     if _SHEET_TOKEN.search(location) and not _SHEET_TOKEN.search(question):
@@ -5196,6 +5207,7 @@ def _finish(p, discover) -> dict:
 
         to_verify: list[dict] = []
         drawn_sheets = {p.get("sheetNumber") for p in scope.get("pages") or [] if p.get("drawnText") and p.get("sheetNumber")}
+        sheet_of = {e: ev.sheet_number for e, ev in evidence.items()}
         oos_pages = out_of_scope_pages(project_id, scope.get("outOfScope"))
         for candidate in candidates:
             topic = out_of_scope_topic(candidate, scope.get("outOfScope"))
@@ -5304,7 +5316,7 @@ def _finish(p, discover) -> dict:
                                           rule="two details a plan cuts at one place show one element")
                         accept(moved, kept_decision)
                         continue
-                    if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown, candidate):
+                    if len(recheck) < MAX_ELSEWHERE_CHECKS and contested(decision, shown, candidate, sheet_of):
                         recheck.append((candidate, decision))
                         diagnostics.event("rejection_contested", candidate=candidate, decision=decision,
                                           rule="a value said to be on another drawing must be shown")
@@ -5393,7 +5405,7 @@ def _finish(p, discover) -> dict:
                         diagnostics.event("rejection_overruled", candidate=candidate, first=first, second=decision,
                                           rule="a detail or a size does not say where an element is")
                         accept(candidate, kept_for_placement(candidate, decision))
-                    elif decision is not None and not contested(decision, {e for e in cited2 if evidence[e].kind != "aid"}, candidate):
+                    elif decision is not None and not contested(decision, {e for e in cited2 if evidence[e].kind != "aid"}, candidate, sheet_of):
                         set_aside(candidate, f"{decision['reason'] or 'rejected'} (re-checked)", "model", decision)
                         diagnostics.event("rejected_after_verification", candidate=candidate, decision=decision,
                                           reason=decision["reason"] or "rejected", rule="model, re-checked with the project searched")
